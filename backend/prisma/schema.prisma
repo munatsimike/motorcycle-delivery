@@ -37,11 +37,13 @@
 // not enforce those workflows with triggers.
 //
 // Motorcycle selection locks the rider profile, then that rider's motorcycle
-// rows. It does not lock deliveries. Licence replacement and licence review
-// lock the rider profile, then that rider's licence images. Approval locks
-// the rider profile and then reads motorcycles. Accept still locks the
-// delivery, then the rider profile, then the assignment, and rechecks the
-// operational predicate before storing motorcycle_id on the ACCEPTED row.
+// rows. It does not lock deliveries. Going online or offline uses that same
+// lock order and rechecks the operational predicate. It does not lock
+// deliveries or set BUSY. Licence replacement and licence review lock the
+// rider profile, then that rider's licence images. Approval locks the rider
+// profile and then reads motorcycles. Accept still locks the delivery, then
+// the rider profile, then the assignment, and rechecks the operational
+// predicate before storing motorcycle_id on the ACCEPTED row.
 // That predicate requires an active account, a verified phone, approved
 // rider status, a verified licence, and exactly one active verified
 // motorcycle. Approval itself does not require the active motorcycle.

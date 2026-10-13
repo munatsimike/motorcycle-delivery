@@ -11,6 +11,8 @@ import { MotorcycleReviewService } from './motorcycle-review.service.js';
 import { MotorcycleService } from './motorcycle.service.js';
 import { RiderAdminController } from './rider-admin.controller.js';
 import { RiderApprovalService } from './rider-approval.service.js';
+import { RiderAvailabilityController } from './rider-availability.controller.js';
+import { RiderAvailabilityService } from './rider-availability.service.js';
 import { RiderOnboardingController } from './rider-onboarding.controller.js';
 import { RiderOnboardingService } from './rider-onboarding.service.js';
 import { ObjectStorage } from './object-storage.js';
@@ -23,6 +25,7 @@ import { createS3Client, S3_CLIENT_FACTORY, S3ObjectStorage } from './s3-object-
     MotorcycleController,
     MotorcycleReviewController,
     RiderAdminController,
+    RiderAvailabilityController,
     RiderOnboardingController,
   ],
   providers: [
@@ -32,6 +35,7 @@ import { createS3Client, S3_CLIENT_FACTORY, S3ObjectStorage } from './s3-object-
     MotorcycleService,
     MotorcycleReviewService,
     RiderApprovalService,
+    RiderAvailabilityService,
     RiderOnboardingService,
     { provide: S3_CLIENT_FACTORY, useValue: createS3Client },
     S3ObjectStorage,

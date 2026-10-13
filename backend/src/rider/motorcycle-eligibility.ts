@@ -19,8 +19,10 @@ export type AcceptanceRider = {
 };
 
 // Read-only operational eligibility. Approval is separate and does not require
-// an active motorcycle. The accept transaction calls this after it locks the
-// delivery, then the rider profile, then the assignment. It does not change
+// an active motorcycle. Going online calls this after it locks the rider
+// profile, then that rider's motorcycles. The accept transaction calls this
+// after it locks the delivery, then the rider profile, then the assignment.
+// AVAILABLE is not proof of eligibility. This function does not change
 // availability and does not set AVAILABLE or BUSY.
 export function motorcycleForAcceptance(rider: AcceptanceRider): string {
   if (rider.accountStatus !== AccountStatus.ACTIVE || rider.phoneVerifiedAt === null) {
