@@ -9,12 +9,14 @@ import {
   AuthChallengeStatus,
   AuthPurpose,
   AuthSubjectRole,
+  CustomerAccountKind,
   Prisma,
   RiderApprovalStatus,
   RiderAvailability,
   RiderVerificationStatus,
   UserRole,
 } from '../generated/prisma/client.js';
+import { readCustomerProfile, type CustomerProfileInput } from '../customer/customer-profile.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
   OTP_CHALLENGE_TTL_MS,
@@ -40,6 +42,9 @@ type ChallengeRecord = {
   subjectRole: AuthSubjectRole;
   purpose: AuthPurpose;
   fullName: string | null;
+  accountKind: CustomerAccountKind | null;
+  address: string | null;
+  businessName: string | null;
   status: AuthChallengeStatus;
   checkAttempts: number;
   expiresAt: Date;
@@ -58,13 +63,14 @@ export class OtpAuthService {
 
   startRegistration(role: AuthSubjectRole, body: unknown, remoteAddress: string): Promise<{ status: 'pending' }> {
     const phone = readPhone(body);
-    const fullName = readFullName(body);
-    return this.start({ role, purpose: AuthPurpose.REGISTRATION, phone, fullName, remoteAddress });
+    const profile = role === AuthSubjectRole.CUSTOMER ? readCustomerProfile(body) : null;
+    const fullName = profile ? profile.personName : readFullName(body);
+    return this.start({ role, purpose: AuthPurpose.REGISTRATION, phone, fullName, profile, remoteAddress });
   }
 
   startLogin(role: AuthSubjectRole, body: unknown, remoteAddress: string): Promise<{ status: 'pending' }> {
     const phone = readPhone(body);
-    return this.start({ role, purpose: AuthPurpose.LOGIN, phone, fullName: null, remoteAddress });
+    return this.start({ role, purpose: AuthPurpose.LOGIN, phone, fullName: null, profile: null, remoteAddress });
   }
 
   verifyRegistration(role: AuthSubjectRole, body: unknown): Promise<AuthTokens> {
@@ -80,6 +86,7 @@ export class OtpAuthService {
     purpose: AuthPurpose;
     phone: string;
     fullName: string | null;
+    profile: CustomerProfileInput | null;
     remoteAddress: string;
   }): Promise<{ status: 'pending' }> {
     const now = this.clock.now();
@@ -201,11 +208,32 @@ export class OtpAuthService {
         },
       });
     }
+    if (role === AuthSubjectRole.CUSTOMER) {
+      if (!challenge.accountKind || !challenge.address || (challenge.accountKind === CustomerAccountKind.BUSINESS && !challenge.businessName)) {
+        throw new UnauthorizedException('Verification code is invalid');
+      }
+      await tx.customerAccount.create({
+        data: {
+          userId: user.id,
+          kind: challenge.accountKind,
+          name: challenge.accountKind === CustomerAccountKind.BUSINESS ? challenge.businessName! : challenge.fullName,
+          contactName: challenge.accountKind === CustomerAccountKind.BUSINESS ? challenge.fullName : null,
+          address: challenge.address,
+          updatedAt: now,
+        },
+      });
+    }
     return user;
   }
 
   private async sendChallenge(
-    input: { role: AuthSubjectRole; purpose: AuthPurpose; phone: string; fullName: string | null },
+    input: {
+      role: AuthSubjectRole;
+      purpose: AuthPurpose;
+      phone: string;
+      fullName: string | null;
+      profile: CustomerProfileInput | null;
+    },
     ipHash: string,
     now: Date,
   ): Promise<void> {
@@ -215,6 +243,9 @@ export class OtpAuthService {
         subjectRole: input.role,
         purpose: input.purpose,
         fullName: input.fullName,
+        accountKind: input.profile?.kind ?? null,
+        address: input.profile?.address ?? null,
+        businessName: input.profile?.kind === CustomerAccountKind.BUSINESS ? input.profile.name : null,
         status: AuthChallengeStatus.PENDING,
         sendCount: 1,
         expiresAt: new Date(now.getTime() + OTP_CHALLENGE_TTL_MS),
@@ -326,10 +357,13 @@ function canLogin(
   user: { role: UserRole; accountStatus: AccountStatus; phoneVerifiedAt: Date | null } | null,
   role: AuthSubjectRole,
 ): boolean {
-  return !!user
-    && user.role === role
-    && user.accountStatus === AccountStatus.ACTIVE
-    && user.phoneVerifiedAt !== null;
+  if (!user || user.accountStatus !== AccountStatus.ACTIVE || user.phoneVerifiedAt === null) {
+    return false;
+  }
+  if (role === AuthSubjectRole.CUSTOMER) {
+    return user.role === UserRole.CUSTOMER || user.role === UserRole.RIDER;
+  }
+  return user.role === role;
 }
 
 function readPhone(body: unknown): string {

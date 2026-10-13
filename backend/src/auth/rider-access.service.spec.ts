@@ -52,6 +52,16 @@ describe('RiderAccessService', () => {
     await expect(mismatched.service.authenticate(mismatched.token(), NOW)).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
+  it('rejects a customer-only user even when the token claims rider access', async () => {
+    const customer = context();
+    customer.user.role = UserRole.CUSTOMER;
+    customer.profile = null;
+    await expect(customer.service.authenticate(customer.token(NOW, UserRole.CUSTOMER), NOW))
+      .rejects.toBeInstanceOf(ForbiddenException);
+    await expect(customer.service.authenticate(customer.token(NOW, UserRole.RIDER), NOW))
+      .rejects.toBeInstanceOf(ForbiddenException);
+  });
+
   it('rejects customers, suspended riders, and riders without a profile', async () => {
     const customer = context();
     await expect(customer.service.authenticate(customer.token(NOW, UserRole.CUSTOMER), NOW)).rejects.toBeInstanceOf(ForbiddenException);

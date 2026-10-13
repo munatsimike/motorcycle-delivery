@@ -63,12 +63,125 @@ describe('OtpAuthService', () => {
     expect(ctx.challenges[0].status).toBe('VERIFIED');
   });
 
-  it('uses the same verification flow for a later customer registration', async () => {
+  it('registers a business name, contact name, and address, then creates that account after the mocked code is approved', async () => {
     const ctx = context();
-    await ctx.otp.startRegistration(AuthSubjectRole.CUSTOMER, registrationBody(), '203.0.113.11');
+    await expect(ctx.otp.startRegistration(AuthSubjectRole.CUSTOMER, customerBody(), '203.0.113.11'))
+      .resolves.toEqual({ status: 'pending' });
+    expect(ctx.twilio.startVerification).toHaveBeenCalledTimes(1);
+    expect(ctx.twilio.startVerification).toHaveBeenCalledWith(E164);
+    expect(ctx.users).toHaveLength(0);
+    expect(ctx.accounts).toHaveLength(0);
+    expect(ctx.challenges[0]).toMatchObject({
+      phone: E164,
+      subjectRole: AuthSubjectRole.CUSTOMER,
+      purpose: AuthPurpose.REGISTRATION,
+      fullName: 'Tendai Moyo',
+      accountKind: 'BUSINESS',
+      businessName: 'Moyo Deliveries',
+      address: '12 Samora Machel Avenue',
+      status: 'PENDING',
+    });
+
+    const issued = await ctx.otp.verifyRegistration(AuthSubjectRole.CUSTOMER, { phone: PHONE, code: '123456' });
+    expect(ctx.twilio.checkVerification).toHaveBeenCalledWith(E164, '123456');
+    expect(ctx.users).toEqual([
+      expect.objectContaining({
+        phone: E164,
+        role: UserRole.CUSTOMER,
+        fullName: 'Tendai Moyo',
+        passwordHash: null,
+      }),
+    ]);
+    expect(ctx.profiles).toHaveLength(0);
+    expect(ctx.accounts).toEqual([
+      expect.objectContaining({
+        userId: ctx.users[0].id,
+        kind: 'BUSINESS',
+        name: 'Moyo Deliveries',
+        contactName: 'Tendai Moyo',
+        address: '12 Samora Machel Avenue',
+      }),
+    ]);
+    expect(ctx.accessTokens.verify(issued.accessToken, ctx.clock.current).role).toBe(UserRole.CUSTOMER);
+  });
+
+  it('returns 409 when a customer phone is registered again', async () => {
+    const ctx = context();
+    await ctx.otp.startRegistration(AuthSubjectRole.CUSTOMER, customerBody(), '203.0.113.40');
     await ctx.otp.verifyRegistration(AuthSubjectRole.CUSTOMER, { phone: PHONE, code: '123456' });
-    expect(ctx.users[0].role).toBe(UserRole.CUSTOMER);
-    expect(ctx.users[0].passwordHash).toBeNull();
+    ctx.clock.current = new Date(ctx.clock.current.getTime() + 61_000);
+
+    const error = await ctx.otp.startRegistration(AuthSubjectRole.CUSTOMER, customerBody(), '203.0.113.40')
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ConflictException);
+    expect((error as ConflictException).getStatus()).toBe(409);
+    expect(ctx.users).toHaveLength(1);
+    expect(ctx.accounts).toHaveLength(1);
+    expect(ctx.twilio.startVerification).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns 409 when a rider phone starts customer registration', async () => {
+    const ctx = context();
+    ctx.users.push(existingRider());
+    const error = await ctx.otp.startRegistration(AuthSubjectRole.CUSTOMER, customerBody(), '203.0.113.41')
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ConflictException);
+    expect((error as ConflictException).getStatus()).toBe(409);
+    expect(ctx.users).toHaveLength(1);
+    expect(ctx.accounts).toHaveLength(0);
+    expect(ctx.twilio.startVerification).not.toHaveBeenCalled();
+  });
+
+  it('rejects an invalid customer verification code without creating an account', async () => {
+    const ctx = context();
+    ctx.twilio.checkVerification.mockResolvedValue(false);
+    await ctx.otp.startRegistration(AuthSubjectRole.CUSTOMER, customerBody(), '203.0.113.46');
+    await expect(ctx.otp.verifyRegistration(AuthSubjectRole.CUSTOMER, { phone: PHONE, code: '000000' }))
+      .rejects.toBeInstanceOf(UnauthorizedException);
+    expect(ctx.twilio.checkVerification).toHaveBeenCalledWith(E164, '000000');
+    expect(ctx.users).toHaveLength(0);
+    expect(ctx.accounts).toHaveLength(0);
+    expect(ctx.challenges[0].status).toBe('PENDING');
+  });
+
+  it('rejects an expired customer verification code without asking Twilio', async () => {
+    const ctx = context();
+    await ctx.otp.startRegistration(AuthSubjectRole.CUSTOMER, customerBody(), '203.0.113.47');
+    ctx.challenges[0].expiresAt = new Date('2020-01-01T00:00:00.000Z');
+    await expect(ctx.otp.verifyRegistration(AuthSubjectRole.CUSTOMER, { phone: PHONE, code: '123456' }))
+      .rejects.toBeInstanceOf(UnauthorizedException);
+    expect(ctx.twilio.checkVerification).not.toHaveBeenCalled();
+    expect(ctx.challenges[0].status).toBe('EXPIRED');
+    expect(ctx.users).toHaveLength(0);
+    expect(ctx.accounts).toHaveLength(0);
+  });
+
+  it('does not send a customer login code to an admin', async () => {
+    const ctx = context();
+    ctx.users.push({ ...existingRider(), role: UserRole.ADMIN });
+    await expect(ctx.otp.startLogin(AuthSubjectRole.CUSTOMER, { phone: PHONE }, '203.0.113.48'))
+      .resolves.toEqual({ status: 'pending' });
+    await expect(ctx.otp.verifyLogin(AuthSubjectRole.CUSTOMER, { phone: PHONE, code: '123456' }))
+      .rejects.toBeInstanceOf(UnauthorizedException);
+    expect(ctx.twilio.startVerification).not.toHaveBeenCalled();
+    expect(ctx.twilio.checkVerification).not.toHaveBeenCalled();
+    expect(ctx.sessions).toHaveLength(0);
+    expect(ctx.accounts).toHaveLength(0);
+    expect(ctx.users[0].role).toBe(UserRole.ADMIN);
+  });
+
+  it('lets an existing rider log in through customer OTP without changing role', async () => {
+    const ctx = context();
+    const rider = existingRider();
+    ctx.users.push(rider);
+    await ctx.otp.startLogin(AuthSubjectRole.CUSTOMER, { phone: PHONE }, '203.0.113.42');
+    const issued = await ctx.otp.verifyLogin(AuthSubjectRole.CUSTOMER, { phone: PHONE, code: '123456' });
+    expect(ctx.accessTokens.verify(issued.accessToken, ctx.clock.current)).toMatchObject({
+      sub: rider.id,
+      role: UserRole.RIDER,
+    });
+    expect(ctx.users).toHaveLength(1);
+    expect(ctx.accounts).toHaveLength(0);
     expect(ctx.profiles).toHaveLength(0);
   });
 
@@ -241,6 +354,18 @@ function registrationBody() {
   return { phone: PHONE, fullName: 'Tendai Moyo' };
 }
 
+function customerBody() {
+  return {
+    phone: PHONE,
+    accountKind: 'BUSINESS',
+    businessName: 'Moyo Deliveries',
+    contactName: 'Tendai Moyo',
+    address: '12 Samora Machel Avenue',
+    role: 'ADMIN',
+    userId: 'someone-else',
+  };
+}
+
 function existingRider(): UserRow {
   return {
     id: randomUUID(),
@@ -260,6 +385,9 @@ function probe(ipHash: string, createdAt: Date, index: number): ChallengeRow {
     subjectRole: AuthSubjectRole.RIDER,
     purpose: AuthPurpose.LOGIN,
     fullName: null,
+    accountKind: null,
+    address: null,
+    businessName: null,
     twilioSid: null,
     status: 'SUPERSEDED',
     sendCount: 0,
@@ -299,6 +427,9 @@ type ChallengeRow = {
   subjectRole: AuthSubjectRole;
   purpose: AuthPurpose;
   fullName: string | null;
+  accountKind: string | null;
+  address: string | null;
+  businessName: string | null;
   twilioSid: string | null;
   status: string;
   sendCount: number;
@@ -337,6 +468,7 @@ function context() {
   const clock = new TestClock();
   const users: UserRow[] = [];
   const profiles: ProfileRow[] = [];
+  const accounts: Array<{ id: string; userId: string; kind: string; name: string; contactName: string | null; address: string }> = [];
   const challenges: ChallengeRow[] = [];
   const sessions: SessionRow[] = [];
   const state = { rejectNextUser: false };
@@ -373,6 +505,9 @@ function context() {
         const row: ChallengeRow = {
           id: randomUUID(),
           fullName: null,
+          accountKind: null,
+          address: null,
+          businessName: null,
           twilioSid: null,
           status: 'PENDING',
           sendCount: 1,
@@ -399,6 +534,16 @@ function context() {
           Object.assign(row, data);
         }
         return { count: matched.length };
+      },
+    },
+    customerAccount: {
+      async create({ data }: { data: { userId: string; kind: string; name: string; contactName: string | null; address: string } }) {
+        if (accounts.some((account) => account.userId === data.userId)) {
+          throw new Prisma.PrismaClientKnownRequestError('Unique constraint failed', { code: 'P2002', clientVersion: '7.1.0' });
+        }
+        const row = { id: randomUUID(), ...data };
+        accounts.push(row);
+        return row;
       },
     },
     riderProfile: {
@@ -442,6 +587,7 @@ function context() {
     twilio,
     users,
     profiles,
+    accounts,
     challenges,
     sessions,
     accessTokens,

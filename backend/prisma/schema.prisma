@@ -23,6 +23,7 @@
 //   rider_licence_reviews_decision_chk
 //   rider_licence_reviews_image_owner_fkey
 //   rider_licence_reviews_append_only
+//   customer_accounts_kind_chk
 //
 // Prisma 7.1.0 cannot represent the SQL-only composite foreign keys
 // delivery_assignments_motorcycle_owner_fkey and
@@ -49,6 +50,9 @@
 // motorcycle. Approval itself does not require the active motorcycle.
 //
 // users.role is the single MVP role. A later user_roles table can replace it.
+// A CustomerAccount is a capability on a RIDER or CUSTOMER user, not a new
+// role. Deliveries belong to that account. A later membership table can
+// attach more users to the same account id without moving deliveries.
 // Live GPS belongs in a later rider_locations table, not this schema.
 
 generator client {
@@ -202,7 +206,7 @@ model User {
   verifiedMotorcycles   Motorcycle[]          @relation("MotorcycleVerifier")
   rejectedMotorcycles   Motorcycle[]          @relation("MotorcycleRejector")
   revokedMotorcycles    Motorcycle[]          @relation("MotorcycleRevoker")
-  deliveries            Delivery[]            @relation("CustomerDeliveries")
+  customerAccount       CustomerAccount?
   deliveryStatusEvents  DeliveryStatusEvent[]
   refreshSessions       RefreshSession[]
   licenceReviews        RiderLicenceReview[]  @relation("LicenceDecisionReviewer")
@@ -292,7 +296,7 @@ model Delivery {
   createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  customer     User                   @relation("CustomerDeliveries", fields: [customerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  customer     CustomerAccount        @relation(fields: [customerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   assignments  DeliveryAssignment[]
   statusEvents DeliveryStatusEvent[]
 
@@ -344,6 +348,33 @@ model DeliveryStatusEvent {
   @@map("delivery_status_events")
 }
 
+enum CustomerAccountKind {
+  INDIVIDUAL
+  BUSINESS
+
+  @@map("customer_account_kind")
+}
+
+// One login per account for the MVP. user_id is unique so a rider and a
+// customer profile share one user without a second phone. A later membership
+// table can grant more users access to this same id. Do not move deliveries
+// back onto users. Account kind is fixed after creation.
+model CustomerAccount {
+  id          String              @id @default(uuid(7)) @db.Uuid
+  userId      String              @unique @map("user_id") @db.Uuid
+  kind        CustomerAccountKind
+  name        String              @db.VarChar(200)
+  contactName String?             @map("contact_name") @db.VarChar(200)
+  address     String              @db.VarChar(500)
+  createdAt   DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  deliveries Delivery[]
+
+  @@map("customer_accounts")
+}
+
 enum AuthSubjectRole {
   RIDER
   CUSTOMER
@@ -374,6 +405,9 @@ model AuthChallenge {
   subjectRole   AuthSubjectRole     @map("subject_role")
   purpose       AuthPurpose
   fullName      String?             @map("full_name") @db.VarChar(200)
+  accountKind   CustomerAccountKind? @map("account_kind")
+  address       String?             @db.VarChar(500)
+  businessName  String?             @map("business_name") @db.VarChar(200)
   twilioSid     String?             @map("twilio_sid") @db.VarChar(64)
   status        AuthChallengeStatus @default(PENDING)
   sendCount     Int                 @default(1) @map("send_count")
