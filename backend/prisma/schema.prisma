@@ -1,3 +1,21 @@
+// Core motorcycle parcel delivery models for the NestJS modular monolith.
+// Identity: User. Riders: RiderProfile, Motorcycle. Deliveries: Delivery,
+// DeliveryAssignment, DeliveryStatusEvent.
+//
+// The initial migration also creates objects Prisma 7.1.0 cannot represent.
+// Do not drop them in a later migration:
+//   delivery_assignments_one_accepted_per_delivery_idx
+//   delivery_assignments_one_accepted_per_rider_idx
+//   delivery_assignments_one_open_offer_per_rider_idx
+//   the named *_chk constraints
+//
+// Acceptance, release, availability changes, competing-offer cancellation,
+// and delivery status events are one NestJS transaction. This schema does
+// not enforce those workflows with triggers.
+//
+// users.role is the single MVP role. A later user_roles table can replace it.
+// Live GPS belongs in a later rider_locations table, not this schema.
+
 generator client {
   provider = "prisma-client"
   output   = "../src/generated/prisma"
@@ -5,4 +23,244 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+}
+
+enum UserRole {
+  CUSTOMER
+  RIDER
+  ADMIN
+
+  @@map("user_role")
+}
+
+enum AccountStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  DEACTIVATED
+
+  @@map("account_status")
+}
+
+enum RiderVerificationStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+
+  @@map("rider_verification_status")
+}
+
+enum RiderApprovalStatus {
+  PENDING
+  APPROVED
+  SUSPENDED
+  REJECTED
+
+  @@map("rider_approval_status")
+}
+
+enum RiderAvailability {
+  OFFLINE
+  AVAILABLE
+  BUSY
+
+  @@map("rider_availability")
+}
+
+enum MotorcycleVerificationStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+
+  @@map("motorcycle_verification_status")
+}
+
+enum DeliveryType {
+  PARCEL
+
+  @@map("delivery_type")
+}
+
+enum DeliveryStatus {
+  CREATED
+  SEARCHING
+  ASSIGNED
+  ARRIVED_AT_PICKUP
+  PICKED_UP
+  IN_TRANSIT
+  ARRIVED_AT_DROPOFF
+  DELIVERED
+  CANCELLED
+  FAILED
+
+  @@map("delivery_status")
+}
+
+enum AssignmentStatus {
+  OFFERED
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  CANCELLED
+  RELEASED
+  COMPLETED
+  FAILED
+
+  @@map("assignment_status")
+}
+
+enum AssignmentReleaseReason {
+  RIDER_CANCELLED
+  VEHICLE_PROBLEM
+  RIDER_UNRESPONSIVE
+  ADMIN_REASSIGNED
+  CUSTOMER_CANCELLED
+  ADMIN_CANCELLED
+
+  @@map("assignment_release_reason")
+}
+
+enum Currency {
+  USD
+  ZWG
+
+  @@map("currency")
+}
+
+enum PaymentMethod {
+  CASH
+  ECOCASH
+  ONEMONEY
+  INNBUCKS
+  ZIPIT
+
+  @@map("payment_method")
+}
+
+enum DeliveryActorType {
+  CUSTOMER
+  RIDER
+  ADMIN
+  SYSTEM
+
+  @@map("delivery_actor_type")
+}
+
+model User {
+  id            String        @id @default(uuid(7)) @db.Uuid
+  fullName      String        @map("full_name") @db.VarChar(200)
+  phone         String        @unique @db.VarChar(20)
+  email         String?       @unique @db.VarChar(254)
+  passwordHash  String        @map("password_hash") @db.VarChar(255)
+  role          UserRole
+  accountStatus AccountStatus @default(PENDING) @map("account_status")
+  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  riderProfile         RiderProfile?
+  deliveries           Delivery[]            @relation("CustomerDeliveries")
+  deliveryStatusEvents DeliveryStatusEvent[]
+
+  @@index([role, accountStatus])
+  @@map("users")
+}
+
+model RiderProfile {
+  id                 String                  @id @default(uuid(7)) @db.Uuid
+  userId             String                  @unique @map("user_id") @db.Uuid
+  verificationStatus RiderVerificationStatus @default(PENDING) @map("verification_status")
+  approvalStatus     RiderApprovalStatus     @default(PENDING) @map("approval_status")
+  availability       RiderAvailability       @default(OFFLINE)
+  licenceNumber      String                  @map("licence_number") @db.VarChar(50)
+  licenceExpiresOn   DateTime                @map("licence_expires_on") @db.Date
+  createdAt          DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime                @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user        User                   @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  motorcycles Motorcycle[]
+  assignments DeliveryAssignment[]
+
+  @@index([approvalStatus, availability])
+  @@map("rider_profiles")
+}
+
+model Motorcycle {
+  id                 String                       @id @default(uuid(7)) @db.Uuid
+  riderProfileId     String                       @map("rider_profile_id") @db.Uuid
+  registrationNumber String                       @unique @map("registration_number") @db.VarChar(20)
+  make               String                       @db.VarChar(80)
+  model              String                       @db.VarChar(80)
+  verificationStatus MotorcycleVerificationStatus @default(PENDING) @map("verification_status")
+  createdAt          DateTime                     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime                     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  riderProfile RiderProfile @relation(fields: [riderProfileId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([riderProfileId, verificationStatus])
+  @@map("motorcycles")
+}
+
+model Delivery {
+  id                String         @id @default(uuid(7)) @db.Uuid
+  customerId        String         @map("customer_id") @db.Uuid
+  deliveryType      DeliveryType   @default(PARCEL) @map("delivery_type")
+  pickupAddress     String         @map("pickup_address") @db.VarChar(500)
+  pickupLatitude    Decimal        @map("pickup_latitude") @db.Decimal(10, 7)
+  pickupLongitude   Decimal        @map("pickup_longitude") @db.Decimal(10, 7)
+  dropoffAddress    String         @map("dropoff_address") @db.VarChar(500)
+  dropoffLatitude   Decimal        @map("dropoff_latitude") @db.Decimal(10, 7)
+  dropoffLongitude  Decimal        @map("dropoff_longitude") @db.Decimal(10, 7)
+  parcelDescription String         @map("parcel_description") @db.VarChar(500)
+  recipientName     String?        @map("recipient_name") @db.VarChar(200)
+  recipientPhone    String?        @map("recipient_phone") @db.VarChar(20)
+  price             Decimal        @db.Decimal(12, 2)
+  currency          Currency       @default(USD)
+  paymentMethod     PaymentMethod  @map("payment_method")
+  status            DeliveryStatus @default(CREATED)
+  createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  customer     User                   @relation("CustomerDeliveries", fields: [customerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  assignments  DeliveryAssignment[]
+  statusEvents DeliveryStatusEvent[]
+
+  @@index([customerId, createdAt])
+  @@index([status, createdAt])
+  @@map("deliveries")
+}
+
+model DeliveryAssignment {
+  id             String                   @id @default(uuid(7)) @db.Uuid
+  deliveryId     String                   @map("delivery_id") @db.Uuid
+  riderProfileId String                   @map("rider_profile_id") @db.Uuid
+  status         AssignmentStatus         @default(OFFERED)
+  offerExpiresAt DateTime                 @map("offer_expires_at") @db.Timestamptz(6)
+  respondedAt    DateTime?                @map("responded_at") @db.Timestamptz(6)
+  releaseReason  AssignmentReleaseReason? @map("release_reason")
+  releasedAt     DateTime?                @map("released_at") @db.Timestamptz(6)
+  createdAt      DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  delivery     Delivery     @relation(fields: [deliveryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  riderProfile RiderProfile @relation(fields: [riderProfileId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([deliveryId, status])
+  @@index([riderProfileId, status])
+  @@index([offerExpiresAt])
+  @@map("delivery_assignments")
+}
+
+model DeliveryStatusEvent {
+  id             String            @id @default(uuid(7)) @db.Uuid
+  deliveryId     String            @map("delivery_id") @db.Uuid
+  previousStatus DeliveryStatus?   @map("previous_status")
+  newStatus      DeliveryStatus    @map("new_status")
+  actorId        String?           @map("actor_id") @db.Uuid
+  actorType      DeliveryActorType @map("actor_type")
+  occurredAt     DateTime          @default(now()) @map("occurred_at") @db.Timestamptz(6)
+
+  delivery Delivery @relation(fields: [deliveryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  actor    User?    @relation(fields: [actorId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([deliveryId, occurredAt])
+  @@map("delivery_status_events")
 }
