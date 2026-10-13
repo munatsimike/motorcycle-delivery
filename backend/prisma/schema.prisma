@@ -14,10 +14,26 @@
 //   rider_profiles_availability_requires_approval_chk
 //   rider_licence_images_one_uploading_per_rider_idx
 //   rider_licence_images_one_stored_per_rider_idx
+//   motorcycles_identity_chk
+//   motorcycles_verification_chk
+//   motorcycles_active_requires_verified_chk
+//   motorcycles_one_active_per_rider_idx
+//   delivery_assignments_motorcycle_owner_fkey
+//   delivery_assignments_motorcycle_chk
+//
+// Prisma 7.1.0 cannot represent the SQL-only composite foreign key
+// delivery_assignments_motorcycle_owner_fkey. prisma migrate diff may propose
+// dropping this constraint. Remove that DROP CONSTRAINT statement from any
+// future generated migration before applying it.
 //
 // Acceptance, release, availability changes, competing-offer cancellation,
 // and delivery status events are one NestJS transaction. This schema does
 // not enforce those workflows with triggers.
+//
+// Motorcycle selection locks the rider profile, then that rider's motorcycle
+// rows. It does not lock deliveries. Accept still locks the delivery, then
+// the rider profile, then the assignment, and rechecks the active verified
+// motorcycle before storing motorcycle_id on the ACCEPTED row.
 //
 // users.role is the single MVP role. A later user_roles table can replace it.
 // Live GPS belongs in a later rider_locations table, not this schema.
@@ -77,6 +93,7 @@ enum MotorcycleVerificationStatus {
   PENDING
   VERIFIED
   REJECTED
+  REVOKED
 
   @@map("motorcycle_verification_status")
 }
@@ -169,6 +186,9 @@ model User {
 
   riderProfile          RiderProfile?         @relation("RiderAccount")
   reviewedRiderProfiles RiderProfile[]        @relation("LicenceReviewer")
+  verifiedMotorcycles   Motorcycle[]          @relation("MotorcycleVerifier")
+  rejectedMotorcycles   Motorcycle[]          @relation("MotorcycleRejector")
+  revokedMotorcycles    Motorcycle[]          @relation("MotorcycleRevoker")
   deliveries            Delivery[]            @relation("CustomerDeliveries")
   deliveryStatusEvents  DeliveryStatusEvent[]
   refreshSessions       RefreshSession[]
@@ -207,18 +227,32 @@ model RiderProfile {
   @@map("rider_profiles")
 }
 
+// Many motorcycles per rider. At most one is active, and only while VERIFIED.
+// The composite unique key is the target of delivery_assignments_motorcycle_owner_fkey.
 model Motorcycle {
   id                 String                       @id @default(uuid(7)) @db.Uuid
   riderProfileId     String                       @map("rider_profile_id") @db.Uuid
   registrationNumber String                       @unique @map("registration_number") @db.VarChar(20)
   make               String                       @db.VarChar(80)
   model              String                       @db.VarChar(80)
+  colour             String                       @db.VarChar(40)
   verificationStatus MotorcycleVerificationStatus @default(PENDING) @map("verification_status")
+  isActive           Boolean                      @default(false) @map("is_active")
+  verifiedAt         DateTime?                    @map("verified_at") @db.Timestamptz(6)
+  verifiedById       String?                      @map("verified_by_id") @db.Uuid
+  rejectedAt         DateTime?                    @map("rejected_at") @db.Timestamptz(6)
+  rejectedById       String?                      @map("rejected_by_id") @db.Uuid
+  revokedAt          DateTime?                    @map("revoked_at") @db.Timestamptz(6)
+  revokedById        String?                      @map("revoked_by_id") @db.Uuid
   createdAt          DateTime                     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime                     @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   riderProfile RiderProfile @relation(fields: [riderProfileId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  verifiedBy   User?        @relation("MotorcycleVerifier", fields: [verifiedById], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  rejectedBy   User?        @relation("MotorcycleRejector", fields: [rejectedById], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  revokedBy    User?        @relation("MotorcycleRevoker", fields: [revokedById], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
+  @@unique([id, riderProfileId], map: "motorcycles_id_rider_profile_id_key")
   @@index([riderProfileId, verificationStatus])
   @@map("motorcycles")
 }
@@ -256,6 +290,12 @@ model DeliveryAssignment {
   id             String                   @id @default(uuid(7)) @db.Uuid
   deliveryId     String                   @map("delivery_id") @db.Uuid
   riderProfileId String                   @map("rider_profile_id") @db.Uuid
+  // Null until ACCEPTED. Prisma 7.1.0 cannot represent the SQL-only composite
+  // foreign key delivery_assignments_motorcycle_owner_fkey on
+  // (motorcycle_id, rider_profile_id). prisma migrate diff may propose
+  // dropping it. Remove that DROP CONSTRAINT statement from any future
+  // generated migration before applying it. Pre-accept statuses must stay null.
+  motorcycleId   String?                  @map("motorcycle_id") @db.Uuid
   status         AssignmentStatus         @default(OFFERED)
   offerExpiresAt DateTime                 @map("offer_expires_at") @db.Timestamptz(6)
   respondedAt    DateTime?                @map("responded_at") @db.Timestamptz(6)
@@ -268,6 +308,7 @@ model DeliveryAssignment {
 
   @@index([deliveryId, status])
   @@index([riderProfileId, status])
+  @@index([motorcycleId])
   @@index([offerExpiresAt])
   @@map("delivery_assignments")
 }

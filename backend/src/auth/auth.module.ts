@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AccessTokenService } from './access-token.service.js';
+import { AdminAccessGuard } from './admin-access.guard.js';
+import { AdminAccessService } from './admin-access.service.js';
 import { Clock } from './clock.js';
 import { OtpAuthService } from './otp-auth.service.js';
 import { RiderAccessGuard } from './rider-access.guard.js';
@@ -18,9 +20,11 @@ import { HttpTwilioVerifyClient, TwilioVerifyClient } from './twilio-verify.clie
     OtpAuthService,
     RiderAccessService,
     RiderAccessGuard,
+    AdminAccessService,
+    AdminAccessGuard,
     HttpTwilioVerifyClient,
     { provide: TwilioVerifyClient, useExisting: HttpTwilioVerifyClient },
   ],
-  exports: [AccessTokenService, RiderAccessGuard, RiderAccessService],
+  exports: [AccessTokenService, RiderAccessGuard, RiderAccessService, AdminAccessGuard, AdminAccessService],
 })
 export class AuthModule {}
