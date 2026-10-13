@@ -1,0 +1,18 @@
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+
+# Generated Prisma Client
+**/src/generated/prisma/
+
+# IDE files
+.idea/
+.vscode/
