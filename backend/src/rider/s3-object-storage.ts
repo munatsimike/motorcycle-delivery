@@ -1,4 +1,4 @@
-import { DeleteObjectCommand, PutObjectCommand, S3Client, type S3ClientConfig } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client, type S3ClientConfig } from '@aws-sdk/client-s3';
 import { Inject, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { ObjectStorage } from './object-storage.js';
 
@@ -33,6 +33,18 @@ export class S3ObjectStorage extends ObjectStorage {
       ContentType: contentType,
       ACL: 'private',
     }));
+  }
+
+  async get(key: string): Promise<Buffer> {
+    const config = storageConfig();
+    const response = await this.clientFactory(config).send(new GetObjectCommand({
+      Bucket: config.bucket,
+      Key: key,
+    })) as { Body?: { transformToByteArray?: () => Promise<Uint8Array> } };
+    if (!response.Body?.transformToByteArray) {
+      throw new ServiceUnavailableException('Licence image storage is unavailable');
+    }
+    return Buffer.from(await response.Body.transformToByteArray());
   }
 
   async delete(key: string): Promise<void> {

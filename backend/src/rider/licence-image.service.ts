@@ -25,6 +25,7 @@ import {
   maxStoredBytes,
   supersededRetentionMs,
 } from './licence.constants.js';
+import { lockRiderLicenceImages, lockRiderProfile } from './motorcycle-lock.js';
 import { ObjectStorage } from './object-storage.js';
 import { logStorageFailure } from './storage-log.js';
 
@@ -107,10 +108,11 @@ export class LicenceImageService {
 
     try {
       const stored = await this.prisma.$transaction(async (tx) => {
-        const current = await tx.riderProfile.findUnique({ where: { id: profile.id } });
-        if (!current || current.verificationStatus === RiderVerificationStatus.VERIFIED) {
+        const current = await lockRiderProfile(tx, profile.id, 'Rider profile not found');
+        if (current.verificationStatus === RiderVerificationStatus.VERIFIED) {
           throw new ConflictException('A verified licence cannot be replaced yet');
         }
+        await lockRiderLicenceImages(tx, profile.id);
 
         await tx.riderLicenceImage.updateMany({
           where: { riderProfileId: profile.id, status: LicenceImageStatus.STORED },
@@ -140,7 +142,7 @@ export class LicenceImageService {
       });
       return toResponse(stored);
     } catch (error) {
-      if (error instanceof ConflictException) {
+      if (error instanceof ConflictException || error instanceof NotFoundException) {
         await this.markPurgePending(id);
         throw error;
       }

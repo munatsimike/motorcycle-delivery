@@ -126,14 +126,18 @@ describe('MotorcycleService', () => {
     const motorcycles = ctx.motorcycles.map(acceptanceMotorcycle);
     expect(motorcycleForAcceptance({
       accountStatus: AccountStatus.ACTIVE,
+      phoneVerifiedAt: NOW,
       approvalStatus: ctx.profile.approvalStatus,
+      licenceVerificationStatus: RiderVerificationStatus.VERIFIED,
       motorcycles,
     })).toBe(second.id);
 
     await ctx.service.clearActive(RIDER, second.id, NOW);
     expect(() => motorcycleForAcceptance({
       accountStatus: AccountStatus.ACTIVE,
+      phoneVerifiedAt: NOW,
       approvalStatus: ctx.profile.approvalStatus,
+      licenceVerificationStatus: RiderVerificationStatus.VERIFIED,
       motorcycles: ctx.motorcycles.map(acceptanceMotorcycle),
     })).toThrow(ConflictException);
     expect(ctx.assignments).toHaveLength(0);

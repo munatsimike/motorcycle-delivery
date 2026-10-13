@@ -1,0 +1,144 @@
+import { describe, expect, it } from 'vitest';
+import {
+  LicenceReviewDecision,
+  MotorcycleVerificationStatus,
+  RiderApprovalStatus,
+  RiderAvailability,
+  RiderVerificationStatus,
+} from '../generated/prisma/client.js';
+import type { PrismaService } from '../prisma/prisma.service.js';
+import type { RiderContext } from '../auth/rider-access.service.js';
+import { RiderOnboardingService } from './rider-onboarding.service.js';
+
+const RIDER: RiderContext = { userId: 'user-1', riderProfileId: 'profile-1' };
+
+describe('rider onboarding', () => {
+  it('returns the rider status and latest rejection without private review details', async () => {
+    const ctx = context();
+    ctx.reviews.push({
+      riderProfileId: 'profile-1',
+      decision: LicenceReviewDecision.REJECT,
+      rejectionReason: 'The photo is unreadable',
+      reviewerId: 'admin-1',
+      createdAt: new Date('2026-10-13T11:00:00.000Z'),
+    });
+    ctx.motorcycles.push(
+      { riderProfileId: 'profile-1', verificationStatus: MotorcycleVerificationStatus.VERIFIED, isActive: false },
+      { riderProfileId: 'profile-1', verificationStatus: MotorcycleVerificationStatus.PENDING, isActive: false },
+    );
+
+    const response = await ctx.service.current(RIDER);
+
+    expect(response).toEqual({
+      licenceVerificationStatus: RiderVerificationStatus.REJECTED,
+      approvalStatus: RiderApprovalStatus.PENDING,
+      availability: RiderAvailability.OFFLINE,
+      licenceNumber: null,
+      licenceClass: null,
+      rejectionReason: 'The photo is unreadable',
+      verifiedMotorcycleCount: 1,
+      activeVerifiedMotorcycle: false,
+    });
+    const json = JSON.stringify(response);
+    expect(json).not.toContain('admin-1');
+    expect(json).not.toContain('reviewerId');
+    expect(json).not.toContain('objectKey');
+    expect(json).not.toContain('bucket');
+  });
+
+  it('hides an older rejection after the latest review verifies the licence', async () => {
+    const ctx = context();
+    ctx.profile.verificationStatus = RiderVerificationStatus.VERIFIED;
+    ctx.profile.licenceNumber = 'ZW 100';
+    ctx.profile.licenceClass = '4';
+    ctx.reviews.push(
+      {
+        riderProfileId: 'profile-1',
+        decision: LicenceReviewDecision.REJECT,
+        rejectionReason: 'The photo is unreadable',
+        reviewerId: 'admin-1',
+        createdAt: new Date('2026-10-13T11:00:00.000Z'),
+      },
+      {
+        riderProfileId: 'profile-1',
+        decision: LicenceReviewDecision.VERIFY,
+        rejectionReason: null,
+        reviewerId: 'admin-2',
+        createdAt: new Date('2026-10-13T12:00:00.000Z'),
+      },
+    );
+    ctx.motorcycles.push({ riderProfileId: 'profile-1', verificationStatus: MotorcycleVerificationStatus.VERIFIED, isActive: true });
+
+    await expect(ctx.service.current(RIDER)).resolves.toMatchObject({
+      licenceVerificationStatus: RiderVerificationStatus.VERIFIED,
+      licenceNumber: 'ZW 100',
+      licenceClass: '4',
+      rejectionReason: null,
+      verifiedMotorcycleCount: 1,
+      activeVerifiedMotorcycle: true,
+    });
+  });
+});
+
+type ProfileRow = {
+  id: string;
+  userId: string;
+  verificationStatus: RiderVerificationStatus;
+  approvalStatus: RiderApprovalStatus;
+  availability: RiderAvailability;
+  licenceNumber: string | null;
+  licenceClass: string | null;
+};
+
+type ReviewRow = {
+  riderProfileId: string;
+  decision: LicenceReviewDecision;
+  rejectionReason: string | null;
+  reviewerId: string;
+  createdAt: Date;
+};
+
+function context() {
+  const profiles: ProfileRow[] = [{
+    id: 'profile-1',
+    userId: 'user-1',
+    verificationStatus: RiderVerificationStatus.REJECTED,
+    approvalStatus: RiderApprovalStatus.PENDING,
+    availability: RiderAvailability.OFFLINE,
+    licenceNumber: null,
+    licenceClass: null,
+  }];
+  const reviews: ReviewRow[] = [];
+  const motorcycles: Array<{ riderProfileId: string; verificationStatus: MotorcycleVerificationStatus; isActive: boolean }> = [];
+  const db = {
+    riderProfile: {
+      async findUnique({ where }: { where: { id: string } }) {
+        return profiles.find((profile) => profile.id === where.id) ?? null;
+      },
+    },
+    riderLicenceReview: {
+      async findMany({ where, orderBy, take }: { where: { riderProfileId: string }; orderBy: { createdAt: 'asc' | 'desc' }; take: number }) {
+        const matched = reviews.filter((row) => row.riderProfileId === where.riderProfileId);
+        matched.sort((left, right) => orderBy.createdAt === 'desc'
+          ? right.createdAt.getTime() - left.createdAt.getTime()
+          : left.createdAt.getTime() - right.createdAt.getTime());
+        return matched.slice(0, take);
+      },
+    },
+    motorcycle: {
+      async count({ where }: { where: { riderProfileId: string; verificationStatus: MotorcycleVerificationStatus; isActive?: boolean } }) {
+        return motorcycles.filter((row) => row.riderProfileId === where.riderProfileId
+          && row.verificationStatus === where.verificationStatus
+          && (where.isActive === undefined || row.isActive === where.isActive)).length;
+      },
+    },
+  };
+  return {
+    service: new RiderOnboardingService(db as unknown as PrismaService),
+    reviews,
+    motorcycles,
+    get profile() {
+      return profiles[0];
+    },
+  };
+}

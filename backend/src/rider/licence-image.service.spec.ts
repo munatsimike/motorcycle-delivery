@@ -123,6 +123,9 @@ describe('LicenceImageService', () => {
       reviewerId: null,
       licenceNumber: null,
     });
+    expect(ctx.locks).toEqual(['profile', 'images']);
+    expect(ctx.reviews).toEqual([expect.objectContaining({ id: 'review-1', decision: 'REJECT' })]);
+    expect(ctx.reviewMutations).toEqual([]);
   });
 
   it('rolls back when the stored update fails and leaves the original image in place', async () => {
@@ -222,6 +225,9 @@ function context() {
   }];
   const images: ImageRow[] = [];
   const operations: string[] = [];
+  const locks: string[] = [];
+  const reviews = [{ id: 'review-1', riderProfileId: 'profile-1', decision: 'REJECT' }];
+  const reviewMutations: string[] = [];
   const stored: Buffer[] = [];
   const state = { failStore: false };
   const matches = (row: ImageRow, where: Record<string, unknown>): boolean => {
@@ -305,6 +311,30 @@ function context() {
   const db = {
     riderProfile: profilesApi,
     riderLicenceImage: imagesApi,
+    riderLicenceReview: {
+      async create() {
+        reviewMutations.push('create');
+        throw new Error('reviews are not written by upload');
+      },
+      async update() {
+        reviewMutations.push('update');
+        throw new Error('rider licence reviews are append-only');
+      },
+      async delete() {
+        reviewMutations.push('delete');
+        throw new Error('rider licence reviews are append-only');
+      },
+    },
+    async $queryRaw(strings: TemplateStringsArray) {
+      const sql = strings.join(' ');
+      if (sql.includes('rider_profiles') && sql.includes('FOR UPDATE')) {
+        locks.push('profile');
+      }
+      if (sql.includes('rider_licence_images') && sql.includes('FOR UPDATE')) {
+        locks.push('images');
+      }
+      return [];
+    },
     async $transaction<T>(callback: (tx: typeof db) => Promise<T>) {
       const imageSnapshot = structuredClone(images);
       const profileSnapshot = structuredClone(profiles);
@@ -329,6 +359,9 @@ function context() {
     images,
     profiles,
     operations,
+    locks,
+    reviews,
+    reviewMutations,
     stored,
     storedBody: () => stored[0] ?? Buffer.alloc(0),
     profile: () => profiles[0],

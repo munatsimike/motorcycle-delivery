@@ -20,20 +20,31 @@
 //   motorcycles_one_active_per_rider_idx
 //   delivery_assignments_motorcycle_owner_fkey
 //   delivery_assignments_motorcycle_chk
+//   rider_licence_reviews_decision_chk
+//   rider_licence_reviews_image_owner_fkey
+//   rider_licence_reviews_append_only
 //
-// Prisma 7.1.0 cannot represent the SQL-only composite foreign key
-// delivery_assignments_motorcycle_owner_fkey. prisma migrate diff may propose
-// dropping this constraint. Remove that DROP CONSTRAINT statement from any
-// future generated migration before applying it.
+// Prisma 7.1.0 cannot represent the SQL-only composite foreign keys
+// delivery_assignments_motorcycle_owner_fkey and
+// rider_licence_reviews_image_owner_fkey. prisma migrate diff may propose
+// dropping either constraint. Remove that DROP CONSTRAINT statement from any
+// future generated migration before applying it. The trigger
+// rider_licence_reviews_append_only only rejects UPDATE and DELETE. Do not
+// drop it, and do not use triggers for review or approval workflow.
 //
 // Acceptance, release, availability changes, competing-offer cancellation,
 // and delivery status events are one NestJS transaction. This schema does
 // not enforce those workflows with triggers.
 //
 // Motorcycle selection locks the rider profile, then that rider's motorcycle
-// rows. It does not lock deliveries. Accept still locks the delivery, then
-// the rider profile, then the assignment, and rechecks the active verified
-// motorcycle before storing motorcycle_id on the ACCEPTED row.
+// rows. It does not lock deliveries. Licence replacement and licence review
+// lock the rider profile, then that rider's licence images. Approval locks
+// the rider profile and then reads motorcycles. Accept still locks the
+// delivery, then the rider profile, then the assignment, and rechecks the
+// operational predicate before storing motorcycle_id on the ACCEPTED row.
+// That predicate requires an active account, a verified phone, approved
+// rider status, a verified licence, and exactly one active verified
+// motorcycle. Approval itself does not require the active motorcycle.
 //
 // users.role is the single MVP role. A later user_roles table can replace it.
 // Live GPS belongs in a later rider_locations table, not this schema.
@@ -192,6 +203,7 @@ model User {
   deliveries            Delivery[]            @relation("CustomerDeliveries")
   deliveryStatusEvents  DeliveryStatusEvent[]
   refreshSessions       RefreshSession[]
+  licenceReviews        RiderLicenceReview[]  @relation("LicenceDecisionReviewer")
 
   @@index([role, accountStatus])
   @@map("users")
@@ -218,9 +230,10 @@ model RiderProfile {
 
   user          User                   @relation("RiderAccount", fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   reviewer      User?                  @relation("LicenceReviewer", fields: [reviewerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  motorcycles   Motorcycle[]
-  assignments   DeliveryAssignment[]
-  licenceImages RiderLicenceImage[]
+  motorcycles    Motorcycle[]
+  assignments    DeliveryAssignment[]
+  licenceImages  RiderLicenceImage[]
+  licenceReviews RiderLicenceReview[]
 
   @@index([approvalStatus, availability])
   @@index([reviewerId])
@@ -409,8 +422,17 @@ enum LicenceImageReviewStatus {
   @@map("licence_image_review_status")
 }
 
-// Private licence images. Bytes live in object storage. This phase never
-// records a verified review here, and rider licence facts stay on RiderProfile.
+enum LicenceReviewDecision {
+  VERIFY
+  REJECT
+
+  @@map("licence_review_decision")
+}
+
+// Private licence images. Bytes live in object storage. The image row stays
+// PENDING. Verification facts and rejection reasons live on RiderProfile and
+// in append-only RiderLicenceReview rows. The composite unique key is the
+// target of the SQL-only rider_licence_reviews_image_owner_fkey.
 model RiderLicenceImage {
   id             String                   @id @default(uuid(7)) @db.Uuid
   riderProfileId String                   @map("rider_profile_id") @db.Uuid
@@ -426,10 +448,36 @@ model RiderLicenceImage {
   purgedAt       DateTime?                @map("purged_at") @db.Timestamptz(6)
   createdAt      DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  riderProfile RiderProfile @relation(fields: [riderProfileId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  riderProfile RiderProfile         @relation(fields: [riderProfileId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  reviews      RiderLicenceReview[]
 
+  @@unique([id, riderProfileId], map: "rider_licence_images_id_rider_profile_id_key")
   @@index([riderProfileId, status])
   @@index([status, createdAt])
   @@index([status, purgeAfter])
   @@map("rider_licence_images")
+}
+
+// Append-only licence decisions. Prisma stores the simple image foreign key.
+// rider_licence_reviews_image_owner_fkey also requires licence_image_id to
+// belong to rider_profile_id. Do not add updatedAt or an update method.
+model RiderLicenceReview {
+  id              String                @id @default(uuid(7)) @db.Uuid
+  riderProfileId  String                @map("rider_profile_id") @db.Uuid
+  licenceImageId  String                @map("licence_image_id") @db.Uuid
+  decision        LicenceReviewDecision
+  licenceNumber   String?               @map("licence_number") @db.VarChar(50)
+  licenceClass    String?               @map("licence_class") @db.VarChar(40)
+  rejectionReason String?               @map("rejection_reason") @db.VarChar(500)
+  reviewerId      String                @map("reviewer_id") @db.Uuid
+  createdAt       DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  riderProfile RiderProfile      @relation(fields: [riderProfileId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  licenceImage RiderLicenceImage @relation(fields: [licenceImageId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  reviewer     User              @relation("LicenceDecisionReviewer", fields: [reviewerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([riderProfileId, createdAt])
+  @@index([licenceImageId])
+  @@index([reviewerId])
+  @@map("rider_licence_reviews")
 }

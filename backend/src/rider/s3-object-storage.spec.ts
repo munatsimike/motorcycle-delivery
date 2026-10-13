@@ -1,4 +1,4 @@
-import { DeleteObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { ServiceUnavailableException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -43,6 +43,20 @@ describe('S3ObjectStorage', () => {
     });
     expect(put.input).not.toHaveProperty('ServerSideEncryption');
     expect(JSON.stringify(put)).not.toContain('public-read');
+  });
+
+  it('reads a private object without returning its key', async () => {
+    configure();
+    const bytes = Buffer.from('image-bytes');
+    const storage = new S3ObjectStorage(() => ({
+      async send(command: GetObjectCommand) {
+        expect(command).toBeInstanceOf(GetObjectCommand);
+        expect(command.input.ACL).toBeUndefined();
+        return { Body: { transformToByteArray: async () => bytes } };
+      },
+    }));
+
+    await expect(storage.get('riders/profile/licences/image')).resolves.toEqual(bytes);
   });
 
   it('uses path-style addressing and does not report missing configuration with the secret', async () => {

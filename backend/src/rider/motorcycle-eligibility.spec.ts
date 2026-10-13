@@ -1,6 +1,11 @@
 import { ConflictException } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
-import { AccountStatus, MotorcycleVerificationStatus, RiderApprovalStatus } from '../generated/prisma/client.js';
+import {
+  AccountStatus,
+  MotorcycleVerificationStatus,
+  RiderApprovalStatus,
+  RiderVerificationStatus,
+} from '../generated/prisma/client.js';
 import { motorcycleForAcceptance } from './motorcycle-eligibility.js';
 
 describe('motorcycleForAcceptance', () => {
@@ -10,40 +15,50 @@ describe('motorcycleForAcceptance', () => {
     isActive: true,
   };
 
+  const ready = {
+    accountStatus: AccountStatus.ACTIVE,
+    phoneVerifiedAt: new Date('2026-10-13T12:00:00.000Z'),
+    approvalStatus: RiderApprovalStatus.APPROVED,
+    licenceVerificationStatus: RiderVerificationStatus.VERIFIED,
+  };
+
   it('returns the single active verified motorcycle for an approved rider', () => {
     const motorcycles = [bike, { id: 'bike-2', verificationStatus: MotorcycleVerificationStatus.PENDING, isActive: false }];
-    expect(motorcycleForAcceptance({
-      accountStatus: AccountStatus.ACTIVE,
-      approvalStatus: RiderApprovalStatus.APPROVED,
-      motorcycles,
-    })).toBe('bike-1');
+    expect(motorcycleForAcceptance({ ...ready, motorcycles })).toBe('bike-1');
     expect(motorcycles[1].isActive).toBe(false);
   });
 
-  it('rejects an unapproved rider or a rider without one active verified motorcycle', () => {
+  it('rejects a rider who is missing any operational requirement', () => {
     expect(() => motorcycleForAcceptance({
-      accountStatus: AccountStatus.ACTIVE,
+      ...ready,
       approvalStatus: RiderApprovalStatus.PENDING,
       motorcycles: [bike],
     })).toThrow(ConflictException);
     expect(() => motorcycleForAcceptance({
+      ...ready,
       accountStatus: AccountStatus.SUSPENDED,
-      approvalStatus: RiderApprovalStatus.APPROVED,
       motorcycles: [bike],
     })).toThrow(ConflictException);
     expect(() => motorcycleForAcceptance({
-      accountStatus: AccountStatus.ACTIVE,
-      approvalStatus: RiderApprovalStatus.APPROVED,
+      ...ready,
+      phoneVerifiedAt: null,
+      motorcycles: [bike],
+    })).toThrow(ConflictException);
+    expect(() => motorcycleForAcceptance({
+      ...ready,
+      licenceVerificationStatus: RiderVerificationStatus.PENDING,
+      motorcycles: [bike],
+    })).toThrow(ConflictException);
+    expect(() => motorcycleForAcceptance({
+      ...ready,
       motorcycles: [],
     })).toThrow(ConflictException);
     expect(() => motorcycleForAcceptance({
-      accountStatus: AccountStatus.ACTIVE,
-      approvalStatus: RiderApprovalStatus.APPROVED,
+      ...ready,
       motorcycles: [bike, { ...bike, id: 'bike-2' }],
     })).toThrow(ConflictException);
     expect(() => motorcycleForAcceptance({
-      accountStatus: AccountStatus.ACTIVE,
-      approvalStatus: RiderApprovalStatus.APPROVED,
+      ...ready,
       motorcycles: [{ ...bike, verificationStatus: MotorcycleVerificationStatus.REVOKED, isActive: false }],
     })).toThrow(ConflictException);
   });
