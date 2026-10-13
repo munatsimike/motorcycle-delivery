@@ -8,6 +8,12 @@
 //   delivery_assignments_one_accepted_per_rider_idx
 //   delivery_assignments_one_open_offer_per_rider_idx
 //   the named *_chk constraints
+//   refresh_sessions_one_active_per_family_idx
+//   users_passwordless_account_chk
+//   rider_profiles_licence_verification_chk
+//   rider_profiles_availability_requires_approval_chk
+//   rider_licence_images_one_uploading_per_rider_idx
+//   rider_licence_images_one_stored_per_rider_idx
 //
 // Acceptance, release, availability changes, competing-offer cancellation,
 // and delivery status events are one NestJS transaction. This schema does
@@ -146,41 +152,58 @@ enum DeliveryActorType {
   @@map("delivery_actor_type")
 }
 
+// Riders and customers are passwordless. The migration check
+// users_passwordless_account_chk requires a null password hash for those
+// roles, and phone_verified_at once the account is ACTIVE. Admins are excluded.
 model User {
   id            String        @id @default(uuid(7)) @db.Uuid
   fullName      String        @map("full_name") @db.VarChar(200)
   phone         String        @unique @db.VarChar(20)
   email         String?       @unique @db.VarChar(254)
-  passwordHash  String        @map("password_hash") @db.VarChar(255)
-  role          UserRole
-  accountStatus AccountStatus @default(PENDING) @map("account_status")
-  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt     DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  passwordHash    String?       @map("password_hash") @db.VarChar(255)
+  role            UserRole
+  accountStatus   AccountStatus @default(PENDING) @map("account_status")
+  phoneVerifiedAt DateTime?     @map("phone_verified_at") @db.Timestamptz(6)
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  riderProfile         RiderProfile?
-  deliveries           Delivery[]            @relation("CustomerDeliveries")
-  deliveryStatusEvents DeliveryStatusEvent[]
+  riderProfile          RiderProfile?         @relation("RiderAccount")
+  reviewedRiderProfiles RiderProfile[]        @relation("LicenceReviewer")
+  deliveries            Delivery[]            @relation("CustomerDeliveries")
+  deliveryStatusEvents  DeliveryStatusEvent[]
+  refreshSessions       RefreshSession[]
 
   @@index([role, accountStatus])
   @@map("users")
 }
 
+// Phone verification creates this row immediately. Licence verification,
+// motorcycle verification, and rider approval stay separate. Zimbabwean
+// licences have no expiry date, so a missing expiry is never stored or
+// rejected. The migration check rider_profiles_licence_verification_chk
+// requires a licence number, class, verification time, and reviewer only
+// once verification_status is VERIFIED. Availability still requires approval.
 model RiderProfile {
   id                 String                  @id @default(uuid(7)) @db.Uuid
   userId             String                  @unique @map("user_id") @db.Uuid
   verificationStatus RiderVerificationStatus @default(PENDING) @map("verification_status")
   approvalStatus     RiderApprovalStatus     @default(PENDING) @map("approval_status")
   availability       RiderAvailability       @default(OFFLINE)
-  licenceNumber      String                  @map("licence_number") @db.VarChar(50)
-  licenceExpiresOn   DateTime                @map("licence_expires_on") @db.Date
+  licenceNumber      String?                 @map("licence_number") @db.VarChar(50)
+  licenceClass       String?                 @map("licence_class") @db.VarChar(40)
+  verifiedAt         DateTime?               @map("verified_at") @db.Timestamptz(6)
+  reviewerId         String?                 @map("reviewer_id") @db.Uuid
   createdAt          DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime                @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  user        User                   @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  motorcycles Motorcycle[]
-  assignments DeliveryAssignment[]
+  user          User                   @relation("RiderAccount", fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  reviewer      User?                  @relation("LicenceReviewer", fields: [reviewerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  motorcycles   Motorcycle[]
+  assignments   DeliveryAssignment[]
+  licenceImages RiderLicenceImage[]
 
   @@index([approvalStatus, availability])
+  @@index([reviewerId])
   @@map("rider_profiles")
 }
 
@@ -263,4 +286,109 @@ model DeliveryStatusEvent {
 
   @@index([deliveryId, occurredAt])
   @@map("delivery_status_events")
+}
+
+enum AuthSubjectRole {
+  RIDER
+  CUSTOMER
+
+  @@map("auth_subject_role")
+}
+
+enum AuthPurpose {
+  REGISTRATION
+  LOGIN
+
+  @@map("auth_purpose")
+}
+
+enum AuthChallengeStatus {
+  PENDING
+  VERIFIED
+  EXPIRED
+  LOCKED
+  SUPERSEDED
+
+  @@map("auth_challenge_status")
+}
+
+model AuthChallenge {
+  id            String              @id @default(uuid(7)) @db.Uuid
+  phone         String              @db.VarChar(20)
+  subjectRole   AuthSubjectRole     @map("subject_role")
+  purpose       AuthPurpose
+  fullName      String?             @map("full_name") @db.VarChar(200)
+  twilioSid     String?             @map("twilio_sid") @db.VarChar(64)
+  status        AuthChallengeStatus @default(PENDING)
+  sendCount     Int                 @default(1) @map("send_count")
+  checkAttempts Int                 @default(0) @map("check_attempts")
+  lockedUntil   DateTime?           @map("locked_until") @db.Timestamptz(6)
+  expiresAt     DateTime            @map("expires_at") @db.Timestamptz(6)
+  ipHash        String?             @map("ip_hash") @db.Char(64)
+  createdAt     DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([phone, subjectRole, purpose, createdAt])
+  @@index([ipHash, createdAt])
+  @@map("auth_challenges")
+}
+
+model RefreshSession {
+  id                  String    @id @default(uuid(7)) @db.Uuid
+  userId              String    @map("user_id") @db.Uuid
+  familyId            String    @map("family_id") @db.Uuid
+  tokenHash           String    @unique @map("token_hash") @db.Char(64)
+  expiresAt           DateTime  @map("expires_at") @db.Timestamptz(6)
+  familyExpiresAt     DateTime  @map("family_expires_at") @db.Timestamptz(6)
+  revokedAt           DateTime? @map("revoked_at") @db.Timestamptz(6)
+  replacedBySessionId String?   @unique @map("replaced_by_session_id") @db.Uuid
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user        User            @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  replacedBy  RefreshSession? @relation("RefreshRotation", fields: [replacedBySessionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  replaces    RefreshSession? @relation("RefreshRotation")
+
+  @@index([userId, revokedAt])
+  @@index([familyId])
+  @@map("refresh_sessions")
+}
+
+enum LicenceImageStatus {
+  UPLOADING
+  STORED
+  SUPERSEDED
+  PURGE_PENDING
+  PURGED
+
+  @@map("licence_image_status")
+}
+
+enum LicenceImageReviewStatus {
+  PENDING
+
+  @@map("licence_image_review_status")
+}
+
+// Private licence images. Bytes live in object storage. This phase never
+// records a verified review here, and rider licence facts stay on RiderProfile.
+model RiderLicenceImage {
+  id             String                   @id @default(uuid(7)) @db.Uuid
+  riderProfileId String                   @map("rider_profile_id") @db.Uuid
+  objectKey      String                   @unique @map("object_key") @db.VarChar(200)
+  contentType    String?                  @map("content_type") @db.VarChar(40)
+  byteSize       Int?                     @map("byte_size")
+  sha256         String?                  @db.Char(64)
+  status         LicenceImageStatus       @default(UPLOADING)
+  reviewStatus   LicenceImageReviewStatus @default(PENDING) @map("review_status")
+  uploadedAt     DateTime?                @map("uploaded_at") @db.Timestamptz(6)
+  supersededAt   DateTime?                @map("superseded_at") @db.Timestamptz(6)
+  purgeAfter     DateTime?                @map("purge_after") @db.Timestamptz(6)
+  purgedAt       DateTime?                @map("purged_at") @db.Timestamptz(6)
+  createdAt      DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  riderProfile RiderProfile @relation(fields: [riderProfileId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([riderProfileId, status])
+  @@index([status, createdAt])
+  @@index([status, purgeAfter])
+  @@map("rider_licence_images")
 }

@@ -1,0 +1,9 @@
+export const OTP_COOLDOWN_MS = 60_000;
+export const OTP_PHONE_HOURLY_LIMIT = 5;
+export const OTP_IP_HOURLY_LIMIT = 20;
+export const OTP_MAX_CHECK_ATTEMPTS = 5;
+export const OTP_CHALLENGE_TTL_MS = 10 * 60_000;
+export const OTP_LOCK_MS = 15 * 60_000;
+export const REFRESH_IDLE_MS = 30 * 24 * 60 * 60 * 1000;
+export const REFRESH_ABSOLUTE_MS = 90 * 24 * 60 * 60 * 1000;
+export const ACCESS_TOKEN_TTL_SECONDS = 900;
