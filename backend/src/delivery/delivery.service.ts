@@ -1,0 +1,124 @@
+import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  Currency,
+  DeliveryActorType,
+  DeliveryStatus,
+  DeliveryType,
+} from '../generated/prisma/client.js';
+import type { CustomerContext } from '../auth/customer-access.service.js';
+import { PrismaService } from '../prisma/prisma.service.js';
+import { readDeliveryDraft, readQuotePins, type QuotePins } from './delivery-request.js';
+import { toCustomerDelivery, type StoredDelivery } from './delivery-view.js';
+import { centsFromDecimal, formatCents } from './money.js';
+import { missingPricing } from './delivery-pricing.service.js';
+import { lockActivePricing } from './pricing-lock.js';
+import { straightLineMetres, suggestedCents } from './straight-line.js';
+
+type ActiveTariff = {
+  pricingVersion: number;
+  baseFee: string | { toFixed(digits: number): string };
+  pricePerKilometre: string | { toFixed(digits: number): string };
+  minimumTripMetres: number;
+  maximumTripMetres: number;
+};
+
+@Injectable()
+export class DeliveryService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  async quote(body: unknown) {
+    const pins = readQuotePins(body);
+    const active = await this.prisma.deliveryPricingConfig.findFirst({ where: { isActive: true } });
+    if (!active) {
+      throw missingPricing();
+    }
+    const priced = pricePins(pins, active);
+    return {
+      distanceMeters: priced.distanceMeters,
+      pricingVersion: priced.pricingVersion,
+      currency: Currency.USD,
+      suggestedPrice: priced.suggestedPrice,
+    };
+  }
+
+  async create(customer: CustomerContext, body: unknown) {
+    const draft = readDeliveryDraft(body);
+    return this.prisma.$transaction(async (tx) => {
+      const active = await lockActivePricing(tx);
+      if (!active) {
+        throw missingPricing();
+      }
+      const priced = pricePins(draft, active);
+      const created = await tx.delivery.create({
+        data: {
+          customerId: customer.customerAccountId,
+          deliveryType: DeliveryType.PARCEL,
+          pickupAddress: draft.pickupAddress,
+          pickupLatitude: draft.pickupLatitude,
+          pickupLongitude: draft.pickupLongitude,
+          pickupLandmark: draft.pickupLandmark,
+          pickupInstructions: draft.pickupInstructions,
+          pickupContactName: draft.pickupContactName,
+          pickupContactPhone: draft.pickupContactPhone,
+          dropoffAddress: draft.dropoffAddress,
+          dropoffLatitude: draft.dropoffLatitude,
+          dropoffLongitude: draft.dropoffLongitude,
+          dropoffLandmark: draft.dropoffLandmark,
+          dropoffInstructions: draft.dropoffInstructions,
+          parcelDescription: draft.parcelDescription,
+          parcelSize: draft.parcelSize,
+          parcelInstructions: draft.parcelInstructions,
+          recipientName: draft.dropoffContactName,
+          recipientPhone: draft.dropoffContactPhone,
+          price: formatCents(draft.offeredPriceCents),
+          suggestedPrice: priced.suggestedPrice,
+          distanceMeters: priced.distanceMeters,
+          pricingVersion: priced.pricingVersion,
+          payer: draft.payer,
+          currency: Currency.USD,
+          paymentMethod: draft.paymentMethod,
+          status: DeliveryStatus.CREATED,
+        },
+      });
+      await tx.deliveryStatusEvent.create({
+        data: {
+          deliveryId: created.id,
+          previousStatus: null,
+          newStatus: DeliveryStatus.CREATED,
+          actorId: customer.userId,
+          actorType: DeliveryActorType.CUSTOMER,
+        },
+      });
+      return toCustomerDelivery(created as StoredDelivery);
+    });
+  }
+}
+
+function pricePins(pins: QuotePins, tariff: ActiveTariff) {
+  const distanceMeters = straightLineMetres(
+    Number(pins.pickupLatitude),
+    Number(pins.pickupLongitude),
+    Number(pins.dropoffLatitude),
+    Number(pins.dropoffLongitude),
+  );
+  if (distanceMeters < tariff.minimumTripMetres || distanceMeters > tariff.maximumTripMetres) {
+    throw new BadRequestException('Trip distance is outside the configured range');
+  }
+  let cents: number;
+  try {
+    cents = suggestedCents(distanceMeters, {
+      baseFeeCents: centsFromDecimal(tariff.baseFee),
+      pricePerKilometreCents: centsFromDecimal(tariff.pricePerKilometre),
+    });
+  } catch (error) {
+    if (error instanceof RangeError) {
+      throw new BadRequestException('Suggested price is too large');
+    }
+    throw error;
+  }
+  return {
+    distanceMeters,
+    pricingVersion: tariff.pricingVersion,
+    suggestedPrice: formatCents(cents),
+  };
+}

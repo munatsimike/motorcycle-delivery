@@ -26,6 +26,9 @@ describe('AdminAccessService', () => {
     const rider = context();
     await expect(rider.service.authenticate(rider.token(UserRole.RIDER), NOW)).rejects.toBeInstanceOf(ForbiddenException);
 
+    const customer = context();
+    await expect(customer.service.authenticate(customer.token(UserRole.CUSTOMER), NOW)).rejects.toBeInstanceOf(ForbiddenException);
+
     const missing = context();
     await expect(missing.service.authenticate(undefined, NOW)).rejects.toBeInstanceOf(UnauthorizedException);
 
