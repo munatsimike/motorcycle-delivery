@@ -26,6 +26,7 @@ import {
   isUniqueViolation,
   openPlatformFeeReservation,
   releasePlatformFeeReservation,
+  capturePlatformFeeReservation,
 } from '../rider/wallet-ledger.js';
 import { findDispatchCandidates } from './dispatch-query.js';
 import {
@@ -54,6 +55,15 @@ const RELEASEABLE = new Set<DeliveryStatus>([
   DeliveryStatus.ASSIGNED,
   DeliveryStatus.ARRIVED_AT_PICKUP,
 ]);
+
+const DELIVERY_PROGRESS = [
+  DeliveryStatus.ASSIGNED,
+  DeliveryStatus.ARRIVED_AT_PICKUP,
+  DeliveryStatus.PICKED_UP,
+  DeliveryStatus.IN_TRANSIT,
+  DeliveryStatus.ARRIVED_AT_DROPOFF,
+  DeliveryStatus.DELIVERED,
+] as const;
 
 type AssignmentRow = {
   id: string;
@@ -144,6 +154,12 @@ export type AcceptanceResult = {
   replayed: boolean;
 };
 
+export type DeliveryProgress = {
+  deliveryId: string;
+  status: DeliveryStatus;
+  availability: RiderAvailability;
+};
+
 @Injectable()
 export class DispatchService {
   constructor(private readonly prisma: PrismaService) {}
@@ -175,6 +191,11 @@ export class DispatchService {
       }
       return this.prisma.$transaction((tx) => replayAcceptance(tx, rider, key, hash));
     }
+  }
+
+  async progress(rider: RiderContext, deliveryId: string, body: unknown, now = new Date()) {
+    const requested = readRequestedStatus(body);
+    return this.prisma.$transaction((tx) => progressDelivery(tx, rider, deliveryId, requested, now));
   }
 
   async release(rider: RiderContext, assignmentId: string, body: unknown, now = new Date()) {
@@ -223,6 +244,97 @@ async function persistExpiry(
 
 export function acceptancePayloadHash(assignmentId: string, riderProfileId: string): string {
   return createHash('sha256').update(JSON.stringify({ assignmentId, riderProfileId })).digest('hex');
+}
+
+export function readRequestedStatus(body: unknown): DeliveryStatus {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    throw new BadRequestException('Choose a delivery status');
+  }
+  const status = (body as { status?: unknown }).status;
+  if (typeof status !== 'string' || !Object.values(DeliveryStatus).includes(status as DeliveryStatus)) {
+    throw new BadRequestException('Choose a delivery status');
+  }
+  return status as DeliveryStatus;
+}
+
+function nextDeliveryStatus(status: DeliveryStatus): DeliveryStatus | null {
+  const index = DELIVERY_PROGRESS.indexOf(status as (typeof DELIVERY_PROGRESS)[number]);
+  if (index < 0 || index === DELIVERY_PROGRESS.length - 1) {
+    return null;
+  }
+  return DELIVERY_PROGRESS[index + 1] ?? null;
+}
+
+// Moves an accepted delivery one step. The caller locks the delivery, then the
+// rider profile, then the assignment. Only DELIVERED captures the platform fee,
+// and that capture locks the wallet after the assignment. The assignment stays
+// ACCEPTED until the fee capture returns, then becomes COMPLETED.
+async function progressDelivery(
+  tx: Prisma.TransactionClient,
+  rider: RiderContext,
+  deliveryId: string,
+  requested: DeliveryStatus,
+  now: Date,
+): Promise<DeliveryProgress> {
+  const existing = await tx.deliveryAssignment.findFirst({
+    where: {
+      deliveryId,
+      riderProfileId: rider.riderProfileId,
+      status: AssignmentStatus.ACCEPTED,
+    },
+  });
+  if (!existing) {
+    throw new NotFoundException('Delivery not found');
+  }
+  await lockDelivery(tx, deliveryId);
+  const profile = await lockRiderProfile(tx, rider.riderProfileId, 'Rider profile not found');
+  if (profile.userId !== rider.userId) {
+    throw new ForbiddenException('Rider access is required');
+  }
+  await lockAssignment(tx, existing.id);
+  const assignment = await tx.deliveryAssignment.findUnique({ where: { id: existing.id } });
+  const delivery = await tx.delivery.findUnique({ where: { id: deliveryId } });
+  if (
+    !assignment
+    || assignment.riderProfileId !== rider.riderProfileId
+    || assignment.deliveryId !== deliveryId
+    || assignment.status !== AssignmentStatus.ACCEPTED
+    || !delivery
+  ) {
+    throw new NotFoundException('Delivery not found');
+  }
+  if (nextDeliveryStatus(delivery.status) !== requested) {
+    throw new ConflictException('This delivery status cannot be changed');
+  }
+  if (requested === DeliveryStatus.DELIVERED) {
+    await capturePlatformFeeReservation(tx, delivery.id, profile.id, now);
+  }
+  await tx.delivery.update({
+    where: { id: delivery.id },
+    data: { status: requested, updatedAt: now },
+  });
+  await recordStatus(
+    tx,
+    delivery.id,
+    delivery.status,
+    requested,
+    rider.userId,
+    DeliveryActorType.RIDER,
+    now,
+  );
+  let availability = profile.availability;
+  if (requested === DeliveryStatus.DELIVERED) {
+    await tx.deliveryAssignment.update({
+      where: { id: assignment.id },
+      data: { status: AssignmentStatus.COMPLETED },
+    });
+    availability = await restoreAvailability(tx, profile, now);
+  }
+  return {
+    deliveryId: delivery.id,
+    status: requested,
+    availability,
+  };
 }
 
 export function readReleaseReason(body: unknown): AssignmentReleaseReason {

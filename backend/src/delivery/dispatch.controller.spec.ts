@@ -9,6 +9,7 @@ import { CustomerAccessService } from '../auth/customer-access.service.js';
 import { RiderAccessGuard } from '../auth/rider-access.guard.js';
 import { RiderAccessService } from '../auth/rider-access.service.js';
 import { DeliveryController } from './delivery.controller.js';
+import { RiderDeliveryController } from './rider-delivery.controller.js';
 import { RiderOfferController } from './rider-offer.controller.js';
 import { RiderLocationController } from '../rider/rider-location.controller.js';
 
@@ -40,6 +41,10 @@ describe('dispatch route guards', () => {
     expect(Reflect.getMetadata(METHOD_METADATA, RiderOfferController.prototype.list)).toBe(RequestMethod.GET);
     expect(Reflect.getMetadata(PATH_METADATA, RiderOfferController.prototype.accept)).toBe(':assignmentId/acceptance');
     expect(Reflect.getMetadata(PATH_METADATA, RiderOfferController.prototype.release)).toBe(':assignmentId/release');
+    expect(Reflect.getMetadata(PATH_METADATA, RiderDeliveryController)).toBe('riders/me/deliveries');
+    expect(Reflect.getMetadata(GUARDS_METADATA, RiderDeliveryController)).toEqual([RiderAccessGuard]);
+    expect(Reflect.getMetadata(METHOD_METADATA, RiderDeliveryController.prototype.updateStatus)).toBe(RequestMethod.POST);
+    expect(Reflect.getMetadata(PATH_METADATA, RiderDeliveryController.prototype.updateStatus)).toBe(':deliveryId/status');
   });
 
   it('rejects a rider token on customer search and a customer token on rider offers', async () => {
@@ -92,8 +97,21 @@ describe('dispatch route guards', () => {
     await new RiderAccessGuard(rider.service).canActivate(http(riderRequest));
     await offerController.list(riderRequest);
     await location.update(riderRequest, { riderProfileId: 'other-profile', latitude: 0, longitude: 0 });
+    const progress: string[] = [];
+    const progressController = new RiderDeliveryController({
+      async progress(actor: { riderProfileId: string }, deliveryId: string) {
+        progress.push(`${actor.riderProfileId}:${deliveryId}`);
+        return { deliveryId, status: 'ARRIVED_AT_PICKUP', availability: 'BUSY' };
+      },
+    } as never);
+    expect(() => progressController.updateStatus({}, 'delivery-1', { status: 'ARRIVED_AT_PICKUP' })).toThrow(ForbiddenException);
+    await progressController.updateStatus(riderRequest, 'delivery-1', {
+      status: 'ARRIVED_AT_PICKUP',
+      riderProfileId: 'other-profile',
+    });
     expect(searches).toEqual(['account-1']);
     expect(offers).toEqual(['profile-1', 'profile-1']);
+    expect(progress).toEqual(['profile-1:delivery-1']);
   });
 });
 

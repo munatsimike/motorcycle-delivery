@@ -288,6 +288,187 @@ describe('progressive dispatch', () => {
     await expect(ctx.service.cancel(CUSTOMER, delivery.id, NOW)).rejects.toBeInstanceOf(ConflictException);
   });
 
+  it('advances one status at a time and captures the reserved fee only when delivered', async () => {
+    const ctx = context();
+    const { riderRow, delivery } = await acceptJob(ctx, 'courier');
+    const steps = ['ARRIVED_AT_PICKUP', 'PICKED_UP', 'IN_TRANSIT', 'ARRIVED_AT_DROPOFF', 'DELIVERED'] as const;
+    for (const status of steps) {
+      const mark = ctx.lockLog.length;
+      const result = await ctx.service.progress(rider(riderRow.id), delivery.id, { status, riderProfileId: 'other' }, NOW);
+      expect(result).toMatchObject({
+        deliveryId: delivery.id,
+        status,
+        availability: status === 'DELIVERED' ? 'AVAILABLE' : 'BUSY',
+      });
+      const locks = ctx.lockLog.slice(mark);
+      if (status === 'DELIVERED') {
+        expect(locks).toEqual(['delivery', 'profile', 'assignment', 'profile', 'wallet']);
+      } else {
+        expect(locks).toEqual(['delivery', 'profile', 'assignment']);
+        expect(ctx.reservations[0]?.status).toBe('OPEN');
+        expect(ctx.entries.filter((entry) => entry.entryType === 'PLATFORM_FEE')).toHaveLength(0);
+        expect(ctx.wallets[0]?.balance).toBe('0.00');
+      }
+    }
+    expect(ctx.deliveries.find((row) => row.id === delivery.id)?.status).toBe('DELIVERED');
+    expect(ctx.assignments.find((row) => row.riderProfileId === riderRow.id)).toMatchObject({
+      status: 'COMPLETED',
+      acceptedPlatformFee: '0.30',
+      acceptedFeeConfigVersion: 3,
+    });
+    expect(ctx.reservations[0]).toMatchObject({ status: 'CAPTURED', amount: '0.30', configVersion: 3 });
+    expect(ctx.entries.filter((entry) => entry.entryType === 'PLATFORM_FEE')).toEqual([
+      expect.objectContaining({
+        amount: '-0.30',
+        configVersion: 3,
+        actorType: 'SYSTEM',
+        walletPaymentId: null,
+      }),
+    ]);
+    expect(ctx.wallets[0]?.balance).toBe('-0.30');
+    expect(ctx.events.filter((event) => event.actorType === 'RIDER' && event.newStatus !== 'ASSIGNED').map((event) => ({
+      previousStatus: event.previousStatus,
+      newStatus: event.newStatus,
+      actorId: event.actorId,
+    }))).toEqual([
+      { previousStatus: 'ASSIGNED', newStatus: 'ARRIVED_AT_PICKUP', actorId: 'user-courier' },
+      { previousStatus: 'ARRIVED_AT_PICKUP', newStatus: 'PICKED_UP', actorId: 'user-courier' },
+      { previousStatus: 'PICKED_UP', newStatus: 'IN_TRANSIT', actorId: 'user-courier' },
+      { previousStatus: 'IN_TRANSIT', newStatus: 'ARRIVED_AT_DROPOFF', actorId: 'user-courier' },
+      { previousStatus: 'ARRIVED_AT_DROPOFF', newStatus: 'DELIVERED', actorId: 'user-courier' },
+    ]);
+    await expect(ctx.service.progress(rider(riderRow.id), delivery.id, { status: 'DELIVERED' }, NOW))
+      .rejects.toBeInstanceOf(NotFoundException);
+    expect(ctx.entries.filter((entry) => entry.entryType === 'PLATFORM_FEE')).toHaveLength(1);
+  });
+
+  it('rejects skipped, backward, cancelled, and failed status changes', async () => {
+    const ctx = context();
+    const { riderRow, delivery } = await acceptJob(ctx, 'courier');
+    const other = addRider(ctx, 'other', longitudeFor(700), fresh(NOW));
+    await expect(ctx.service.progress(rider(other.id), delivery.id, { status: 'ARRIVED_AT_PICKUP' }, NOW))
+      .rejects.toBeInstanceOf(NotFoundException);
+    await expect(ctx.service.progress(rider(riderRow.id), delivery.id, { status: 'PICKED_UP' }, NOW))
+      .rejects.toBeInstanceOf(ConflictException);
+    await expect(ctx.service.progress(rider(riderRow.id), delivery.id, { status: 'CANCELLED' }, NOW))
+      .rejects.toBeInstanceOf(ConflictException);
+    await expect(ctx.service.progress(rider(riderRow.id), delivery.id, { status: 'FAILED' }, NOW))
+      .rejects.toBeInstanceOf(ConflictException);
+    await expect(ctx.service.progress(rider(riderRow.id), delivery.id, { status: 'ELSEWHERE' }, NOW))
+      .rejects.toBeInstanceOf(BadRequestException);
+    expect(ctx.deliveries.find((row) => row.id === delivery.id)?.status).toBe('ASSIGNED');
+    expect(ctx.events.filter((event) => event.actorType === 'RIDER' && event.newStatus !== 'ASSIGNED')).toHaveLength(0);
+
+    await ctx.service.progress(rider(riderRow.id), delivery.id, { status: 'ARRIVED_AT_PICKUP' }, NOW);
+    await expect(ctx.service.progress(rider(riderRow.id), delivery.id, { status: 'ASSIGNED' }, NOW))
+      .rejects.toBeInstanceOf(ConflictException);
+    await ctx.service.release(rider(riderRow.id), ctx.assignments.find((row) => row.riderProfileId === riderRow.id)?.id ?? '', { reason: 'RIDER_CANCELLED' }, NOW);
+    expect(ctx.reservations[0]?.status).toBe('RELEASED');
+    expect(ctx.entries.filter((entry) => entry.entryType === 'PLATFORM_FEE')).toHaveLength(0);
+    expect(ctx.assignments.find((row) => row.riderProfileId === riderRow.id)).toMatchObject({
+      status: 'RELEASED',
+      acceptedPlatformFee: '0.30',
+      acceptedFeeConfigVersion: 3,
+    });
+  });
+
+  it('lets one of two concurrent status updates win and keeps the fee until delivery', async () => {
+    const ctx = context();
+    const { riderRow, delivery } = await acceptJob(ctx, 'courier');
+    const results = await Promise.allSettled([
+      ctx.service.progress(rider(riderRow.id), delivery.id, { status: 'ARRIVED_AT_PICKUP' }, NOW),
+      ctx.service.progress(rider(riderRow.id), delivery.id, { status: 'ARRIVED_AT_PICKUP' }, NOW),
+    ]);
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
+    expect(ctx.deliveries.find((row) => row.id === delivery.id)?.status).toBe('ARRIVED_AT_PICKUP');
+    expect(ctx.events.filter((event) => event.newStatus === 'ARRIVED_AT_PICKUP')).toHaveLength(1);
+    expect(ctx.reservations[0]?.status).toBe('OPEN');
+
+    await ctx.service.progress(rider(riderRow.id), delivery.id, { status: 'PICKED_UP' }, NOW);
+    await expect(ctx.service.release(
+      rider(riderRow.id),
+      ctx.assignments.find((row) => row.riderProfileId === riderRow.id)?.id ?? '',
+      { reason: 'VEHICLE_PROBLEM' },
+      NOW,
+    )).rejects.toBeInstanceOf(ConflictException);
+    await expect(ctx.service.cancel(CUSTOMER, delivery.id, NOW)).rejects.toBeInstanceOf(ConflictException);
+    expect(ctx.reservations[0]?.status).toBe('OPEN');
+    expect(ctx.deliveries.find((row) => row.id === delivery.id)?.status).toBe('PICKED_UP');
+  });
+
+  it('uses the accepted fee snapshot and rolls a failed delivery back', async () => {
+    const changed = context();
+    const changedJob = await acceptJob(changed, 'changed');
+    changed.configs[0]!.isActive = false;
+    changed.configs.push({
+      id: 'config-8',
+      configVersion: 8,
+      isActive: true,
+      platformFee: '0.80',
+      defaultBorrowingLimit: '1.00',
+      currency: 'USD',
+      welcomeBonus: '1.00',
+    });
+    for (const status of ['ARRIVED_AT_PICKUP', 'PICKED_UP', 'IN_TRANSIT', 'ARRIVED_AT_DROPOFF', 'DELIVERED'] as const) {
+      await changed.service.progress(rider(changedJob.riderRow.id), changedJob.delivery.id, { status }, NOW);
+    }
+    expect(changed.entries.find((entry) => entry.entryType === 'PLATFORM_FEE')).toMatchObject({
+      amount: '-0.30',
+      configVersion: 3,
+    });
+
+    const free = context();
+    free.configs.push({
+      id: 'config-free',
+      configVersion: 3,
+      isActive: true,
+      platformFee: '0.00',
+      defaultBorrowingLimit: '1.00',
+      currency: 'USD',
+      welcomeBonus: '1.00',
+    });
+    const waived = await acceptJob(free, 'waived');
+    for (const status of ['ARRIVED_AT_PICKUP', 'PICKED_UP', 'IN_TRANSIT', 'ARRIVED_AT_DROPOFF', 'DELIVERED'] as const) {
+      await free.service.progress(rider(waived.riderRow.id), waived.delivery.id, { status }, NOW);
+    }
+    expect(free.reservations).toHaveLength(0);
+    expect(free.entries).toHaveLength(0);
+    expect(free.wallets[0]?.balance).toBe('0.00');
+    expect(free.assignments.find((row) => row.status === 'COMPLETED')).toMatchObject({
+      acceptedPlatformFee: '0.00',
+      acceptedFeeConfigVersion: 3,
+    });
+
+    const failed = context();
+    const failedJob = await acceptJob(failed, 'failed');
+    for (const status of ['ARRIVED_AT_PICKUP', 'PICKED_UP', 'IN_TRANSIT', 'ARRIVED_AT_DROPOFF'] as const) {
+      await failed.service.progress(rider(failedJob.riderRow.id), failedJob.delivery.id, { status }, NOW);
+    }
+    failed.entries.push({
+      id: 'stray',
+      riderWalletId: failedJob.riderRow.wallet.id,
+      entryType: 'TOP_UP',
+      amount: '1.00',
+      balanceAfter: '1.00',
+      currency: 'USD',
+      configVersion: 3,
+      idempotencyKey: 'stray',
+      payloadHash: 'b'.repeat(64),
+      walletPaymentId: null,
+      reason: null,
+      actorType: 'SYSTEM',
+      actorId: null,
+    });
+    await expect(failed.service.progress(rider(failedJob.riderRow.id), failedJob.delivery.id, { status: 'DELIVERED' }, NOW))
+      .rejects.toBeInstanceOf(ConflictException);
+    expect(failed.deliveries.find((row) => row.id === failedJob.delivery.id)?.status).toBe('ARRIVED_AT_DROPOFF');
+    expect(failed.assignments.find((row) => row.riderProfileId === failedJob.riderRow.id)?.status).toBe('ACCEPTED');
+    expect(failed.reservations[0]?.status).toBe('OPEN');
+    expect(failed.entries.filter((entry) => entry.entryType === 'PLATFORM_FEE')).toHaveLength(0);
+    expect(failed.wallets[0]?.balance).toBe('0.00');
+  });
+
   it('describes the geographic query and the round schedule', () => {
     const sql = readFileSync('src/delivery/dispatch-query.ts', 'utf8');
     expect(sql).toContain('ST_DWithin');
@@ -566,6 +747,15 @@ function addRider(
     });
   }
   return { id, profile, wallet, location, latitude: location.latitude, updatedAt };
+}
+
+async function acceptJob(ctx: ReturnType<typeof context>, name: string) {
+  const riderRow = addRider(ctx, name, longitudeFor(500), fresh(NOW));
+  const delivery = addDelivery(ctx, `delivery-${name}`);
+  await ctx.service.search(CUSTOMER, delivery.id, NOW);
+  await drain(ctx.service, NOW);
+  await ctx.service.accept(rider(riderRow.id), offerFor(ctx, riderRow.id).id, `accept-${name}`, NOW);
+  return { riderRow, delivery };
 }
 
 function rider(riderProfileId: string) {
