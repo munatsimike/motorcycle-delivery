@@ -2,7 +2,10 @@ import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import { AdminAccessService, type AdminContext } from './admin-access.service.js';
 
 export type AdminRequest = {
-  headers?: { authorization?: string | string[] };
+  headers?: {
+    authorization?: string | string[];
+    'idempotency-key'?: string | string[];
+  };
   admin?: AdminContext;
 };
 

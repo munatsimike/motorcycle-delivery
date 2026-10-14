@@ -33,6 +33,24 @@
 //   deliveries_pricing_version_chk
 //   deliveries_pickup_contact_phone_e164_chk
 //   deliveries_creation_text_chk
+//   wallet_configs_one_active_idx
+//   wallet_configs_usd_chk
+//   wallet_configs_amount_chk
+//   wallet_config_audits_actor_chk
+//   wallet_config_audits_values_chk
+//   wallet_config_audits_append_only
+//   rider_wallets_usd_chk
+//   rider_wallets_override_chk
+//   rider_wallet_entries_shape_chk
+//   rider_wallet_entries_one_welcome_bonus_idx
+//   rider_wallet_entries_append_only
+//   wallet_payments_shape_chk
+//   wallet_top_up_requests_shape_chk
+//   wallet_top_up_request_events_append_only
+//   wallet_borrowing_limit_audits_change_chk
+//   wallet_borrowing_limit_audits_append_only
+//   wallet_fee_reservations_status_chk
+//   wallet_fee_reservations_one_open_per_delivery_idx
 //
 // Prisma 7.1.0 cannot represent the SQL-only composite foreign keys
 // delivery_assignments_motorcycle_owner_fkey and
@@ -64,9 +82,12 @@
 // attach more users to the same account id without moving deliveries.
 // Live GPS belongs in a later rider_locations table, not this schema.
 //
-// A future rider wallet may reserve or charge only the platform service fee
-// for a completed delivery. It must never debit deliveries.price or
-// deliveries.suggested_price. This schema does not store that fee.
+// The platform service fee lives on wallet_configs. A future reservation or
+// charge may use only that fee. It must never debit deliveries.price or
+// deliveries.suggested_price. Wallet history is append-only. A reversal is a
+// new compensating rider_wallet_entries row. Do not update or delete a
+// historical entry. wallet_fee_reservations is reserved for a later accept
+// flow and is not written in this phase.
 // Delivery creation locks the active pricing config, then inserts the
 // delivery and its CREATED status event. It does not lock riders or insert
 // an assignment. delivery_pricing_configs_one_active_idx is SQL-only.
@@ -239,6 +260,12 @@ model User {
   revokedMotorcycles    Motorcycle[]          @relation("MotorcycleRevoker")
   customerAccount         CustomerAccount?
   authoredDeliveryPricing DeliveryPricingConfig[] @relation("DeliveryPricingAuthor")
+  authoredWalletConfigs   WalletConfig[]          @relation("WalletConfigAuthor")
+  walletConfigAudits      WalletConfigAudit[]     @relation("WalletConfigAuditor")
+  confirmedWalletPayments WalletPayment[]         @relation("WalletPaymentConfirmer")
+  reviewedTopUpRequests   WalletTopUpRequest[]    @relation("WalletTopUpReviewer")
+  walletEntries           RiderWalletEntry[]      @relation("WalletEntryActor")
+  borrowingLimitAudits    WalletBorrowingLimitAudit[] @relation("BorrowingLimitAuditor")
   deliveryStatusEvents    DeliveryStatusEvent[]
   refreshSessions       RefreshSession[]
   licenceReviews        RiderLicenceReview[]  @relation("LicenceDecisionReviewer")
@@ -272,6 +299,7 @@ model RiderProfile {
   assignments    DeliveryAssignment[]
   licenceImages  RiderLicenceImage[]
   licenceReviews RiderLicenceReview[]
+  wallet         RiderWallet?
 
   @@index([approvalStatus, availability])
   @@index([reviewerId])
@@ -363,8 +391,9 @@ model Delivery {
   updatedAt         DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   customer     CustomerAccount        @relation(fields: [customerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  assignments  DeliveryAssignment[]
-  statusEvents DeliveryStatusEvent[]
+  assignments     DeliveryAssignment[]
+  statusEvents    DeliveryStatusEvent[]
+  feeReservations WalletFeeReservation[]
 
   @@index([customerId, createdAt])
   @@index([status, createdAt])
@@ -582,4 +611,265 @@ model RiderLicenceReview {
   @@index([licenceImageId])
   @@index([reviewerId])
   @@map("rider_licence_reviews")
+}
+
+enum WalletEntryType {
+  WELCOME_BONUS
+  TOP_UP
+  PROMOTIONAL_CREDIT
+  ADJUSTMENT
+  PLATFORM_FEE_HOLD
+  PLATFORM_FEE
+  PLATFORM_FEE_RELEASE
+
+  @@map("wallet_entry_type")
+}
+
+enum WalletPaymentMethod {
+  CASH
+  ECOCASH
+  GATEWAY
+
+  @@map("wallet_payment_method")
+}
+
+enum WalletPaymentStatus {
+  PENDING
+  FAILED
+  VERIFIED
+
+  @@map("wallet_payment_status")
+}
+
+enum WalletTopUpRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+
+  @@map("wallet_top_up_request_status")
+}
+
+enum WalletFeeReservationStatus {
+  OPEN
+  RELEASED
+  CAPTURED
+
+  @@map("wallet_fee_reservation_status")
+}
+
+enum WalletActorType {
+  ADMIN
+  RIDER
+  SYSTEM
+
+  @@map("wallet_actor_type")
+}
+
+// Versioned wallet settings. An admin change inserts the next version and
+// deactivates the previous row. Amounts on an older row stay as stored.
+// wallet_configs_one_active_idx allows one active row. The migration seeds
+// version 1. Business logic must read the active row rather than hardcode it.
+model WalletConfig {
+  id                     String   @id @default(uuid(7)) @db.Uuid
+  configVersion          Int      @unique @map("config_version")
+  currency               Currency
+  welcomeBonus           Decimal  @map("welcome_bonus") @db.Decimal(12, 2)
+  defaultBorrowingLimit  Decimal  @map("default_borrowing_limit") @db.Decimal(12, 2)
+  platformFee            Decimal  @map("platform_fee") @db.Decimal(12, 2)
+  isActive               Boolean  @map("is_active")
+  createdAt              DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdById            String?  @map("created_by_id") @db.Uuid
+
+  createdBy User?              @relation("WalletConfigAuthor", fields: [createdById], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  audits    WalletConfigAudit[]
+
+  @@index([createdById])
+  @@map("wallet_configs")
+}
+
+// One audit row per config version. Previous values are null only for the
+// seeded version. Do not update or delete these rows.
+model WalletConfigAudit {
+  id                            String          @id @default(uuid(7)) @db.Uuid
+  configVersion                 Int             @unique @map("config_version")
+  actorType                     WalletActorType @map("actor_type")
+  actorId                       String?         @map("actor_id") @db.Uuid
+  previousWelcomeBonus          Decimal?        @map("previous_welcome_bonus") @db.Decimal(12, 2)
+  previousDefaultBorrowingLimit Decimal?        @map("previous_default_borrowing_limit") @db.Decimal(12, 2)
+  previousPlatformFee           Decimal?        @map("previous_platform_fee") @db.Decimal(12, 2)
+  newWelcomeBonus               Decimal         @map("new_welcome_bonus") @db.Decimal(12, 2)
+  newDefaultBorrowingLimit      Decimal         @map("new_default_borrowing_limit") @db.Decimal(12, 2)
+  newPlatformFee                Decimal         @map("new_platform_fee") @db.Decimal(12, 2)
+  createdAt                     DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  config WalletConfig @relation(fields: [configVersion], references: [configVersion], onDelete: Restrict, onUpdate: Cascade)
+  actor  User?        @relation("WalletConfigAuditor", fields: [actorId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([actorId])
+  @@map("wallet_config_audits")
+}
+
+// One wallet per rider. welcome_bonus_awarded_at is the one-time entitlement
+// marker. It is set without a credit for riders already APPROVED or SUSPENDED
+// before this feature. balance is the ledger sum and may be negative.
+model RiderWallet {
+  id                      String    @id @default(uuid(7)) @db.Uuid
+  riderProfileId          String    @unique @map("rider_profile_id") @db.Uuid
+  currency                Currency
+  balance                 Decimal   @db.Decimal(12, 2)
+  borrowingLimitOverride  Decimal?  @map("borrowing_limit_override") @db.Decimal(12, 2)
+  welcomeBonusAwardedAt   DateTime? @map("welcome_bonus_awarded_at") @db.Timestamptz(6)
+  createdAt               DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  riderProfile        RiderProfile                @relation(fields: [riderProfileId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  entries             RiderWalletEntry[]
+  payments            WalletPayment[]
+  topUpRequests       WalletTopUpRequest[]
+  borrowingLimitAudits WalletBorrowingLimitAudit[]
+  feeReservations     WalletFeeReservation[]
+
+  @@map("rider_wallets")
+}
+
+// Append-only ledger. A reversal or fee release is a new compensating row.
+// Do not update or delete an entry. idempotency_key is unique. A repeat with
+// a different payload_hash is rejected by the application and cannot insert
+// a second row for the same key.
+model RiderWalletEntry {
+  id               String          @id @default(uuid(7)) @db.Uuid
+  riderWalletId    String          @map("rider_wallet_id") @db.Uuid
+  entryType        WalletEntryType @map("entry_type")
+  amount           Decimal         @db.Decimal(12, 2)
+  balanceAfter     Decimal         @map("balance_after") @db.Decimal(12, 2)
+  currency         Currency
+  configVersion    Int             @map("config_version")
+  idempotencyKey   String          @unique @map("idempotency_key") @db.VarChar(200)
+  payloadHash      String          @map("payload_hash") @db.Char(64)
+  walletPaymentId  String?         @unique @map("wallet_payment_id") @db.Uuid
+  reason           String?         @db.VarChar(500)
+  actorType        WalletActorType @map("actor_type")
+  actorId          String?         @map("actor_id") @db.Uuid
+  createdAt        DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  riderWallet RiderWallet    @relation(fields: [riderWalletId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  payment     WalletPayment? @relation(fields: [walletPaymentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  actor       User?          @relation("WalletEntryActor", fields: [actorId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([riderWalletId, createdAt])
+  @@index([actorId])
+  @@map("rider_wallet_entries")
+}
+
+// Collection and verification, separate from the ledger. CASH stores a unique
+// internal receipt. ECOCASH stores a unique transaction reference. GATEWAY
+// stores provider and provider_transaction_id for a later webhook. Only a
+// VERIFIED payment may be linked to a ledger credit.
+model WalletPayment {
+  id                      String              @id @default(uuid(7)) @db.Uuid
+  riderWalletId           String              @map("rider_wallet_id") @db.Uuid
+  method                  WalletPaymentMethod
+  status                  WalletPaymentStatus
+  amount                  Decimal             @db.Decimal(12, 2)
+  currency                Currency
+  internalReceiptId       String?             @unique @map("internal_receipt_id") @db.VarChar(40)
+  externalReceiptNumber   String?             @unique @map("external_receipt_number") @db.VarChar(64)
+  ecocashReference        String?             @unique @map("ecocash_reference") @db.VarChar(64)
+  provider                String?             @db.VarChar(40)
+  providerTransactionId   String?             @map("provider_transaction_id") @db.VarChar(120)
+  idempotencyKey          String              @unique @map("idempotency_key") @db.VarChar(200)
+  payloadHash             String              @map("payload_hash") @db.Char(64)
+  topUpRequestId          String?             @unique @map("top_up_request_id") @db.Uuid
+  confirmedById           String?             @map("confirmed_by_id") @db.Uuid
+  createdAt               DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  verifiedAt              DateTime?           @map("verified_at") @db.Timestamptz(6)
+
+  riderWallet RiderWallet         @relation(fields: [riderWalletId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  confirmedBy User?               @relation("WalletPaymentConfirmer", fields: [confirmedById], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  topUpRequest WalletTopUpRequest? @relation(fields: [topUpRequestId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  entry       RiderWalletEntry?
+
+  @@unique([provider, providerTransactionId])
+  @@index([riderWalletId, createdAt])
+  @@index([confirmedById])
+  @@map("wallet_payments")
+}
+
+// A request does not credit a wallet. Approval is a later verified payment.
+model WalletTopUpRequest {
+  id                String                   @id @default(uuid(7)) @db.Uuid
+  riderWalletId     String                   @map("rider_wallet_id") @db.Uuid
+  amount            Decimal                  @db.Decimal(12, 2)
+  method            WalletPaymentMethod
+  ecocashReference  String?                  @map("ecocash_reference") @db.VarChar(64)
+  status            WalletTopUpRequestStatus @default(PENDING)
+  rejectionReason   String?                  @map("rejection_reason") @db.VarChar(500)
+  reviewedById      String?                  @map("reviewed_by_id") @db.Uuid
+  reviewedAt        DateTime?                @map("reviewed_at") @db.Timestamptz(6)
+  createdAt         DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  riderWallet RiderWallet                  @relation(fields: [riderWalletId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  reviewedBy  User?                        @relation("WalletTopUpReviewer", fields: [reviewedById], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  events      WalletTopUpRequestEvent[]
+  payment     WalletPayment?
+
+  @@index([riderWalletId, status, createdAt])
+  @@index([reviewedById])
+  @@map("wallet_top_up_requests")
+}
+
+// Append-only request history. The request row holds the current status.
+model WalletTopUpRequestEvent {
+  id             String                    @id @default(uuid(7)) @db.Uuid
+  requestId      String                    @map("request_id") @db.Uuid
+  previousStatus WalletTopUpRequestStatus? @map("previous_status")
+  newStatus      WalletTopUpRequestStatus  @map("new_status")
+  actorType      WalletActorType           @map("actor_type")
+  actorId        String?                   @map("actor_id") @db.Uuid
+  reason         String?                   @db.VarChar(500)
+  createdAt      DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  request WalletTopUpRequest @relation(fields: [requestId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([requestId, createdAt])
+  @@map("wallet_top_up_request_events")
+}
+
+// Records an override change. It does not change the wallet balance.
+model WalletBorrowingLimitAudit {
+  id                String   @id @default(uuid(7)) @db.Uuid
+  riderWalletId     String   @map("rider_wallet_id") @db.Uuid
+  actorId           String   @map("actor_id") @db.Uuid
+  previousOverride  Decimal? @map("previous_override") @db.Decimal(12, 2)
+  newOverride       Decimal? @map("new_override") @db.Decimal(12, 2)
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  riderWallet RiderWallet @relation(fields: [riderWalletId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  actor       User        @relation("BorrowingLimitAuditor", fields: [actorId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([riderWalletId, createdAt])
+  @@index([actorId])
+  @@map("wallet_borrowing_limit_audits")
+}
+
+// Reserved for a later delivery accept flow. Phase 6A does not insert rows.
+// Capturing or releasing a reservation will post compensating ledger entries.
+model WalletFeeReservation {
+  id            String                     @id @default(uuid(7)) @db.Uuid
+  riderWalletId String                     @map("rider_wallet_id") @db.Uuid
+  deliveryId    String?                    @map("delivery_id") @db.Uuid
+  amount        Decimal                    @db.Decimal(12, 2)
+  currency      Currency
+  configVersion Int                        @map("config_version")
+  status        WalletFeeReservationStatus @default(OPEN)
+  createdAt     DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  releasedAt    DateTime?                  @map("released_at") @db.Timestamptz(6)
+  capturedAt    DateTime?                  @map("captured_at") @db.Timestamptz(6)
+
+  riderWallet RiderWallet @relation(fields: [riderWalletId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  delivery    Delivery?   @relation(fields: [deliveryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([riderWalletId, status])
+  @@index([deliveryId])
+  @@map("wallet_fee_reservations")
 }

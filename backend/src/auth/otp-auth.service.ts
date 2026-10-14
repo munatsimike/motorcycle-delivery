@@ -26,6 +26,7 @@ import {
   OTP_MAX_CHECK_ATTEMPTS,
   OTP_PHONE_HOURLY_LIMIT,
 } from './auth.constants.js';
+import { createEmptyWallet } from '../rider/wallet-ledger.js';
 import { Clock } from './clock.js';
 import { InvalidPersonNameError, normalizePersonName } from './person-name.js';
 import { InvalidPhoneNumberError, normalizeAuthPhone } from './phone-number.js';
@@ -199,7 +200,7 @@ export class OtpAuthService {
       },
     });
     if (role === AuthSubjectRole.RIDER) {
-      await tx.riderProfile.create({
+      const profile = await tx.riderProfile.create({
         data: {
           userId: user.id,
           verificationStatus: RiderVerificationStatus.PENDING,
@@ -207,6 +208,7 @@ export class OtpAuthService {
           availability: RiderAvailability.OFFLINE,
         },
       });
+      await createEmptyWallet(tx, profile.id, now);
     }
     if (role === AuthSubjectRole.CUSTOMER) {
       if (!challenge.accountKind || !challenge.address || (challenge.accountKind === CustomerAccountKind.BUSINESS && !challenge.businessName)) {

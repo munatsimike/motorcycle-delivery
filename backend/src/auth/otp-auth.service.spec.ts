@@ -58,6 +58,15 @@ describe('OtpAuthService', () => {
       }),
     ]);
     expect(ctx.profiles[0]).not.toHaveProperty('licenceExpiresOn');
+    expect(ctx.wallets).toEqual([
+      expect.objectContaining({
+        riderProfileId: ctx.profiles[0].id,
+        currency: 'USD',
+        balance: '0.00',
+        borrowingLimitOverride: null,
+        welcomeBonusAwardedAt: null,
+      }),
+    ]);
     expect(ctx.sessions[0].tokenHash).toBe(hashSecret(issued.refreshToken));
     expect(ctx.accessTokens.verify(issued.accessToken, ctx.clock.current).sub).toBe(ctx.users[0].id);
     expect(ctx.challenges[0].status).toBe('VERIFIED');
@@ -93,6 +102,7 @@ describe('OtpAuthService', () => {
       }),
     ]);
     expect(ctx.profiles).toHaveLength(0);
+    expect(ctx.wallets).toHaveLength(0);
     expect(ctx.accounts).toEqual([
       expect.objectContaining({
         userId: ctx.users[0].id,
@@ -103,6 +113,17 @@ describe('OtpAuthService', () => {
       }),
     ]);
     expect(ctx.accessTokens.verify(issued.accessToken, ctx.clock.current).role).toBe(UserRole.CUSTOMER);
+  });
+
+  it('rolls back the rider profile when wallet creation fails', async () => {
+    const ctx = context();
+    ctx.failNextWallet = true;
+    await ctx.otp.startRegistration(AuthSubjectRole.RIDER, registrationBody(), '203.0.113.41');
+    await expect(ctx.otp.verifyRegistration(AuthSubjectRole.RIDER, { phone: PHONE, code: '123456' })).rejects.toThrow('wallet creation failed');
+    expect(ctx.users).toHaveLength(0);
+    expect(ctx.profiles).toHaveLength(0);
+    expect(ctx.wallets).toHaveLength(0);
+    expect(ctx.sessions).toHaveLength(0);
   });
 
   it('returns 409 when a customer phone is registered again', async () => {
@@ -469,9 +490,10 @@ function context() {
   const users: UserRow[] = [];
   const profiles: ProfileRow[] = [];
   const accounts: Array<{ id: string; userId: string; kind: string; name: string; contactName: string | null; address: string }> = [];
+  const wallets: Array<Record<string, unknown>> = [];
   const challenges: ChallengeRow[] = [];
   const sessions: SessionRow[] = [];
-  const state = { rejectNextUser: false };
+  const state = { rejectNextUser: false, failNextWallet: false };
   const db = {
     user: {
       async findUnique({ where }: { where: { id?: string; phone?: string } }) {
@@ -563,6 +585,17 @@ function context() {
         return row;
       },
     },
+    riderWallet: {
+      async create({ data }: { data: Record<string, unknown> }) {
+        if (state.failNextWallet) {
+          state.failNextWallet = false;
+          throw new Error('wallet creation failed');
+        }
+        const row = { id: randomUUID(), ...data };
+        wallets.push(row);
+        return row;
+      },
+    },
     refreshSession: {
       async create({ data }: { data: Omit<SessionRow, 'id' | 'revokedAt' | 'replacedBySessionId'> }) {
         const row: SessionRow = { id: randomUUID(), revokedAt: null, replacedBySessionId: null, ...data };
@@ -571,7 +604,23 @@ function context() {
       },
     },
     async $transaction<T>(callback: (tx: typeof db) => Promise<T>) {
-      return callback(db);
+      const snapshot = {
+        users: structuredClone(users),
+        profiles: structuredClone(profiles),
+        accounts: structuredClone(accounts),
+        wallets: structuredClone(wallets),
+        sessions: structuredClone(sessions),
+      };
+      try {
+        return await callback(db);
+      } catch (error) {
+        users.splice(0, users.length, ...snapshot.users);
+        profiles.splice(0, profiles.length, ...snapshot.profiles);
+        accounts.splice(0, accounts.length, ...snapshot.accounts);
+        wallets.splice(0, wallets.length, ...snapshot.wallets);
+        sessions.splice(0, sessions.length, ...snapshot.sessions);
+        throw error;
+      }
     },
   };
   const twilio = {
@@ -588,6 +637,7 @@ function context() {
     users,
     profiles,
     accounts,
+    wallets,
     challenges,
     sessions,
     accessTokens,
@@ -596,6 +646,12 @@ function context() {
     },
     set rejectNextUser(value: boolean) {
       state.rejectNextUser = value;
+    },
+    get failNextWallet() {
+      return state.failNextWallet;
+    },
+    set failNextWallet(value: boolean) {
+      state.failNextWallet = value;
     },
   };
 }

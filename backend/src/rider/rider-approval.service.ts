@@ -9,6 +9,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { AdminContext } from '../auth/admin-access.service.js';
 import { hasAcceptedAssignment, lockRiderProfile } from './motorcycle-lock.js';
+import { awardWelcomeBonus } from './wallet-ledger.js';
 
 export type ApprovalDecision = 'APPROVE' | 'SUSPEND';
 
@@ -24,12 +25,12 @@ export class RiderApprovalService {
   constructor(private readonly prisma: PrismaService) {}
 
   async decide(
-    _admin: AdminContext,
+    admin: AdminContext,
     riderProfileId: string,
     decision: ApprovalDecision,
     now = new Date(),
   ): Promise<RiderApprovalResponse> {
-    return this.prisma.$transaction((tx) => applyDecision(tx, riderProfileId, decision, now));
+    return this.prisma.$transaction((tx) => applyDecision(tx, admin, riderProfileId, decision, now));
   }
 }
 
@@ -46,13 +47,14 @@ export function readApprovalDecision(body: unknown): ApprovalDecision {
 
 async function applyDecision(
   tx: Prisma.TransactionClient,
+  admin: AdminContext,
   riderProfileId: string,
   decision: ApprovalDecision,
   now: Date,
 ): Promise<RiderApprovalResponse> {
   const profile = await lockRiderProfile(tx, riderProfileId, 'Rider profile not found');
   if (decision === 'APPROVE') {
-    return approve(tx, profile.id, profile.approvalStatus, profile.verificationStatus, now);
+    return approve(tx, admin, profile.id, profile.approvalStatus, profile.verificationStatus, now);
   }
   return suspend(
     tx,
@@ -65,6 +67,7 @@ async function applyDecision(
 
 async function approve(
   tx: Prisma.TransactionClient,
+  admin: AdminContext,
   riderProfileId: string,
   approvalStatus: RiderApprovalStatus,
   verificationStatus: RiderVerificationStatus,
@@ -86,6 +89,7 @@ async function approve(
     where: { id: riderProfileId },
     data: { approvalStatus: RiderApprovalStatus.APPROVED, updatedAt: now },
   });
+  await awardWelcomeBonus(tx, riderProfileId, admin, now);
   return toResponse(updated);
 }
 

@@ -15,6 +15,10 @@ describe('rider admin and onboarding controllers', () => {
     async decide() {
       return { ok: true };
     },
+  } as never, {
+    async topUp() {
+      return { ok: true };
+    },
   } as never);
   const onboarding = new RiderOnboardingController({} as never);
 
@@ -22,6 +26,7 @@ describe('rider admin and onboarding controllers', () => {
     expect(() => admin.verifyLicence({}, 'profile-1', { decision: 'VERIFY' })).toThrow(ForbiddenException);
     await expect(admin.licenceImage({}, 'profile-1')).rejects.toBeInstanceOf(ForbiddenException);
     expect(() => admin.approval({}, 'profile-1', { decision: 'APPROVE' })).toThrow(ForbiddenException);
+    expect(() => admin.topUp({}, 'profile-1', {})).toThrow(ForbiddenException);
     expect(() => admin.verifyLicence({ admin: { userId: 'admin-1' } }, 'profile-1', { decision: 'CLOSE' })).toThrow(BadRequestException);
     expect(() => admin.approval({ admin: { userId: 'admin-1' } }, 'profile-1', { decision: 'REJECT' })).toThrow(BadRequestException);
     expect(() => onboarding.current({})).toThrow(ForbiddenException);
