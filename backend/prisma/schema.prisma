@@ -58,6 +58,7 @@
 //   delivery_dispatch_rounds_status_chk
 //   deliveries_search_generation_chk
 //   delivery_assignments_accept_idempotency_chk
+//   delivery_assignments_accepted_fee_chk
 //
 // Prisma 7.1.0 cannot represent the SQL-only composite foreign keys
 // delivery_assignments_motorcycle_owner_fkey and
@@ -79,6 +80,11 @@
 // profile and then reads motorcycles. Accept still locks the delivery, then
 // the rider profile, then the assignment, then the rider wallet, and rechecks
 // the operational predicate before storing motorcycle_id on the ACCEPTED row.
+// Capture locks the rider profile again and then the wallet. It reads the
+// assignment fee snapshot without locking the delivery or the assignment,
+// because the caller already holds those locks in that order. Release and
+// cancellation use the same delivery, profile, assignment, then wallet order
+// and do not clear the snapshot.
 // That predicate requires an active account, a verified phone, approved
 // rider status, a verified licence, and exactly one active verified
 // motorcycle. Approval itself does not require the active motorcycle.
@@ -94,13 +100,15 @@
 // the geography point stays aligned. There is no location history.
 //
 // The platform service fee lives on wallet_configs. Accepting a delivery
-// reserves only that fee. An OPEN wallet_fee_reservations row reduces capacity
-// and does not change the balance or post a ledger entry. A zero fee does not
-// insert a row. Releasing a reservation does not post a ledger entry. Capturing
-// the fee is a later phase. The fee must never debit deliveries.price or
-// deliveries.suggested_price. Wallet history is append-only. A reversal is a
-// new compensating rider_wallet_entries row. Do not update or delete a
-// historical entry.
+// stores that fee and its configuration version on the assignment, including
+// 0.00. A positive fee also inserts an OPEN wallet_fee_reservations row, which
+// reduces capacity and does not change the balance or post a ledger entry. A
+// zero fee does not insert a reservation row. Releasing a reservation does not
+// post a ledger entry and does not clear the assignment snapshot. Capture posts
+// one negative PLATFORM_FEE for the snapshotted amount. The fee must never
+// debit deliveries.price or deliveries.suggested_price. Wallet history is
+// append-only. A reversal is a new compensating rider_wallet_entries row. Do
+// not update or delete a historical entry.
 // Delivery creation locks the active pricing config, then inserts the
 // delivery and its CREATED status event. It does not lock riders or insert
 // an assignment. delivery_pricing_configs_one_active_idx is SQL-only.
@@ -438,6 +446,10 @@ model DeliveryAssignment {
   searchGeneration Int?                     @map("search_generation")
   idempotencyKey   String?                  @unique @map("idempotency_key") @db.VarChar(200)
   payloadHash      String?                  @map("payload_hash") @db.Char(64)
+  // Null until ACCEPTED. Set from the same fee and configuration version used
+  // to open the reservation, including 0.00. Release and completion keep them.
+  acceptedPlatformFee      Decimal? @map("accepted_platform_fee") @db.Decimal(12, 2)
+  acceptedFeeConfigVersion Int?     @map("accepted_fee_config_version")
   createdAt        DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
 
   delivery     Delivery     @relation(fields: [deliveryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
@@ -915,8 +927,10 @@ model WalletBorrowingLimitAudit {
   @@map("wallet_borrowing_limit_audits")
 }
 
-// Reserved for a later delivery accept flow. Phase 6A does not insert rows.
-// Capturing or releasing a reservation will post compensating ledger entries.
+// Created when a rider accepts a delivery with a positive platform fee.
+// OPEN reduces capacity and posts no ledger entry. RELEASED posts no ledger
+// entry. CAPTURED is paired with one negative PLATFORM_FEE entry for the
+// amount and configuration version stored on this row.
 model WalletFeeReservation {
   id            String                     @id @default(uuid(7)) @db.Uuid
   riderWalletId String                     @map("rider_wallet_id") @db.Uuid

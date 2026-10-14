@@ -15,7 +15,6 @@ import {
   DispatchRoundStatus,
   Prisma,
   RiderAvailability,
-  WalletFeeReservationStatus,
 } from '../generated/prisma/client.js';
 import type { CustomerContext } from '../auth/customer-access.service.js';
 import type { RiderContext } from '../auth/rider-access.service.js';
@@ -66,6 +65,8 @@ type AssignmentRow = {
   searchGeneration: number | null;
   idempotencyKey: string | null;
   payloadHash: string | null;
+  acceptedPlatformFee: string | { toFixed(digits: number): string } | null;
+  acceptedFeeConfigVersion: number | null;
 };
 
 type DeliveryRow = {
@@ -406,6 +407,8 @@ async function acceptOffer(
       respondedAt: now,
       idempotencyKey: key,
       payloadHash: hash,
+      acceptedPlatformFee: reservation.amount,
+      acceptedFeeConfigVersion: reservation.configVersion,
     },
   });
   await cancelOffered(tx, { deliveryId: delivery.id });
@@ -592,6 +595,8 @@ async function offerRider(
       offerExpiresAt: new Date(now.getTime() + OFFER_TTL_MS),
       searchGeneration,
       createdAt: now,
+      acceptedPlatformFee: null,
+      acceptedFeeConfigVersion: null,
     },
   });
   return created;
@@ -606,12 +611,8 @@ async function acceptanceResult(
   if (!delivery) {
     throw new NotFoundException('Delivery not found');
   }
-  const reservations = await tx.walletFeeReservation.findMany({ where: { deliveryId: delivery.id } });
-  const fee = reservations.find((row) => row.status === WalletFeeReservationStatus.OPEN) ?? reservations[0];
-  let configVersion = fee?.configVersion ?? null;
-  if (configVersion === null) {
-    const config = await tx.walletConfig.findFirst({ where: { isActive: true } });
-    configVersion = config?.configVersion ?? 0;
+  if (assignment.acceptedPlatformFee == null || assignment.acceptedFeeConfigVersion == null) {
+    throw new ConflictException('Platform fee reservation is corrupted');
   }
   return {
     assignmentId: assignment.id,
@@ -620,8 +621,8 @@ async function acceptanceResult(
     availability: RiderAvailability.BUSY,
     offeredPrice: formatCents(centsFromDecimal(delivery.price)),
     currency: Currency.USD,
-    reservedFee: fee ? moneyText(fee.amount) : formatCents(0),
-    configVersion,
+    reservedFee: moneyText(assignment.acceptedPlatformFee),
+    configVersion: assignment.acceptedFeeConfigVersion,
     replayed,
   };
 }

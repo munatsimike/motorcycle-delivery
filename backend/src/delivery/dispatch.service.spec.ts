@@ -120,11 +120,31 @@ describe('progressive dispatch', () => {
     expect(ctx.wallets.every((wallet) => wallet.balance === '0.00')).toBe(true);
     expect(ctx.profiles.find((profile) => profile.id === winner.id)?.availability).toBe('BUSY');
     expect(ctx.assignments.filter((row) => row.status === 'ACCEPTED')).toHaveLength(1);
+    expect(ctx.assignments.find((row) => row.status === 'ACCEPTED')).toMatchObject({
+      acceptedPlatformFee: '0.30',
+      acceptedFeeConfigVersion: 3,
+    });
+    expect(ctx.assignments.filter((row) => row.status !== 'ACCEPTED').every((row) => (
+      row.acceptedPlatformFee == null && row.acceptedFeeConfigVersion == null
+    ))).toBe(true);
     expect(ctx.deliveries[0]?.status).toBe('ASSIGNED');
 
     const replay = await ctx.service.accept(rider(winner.id), winnerOffer.id, 'accept-1', NOW);
     expect(replay.replayed).toBe(true);
     expect(replay.assignmentId).toBe(winnerOffer.id);
+    expect(ctx.reservations).toHaveLength(1);
+    ctx.configs[0]!.isActive = false;
+    ctx.configs.push({
+      id: 'config-8',
+      configVersion: 8,
+      isActive: true,
+      platformFee: '0.80',
+      defaultBorrowingLimit: '1.00',
+      currency: 'USD',
+      welcomeBonus: '1.00',
+    });
+    const pricedReplay = await ctx.service.accept(rider(winner.id), winnerOffer.id, 'accept-1', NOW);
+    expect(pricedReplay).toMatchObject({ replayed: true, reservedFee: '0.30', configVersion: 3 });
     expect(ctx.reservations).toHaveLength(1);
 
     const other = addDelivery(ctx, 'delivery-2');
@@ -171,10 +191,28 @@ describe('progressive dispatch', () => {
     const waivedJob = addDelivery(free);
     await free.service.search(CUSTOMER, waivedJob.id, NOW);
     await drain(free.service, NOW);
-    const result = await free.service.accept(rider(waived.id), offerFor(free, waived.id).id, 'free', NOW);
+    const waivedOfferId = offerFor(free, waived.id).id;
+    const result = await free.service.accept(rider(waived.id), waivedOfferId, 'free', NOW);
     expect(result.reservedFee).toBe('0.00');
+    expect(result.configVersion).toBe(3);
     expect(free.reservations).toHaveLength(0);
     expect(free.entries).toHaveLength(0);
+    expect(free.assignments.find((row) => row.status === 'ACCEPTED')).toMatchObject({
+      acceptedPlatformFee: '0.00',
+      acceptedFeeConfigVersion: 3,
+    });
+    free.configs[0]!.isActive = false;
+    free.configs.push({
+      id: 'config-9',
+      configVersion: 9,
+      isActive: true,
+      platformFee: '0.90',
+      defaultBorrowingLimit: '1.00',
+      currency: 'USD',
+      welcomeBonus: '1.00',
+    });
+    const waivedReplay = await free.service.accept(rider(waived.id), waivedOfferId, 'free', NOW);
+    expect(waivedReplay).toMatchObject({ replayed: true, reservedFee: '0.00', configVersion: 3 });
   });
 
   it('cancels before pickup, restores availability, and excludes a released rider', async () => {
@@ -202,6 +240,10 @@ describe('progressive dispatch', () => {
     expect(cancelled.deliveries[0]?.status).toBe('CANCELLED');
     expect(cancelled.profiles.find((profile) => profile.id === busy.id)?.availability).toBe('OFFLINE');
     expect(cancelled.reservations[0]?.status).toBe('RELEASED');
+    expect(cancelled.assignments.find((row) => row.status === 'RELEASED')).toMatchObject({
+      acceptedPlatformFee: '0.30',
+      acceptedFeeConfigVersion: 3,
+    });
     expect(cancelled.entries).toHaveLength(0);
     expect(cancelled.wallets[0]?.balance).toBe('0.00');
 
@@ -223,6 +265,10 @@ describe('progressive dispatch', () => {
     expect(ctx.deliveries[0]?.status).toBe('SEARCHING');
     expect(ctx.deliveries[0]?.searchGeneration).toBe(2);
     expect(ctx.assignments.find((row) => row.riderProfileId === accepted.id)?.status).toBe('RELEASED');
+    expect(ctx.assignments.find((row) => row.riderProfileId === accepted.id)).toMatchObject({
+      acceptedPlatformFee: '0.30',
+      acceptedFeeConfigVersion: 3,
+    });
     expect(ctx.reservations[0]?.status).toBe('RELEASED');
     expect(ctx.profiles.find((profile) => profile.id === accepted.id)?.availability).toBe('AVAILABLE');
     const acceptedLocation = ctx.locations.find((location) => location.riderProfileId === accepted.id);

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import {
+  AssignmentStatus,
   Currency,
   Prisma,
   WalletActorType,
@@ -270,6 +271,250 @@ export async function releasePlatformFeeReservation(
     where: { id: current.id },
     data: { status: WalletFeeReservationStatus.RELEASED, releasedAt: now },
   });
+}
+
+export type PlatformFeeCapture = {
+  captured: boolean;
+  replayed: boolean;
+  deliveryId: string;
+  riderProfileId: string;
+  amount: string;
+  balance: string;
+  currency: 'USD';
+  configVersion: number | null;
+  entryId: string | null;
+};
+
+// Captures the fee snapshotted at acceptance. The caller must already hold the
+// delivery, then the rider profile, then the assignment. This function locks
+// the rider profile again and then the wallet. It does not lock the delivery
+// or the assignment, so it cannot deadlock with accept, release, or cancel.
+// It does not move the delivery to DELIVERED.
+// A zero-fee acceptance has no reservation row and is recognized from the
+// assignment snapshot, not from the active fee. A missing positive-fee
+// reservation stays a conflict even if the active fee is later zero.
+export async function capturePlatformFeeReservation(
+  tx: Prisma.TransactionClient,
+  deliveryId: string,
+  riderProfileId: string,
+  now: Date,
+): Promise<PlatformFeeCapture> {
+  await lockWalletOwner(tx, riderProfileId);
+  const owned = await tx.riderWallet.findUnique({ where: { riderProfileId } });
+  if (!owned) {
+    throw new NotFoundException('Rider wallet not found');
+  }
+  await lockRiderWallet(tx, owned.id);
+  const wallet = await tx.riderWallet.findUnique({ where: { id: owned.id } });
+  if (!wallet || wallet.riderProfileId !== riderProfileId) {
+    throw new NotFoundException('Rider wallet not found');
+  }
+  const reservations = await tx.walletFeeReservation.findMany({ where: { deliveryId } });
+  const ownedReservations = reservations.filter((row) => row.riderWalletId === wallet.id);
+  if (ownedReservations.length > 1) {
+    throw new ConflictException('Platform fee reservation is corrupted');
+  }
+  const reservation = ownedReservations[0];
+  if (!reservation) {
+    if (reservations.some((row) => row.status === WalletFeeReservationStatus.OPEN || row.status === WalletFeeReservationStatus.CAPTURED)) {
+      throw new ConflictException('This platform fee belongs to another rider');
+    }
+    return captureZeroFee(tx, wallet, deliveryId, riderProfileId);
+  }
+  if (reservation.deliveryId !== deliveryId) {
+    throw new ConflictException('This platform fee belongs to another rider');
+  }
+  if (reservation.status === WalletFeeReservationStatus.RELEASED) {
+    throw new ConflictException('This platform fee reservation was released');
+  }
+  if (reservation.currency !== Currency.USD || reservation.configVersion < 1) {
+    throw new ConflictException('Platform fee reservation is corrupted');
+  }
+  const reservedCents = signedCentsFromDecimal(reservation.amount);
+  if (reservedCents <= 0) {
+    throw new ConflictException('Platform fee reservation is corrupted');
+  }
+  const snapshot = await requireAcceptedFeeSnapshot(tx, deliveryId, riderProfileId);
+  if (snapshot.feeCents !== reservedCents || snapshot.configVersion !== reservation.configVersion) {
+    throw new ConflictException('Platform fee reservation is corrupted');
+  }
+  const amountCents = -reservedCents;
+  const idempotencyKey = platformFeeIdempotencyKey(deliveryId);
+  const hash = walletPayloadHash({
+    riderProfileId,
+    entryType: WalletEntryType.PLATFORM_FEE,
+    amountCents,
+    idempotencyKey,
+    reason: null,
+    walletPaymentId: null,
+    actorType: WalletActorType.SYSTEM,
+    actorId: null,
+    now,
+  });
+  const existing = await tx.riderWalletEntry.findUnique({ where: { idempotencyKey } });
+  if (reservation.status === WalletFeeReservationStatus.CAPTURED) {
+    const posted = await postedCents(tx, wallet.id);
+    return replayCapturedFee(existing, wallet, riderProfileId, deliveryId, amountCents, reservation.configVersion, hash, posted);
+  }
+  if (reservation.status !== WalletFeeReservationStatus.OPEN) {
+    throw new ConflictException('Platform fee reservation is corrupted');
+  }
+  const posted = await postedCents(tx, wallet.id);
+  const cached = signedCentsFromDecimal(wallet.balance);
+  if (posted !== cached) {
+    throw new ConflictException(LEDGER_MISMATCH);
+  }
+  if (existing) {
+    if (existing.payloadHash !== hash || existing.riderWalletId !== wallet.id || signedCentsFromDecimal(existing.amount) !== amountCents || existing.configVersion !== reservation.configVersion) {
+      throw new ConflictException('Platform fee reservation is corrupted');
+    }
+  } else {
+    const next = cached + amountCents;
+    assertNextBalance(next);
+    await tx.riderWalletEntry.create({
+      data: {
+        riderWalletId: wallet.id,
+        entryType: WalletEntryType.PLATFORM_FEE,
+        amount: formatSignedCents(amountCents),
+        balanceAfter: formatSignedCents(next),
+        currency: Currency.USD,
+        configVersion: reservation.configVersion,
+        idempotencyKey,
+        payloadHash: hash,
+        walletPaymentId: null,
+        reason: null,
+        actorType: WalletActorType.SYSTEM,
+        actorId: null,
+        createdAt: now,
+      },
+    });
+    await tx.riderWallet.update({
+      where: { id: wallet.id },
+      data: { balance: formatSignedCents(next) },
+    });
+    const confirmed = await postedCents(tx, wallet.id);
+    if (confirmed !== next) {
+      throw new ConflictException(LEDGER_MISMATCH);
+    }
+  }
+  const captured = await tx.walletFeeReservation.update({
+    where: { id: reservation.id },
+    data: { status: WalletFeeReservationStatus.CAPTURED, capturedAt: now },
+  });
+  const entry = existing ?? await tx.riderWalletEntry.findUnique({ where: { idempotencyKey } });
+  const stored = await tx.riderWallet.findUnique({ where: { id: wallet.id } });
+  if (!entry || !stored) {
+    throw new ConflictException('Platform fee reservation is corrupted');
+  }
+  const balance = signedCentsFromDecimal(stored.balance);
+  if (await postedCents(tx, wallet.id) !== balance) {
+    throw new ConflictException(LEDGER_MISMATCH);
+  }
+  return {
+    captured: true,
+    replayed: false,
+    deliveryId,
+    riderProfileId,
+    amount: formatSignedCents(amountCents),
+    balance: formatSignedCents(balance),
+    currency: Currency.USD,
+    configVersion: captured.configVersion,
+    entryId: entry.id,
+  };
+}
+
+async function captureZeroFee(
+  tx: Prisma.TransactionClient,
+  wallet: WalletRow,
+  deliveryId: string,
+  riderProfileId: string,
+): Promise<PlatformFeeCapture> {
+  const snapshot = await requireAcceptedFeeSnapshot(tx, deliveryId, riderProfileId);
+  if (snapshot.feeCents !== 0) {
+    throw new ConflictException('Platform fee reservation was not found');
+  }
+  const existing = await tx.riderWalletEntry.findUnique({
+    where: { idempotencyKey: platformFeeIdempotencyKey(deliveryId) },
+  });
+  if (existing) {
+    throw new ConflictException('Platform fee reservation is corrupted');
+  }
+  const balance = signedCentsFromDecimal(wallet.balance);
+  if (await postedCents(tx, wallet.id) !== balance) {
+    throw new ConflictException(LEDGER_MISMATCH);
+  }
+  return {
+    captured: false,
+    replayed: false,
+    deliveryId,
+    riderProfileId,
+    amount: formatSignedCents(0),
+    balance: formatSignedCents(balance),
+    currency: Currency.USD,
+    configVersion: snapshot.configVersion,
+    entryId: null,
+  };
+}
+
+function replayCapturedFee(
+  existing: { id: string; riderWalletId: string; amount: string | { toFixed(digits: number): string }; payloadHash: string; configVersion: number } | null,
+  wallet: WalletRow,
+  riderProfileId: string,
+  deliveryId: string,
+  amountCents: number,
+  configVersion: number,
+  hash: string,
+  posted: number,
+): PlatformFeeCapture {
+  if (!existing || existing.payloadHash !== hash || existing.riderWalletId !== wallet.id || existing.configVersion !== configVersion || signedCentsFromDecimal(existing.amount) !== amountCents) {
+    throw new ConflictException('Platform fee reservation is corrupted');
+  }
+  const balance = signedCentsFromDecimal(wallet.balance);
+  if (posted !== balance) {
+    throw new ConflictException(LEDGER_MISMATCH);
+  }
+  return {
+    captured: true,
+    replayed: true,
+    deliveryId,
+    riderProfileId,
+    amount: formatSignedCents(amountCents),
+    balance: formatSignedCents(balance),
+    currency: Currency.USD,
+    configVersion,
+    entryId: existing.id,
+  };
+}
+
+async function requireAcceptedFeeSnapshot(
+  tx: Prisma.TransactionClient,
+  deliveryId: string,
+  riderProfileId: string,
+): Promise<{ feeCents: number; configVersion: number }> {
+  const assignment = await tx.deliveryAssignment.findFirst({
+    where: { deliveryId, riderProfileId, status: AssignmentStatus.ACCEPTED },
+  });
+  if (!assignment) {
+    throw new ConflictException('Platform fee reservation was not found');
+  }
+  const fee = assignment.acceptedPlatformFee;
+  const configVersion = assignment.acceptedFeeConfigVersion;
+  if (fee == null || configVersion == null || !Number.isSafeInteger(configVersion) || configVersion < 1) {
+    throw new ConflictException('Platform fee reservation is corrupted');
+  }
+  const feeCents = signedCentsFromDecimal(fee);
+  if (feeCents < 0) {
+    throw new ConflictException('Platform fee reservation is corrupted');
+  }
+  return { feeCents, configVersion };
+}
+
+export function platformFeeIdempotencyKey(deliveryId: string): string {
+  const key = `platform-fee:${deliveryId}`;
+  if (!deliveryId || key.length > 200) {
+    throw new ConflictException('Platform fee reservation is corrupted');
+  }
+  return key;
 }
 
 // Called inside the approval transaction after the rider profile lock. A $0
