@@ -1,4 +1,4 @@
-import { RiderListService } from './rider-list.service.js';
+﻿import { RiderListService } from './rider-list.service.js';
 import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AuthModule } from '../auth/auth.module.js';
@@ -10,6 +10,7 @@ import { LicenceImageService } from './licence-image.service.js';
 import { LicenceReviewService } from './licence-review.service.js';
 import { MotorcycleController } from './motorcycle.controller.js';
 import { MotorcycleReviewController } from './motorcycle-review.controller.js';
+import { MotorcycleListService } from './motorcycle-list.service.js';
 import { MotorcycleReviewService } from './motorcycle-review.service.js';
 import { MotorcycleService } from './motorcycle.service.js';
 import { RiderAdminController } from './rider-admin.controller.js';
@@ -45,6 +46,7 @@ import { createS3Client, S3_CLIENT_FACTORY, S3ObjectStorage } from './s3-object-
     LicenceImageCleanup,
     LicenceReviewService,
     MotorcycleService,
+    MotorcycleListService,
     MotorcycleReviewService,
     RiderApprovalService,
     RiderListService,
@@ -60,3 +62,4 @@ import { createS3Client, S3_CLIENT_FACTORY, S3ObjectStorage } from './s3-object-
   ],
 })
 export class RiderModule {}
+

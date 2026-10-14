@@ -1,12 +1,20 @@
-import { BadRequestException, Body, Controller, ForbiddenException, HttpCode, Param, Post, Req, UseGuards } from '@nestjs/common';
+﻿import { BadRequestException, Body, Controller, ForbiddenException, Get, HttpCode, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { AdminAccessGuard, type AdminRequest } from '../auth/admin-access.guard.js';
+import { MotorcycleListService } from './motorcycle-list.service.js';
 import { MotorcycleReviewService, type VerificationDecision } from './motorcycle-review.service.js';
 
 @Controller('admin/motorcycles')
 @UseGuards(AdminAccessGuard)
 export class MotorcycleReviewController {
-  constructor(private readonly reviews: MotorcycleReviewService) {}
+  constructor(
+    private readonly reviews: MotorcycleReviewService,
+    private readonly motorcycleList: MotorcycleListService,
+  ) {}
 
+  @Get()
+  listMotorcycles(@Query() query: Record<string, unknown>) {
+    return this.motorcycleList.list(query);
+  }
   @Post(':id/verification')
   @HttpCode(200)
   review(@Req() request: AdminRequest, @Param('id') motorcycleId: string, @Body() body: unknown) {
@@ -27,3 +35,4 @@ function readDecision(body: unknown): VerificationDecision {
   }
   return decision;
 }
+
