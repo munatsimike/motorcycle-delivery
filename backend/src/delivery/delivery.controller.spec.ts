@@ -11,11 +11,20 @@ describe('DeliveryController', () => {
     async create(customer: { customerAccountId: string }) {
       return { customerAccountId: customer.customerAccountId };
     },
+  } as never, {
+    async search() {
+      return { status: 'SEARCHING' };
+    },
+    async cancel() {
+      return { status: 'CANCELLED' };
+    },
   } as never);
 
   it('requires an authenticated customer account', () => {
     expect(() => controller.quote({}, {})).toThrow(ForbiddenException);
     expect(() => controller.create({}, {})).toThrow(ForbiddenException);
+    expect(() => controller.search({}, 'delivery-1')).toThrow(ForbiddenException);
+    expect(() => controller.cancel({}, 'delivery-1')).toThrow(ForbiddenException);
   });
 
   it('passes the session account to create', async () => {

@@ -193,6 +193,85 @@ export async function ensureRiderWallet(tx: Prisma.TransactionClient, riderProfi
   return lockedWallet(tx, riderProfileId, now);
 }
 
+export type PlatformFeeReservationResult = {
+  reserved: boolean;
+  amount: string;
+  configVersion: number;
+};
+
+// Reserves the active platform fee only. A zero fee writes nothing. The
+// balance and the ledger stay unchanged. Callers lock the delivery, the rider
+// profile, and the assignment before this, which then locks the wallet.
+export async function openPlatformFeeReservation(
+  tx: Prisma.TransactionClient,
+  riderProfileId: string,
+  deliveryId: string,
+  now: Date,
+): Promise<PlatformFeeReservationResult> {
+  const wallet = await ensureRiderWallet(tx, riderProfileId, now);
+  const summary = await readWalletSummary(tx, riderProfileId);
+  const config = await tx.walletConfig.findFirst({ where: { isActive: true } });
+  if (!config) {
+    throw new ConflictException(WALLET_CONFIG_MISSING);
+  }
+  const feeCents = signedCentsFromDecimal(config.platformFee);
+  if (feeCents === 0) {
+    return { reserved: false, amount: formatSignedCents(0), configVersion: config.configVersion };
+  }
+  if (signedCentsFromDecimal(summary.availableCapacity) < feeCents) {
+    throw new ConflictException('Wallet capacity is not enough for the platform fee');
+  }
+  await tx.walletFeeReservation.create({
+    data: {
+      riderWalletId: wallet.id,
+      deliveryId,
+      amount: formatSignedCents(feeCents),
+      currency: Currency.USD,
+      configVersion: config.configVersion,
+      status: WalletFeeReservationStatus.OPEN,
+      createdAt: now,
+      releasedAt: null,
+      capturedAt: null,
+    },
+  });
+  return {
+    reserved: true,
+    amount: formatSignedCents(feeCents),
+    configVersion: config.configVersion,
+  };
+}
+
+// Marks the OPEN reservation RELEASED. It does not post a ledger entry and
+// does not change the wallet balance.
+export async function releasePlatformFeeReservation(
+  tx: Prisma.TransactionClient,
+  deliveryId: string,
+  now: Date,
+): Promise<void> {
+  const open = await tx.walletFeeReservation.findFirst({
+    where: { deliveryId, status: WalletFeeReservationStatus.OPEN },
+  });
+  if (!open) {
+    return;
+  }
+  const wallet = await tx.riderWallet.findUnique({ where: { id: open.riderWalletId } });
+  if (!wallet) {
+    throw new NotFoundException('Rider wallet not found');
+  }
+  await lockWalletOwner(tx, wallet.riderProfileId);
+  await lockRiderWallet(tx, wallet.id);
+  const current = await tx.walletFeeReservation.findFirst({
+    where: { id: open.id, status: WalletFeeReservationStatus.OPEN },
+  });
+  if (!current) {
+    return;
+  }
+  await tx.walletFeeReservation.update({
+    where: { id: current.id },
+    data: { status: WalletFeeReservationStatus.RELEASED, releasedAt: now },
+  });
+}
+
 // Called inside the approval transaction after the rider profile lock. A $0
 // bonus only marks the entitlement. A positive bonus is posted through
 // creditWallet in this same transaction.
@@ -272,7 +351,7 @@ export async function readWalletSummary(tx: Prisma.TransactionClient, riderProfi
     limit = signedCentsFromDecimal(override);
   }
   // Open reservation rows reduce capacity and are not ledger entries, so they
-  // do not change balance. This phase does not create reservations.
+  // do not change balance.
   const reserved = await reservedFeeCents(tx, wallet.id);
   const available = Math.max(0, cached + limit - reserved);
   return {

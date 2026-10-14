@@ -51,6 +51,13 @@
 //   wallet_borrowing_limit_audits_append_only
 //   wallet_fee_reservations_status_chk
 //   wallet_fee_reservations_one_open_per_delivery_idx
+//   rider_locations_position geography(Point,4326)
+//   rider_locations_position_gix
+//   rider_locations_coordinate_chk
+//   delivery_dispatch_rounds_round_chk
+//   delivery_dispatch_rounds_status_chk
+//   deliveries_search_generation_chk
+//   delivery_assignments_accept_idempotency_chk
 //
 // Prisma 7.1.0 cannot represent the SQL-only composite foreign keys
 // delivery_assignments_motorcycle_owner_fkey and
@@ -70,8 +77,8 @@
 // deliveries or set BUSY. Licence replacement and licence review lock the
 // rider profile, then that rider's licence images. Approval locks the rider
 // profile and then reads motorcycles. Accept still locks the delivery, then
-// the rider profile, then the assignment, and rechecks the operational
-// predicate before storing motorcycle_id on the ACCEPTED row.
+// the rider profile, then the assignment, then the rider wallet, and rechecks
+// the operational predicate before storing motorcycle_id on the ACCEPTED row.
 // That predicate requires an active account, a verified phone, approved
 // rider status, a verified licence, and exactly one active verified
 // motorcycle. Approval itself does not require the active motorcycle.
@@ -80,14 +87,20 @@
 // A CustomerAccount is a capability on a RIDER or CUSTOMER user, not a new
 // role. Deliveries belong to that account. A later membership table can
 // attach more users to the same account id without moving deliveries.
-// Live GPS belongs in a later rider_locations table, not this schema.
+// Live GPS is one current point in rider_locations. Prisma stores latitude
+// and longitude. position geography(Point,4326) and rider_locations_position_gix
+// are SQL-only, so a generated diff may propose dropping them. Remove that
+// DROP before applying it. Location updates go through parameterized SQL so
+// the geography point stays aligned. There is no location history.
 //
-// The platform service fee lives on wallet_configs. A future reservation or
-// charge may use only that fee. It must never debit deliveries.price or
+// The platform service fee lives on wallet_configs. Accepting a delivery
+// reserves only that fee. An OPEN wallet_fee_reservations row reduces capacity
+// and does not change the balance or post a ledger entry. A zero fee does not
+// insert a row. Releasing a reservation does not post a ledger entry. Capturing
+// the fee is a later phase. The fee must never debit deliveries.price or
 // deliveries.suggested_price. Wallet history is append-only. A reversal is a
 // new compensating rider_wallet_entries row. Do not update or delete a
-// historical entry. wallet_fee_reservations is reserved for a later accept
-// flow and is not written in this phase.
+// historical entry.
 // Delivery creation locks the active pricing config, then inserts the
 // delivery and its CREATED status event. It does not lock riders or insert
 // an assignment. delivery_pricing_configs_one_active_idx is SQL-only.
@@ -300,6 +313,7 @@ model RiderProfile {
   licenceImages  RiderLicenceImage[]
   licenceReviews RiderLicenceReview[]
   wallet         RiderWallet?
+  location       RiderLocation?
 
   @@index([approvalStatus, availability])
   @@index([reviewerId])
@@ -387,13 +401,17 @@ model Delivery {
   currency             Currency       @default(USD)
   paymentMethod        PaymentMethod  @map("payment_method")
   status            DeliveryStatus @default(CREATED)
+  // Customer searches and rider releases each start a new generation.
+  // Generation 0 means nobody has searched yet.
+  searchGeneration  Int            @default(0) @map("search_generation")
   createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  customer     CustomerAccount        @relation(fields: [customerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  customer        CustomerAccount        @relation(fields: [customerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   assignments     DeliveryAssignment[]
   statusEvents    DeliveryStatusEvent[]
   feeReservations WalletFeeReservation[]
+  dispatchRounds  DeliveryDispatchRound[]
 
   @@index([customerId, createdAt])
   @@index([status, createdAt])
@@ -413,9 +431,14 @@ model DeliveryAssignment {
   status         AssignmentStatus         @default(OFFERED)
   offerExpiresAt DateTime                 @map("offer_expires_at") @db.Timestamptz(6)
   respondedAt    DateTime?                @map("responded_at") @db.Timestamptz(6)
-  releaseReason  AssignmentReleaseReason? @map("release_reason")
-  releasedAt     DateTime?                @map("released_at") @db.Timestamptz(6)
-  createdAt      DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  releaseReason    AssignmentReleaseReason? @map("release_reason")
+  releasedAt       DateTime?                @map("released_at") @db.Timestamptz(6)
+  // Set on offers so a later generation can exclude riders already contacted
+  // in the current wave. Null on rows created before progressive dispatch.
+  searchGeneration Int?                     @map("search_generation")
+  idempotencyKey   String?                  @unique @map("idempotency_key") @db.VarChar(200)
+  payloadHash      String?                  @map("payload_hash") @db.Char(64)
+  createdAt        DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
 
   delivery     Delivery     @relation(fields: [deliveryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   riderProfile RiderProfile @relation(fields: [riderProfileId], references: [id], onDelete: Restrict, onUpdate: Cascade)
@@ -425,6 +448,46 @@ model DeliveryAssignment {
   @@index([motorcycleId])
   @@index([offerExpiresAt])
   @@map("delivery_assignments")
+}
+
+// One current point per rider. position geography(Point,4326) and its GiST
+// index are created by SQL and are not fields here. Do not store history.
+model RiderLocation {
+  riderProfileId String   @id @map("rider_profile_id") @db.Uuid
+  latitude       Decimal  @db.Decimal(10, 7)
+  longitude      Decimal  @db.Decimal(10, 7)
+  updatedAt      DateTime @map("updated_at") @db.Timestamptz(6)
+
+  riderProfile RiderProfile @relation(fields: [riderProfileId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@map("rider_locations")
+}
+
+enum DispatchRoundStatus {
+  PENDING
+  COMPLETED
+
+  @@map("dispatch_round_status")
+}
+
+// One row per radius in a search generation. The worker claims PENDING rows
+// whose due time has arrived. Offers and the COMPLETED mark share a transaction.
+model DeliveryDispatchRound {
+  id               String              @id @default(uuid(7)) @db.Uuid
+  deliveryId       String              @map("delivery_id") @db.Uuid
+  searchGeneration Int                 @map("search_generation")
+  roundNumber      Int                 @map("round_number")
+  radiusMetres     Int                 @map("radius_metres")
+  dueAt            DateTime            @map("due_at") @db.Timestamptz(6)
+  status           DispatchRoundStatus @default(PENDING)
+  createdAt        DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  completedAt      DateTime?           @map("completed_at") @db.Timestamptz(6)
+
+  delivery Delivery @relation(fields: [deliveryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([deliveryId, searchGeneration, roundNumber], map: "delivery_dispatch_rounds_generation_round_key")
+  @@index([status, dueAt])
+  @@map("delivery_dispatch_rounds")
 }
 
 model DeliveryStatusEvent {
