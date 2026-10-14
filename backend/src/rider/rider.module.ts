@@ -1,3 +1,4 @@
+import { RiderListService } from './rider-list.service.js';
 import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AuthModule } from '../auth/auth.module.js';
@@ -46,6 +47,7 @@ import { createS3Client, S3_CLIENT_FACTORY, S3ObjectStorage } from './s3-object-
     MotorcycleService,
     MotorcycleReviewService,
     RiderApprovalService,
+    RiderListService,
     RiderAvailabilityService,
     RiderLocationService,
     RiderOnboardingService,

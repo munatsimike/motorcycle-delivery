@@ -1,4 +1,4 @@
-import {
+﻿import {
   BadRequestException,
   Body,
   Controller,
@@ -7,6 +7,7 @@ import {
   Header,
   HttpCode,
   Param,
+  Query,
   Post,
   Req,
   StreamableFile,
@@ -16,6 +17,7 @@ import { AdminAccessGuard, type AdminRequest } from '../auth/admin-access.guard.
 import { LicenceReviewService, readLicenceReview } from './licence-review.service.js';
 import { readApprovalDecision, RiderApprovalService } from './rider-approval.service.js';
 import { WalletService } from './wallet.service.js';
+import { RiderListService } from './rider-list.service.js';
 
 @Controller('admin/riders')
 @UseGuards(AdminAccessGuard)
@@ -24,8 +26,13 @@ export class RiderAdminController {
     private readonly licences: LicenceReviewService,
     private readonly approvals: RiderApprovalService,
     private readonly wallets: WalletService,
+    private readonly riderList: RiderListService,
   ) {}
 
+  @Get()
+  listRiders(@Query() query: Record<string, unknown>) {
+    return this.riderList.list(query);
+  }
   @Post(':riderProfileId/licence-verification')
   @HttpCode(200)
   verifyLicence(@Req() request: AdminRequest, @Param('riderProfileId') riderProfileId: string, @Body() body: unknown) {
