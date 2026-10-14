@@ -7,6 +7,7 @@
   Header,
   HttpCode,
   Param,
+  ParseUUIDPipe,
   Query,
   Post,
   Req,
@@ -32,6 +33,10 @@ export class RiderAdminController {
   @Get()
   listRiders(@Query() query: Record<string, unknown>) {
     return this.riderList.list(query);
+  }
+  @Get(':riderProfileId')
+  getRiderDetails(@Param('riderProfileId', new ParseUUIDPipe({ version: '7' })) riderProfileId: string) {
+    return this.riderList.getById(riderProfileId);
   }
   @Post(':riderProfileId/licence-verification')
   @HttpCode(200)
@@ -81,3 +86,5 @@ function readIdempotencyKey(request: AdminRequest): string {
   }
   return value.trim();
 }
+
+
