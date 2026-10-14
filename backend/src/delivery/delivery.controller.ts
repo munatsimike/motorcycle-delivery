@@ -1,4 +1,14 @@
-import { Body, Controller, ForbiddenException, HttpCode, Param, Post, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  ForbiddenException,
+  Get,
+  HttpCode,
+  Param,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { CustomerAccessGuard, type CustomerRequest } from '../auth/customer-access.guard.js';
 import { DeliveryService } from './delivery.service.js';
 import { DispatchService } from './dispatch.service.js';
@@ -23,6 +33,10 @@ export class DeliveryController {
     return this.deliveries.create(requiredCustomer(request), body);
   }
 
+  @Get(':deliveryId')
+  getById(@Req() request: CustomerRequest, @Param('deliveryId') deliveryId: string) {
+    return this.deliveries.getById(requiredCustomer(request), deliveryId);
+  }
   @Post(':deliveryId/search')
   @HttpCode(200)
   search(@Req() request: CustomerRequest, @Param('deliveryId') deliveryId: string) {
@@ -42,3 +56,5 @@ function requiredCustomer(request: CustomerRequest) {
   }
   return request.customer;
 }
+
+

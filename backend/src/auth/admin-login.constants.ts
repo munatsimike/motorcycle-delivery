@@ -1,0 +1,4 @@
+export const ADMIN_OTP_TTL_MS = 5 * 60 * 1000;
+export const ADMIN_OTP_MAX_ATTEMPTS = 5;
+export const ADMIN_OTP_RESEND_COOLDOWN_MS = 60 * 1000;
+export const ADMIN_OTP_MAX_REQUESTS_PER_HOUR = 5;

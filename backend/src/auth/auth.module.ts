@@ -14,8 +14,18 @@ import { SessionController } from './session.controller.js';
 import { SessionService } from './session.service.js';
 import { HttpTwilioVerifyClient, TwilioVerifyClient } from './twilio-verify.client.js';
 
+import { AdminOtpEmailService } from './admin-otp-email.service.js';
+
+import { AdminLoginRateLimitService } from './admin-login-rate-limit.service.js';
+
+import { AdminOtpChallengeService } from './admin-otp-challenge.service.js';
+
+import { AdminLoginService } from './admin-login.service.js';
+
+import { AdminAuthController } from './admin-auth.controller.js';
+
 @Module({
-  controllers: [RiderAuthController, CustomerAuthController, SessionController],
+  controllers: [RiderAuthController, CustomerAuthController, SessionController, AdminAuthController],
   providers: [
     Clock,
     AccessTokenService,
@@ -27,6 +37,10 @@ import { HttpTwilioVerifyClient, TwilioVerifyClient } from './twilio-verify.clie
     CustomerSessionGuard,
     CustomerAccessGuard,
     AdminAccessService,
+    AdminOtpEmailService,
+    AdminLoginRateLimitService,
+    AdminOtpChallengeService,
+    AdminLoginService,
     AdminAccessGuard,
     HttpTwilioVerifyClient,
     { provide: TwilioVerifyClient, useExisting: HttpTwilioVerifyClient },
@@ -40,6 +54,14 @@ import { HttpTwilioVerifyClient, TwilioVerifyClient } from './twilio-verify.clie
     CustomerAccessService,
     AdminAccessGuard,
     AdminAccessService,
+    AdminOtpEmailService,
+    AdminLoginRateLimitService,
+    AdminOtpChallengeService,
   ],
 })
 export class AuthModule {}
+
+
+
+
+

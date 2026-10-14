@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import {
   Currency,
   DeliveryActorType,
@@ -26,6 +26,20 @@ type ActiveTariff = {
 export class DeliveryService {
   constructor(private readonly prisma: PrismaService) {}
 
+  async getById(customer: CustomerContext, deliveryId: string) {
+    const delivery = await this.prisma.delivery.findFirst({
+      where: {
+        id: deliveryId,
+        customerId: customer.customerAccountId,
+      },
+    });
+
+    if (!delivery) {
+      throw new NotFoundException('Delivery not found');
+    }
+
+    return toCustomerDelivery(delivery);
+  }
   async quote(body: unknown) {
     const pins = readQuotePins(body);
     const active = await this.prisma.deliveryPricingConfig.findFirst({ where: { isActive: true } });
@@ -122,3 +136,4 @@ function pricePins(pins: QuotePins, tariff: ActiveTariff) {
     suggestedPrice: formatCents(cents),
   };
 }
+

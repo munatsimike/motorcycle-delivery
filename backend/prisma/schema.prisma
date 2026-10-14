@@ -197,6 +197,7 @@ enum DeliveryPayer {
 enum DeliveryStatus {
   CREATED
   SEARCHING
+  NO_RIDER_FOUND
   ASSIGNED
   ARRIVED_AT_PICKUP
   PICKED_UP
@@ -289,6 +290,7 @@ model User {
   borrowingLimitAudits    WalletBorrowingLimitAudit[] @relation("BorrowingLimitAuditor")
   deliveryStatusEvents    DeliveryStatusEvent[]
   refreshSessions       RefreshSession[]
+  adminLoginChallenges AdminLoginChallenge[] @relation("AdminLoginChallenges")
   licenceReviews        RiderLicenceReview[]  @relation("LicenceDecisionReviewer")
 
   @@index([role, accountStatus])
@@ -412,6 +414,9 @@ model Delivery {
   // Customer searches and rider releases each start a new generation.
   // Generation 0 means nobody has searched yet.
   searchGeneration  Int            @default(0) @map("search_generation")
+ autoRetryCount Int       @default(0) @map("auto_retry_count")
+ nextRetryAt    DateTime? @map("next_retry_at") @db.Timestamptz(6)
+ searchStartedAt DateTime? @map("search_started_at") @db.Timestamptz(6)
   createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -949,4 +954,32 @@ model WalletFeeReservation {
   @@index([riderWalletId, status])
   @@index([deliveryId])
   @@map("wallet_fee_reservations")
+}
+
+
+
+
+model AdminLoginChallenge {
+  id            String    @id @default(uuid(7)) @db.Uuid
+  adminUserId   String    @map("admin_user_id") @db.Uuid
+  codeHash      String    @map("code_hash") @db.Char(64)
+  expiresAt     DateTime  @map("expires_at") @db.Timestamptz(6)
+  checkAttempts Int       @default(0) @map("check_attempts")
+  consumedAt    DateTime? @map("consumed_at") @db.Timestamptz(6)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  adminUser User @relation("AdminLoginChallenges", fields: [adminUserId], references: [id], onDelete: Restrict)
+
+  @@index([adminUserId, createdAt])
+  @@map("admin_login_challenges")
+}
+
+
+model AdminLoginAttempt {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  ipHash    String   @map("ip_hash") @db.Char(64)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([ipHash, createdAt])
+  @@map("admin_login_attempts")
 }

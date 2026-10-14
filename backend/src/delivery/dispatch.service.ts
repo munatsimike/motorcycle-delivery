@@ -30,6 +30,8 @@ import {
 } from '../rider/wallet-ledger.js';
 import { findDispatchCandidates } from './dispatch-query.js';
 import {
+  AUTO_RETRY_MAX_COUNT,
+  AUTO_RETRY_DELAY_MS,
   DISPATCH_ROUND_DELAYS_MS,
   DISPATCH_ROUND_RADII_METRES,
   GPS_FRESH_MS,
@@ -203,6 +205,12 @@ export class DispatchService {
     return this.prisma.$transaction((tx) => releaseDelivery(tx, rider, assignmentId, reason, now));
   }
 
+  processAutoRetry(now = new Date()): Promise<boolean> {
+    return this.prisma.$transaction(async (tx) => {
+      return processAutoRetry(tx, now);
+    });
+  }
+
   processDueRound(now = new Date()): Promise<boolean> {
     return this.prisma.$transaction(async (tx) => {
       const claimed = await claimDueRound(tx, now);
@@ -356,7 +364,7 @@ async function startSearch(
 ) {
   await lockDelivery(tx, deliveryId);
   const delivery = await requiredDelivery(tx, deliveryId, customer.customerAccountId);
-  if (delivery.status !== DeliveryStatus.CREATED && delivery.status !== DeliveryStatus.SEARCHING) {
+  if (delivery.status !== DeliveryStatus.CREATED && delivery.status !== DeliveryStatus.NO_RIDER_FOUND) {
     throw new ConflictException('This delivery cannot be searched');
   }
   await expireOffers(tx, delivery.id, null, now);
@@ -373,14 +381,12 @@ async function startSearch(
     throw new ConflictException('A search is already running');
   }
   const nextGeneration = delivery.searchGeneration + 1;
-  const nextStatus = delivery.status === DeliveryStatus.CREATED ? DeliveryStatus.SEARCHING : delivery.status;
+  const nextStatus = DeliveryStatus.SEARCHING;
   await tx.delivery.update({
     where: { id: delivery.id },
-    data: { status: nextStatus, searchGeneration: nextGeneration, updatedAt: now },
+    data: { status: nextStatus, searchGeneration: nextGeneration, autoRetryCount: 0, nextRetryAt: null, searchStartedAt: now, updatedAt: now },
   });
-  if (nextStatus !== delivery.status) {
-    await recordStatus(tx, delivery.id, delivery.status, nextStatus, customer.userId, DeliveryActorType.CUSTOMER, now);
-  }
+  await recordStatus(tx, delivery.id, delivery.status, nextStatus, customer.userId, DeliveryActorType.CUSTOMER, now);
   await insertRounds(tx, delivery.id, nextGeneration, now);
   return { deliveryId: delivery.id, status: nextStatus, searchGeneration: nextGeneration };
 }
@@ -841,6 +847,108 @@ async function cancelOffered(
   }
 }
 
+async function processAutoRetry(
+  tx: Prisma.TransactionClient,
+  now: Date,
+): Promise<boolean> {
+  const rows = await tx.$queryRaw<Array<{ id: string }>>`
+    SELECT d."id"
+    FROM "deliveries" d
+    WHERE d."status" = 'SEARCHING'::"delivery_status"
+      AND d."search_generation" > 0
+      AND NOT EXISTS (
+        SELECT 1
+        FROM "delivery_dispatch_rounds" r
+        WHERE r."delivery_id" = d."id"
+          AND r."status" = 'PENDING'::"dispatch_round_status"
+      )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM "delivery_assignments" a
+        WHERE a."delivery_id" = d."id"
+          AND a."status" = 'OFFERED'::"assignment_status"
+          AND a."offer_expires_at" > ${now}
+      )
+      AND (
+        (d."next_retry_at" IS NOT NULL AND d."next_retry_at" <= ${now})
+        OR d."next_retry_at" IS NULL
+      )
+    ORDER BY d."updated_at" ASC
+    LIMIT 1
+    FOR UPDATE OF d SKIP LOCKED
+  `;
+
+  const claimed = rows[0];
+  if (!claimed) {
+    return false;
+  }
+
+  await expireOffers(tx, claimed.id, null, now);
+
+  const delivery = await tx.delivery.findUnique({
+    where: { id: claimed.id },
+  });
+
+  if (!delivery || delivery.status !== DeliveryStatus.SEARCHING) {
+    return true;
+  }
+
+  if (delivery.nextRetryAt === null && delivery.autoRetryCount < AUTO_RETRY_MAX_COUNT) {
+    await tx.delivery.update({
+      where: { id: delivery.id },
+      data: {
+        nextRetryAt: new Date(now.getTime() + AUTO_RETRY_DELAY_MS),
+        updatedAt: now,
+      },
+    });
+    return true;
+  }
+
+  if (delivery.nextRetryAt === null && delivery.autoRetryCount >= AUTO_RETRY_MAX_COUNT) {
+    await tx.delivery.update({
+      where: { id: delivery.id },
+      data: {
+        status: DeliveryStatus.NO_RIDER_FOUND,
+        nextRetryAt: null,
+        updatedAt: now,
+      },
+    });
+
+    await tx.deliveryStatusEvent.create({
+      data: {
+        deliveryId: delivery.id,
+        previousStatus: DeliveryStatus.SEARCHING,
+        newStatus: DeliveryStatus.NO_RIDER_FOUND,
+        actorId: null,
+        actorType: DeliveryActorType.SYSTEM,
+        occurredAt: now,
+      },
+    });
+
+    return true;
+  }
+
+  if (delivery.nextRetryAt !== null && delivery.nextRetryAt <= now) {
+    const nextGeneration = delivery.searchGeneration + 1;
+
+    await tx.delivery.update({
+      where: { id: delivery.id },
+      data: {
+        searchGeneration: nextGeneration,
+        autoRetryCount: { increment: 1 },
+        nextRetryAt: null,
+        searchStartedAt: now,
+        updatedAt: now,
+      },
+    });
+
+    await insertRounds(tx, delivery.id, nextGeneration, now);
+    return true;
+  }
+
+  return true;
+}
+
 async function insertRounds(
   tx: Prisma.TransactionClient,
   deliveryId: string,
@@ -971,3 +1079,19 @@ function readIdempotencyKey(value: string): string {
   }
   return key;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

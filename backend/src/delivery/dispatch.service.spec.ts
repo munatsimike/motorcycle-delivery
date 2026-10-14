@@ -19,6 +19,142 @@ const NOW = new Date('2026-10-14T12:00:00.000Z');
 const CUSTOMER = { userId: 'user-customer', role: 'CUSTOMER' as const, customerAccountId: 'account-1' };
 
 describe('progressive dispatch', () => {
+  it('does not retry after a rider accepts the delivery', async () => {
+    const ctx = context();
+    const { delivery } = await acceptJob(ctx, 'retry-stop');
+
+    expect(ctx.deliveries[0].status).toBe('ASSIGNED');
+
+    const later = new Date(NOW.getTime() + 120_000);
+
+    await drain(ctx.service, later);
+
+    expect(await ctx.service.processAutoRetry(later)).toBe(false);
+
+    expect(ctx.deliveries[0].status).toBe('ASSIGNED');
+    expect(ctx.deliveries[0].searchGeneration).toBe(1);
+    expect(ctx.deliveries[0].autoRetryCount).toBe(0);
+    expect(ctx.deliveries[0].nextRetryAt).toBeNull();
+
+    expect(ctx.rounds.filter(
+      (round) => round.deliveryId === delivery.id,
+    )).toHaveLength(3);
+  });
+
+  it('does not retry after the customer cancels during the retry countdown', async () => {
+    const ctx = context();
+    const delivery = addDelivery(ctx);
+
+    await ctx.service.search(CUSTOMER, delivery.id, NOW);
+
+    const exhaustedAt = new Date(NOW.getTime() + 40_000);
+    await drain(ctx.service, exhaustedAt);
+
+    expect(await ctx.service.processAutoRetry(exhaustedAt)).toBe(true);
+    expect(ctx.deliveries[0].nextRetryAt).toEqual(
+      new Date(exhaustedAt.getTime() + 10_000),
+    );
+
+    await ctx.service.cancel(
+      CUSTOMER,
+      delivery.id,
+      new Date(exhaustedAt.getTime() + 5_000),
+    );
+
+    expect(ctx.deliveries[0].status).toBe('CANCELLED');
+
+    expect(
+      await ctx.service.processAutoRetry(
+        new Date(exhaustedAt.getTime() + 10_000),
+      ),
+    ).toBe(false);
+
+    expect(ctx.deliveries[0].searchGeneration).toBe(1);
+    expect(ctx.deliveries[0].autoRetryCount).toBe(0);
+    expect(ctx.rounds).toHaveLength(3);
+  });
+
+  it('stops after five automatic retries and allows a manual restart', async () => {
+    const ctx = context();
+    const delivery = addDelivery(ctx);
+
+    await ctx.service.search(CUSTOMER, delivery.id, NOW);
+
+    for (let attempt = 0; attempt <= 5; attempt += 1) {
+      const searchStart = new Date(NOW.getTime() + attempt * 50_000);
+      const exhaustedAt = new Date(searchStart.getTime() + 40_000);
+
+      await drain(ctx.service, exhaustedAt);
+
+      expect(ctx.deliveries[0].searchGeneration).toBe(attempt + 1);
+      expect(ctx.deliveries[0].autoRetryCount).toBe(attempt);
+
+      expect(await ctx.service.processAutoRetry(exhaustedAt)).toBe(true);
+
+      if (attempt < 5) {
+        expect(ctx.deliveries[0].nextRetryAt).toEqual(
+          new Date(exhaustedAt.getTime() + 10_000),
+        );
+
+        expect(
+          await ctx.service.processAutoRetry(
+            new Date(exhaustedAt.getTime() + 10_000),
+          ),
+        ).toBe(true);
+      }
+    }
+
+    expect(ctx.deliveries[0].status).toBe('NO_RIDER_FOUND');
+    expect(ctx.deliveries[0].autoRetryCount).toBe(5);
+    expect(ctx.deliveries[0].searchGeneration).toBe(6);
+    expect(ctx.deliveries[0].nextRetryAt).toBeNull();
+
+    expect(await ctx.service.processAutoRetry(
+      new Date(NOW.getTime() + 400_000),
+    )).toBe(false);
+
+    const restarted = await ctx.service.search(
+      CUSTOMER,
+      delivery.id,
+      new Date(NOW.getTime() + 400_000),
+    );
+
+    expect(restarted.searchGeneration).toBe(7);
+    expect(restarted.status).toBe('SEARCHING');
+    expect(ctx.deliveries[0].autoRetryCount).toBe(0);
+  });
+
+  it('starts an automatic retry only after the 10-second delay', async () => {
+    const ctx = context();
+    const delivery = addDelivery(ctx);
+
+    await ctx.service.search(CUSTOMER, delivery.id, NOW);
+    await drain(ctx.service, new Date(NOW.getTime() + 40_000));
+
+    const exhaustedAt = new Date(NOW.getTime() + 40_000);
+
+    expect(await ctx.service.processAutoRetry(exhaustedAt)).toBe(true);
+    expect(ctx.deliveries[0].autoRetryCount).toBe(0);
+    expect(ctx.deliveries[0].nextRetryAt).toEqual(
+      new Date(exhaustedAt.getTime() + 10_000),
+    );
+
+    expect(
+      await ctx.service.processAutoRetry(new Date(exhaustedAt.getTime() + 9_999)),
+    ).toBe(false);
+
+    expect(ctx.deliveries[0].searchGeneration).toBe(1);
+
+    expect(
+      await ctx.service.processAutoRetry(new Date(exhaustedAt.getTime() + 10_000)),
+    ).toBe(true);
+
+    expect(ctx.deliveries[0].searchGeneration).toBe(2);
+    expect(ctx.deliveries[0].autoRetryCount).toBe(1);
+    expect(ctx.deliveries[0].nextRetryAt).toBeNull();
+    expect(ctx.rounds.filter((round) => round.searchGeneration === 2)).toHaveLength(3);
+  });
+
   it('keeps offers inside each radius and on the 20 and 40 second marks', async () => {
     const ctx = context();
     const near = addRider(ctx, 'near', longitudeFor(2_000), NOW);
@@ -66,8 +202,8 @@ describe('progressive dispatch', () => {
 
     await expect(ctx.service.search(CUSTOMER, delivery.id, new Date(NOW.getTime() + 99_000)))
       .rejects.toBeInstanceOf(ConflictException);
-    const again = await ctx.service.search(CUSTOMER, delivery.id, new Date(NOW.getTime() + 100_000));
-    expect(again.searchGeneration).toBe(2);
+    await expect(ctx.service.search(CUSTOMER, delivery.id, new Date(NOW.getTime() + 100_000)))
+      .rejects.toBeInstanceOf(ConflictException);
   });
 
   it('lets two workers claim different rounds and still offers each rider once', async () => {
@@ -547,6 +683,24 @@ function context() {
       const tx = {
         async $queryRaw(strings: TemplateStringsArray, ...values: unknown[]) {
           const sql = strings.join(' ');
+          if (sql.includes('SKIP LOCKED') && sql.includes('FROM "deliveries" d')) {
+            const now = values[0] as Date;
+            const eligible = draft.deliveries
+              .filter((delivery) => delivery.status === 'SEARCHING' && delivery.searchGeneration > 0)
+              .filter((delivery) => !draft.rounds.some(
+                (round) => round.deliveryId === delivery.id && round.status === 'PENDING',
+              ))
+              .filter((delivery) => !draft.assignments.some(
+                (offer) => offer.deliveryId === delivery.id
+                  && offer.status === 'OFFERED'
+                  && offer.offerExpiresAt > now,
+              ))
+              .filter((delivery) => !delivery.nextRetryAt || delivery.nextRetryAt <= now)
+              .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+
+            return eligible.length ? [{ id: eligible[0].id }] : [];
+          }
+
           if (sql.includes('SKIP LOCKED')) {
             const now = values[0] as Date;
             const due = draft.rounds
@@ -661,6 +815,9 @@ function addDelivery(ctx: ReturnType<typeof context>, id = 'delivery-1') {
     customerId: CUSTOMER.customerAccountId,
     status: 'CREATED',
     searchGeneration: 0,
+    autoRetryCount: 0,
+    nextRetryAt: null,
+    searchStartedAt: null,
     price: '4.50',
     suggestedPrice: '8.88',
     pricingVersion: 7,
@@ -870,7 +1027,18 @@ function table(read: () => Row[], mark: () => void, nextId: () => number) {
       if (!row) {
         throw new Error('missing row');
       }
-      Object.assign(row, data);
+      for (const [key, value] of Object.entries(data)) {
+        if (
+          value !== null &&
+          typeof value === 'object' &&
+          'increment' in value &&
+          typeof value.increment === 'number'
+        ) {
+          row[key] = Number(row[key] ?? 0) + value.increment;
+        } else {
+          row[key] = value;
+        }
+      }
       mark();
       return structuredClone(row);
     },
@@ -1007,3 +1175,13 @@ async function hold(mutexes: Map<string, Mutex>, key: string, txId: number, rele
     }
   });
 }
+
+
+
+
+
+
+
+
+
+

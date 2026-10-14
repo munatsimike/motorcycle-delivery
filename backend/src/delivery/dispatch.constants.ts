@@ -11,3 +11,7 @@ export function gpsIsFresh(updatedAt: Date, now: Date): boolean {
 export function offerIsOpen(expiresAt: Date, now: Date): boolean {
   return expiresAt.getTime() > now.getTime();
 }
+
+export const AUTO_RETRY_MAX_COUNT = 5;
+export const AUTO_RETRY_DELAY_MS = 10_000;
+

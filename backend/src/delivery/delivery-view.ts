@@ -4,6 +4,9 @@ import { centsFromDecimal, formatCents } from './money.js';
 export type StoredDelivery = {
   id: string;
   status: DeliveryStatus;
+  searchGeneration?: number;
+  autoRetryCount?: number;
+  nextRetryAt?: Date | null;
   currency: Currency;
   payer: DeliveryPayer;
   paymentMethod: PaymentMethod;
@@ -34,6 +37,9 @@ export function toCustomerDelivery(delivery: StoredDelivery) {
   return {
     id: delivery.id,
     status: delivery.status,
+    searchGeneration: delivery.searchGeneration ?? 0,
+    autoRetryCount: delivery.autoRetryCount ?? 0,
+    nextRetryAt: delivery.nextRetryAt ?? null,
     currency: delivery.currency,
     payer: delivery.payer,
     paymentMethod: delivery.paymentMethod,
@@ -107,3 +113,5 @@ function stop(
 function decimalText(value: string | { toFixed(digits: number): string }, digits: number): string {
   return typeof value === 'string' ? value : value.toFixed(digits);
 }
+
+

@@ -1,0 +1,1 @@
+ALTER TYPE "delivery_status" ADD VALUE IF NOT EXISTS 'NO_RIDER_FOUND';

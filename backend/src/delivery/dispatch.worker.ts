@@ -37,14 +37,22 @@ export class DispatchWorker implements OnModuleInit, OnModuleDestroy {
       for (let processed = 0; processed < 100; processed += 1) {
         const worked = await this.dispatch.processDueRound(now);
         if (!worked) {
-          return;
+          break;
+        }
+      }
+
+      for (let processed = 0; processed < 100; processed += 1) {
+        const worked = await this.dispatch.processAutoRetry(now);
+        if (!worked) {
+          break;
         }
       }
     } catch (error) {
       const name = error instanceof Error ? error.name : 'Error';
-      this.logger.error(`Dispatch round failed: ${name}`);
+      this.logger.error(`Dispatch worker failed: ${name}`);
     } finally {
       this.running = false;
     }
   }
 }
+
