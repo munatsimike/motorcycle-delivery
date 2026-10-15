@@ -21,6 +21,9 @@ export class AdminDashboardService {
       verifiedMotorcycles,
       rejectedMotorcycles,
       revokedMotorcycles,
+      offlineRiders,
+      availableRiders,
+      busyRiders,
     ] = await this.prisma.$transaction([
       this.prisma.delivery.count(),
       this.prisma.delivery.count({
@@ -69,6 +72,15 @@ export class AdminDashboardService {
       this.prisma.motorcycle.count({
         where: { verificationStatus: 'REVOKED' },
       }),
+      this.prisma.riderProfile.count({
+        where: { approvalStatus: 'APPROVED', availability: 'OFFLINE' },
+      }),
+      this.prisma.riderProfile.count({
+        where: { approvalStatus: 'APPROVED', availability: 'AVAILABLE' },
+      }),
+      this.prisma.riderProfile.count({
+        where: { approvalStatus: 'APPROVED', availability: 'BUSY' },
+      }),
     ]);
 
     return {
@@ -84,6 +96,11 @@ export class AdminDashboardService {
         approved: approvedRiders,
         suspended: suspendedRiders,
         rejected: rejectedRiders,
+        availability: {
+          offline: offlineRiders,
+          available: availableRiders,
+          busy: busyRiders,
+        },
       },
       motorcycles: {
         total: totalMotorcycles,
