@@ -1,4 +1,4 @@
-﻿import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { DeliveryStatus } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
@@ -42,6 +42,16 @@ export class AdminDeliveryListService {
           price: true,
           currency: true,
           paymentMethod: true,
+          assignments: {
+            where: { status: 'ACCEPTED' },
+            take: 1,
+            select: {
+              id: true,
+              riderProfileId: true,
+              motorcycleId: true,
+              status: true,
+            },
+          },
           createdAt: true,
           updatedAt: true,
         },
@@ -58,6 +68,7 @@ export class AdminDeliveryListService {
         price: delivery.price,
         currency: delivery.currency,
         paymentMethod: delivery.paymentMethod,
+        activeAssignment: delivery.assignments[0] ?? null,
         createdAt: delivery.createdAt,
         updatedAt: delivery.updatedAt,
       })),
