@@ -105,6 +105,16 @@ export class AdminDeliveryListService {
         paymentMethod: true,
         createdAt: true,
         updatedAt: true,
+        statusEvents: {
+          orderBy: [{ occurredAt: 'asc' }, { id: 'asc' }],
+          select: {
+            id: true,
+            previousStatus: true,
+            newStatus: true,
+            actorType: true,
+            occurredAt: true,
+          },
+        },
         assignments: {
           orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
           select: {
@@ -145,6 +155,7 @@ export class AdminDeliveryListService {
       activeAssignment:
         delivery.assignments.find((assignment) => assignment.status === 'ACCEPTED') ?? null,
       assignments: delivery.assignments,
+      statusTimeline: delivery.statusEvents,
     };
   }
 }
