@@ -6,6 +6,8 @@ export class AdminDashboardService {
   constructor(private readonly prisma: PrismaService) {}
 
   async getSummary() {
+    const last24Hours = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
     const [
       totalDeliveries,
       activeDeliveries,
@@ -25,6 +27,7 @@ export class AdminDashboardService {
       availableRiders,
       busyRiders,
       deliveryStatusGroups,
+      deliveriesLast24Hours,
     ] = await this.prisma.$transaction([
       this.prisma.delivery.count(),
       this.prisma.delivery.count({
@@ -86,6 +89,9 @@ export class AdminDashboardService {
         by: ['status'],
         _count: { _all: true },
       }),
+      this.prisma.delivery.count({
+        where: { createdAt: { gte: last24Hours } },
+      }),
     ]);
 
     const statusCounts: Record<string, number> = {
@@ -113,6 +119,7 @@ export class AdminDashboardService {
         completed: completedDeliveries,
         cancelled: cancelledDeliveries,
         byStatus: statusCounts,
+        last24Hours: deliveriesLast24Hours,
       },
       riders: {
         total: totalRiders,
