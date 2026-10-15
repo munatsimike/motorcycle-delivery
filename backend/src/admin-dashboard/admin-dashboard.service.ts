@@ -28,6 +28,9 @@ export class AdminDashboardService {
       busyRiders,
       deliveryStatusGroups,
       deliveriesLast24Hours,
+      totalCustomers,
+      individualCustomers,
+      businessCustomers,
     ] = await this.prisma.$transaction([
       this.prisma.delivery.count(),
       this.prisma.delivery.count({
@@ -92,6 +95,13 @@ export class AdminDashboardService {
       this.prisma.delivery.count({
         where: { createdAt: { gte: last24Hours } },
       }),
+      this.prisma.customerAccount.count(),
+      this.prisma.customerAccount.count({
+        where: { kind: 'INDIVIDUAL' },
+      }),
+      this.prisma.customerAccount.count({
+        where: { kind: 'BUSINESS' },
+      }),
     ]);
 
     const statusCounts: Record<string, number> = {
@@ -132,6 +142,11 @@ export class AdminDashboardService {
           available: availableRiders,
           busy: busyRiders,
         },
+      },
+      customers: {
+        total: totalCustomers,
+        individual: individualCustomers,
+        business: businessCustomers,
       },
       motorcycles: {
         total: totalMotorcycles,
