@@ -24,6 +24,7 @@ export class AdminDashboardService {
       offlineRiders,
       availableRiders,
       busyRiders,
+      deliveryStatusGroups,
     ] = await this.prisma.$transaction([
       this.prisma.delivery.count(),
       this.prisma.delivery.count({
@@ -81,7 +82,29 @@ export class AdminDashboardService {
       this.prisma.riderProfile.count({
         where: { approvalStatus: 'APPROVED', availability: 'BUSY' },
       }),
+      this.prisma.delivery.groupBy({
+        by: ['status'],
+        _count: { _all: true },
+      }),
     ]);
+
+    const statusCounts: Record<string, number> = {
+      CREATED: 0,
+      SEARCHING: 0,
+      NO_RIDER_FOUND: 0,
+      ASSIGNED: 0,
+      ARRIVED_AT_PICKUP: 0,
+      PICKED_UP: 0,
+      IN_TRANSIT: 0,
+      ARRIVED_AT_DROPOFF: 0,
+      DELIVERED: 0,
+      CANCELLED: 0,
+      FAILED: 0,
+    };
+
+    for (const group of deliveryStatusGroups) {
+      statusCounts[group.status] = group._count._all;
+    }
 
     return {
       deliveries: {
@@ -89,6 +112,7 @@ export class AdminDashboardService {
         active: activeDeliveries,
         completed: completedDeliveries,
         cancelled: cancelledDeliveries,
+        byStatus: statusCounts,
       },
       riders: {
         total: totalRiders,
