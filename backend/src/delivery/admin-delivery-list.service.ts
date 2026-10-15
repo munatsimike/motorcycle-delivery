@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { DeliveryStatus } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
@@ -78,6 +78,73 @@ export class AdminDeliveryListService {
         total,
         totalPages: Math.ceil(total / limit),
       },
+    };
+  }
+  async getById(deliveryId: string) {
+    if (
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(deliveryId)
+    ) {
+      throw new BadRequestException('Invalid delivery ID');
+    }
+
+    const delivery = await this.prisma.delivery.findUnique({
+      where: { id: deliveryId },
+      select: {
+        id: true,
+        deliveryType: true,
+        status: true,
+        pickupAddress: true,
+        dropoffAddress: true,
+        parcelSize: true,
+        price: true,
+        suggestedPrice: true,
+        distanceMeters: true,
+        pricingVersion: true,
+        payer: true,
+        currency: true,
+        paymentMethod: true,
+        createdAt: true,
+        updatedAt: true,
+        assignments: {
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          select: {
+            id: true,
+            riderProfileId: true,
+            motorcycleId: true,
+            status: true,
+            offerExpiresAt: true,
+            respondedAt: true,
+            releaseReason: true,
+            releasedAt: true,
+            createdAt: true,
+          },
+        },
+      },
+    });
+
+    if (!delivery) {
+      throw new NotFoundException('Delivery not found');
+    }
+
+    return {
+      deliveryId: delivery.id,
+      deliveryType: delivery.deliveryType,
+      status: delivery.status,
+      pickupAddress: delivery.pickupAddress,
+      dropoffAddress: delivery.dropoffAddress,
+      parcelSize: delivery.parcelSize,
+      price: delivery.price,
+      suggestedPrice: delivery.suggestedPrice,
+      distanceMeters: delivery.distanceMeters,
+      pricingVersion: delivery.pricingVersion,
+      payer: delivery.payer,
+      currency: delivery.currency,
+      paymentMethod: delivery.paymentMethod,
+      createdAt: delivery.createdAt,
+      updatedAt: delivery.updatedAt,
+      activeAssignment:
+        delivery.assignments.find((assignment) => assignment.status === 'ACCEPTED') ?? null,
+      assignments: delivery.assignments,
     };
   }
 }
