@@ -1,6 +1,6 @@
-﻿import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { RiderApprovalStatus } from '../generated/prisma/client.js';
+import { RiderApprovalStatus, RiderVerificationStatus } from '../generated/prisma/client.js';
 
 @Injectable()
 export class RiderListService {
@@ -26,6 +26,19 @@ export class RiderListService {
             email: true,
             accountStatus: true,
           },
+        },
+        licenceImages: {
+          where: {
+            status: 'STORED',
+            reviewStatus: 'PENDING',
+          },
+          select: {
+            id: true,
+            uploadedAt: true,
+            contentType: true,
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
         },
         motorcycles: {
           select: {
@@ -55,6 +68,7 @@ export class RiderListService {
       licenceNumber: rider.licenceNumber,
       licenceClass: rider.licenceClass,
       verifiedAt: rider.verifiedAt,
+      licenceImage: rider.licenceImages[0] ?? null,
       motorcycles: rider.motorcycles,
       createdAt: rider.createdAt,
       updatedAt: rider.updatedAt,
@@ -78,6 +92,19 @@ export class RiderListService {
       throw new BadRequestException('Invalid approval status');
     }
 
+    const verificationStatus = query.verificationStatus;
+
+    if (
+      verificationStatus !== undefined &&
+      (
+        typeof verificationStatus !== 'string' ||
+        !Object.values(RiderVerificationStatus).includes(
+          verificationStatus as RiderVerificationStatus,
+        )
+      )
+    ) {
+      throw new BadRequestException('Invalid verification status');
+    }
     const phone = query.phone;
 
     if (
@@ -91,7 +118,9 @@ export class RiderListService {
       ...(approvalStatus
         ? { approvalStatus: approvalStatus as RiderApprovalStatus }
         : {}),
-      ...(phone ? { user: { phone } } : {}),
+      ...(verificationStatus
+        ? { verificationStatus: verificationStatus as RiderVerificationStatus }
+        : {}),      ...(phone ? { user: { phone } } : {}),
     };
 
     const [total, riders] = await this.prisma.$transaction([
@@ -159,5 +188,3 @@ function readInteger(
 
   return Number(value);
 }
-
-
