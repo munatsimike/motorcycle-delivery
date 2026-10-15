@@ -455,6 +455,8 @@ model DeliveryAssignment {
   // to open the reservation, including 0.00. Release and completion keep them.
   acceptedPlatformFee      Decimal? @map("accepted_platform_fee") @db.Decimal(12, 2)
   acceptedFeeConfigVersion Int?     @map("accepted_fee_config_version")
+  acceptedCommissionModel CommissionModel? @map("accepted_commission_model")
+  acceptedCommissionPolicyVersion Int? @map("accepted_commission_policy_version")
   createdAt        DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
 
   delivery     Delivery     @relation(fields: [deliveryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
@@ -701,6 +703,7 @@ enum WalletEntryType {
   PLATFORM_FEE_HOLD
   PLATFORM_FEE
   PLATFORM_FEE_RELEASE
+  PLATFORM_FEE_REFUND
 
   @@map("wallet_entry_type")
 }
@@ -940,6 +943,7 @@ model WalletFeeReservation {
   id            String                     @id @default(uuid(7)) @db.Uuid
   riderWalletId String                     @map("rider_wallet_id") @db.Uuid
   deliveryId    String?                    @map("delivery_id") @db.Uuid
+  assignmentId  String?                    @unique @map("assignment_id") @db.Uuid
   amount        Decimal                    @db.Decimal(12, 2)
   currency      Currency
   configVersion Int                        @map("config_version")
@@ -983,3 +987,25 @@ model AdminLoginAttempt {
   @@index([ipHash, createdAt])
   @@map("admin_login_attempts")
 }
+
+enum CommissionModel {
+  ON_COMPLETION
+  ON_ACCEPTANCE
+
+  @@map("commission_model")
+}
+
+model CommissionPolicy {
+  id            String          @id @default(uuid(7)) @db.Uuid
+  policyVersion Int             @unique @map("policy_version")
+  model         CommissionModel @default(ON_COMPLETION)
+  isActive      Boolean         @default(false) @map("is_active")
+  createdById   String?         @map("created_by_id") @db.Uuid
+  createdAt     DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([createdById])
+  @@map("commission_policies")
+}
+
+
+

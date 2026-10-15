@@ -27,6 +27,7 @@ const FEE_TYPES = new Set<WalletEntryType>([
   WalletEntryType.PLATFORM_FEE_HOLD,
   WalletEntryType.PLATFORM_FEE,
   WalletEntryType.PLATFORM_FEE_RELEASE,
+  WalletEntryType.PLATFORM_FEE_REFUND,
 ]);
 
 export type LedgerCommand = {
@@ -208,6 +209,7 @@ export async function openPlatformFeeReservation(
   riderProfileId: string,
   deliveryId: string,
   now: Date,
+  assignmentId?: string,
 ): Promise<PlatformFeeReservationResult> {
   const wallet = await ensureRiderWallet(tx, riderProfileId, now);
   const summary = await readWalletSummary(tx, riderProfileId);
@@ -226,6 +228,7 @@ export async function openPlatformFeeReservation(
     data: {
       riderWalletId: wallet.id,
       deliveryId,
+      assignmentId,
       amount: formatSignedCents(feeCents),
       currency: Currency.USD,
       configVersion: config.configVersion,
@@ -298,6 +301,7 @@ export async function capturePlatformFeeReservation(
   deliveryId: string,
   riderProfileId: string,
   now: Date,
+  assignmentId?: string,
 ): Promise<PlatformFeeCapture> {
   await lockWalletOwner(tx, riderProfileId);
   const owned = await tx.riderWallet.findUnique({ where: { riderProfileId } });
@@ -309,7 +313,7 @@ export async function capturePlatformFeeReservation(
   if (!wallet || wallet.riderProfileId !== riderProfileId) {
     throw new NotFoundException('Rider wallet not found');
   }
-  const reservations = await tx.walletFeeReservation.findMany({ where: { deliveryId } });
+  const reservations = await tx.walletFeeReservation.findMany({ where: assignmentId ? { deliveryId, assignmentId } : { deliveryId } });
   const ownedReservations = reservations.filter((row) => row.riderWalletId === wallet.id);
   if (ownedReservations.length > 1) {
     throw new ConflictException('Platform fee reservation is corrupted');
@@ -319,7 +323,7 @@ export async function capturePlatformFeeReservation(
     if (reservations.some((row) => row.status === WalletFeeReservationStatus.OPEN || row.status === WalletFeeReservationStatus.CAPTURED)) {
       throw new ConflictException('This platform fee belongs to another rider');
     }
-    return captureZeroFee(tx, wallet, deliveryId, riderProfileId);
+    return captureZeroFee(tx, wallet, deliveryId, riderProfileId, assignmentId);
   }
   if (reservation.deliveryId !== deliveryId) {
     throw new ConflictException('This platform fee belongs to another rider');
@@ -334,12 +338,12 @@ export async function capturePlatformFeeReservation(
   if (reservedCents <= 0) {
     throw new ConflictException('Platform fee reservation is corrupted');
   }
-  const snapshot = await requireAcceptedFeeSnapshot(tx, deliveryId, riderProfileId);
+  const snapshot = await requireAcceptedFeeSnapshot(tx, deliveryId, riderProfileId, assignmentId);
   if (snapshot.feeCents !== reservedCents || snapshot.configVersion !== reservation.configVersion) {
     throw new ConflictException('Platform fee reservation is corrupted');
   }
   const amountCents = -reservedCents;
-  const idempotencyKey = platformFeeIdempotencyKey(deliveryId);
+  const idempotencyKey = assignmentId ? assignmentPlatformFeeIdempotencyKey(assignmentId) : platformFeeIdempotencyKey(deliveryId);
   const hash = walletPayloadHash({
     riderProfileId,
     entryType: WalletEntryType.PLATFORM_FEE,
@@ -428,13 +432,14 @@ async function captureZeroFee(
   wallet: WalletRow,
   deliveryId: string,
   riderProfileId: string,
+  assignmentId?: string,
 ): Promise<PlatformFeeCapture> {
-  const snapshot = await requireAcceptedFeeSnapshot(tx, deliveryId, riderProfileId);
+  const snapshot = await requireAcceptedFeeSnapshot(tx, deliveryId, riderProfileId, assignmentId);
   if (snapshot.feeCents !== 0) {
     throw new ConflictException('Platform fee reservation was not found');
   }
   const existing = await tx.riderWalletEntry.findUnique({
-    where: { idempotencyKey: platformFeeIdempotencyKey(deliveryId) },
+    where: { idempotencyKey: assignmentId ? assignmentPlatformFeeIdempotencyKey(assignmentId) : platformFeeIdempotencyKey(deliveryId) },
   });
   if (existing) {
     throw new ConflictException('Platform fee reservation is corrupted');
@@ -490,9 +495,15 @@ async function requireAcceptedFeeSnapshot(
   tx: Prisma.TransactionClient,
   deliveryId: string,
   riderProfileId: string,
+  assignmentId?: string,
 ): Promise<{ feeCents: number; configVersion: number }> {
   const assignment = await tx.deliveryAssignment.findFirst({
-    where: { deliveryId, riderProfileId, status: AssignmentStatus.ACCEPTED },
+    where: {
+      deliveryId,
+      riderProfileId,
+      status: AssignmentStatus.ACCEPTED,
+      ...(assignmentId ? { id: assignmentId } : {}),
+    },
   });
   if (!assignment) {
     throw new ConflictException('Platform fee reservation was not found');
@@ -509,6 +520,138 @@ async function requireAcceptedFeeSnapshot(
   return { feeCents, configVersion };
 }
 
+export async function refundAcceptanceCommission(
+  tx: Prisma.TransactionClient,
+  assignmentId: string,
+  now: Date,
+): Promise<void> {
+  const assignment = await tx.deliveryAssignment.findUnique({
+    where: { id: assignmentId },
+  });
+
+  if (!assignment || assignment.acceptedCommissionModel !== 'ON_ACCEPTANCE') {
+    throw new ConflictException('Acceptance commission assignment is invalid');
+  }
+
+  const chargeKey = assignmentPlatformFeeIdempotencyKey(assignmentId);
+  const charge = await tx.riderWalletEntry.findUnique({
+    where: { idempotencyKey: chargeKey },
+  });
+
+  if (!charge || charge.entryType !== WalletEntryType.PLATFORM_FEE) {
+    throw new ConflictException('Original acceptance commission charge not found');
+  }
+
+  await lockWalletOwner(tx, assignment.riderProfileId);
+
+  const wallet = await tx.riderWallet.findUnique({
+    where: { riderProfileId: assignment.riderProfileId },
+  });
+
+  if (!wallet || wallet.id !== charge.riderWalletId) {
+    throw new ConflictException('Acceptance commission wallet mismatch');
+  }
+
+  await lockRiderWallet(tx, wallet.id);
+
+  const feeCents = signedCentsFromDecimal(assignment.acceptedPlatformFee);
+  const chargedCents = signedCentsFromDecimal(charge.amount);
+
+  if (
+    feeCents <= 0 ||
+    chargedCents !== -feeCents ||
+    assignment.acceptedFeeConfigVersion !== charge.configVersion ||
+    charge.currency !== Currency.USD
+  ) {
+    throw new ConflictException('Acceptance commission charge is inconsistent');
+  }
+
+  const refundKey = assignmentPlatformFeeRefundKey(assignmentId);
+  const existingRefund = await tx.riderWalletEntry.findUnique({
+    where: { idempotencyKey: refundKey },
+  });
+
+  const lockedWallet = await tx.riderWallet.findUnique({
+    where: { id: wallet.id },
+  });
+
+  if (!lockedWallet) {
+    throw new ConflictException('Acceptance commission wallet not found');
+  }
+
+  const currentBalance = signedCentsFromDecimal(lockedWallet.balance);
+  if (await postedCents(tx, wallet.id) !== currentBalance) {
+    throw new ConflictException(LEDGER_MISMATCH);
+  }
+
+  if (existingRefund) {
+    if (
+      existingRefund.entryType !== WalletEntryType.PLATFORM_FEE_REFUND ||
+      existingRefund.riderWalletId !== wallet.id ||
+      signedCentsFromDecimal(existingRefund.amount) !== feeCents ||
+      existingRefund.configVersion !== charge.configVersion
+    ) {
+      throw new ConflictException('Acceptance commission refund is inconsistent');
+    }
+    return;
+  }
+
+  const nextBalance = currentBalance + feeCents;
+  assertNextBalance(nextBalance);
+
+  const hash = walletPayloadHash({
+    riderProfileId: assignment.riderProfileId,
+    entryType: WalletEntryType.PLATFORM_FEE_REFUND,
+    amountCents: feeCents,
+    idempotencyKey: refundKey,
+    reason: null,
+    walletPaymentId: null,
+    actorType: WalletActorType.SYSTEM,
+    actorId: null,
+    now,
+  });
+
+  await tx.riderWalletEntry.create({
+    data: {
+      riderWalletId: wallet.id,
+      entryType: WalletEntryType.PLATFORM_FEE_REFUND,
+      amount: formatSignedCents(feeCents),
+      balanceAfter: formatSignedCents(nextBalance),
+      currency: Currency.USD,
+      configVersion: charge.configVersion,
+      idempotencyKey: refundKey,
+      payloadHash: hash,
+      walletPaymentId: null,
+      reason: null,
+      actorType: WalletActorType.SYSTEM,
+      actorId: null,
+      createdAt: now,
+    },
+  });
+
+  await tx.riderWallet.update({
+    where: { id: wallet.id },
+    data: { balance: formatSignedCents(nextBalance) },
+  });
+
+  if (await postedCents(tx, wallet.id) !== nextBalance) {
+    throw new ConflictException(LEDGER_MISMATCH);
+  }
+}
+export function assignmentPlatformFeeRefundKey(assignmentId: string): string {
+  const key = `platform-fee-refund:assignment:${assignmentId}`;
+  if (!assignmentId || key.length > 200) {
+    throw new ConflictException('Platform fee refund assignment is invalid');
+  }
+  return key;
+}
+export function assignmentPlatformFeeIdempotencyKey(assignmentId: string): string {
+  const key = `platform-fee:assignment:${assignmentId}`;
+  if (!assignmentId || key.length > 200) {
+    throw new ConflictException('Platform fee assignment is invalid');
+  }
+  return key;
+}
 export function platformFeeIdempotencyKey(deliveryId: string): string {
   const key = `platform-fee:${deliveryId}`;
   if (!deliveryId || key.length > 200) {
@@ -809,3 +952,5 @@ function toPosting(entry: EntryRow, riderProfileId: string, replayed: boolean): 
     replayed,
   };
 }
+
+

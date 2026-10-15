@@ -1,4 +1,4 @@
-﻿import { RiderListService } from './rider-list.service.js';
+import { RiderListService } from './rider-list.service.js';
 import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AuthModule } from '../auth/auth.module.js';
@@ -22,6 +22,8 @@ import { RiderLocationService } from './rider-location.service.js';
 import { RiderOnboardingController } from './rider-onboarding.controller.js';
 import { RiderOnboardingService } from './rider-onboarding.service.js';
 import { RiderWalletController } from './rider-wallet.controller.js';
+import { CommissionPolicyController } from './commission-policy.controller.js';
+import { CommissionPolicyService } from './commission-policy.service.js';
 import { WalletConfigController } from './wallet-config.controller.js';
 import { WalletConfigService } from './wallet-config.service.js';
 import { WalletService } from './wallet.service.js';
@@ -39,6 +41,7 @@ import { createS3Client, S3_CLIENT_FACTORY, S3ObjectStorage } from './s3-object-
     RiderLocationController,
     RiderOnboardingController,
     RiderWalletController,
+    CommissionPolicyController,
     WalletConfigController,
   ],
   providers: [
@@ -54,6 +57,7 @@ import { createS3Client, S3_CLIENT_FACTORY, S3ObjectStorage } from './s3-object-
     RiderLocationService,
     RiderOnboardingService,
     DispatchWorker,
+    CommissionPolicyService,
     WalletConfigService,
     WalletService,
     { provide: S3_CLIENT_FACTORY, useValue: createS3Client },

@@ -227,6 +227,201 @@ describe('progressive dispatch', () => {
     expect(new Set(riders).size).toBe(riders.length);
   });
 
+  it('charges commission immediately under ON_ACCEPTANCE', async () => {
+    const previousModel = process.env.TEST_COMMISSION_MODEL;
+    process.env.TEST_COMMISSION_MODEL = 'ON_ACCEPTANCE';
+
+    try {
+      const ctx = context();
+      const winner = addRider(ctx, 'acceptance-rider', longitudeFor(500), fresh(NOW));
+      const delivery = addDelivery(ctx);
+
+      await ctx.service.search(CUSTOMER, delivery.id, NOW);
+      await drain(ctx.service, NOW);
+
+      const offer = offerFor(ctx, winner.id);
+      await ctx.service.accept(rider(winner.id), offer.id, 'acceptance-charge', NOW);
+
+      expect(ctx.assignments.find((row) => row.id === offer.id)).toMatchObject({
+        acceptedCommissionModel: 'ON_ACCEPTANCE',
+        acceptedCommissionPolicyVersion: 1,
+        acceptedPlatformFee: '0.30',
+      });
+
+      expect(ctx.wallets.find((wallet) => wallet.riderProfileId === winner.id)?.balance)
+        .toBe('-0.30');
+
+      expect(ctx.entries).toHaveLength(1);
+      expect(ctx.entries[0]).toMatchObject({
+        entryType: 'PLATFORM_FEE',
+        amount: '-0.30',
+        idempotencyKey: `platform-fee:assignment:${offer.id}`,
+      });
+
+      expect(ctx.reservations[0]?.status).toBe('CAPTURED');
+    } finally {
+      if (previousModel === undefined) {
+        delete process.env.TEST_COMMISSION_MODEL;
+      } else {
+        process.env.TEST_COMMISSION_MODEL = previousModel;
+      }
+    }
+  });
+  it('keeps acceptance commission when rider releases delivery', async () => {
+    const previousModel = process.env.TEST_COMMISSION_MODEL;
+    process.env.TEST_COMMISSION_MODEL = 'ON_ACCEPTANCE';
+
+    try {
+      const ctx = context();
+      const courier = addRider(ctx, 'release-fee-rider', longitudeFor(500), fresh(NOW));
+      const delivery = addDelivery(ctx);
+
+      await ctx.service.search(CUSTOMER, delivery.id, NOW);
+      await drain(ctx.service, NOW);
+
+      const offer = offerFor(ctx, courier.id);
+      await ctx.service.accept(rider(courier.id), offer.id, 'release-fee', NOW);
+
+      expect(ctx.wallets.find((wallet) => wallet.riderProfileId === courier.id)?.balance)
+        .toBe('-0.30');
+
+      await ctx.service.release(
+        rider(courier.id),
+        offer.id,
+        { reason: 'RIDER_CANCELLED' },
+        NOW,
+      );
+
+      expect(ctx.assignments.find((row) => row.id === offer.id)?.status)
+        .toBe('RELEASED');
+
+      expect(ctx.wallets.find((wallet) => wallet.riderProfileId === courier.id)?.balance)
+        .toBe('-0.30');
+
+      expect(ctx.entries).toHaveLength(1);
+      expect(ctx.entries[0]).toMatchObject({
+        entryType: 'PLATFORM_FEE',
+        amount: '-0.30',
+      });
+
+      expect(ctx.reservations[0]?.status).toBe('CAPTURED');
+    } finally {
+      if (previousModel === undefined) {
+        delete process.env.TEST_COMMISSION_MODEL;
+      } else {
+        process.env.TEST_COMMISSION_MODEL = previousModel;
+      }
+    }
+  });
+  it('refunds a released rider when customer cancels before pickup', async () => {
+    const previousModel = process.env.TEST_COMMISSION_MODEL;
+    process.env.TEST_COMMISSION_MODEL = 'ON_ACCEPTANCE';
+
+    try {
+      const ctx = context();
+      const courier = addRider(ctx, 'refund-rider', longitudeFor(500), fresh(NOW));
+      const delivery = addDelivery(ctx);
+
+      await ctx.service.search(CUSTOMER, delivery.id, NOW);
+      await drain(ctx.service, NOW);
+
+      const offer = offerFor(ctx, courier.id);
+      await ctx.service.accept(rider(courier.id), offer.id, 'refund-test', NOW);
+
+      await ctx.service.release(
+        rider(courier.id),
+        offer.id,
+        { reason: 'RIDER_CANCELLED' },
+        NOW,
+      );
+
+      expect(ctx.wallets.find((wallet) => wallet.riderProfileId === courier.id)?.balance)
+        .toBe('-0.30');
+
+      await ctx.service.cancel(CUSTOMER, delivery.id, NOW);
+
+      expect(ctx.deliveries[0]?.status).toBe('CANCELLED');
+      expect(ctx.wallets.find((wallet) => wallet.riderProfileId === courier.id)?.balance)
+        .toBe('0.00');
+
+      expect(ctx.entries).toHaveLength(2);
+      expect(ctx.entries.find((entry) => entry.entryType === 'PLATFORM_FEE_REFUND'))
+        .toMatchObject({
+          amount: '0.30',
+          idempotencyKey: `platform-fee-refund:assignment:${offer.id}`,
+        });
+    } finally {
+      if (previousModel === undefined) {
+        delete process.env.TEST_COMMISSION_MODEL;
+      } else {
+        process.env.TEST_COMMISSION_MODEL = previousModel;
+      }
+    }
+  });
+  it('refunds both riders after reassignment and customer cancellation', async () => {
+    const previousModel = process.env.TEST_COMMISSION_MODEL;
+    process.env.TEST_COMMISSION_MODEL = 'ON_ACCEPTANCE';
+
+    try {
+      const ctx = context();
+      const first = addRider(ctx, 'refund-first', longitudeFor(500), fresh(NOW));
+      const second = addRider(ctx, 'refund-second', longitudeFor(700), fresh(NOW));
+      const delivery = addDelivery(ctx);
+
+      await ctx.service.search(CUSTOMER, delivery.id, NOW);
+      await drain(ctx.service, NOW);
+
+      const firstOffer = offerFor(ctx, first.id);
+      await ctx.service.accept(rider(first.id), firstOffer.id, 'first-charge', NOW);
+
+      await ctx.service.release(
+        rider(first.id),
+        firstOffer.id,
+        { reason: 'RIDER_CANCELLED' },
+        NOW,
+      );
+
+      await drain(ctx.service, NOW);
+
+      const secondOffer = ctx.assignments.find(
+        (row) =>
+          row.deliveryId === delivery.id &&
+          row.riderProfileId === second.id &&
+          row.status === 'OFFERED',
+      );
+
+      expect(secondOffer).toBeDefined();
+
+      await ctx.service.accept(
+        rider(second.id),
+        secondOffer!.id,
+        'second-charge',
+        NOW,
+      );
+
+      expect(ctx.entries.filter((entry) => entry.entryType === 'PLATFORM_FEE'))
+        .toHaveLength(2);
+
+      await ctx.service.cancel(CUSTOMER, delivery.id, NOW);
+
+      expect(ctx.deliveries[0]?.status).toBe('CANCELLED');
+
+      expect(ctx.entries.filter((entry) => entry.entryType === 'PLATFORM_FEE_REFUND'))
+        .toHaveLength(2);
+
+      expect(ctx.wallets.find((wallet) => wallet.riderProfileId === first.id)?.balance)
+        .toBe('0.00');
+
+      expect(ctx.wallets.find((wallet) => wallet.riderProfileId === second.id)?.balance)
+        .toBe('0.00');
+    } finally {
+      if (previousModel === undefined) {
+        delete process.env.TEST_COMMISSION_MODEL;
+      } else {
+        process.env.TEST_COMMISSION_MODEL = previousModel;
+      }
+    }
+  });
   it('reserves only the platform fee and keeps acceptance idempotent', async () => {
     const ctx = context();
     const winner = addRider(ctx, 'winner', longitudeFor(500), fresh(NOW));
@@ -773,6 +968,16 @@ function context() {
             }
             const total = rows.reduce((sum, row) => sum + cents(row.amount), 0);
             return { _sum: { amount: formatSignedCents(total) } };
+          },
+        },
+        commissionPolicy: {
+          async findFirst() {
+            return {
+              id: 'test-commission-policy',
+              policyVersion: 1,
+              model: process.env.TEST_COMMISSION_MODEL === 'ON_ACCEPTANCE' ? 'ON_ACCEPTANCE' : 'ON_COMPLETION',
+              isActive: true,
+            };
           },
         },
         walletConfig: table(() => draft.configs, mark, () => sequence++),

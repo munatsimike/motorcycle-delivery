@@ -27,6 +27,7 @@ import {
   openPlatformFeeReservation,
   releasePlatformFeeReservation,
   capturePlatformFeeReservation,
+  refundAcceptanceCommission,
 } from '../rider/wallet-ledger.js';
 import { findDispatchCandidates } from './dispatch-query.js';
 import {
@@ -314,7 +315,10 @@ async function progressDelivery(
   if (nextDeliveryStatus(delivery.status) !== requested) {
     throw new ConflictException('This delivery status cannot be changed');
   }
-  if (requested === DeliveryStatus.DELIVERED) {
+  if (
+    requested === DeliveryStatus.DELIVERED
+    && (assignment.acceptedCommissionModel ?? 'ON_COMPLETION') === 'ON_COMPLETION'
+  ) {
     await capturePlatformFeeReservation(tx, delivery.id, profile.id, now);
   }
   await tx.delivery.update({
@@ -420,6 +424,22 @@ async function cancelDelivery(
     });
     await restoreAvailability(tx, profile, now);
   }
+  const chargedAssignments = await tx.deliveryAssignment.findMany({
+    where: {
+      deliveryId: delivery.id,
+      acceptedCommissionModel: 'ON_ACCEPTANCE',
+    },
+    orderBy: [{ riderProfileId: 'asc' }, { id: 'asc' }],
+  });
+
+  for (const chargedAssignment of chargedAssignments) {
+    if (
+      chargedAssignment.acceptedPlatformFee != null
+      && centsFromDecimal(chargedAssignment.acceptedPlatformFee) > 0
+    ) {
+      await refundAcceptanceCommission(tx, chargedAssignment.id, now);
+    }
+  }
   await cancelOffered(tx, { deliveryId: delivery.id });
   await tx.delivery.update({
     where: { id: delivery.id },
@@ -516,7 +536,14 @@ async function acceptOffer(
   if (otherAccepted) {
     throw new ConflictException('You already have an accepted delivery');
   }
-  const reservation = await openPlatformFeeReservation(tx, profile.id, delivery.id, now);
+  const commissionPolicy = await tx.commissionPolicy.findFirst({
+    where: { isActive: true },
+  });
+  if (!commissionPolicy) {
+    throw new ConflictException('Active commission policy not found');
+  }
+
+  const reservation = await openPlatformFeeReservation(tx, profile.id, delivery.id, now, assignment.id);
   await tx.deliveryAssignment.update({
     where: { id: assignment.id },
     data: {
@@ -527,8 +554,13 @@ async function acceptOffer(
       payloadHash: hash,
       acceptedPlatformFee: reservation.amount,
       acceptedFeeConfigVersion: reservation.configVersion,
+      acceptedCommissionModel: commissionPolicy.model,
+      acceptedCommissionPolicyVersion: commissionPolicy.policyVersion,
     },
   });
+  if (commissionPolicy.model === 'ON_ACCEPTANCE') {
+    await capturePlatformFeeReservation(tx, delivery.id, profile.id, now, assignment.id);
+  }
   await cancelOffered(tx, { deliveryId: delivery.id });
   await cancelOffered(tx, { riderProfileId: profile.id });
   await tx.riderProfile.update({
