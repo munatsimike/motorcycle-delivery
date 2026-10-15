@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AdminDashboardModule } from './admin-dashboard/admin-dashboard.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { CustomerModule } from './customer/customer.module.js';
 import { DeliveryModule } from './delivery/delivery.module.js';
@@ -8,7 +9,7 @@ import { PrismaModule } from './prisma/prisma.module.js';
 import { RiderModule } from './rider/rider.module.js';
 
 @Module({
-  imports: [PrismaModule, AuthModule, RiderModule, CustomerModule, DeliveryModule],
+  imports: [PrismaModule, AuthModule, RiderModule, CustomerModule, DeliveryModule, AdminDashboardModule],
   controllers: [AppController],
   providers: [AppService],
 })
