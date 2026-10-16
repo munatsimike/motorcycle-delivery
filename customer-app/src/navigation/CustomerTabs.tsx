@@ -53,8 +53,9 @@ export default function CustomerTabs() {
         component={CustomerHomeScreen}
         options={{
           tabBarIcon: ({ color, size }) => (
-            <MaterialDesignIcons name="view-dashboard-outline" color={color} size={size} />
+            <MaterialDesignIcons name="home-outline" color={color} size={size} />
           ),
+          tabBarLabel: 'Home',
         }}
       />
       <Tab.Screen
@@ -64,6 +65,7 @@ export default function CustomerTabs() {
           tabBarIcon: ({ color, size }) => (
             <MaterialDesignIcons name="package-variant" color={color} size={size} />
           ),
+          tabBarLabel: 'Deliveries',
         }}
       />
       <Tab.Screen
@@ -73,6 +75,7 @@ export default function CustomerTabs() {
           tabBarIcon: ({ color, size }) => (
             <MaterialDesignIcons name="account-outline" color={color} size={size} />
           ),
+          tabBarLabel: 'Profile',
         }}
       />
     </Tab.Navigator>

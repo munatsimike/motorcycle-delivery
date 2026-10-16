@@ -20,6 +20,8 @@ import PrimaryButton from '../components/PrimaryButton';
 import SecondaryButton from '../components/SecondaryButton';
 import SignUpScreen from '../features/auth/SignupScreen';
 import CustomerTabs from './CustomerTabs';
+import ParcelRequestScreen from '../features/deliveries/presentation/screens/ParcelRequestScreen';
+import DeliveryTrackingScreen from '../features/deliveries/presentation/screens/DeliveryTrackingScreen';
 import OtpVerificationScreen from '../features/auth/presentation/screens/OtpVerificationScreen';
 import RegistrationFormScreen from '../features/auth/presentation/screens/RegistrationFormScreen';
 import SignInScreen from '../features/auth/presentation/screens/SignInScreen';
@@ -107,11 +109,23 @@ export default function AppNavigator() {
     <NavigationContainer>
       <Stack.Navigator>
         {status === 'signedIn' ? (
-          <Stack.Screen
-            name="CustomerHome"
-            component={CustomerTabs}
-            options={{ headerShown: false }}
-          />
+          <>
+            <Stack.Screen
+              name="CustomerHome"
+              component={CustomerTabs}
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
+              name="ParcelRequest"
+              component={ParcelRequestScreen}
+              options={{ title: 'Send a Parcel' }}
+            />
+            <Stack.Screen
+              name="DeliveryTracking"
+              component={DeliveryTrackingScreen}
+              options={{ title: 'Track Delivery' }}
+            />
+          </>
         ) : status === 'locked' ? (
           <Stack.Screen
             name="Unlock"

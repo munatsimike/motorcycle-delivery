@@ -13,6 +13,10 @@ export type RootStackParamList = {
     phone: string;
   };
   CustomerHome: undefined;
+  ParcelRequest: undefined;
+  DeliveryTracking: {
+    deliveryId: string;
+  };
   Unlock: undefined;
 };
 
