@@ -1,0 +1,137 @@
+import {
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+
+import BrandLogo from '../../../../components/BrandLogo';
+import ErrorMessage from '../../../../components/ErrorMessage';
+import PrimaryButton from '../../../../components/PrimaryButton';
+import ZimbabwePhoneField from '../../../../components/ZimbabwePhoneField';
+import { colors, spacing, typography } from '../../../../theme';
+
+type PhoneEntryFormProps = {
+  title: string;
+  subtitle: string;
+  buttonLabel: string;
+  isLoading: boolean;
+  error: string | null;
+  phone: string;
+  onChangePhone: (value: string) => void;
+  onSubmit: () => void;
+  footerText: string;
+  footerAction: string;
+  onFooterPress: () => void;
+};
+
+export default function PhoneEntryForm({
+  title,
+  subtitle,
+  buttonLabel,
+  isLoading,
+  error,
+  phone,
+  onChangePhone,
+  onSubmit,
+  footerText,
+  footerAction,
+  onFooterPress,
+}: PhoneEntryFormProps) {
+  return (
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.content}>
+          <BrandLogo style={styles.logo} />
+          <Text style={styles.title}>{title}</Text>
+          <Text style={styles.subtitle}>{subtitle}</Text>
+          <ZimbabwePhoneField
+            value={phone}
+            onChangeText={onChangePhone}
+            editable={!isLoading}
+          />
+          <Text style={styles.helperText}>
+            Zimbabwe or Netherlands mobile numbers are accepted.
+            We'll send a one-time SMS code.
+          </Text>
+          <ErrorMessage message={error} />
+          <PrimaryButton
+            label={buttonLabel}
+            onPress={onSubmit}
+            loading={isLoading}
+            loadingLabel="Processing"
+          />
+          <View style={styles.footer}>
+            <Text style={styles.footerText}>{footerText}</Text>
+            <Pressable onPress={onFooterPress} disabled={isLoading}>
+              <Text style={styles.footerAction}>{footerAction}</Text>
+            </Pressable>
+          </View>
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  scrollContent: {
+    flexGrow: 1,
+  },
+  content: {
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.xxl,
+  },
+  logo: {
+    marginBottom: spacing.xxxl,
+  },
+  title: {
+    fontSize: 30,
+    fontWeight: '800',
+    color: colors.text,
+    marginBottom: spacing.md,
+  },
+  subtitle: {
+    fontSize: typography.body,
+    color: colors.textSecondary,
+    lineHeight: 24,
+    marginBottom: spacing.xxl,
+  },
+  helperText: {
+    fontSize: typography.small,
+    color: colors.textSecondary,
+    lineHeight: 19,
+    marginTop: -spacing.xs,
+    marginBottom: spacing.xl,
+  },
+  footer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.xxl,
+  },
+  footerText: {
+    fontSize: typography.caption,
+    color: colors.textSecondary,
+  },
+  footerAction: {
+    fontSize: typography.caption,
+    color: colors.primary,
+    fontWeight: '700',
+  },
+});
