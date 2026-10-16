@@ -1,21 +1,16 @@
-import { StyleSheet, Text } from 'react-native';
-
 import FormInput from '../../../../components/FormInput';
 import ZimbabwePhoneField from '../../../../components/ZimbabwePhoneField';
-import { colors, spacing, typography } from '../../../../theme';
 import type { StopDraft } from '../../domain/bookingDraft';
 
 type StopFieldsProps = {
   stop: StopDraft;
   onChange: (patch: Partial<StopDraft>) => void;
+  showLandmark?: boolean;
 };
 
-export default function StopFields({ stop, onChange }: StopFieldsProps) {
+export default function StopFields({ stop, onChange, showLandmark = true }: StopFieldsProps) {
   return (
     <>
-      <Text style={styles.note}>
-        Map selection is not available. Enter the street address and the coordinates for that place.
-      </Text>
       <FormInput
         label="Address"
         value={stop.address}
@@ -23,18 +18,14 @@ export default function StopFields({ stop, onChange }: StopFieldsProps) {
         textContentType="fullStreetAddress"
         maxLength={500}
       />
-      <FormInput
-        label="Landmark (optional)"
-        value={stop.landmark}
-        onChangeText={(landmark) => onChange({ landmark })}
-        maxLength={200}
-      />
-      <FormInput
-        label="Instructions (optional)"
-        value={stop.instructions}
-        onChangeText={(instructions) => onChange({ instructions })}
-        maxLength={500}
-      />
+      {showLandmark ? (
+        <FormInput
+          label="Landmark (optional)"
+          value={stop.landmark}
+          onChangeText={(landmark) => onChange({ landmark })}
+          maxLength={200}
+        />
+      ) : null}
       <FormInput
         label="Contact name"
         value={stop.contactName}
@@ -48,28 +39,11 @@ export default function StopFields({ stop, onChange }: StopFieldsProps) {
         onChangeText={(contactPhone) => onChange({ contactPhone })}
       />
       <FormInput
-        label="Latitude"
-        value={stop.latitude}
-        onChangeText={(latitude) => onChange({ latitude })}
-        autoComplete="off"
-        maxLength={20}
-      />
-      <FormInput
-        label="Longitude"
-        value={stop.longitude}
-        onChangeText={(longitude) => onChange({ longitude })}
-        autoComplete="off"
-        maxLength={20}
+        label="Instructions (optional)"
+        value={stop.instructions}
+        onChangeText={(instructions) => onChange({ instructions })}
+        maxLength={500}
       />
     </>
   );
 }
-
-const styles = StyleSheet.create({
-  note: {
-    fontSize: typography.caption,
-    lineHeight: 20,
-    color: colors.textSecondary,
-    marginBottom: spacing.md,
-  },
-});

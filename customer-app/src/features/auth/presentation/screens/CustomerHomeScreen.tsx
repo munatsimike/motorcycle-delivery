@@ -2,8 +2,9 @@ import { CompositeNavigationProp, useNavigation } from '@react-navigation/native
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import CustomerAvatar from '../../../../components/CustomerAvatar';
 import PrimaryButton from '../../../../components/PrimaryButton';
@@ -18,6 +19,8 @@ import { deliveryTrackingTarget } from '../../../deliveries/domain/customerDeliv
 import { ACTIVE_LIST_STATUSES, deliveriesInGroup } from '../../../deliveries/domain/deliveryStatus';
 import { useCustomerDeliveries } from '../../../deliveries/presentation/viewmodels/useCustomerDeliveries';
 import { useSession } from '../viewmodels/useSession';
+import NearbyRidersCard from '../../../riders/presentation/components/NearbyRidersCard';
+import { useNearbyRiders } from '../../../riders/presentation/viewmodels/useNearbyRiders';
 
 type HomeNavigation = CompositeNavigationProp<
   BottomTabNavigationProp<CustomerTabParamList, 'Dashboard'>,
@@ -33,43 +36,76 @@ export default function CustomerHomeScreen() {
     ACTIVE_LIST_STATUSES,
   );
   const firstName = account ? customerFirstName(account) : null;
+  const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const horizontalPadding = width < 360 ? spacing.lg : spacing.xl;
   const activeDeliveries = deliveriesInGroup(deliveries, 'active');
+  const nearby = useNearbyRiders(accessToken);
 
   return (
-    <SafeAreaView style={styles.screen} edges={['top']}>
+    <View style={styles.screen}>
       <ScrollView
         contentContainerStyle={[styles.content, { paddingHorizontal: horizontalPadding }]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.topRow}>
-          <CustomerAvatar
-            kind={account?.kind ?? 'INDIVIDUAL'}
-            name={account?.name ?? null}
-            customerId={account?.id}
-            photoUrl={account?.photoUrl}
-            size={48}
-          />
-          <View style={styles.greetingBlock}>
-            <Text style={styles.greeting} accessibilityRole="text">{customerGreeting(new Date())}</Text>
-            {firstName ? (
-              <Text style={styles.name} accessibilityRole="header">{firstName}</Text>
-            ) : null}
+        <View
+          style={[
+            styles.intro,
+            {
+              marginHorizontal: -horizontalPadding,
+              paddingHorizontal: horizontalPadding,
+              paddingTop: insets.top + spacing.lg,
+            },
+          ]}
+        >
+          <View style={styles.topRow}>
+            <CustomerAvatar
+              kind={account?.kind ?? 'INDIVIDUAL'}
+              name={account?.name ?? null}
+              customerId={account?.id}
+              photoUrl={account?.photoUrl}
+              size={48}
+            />
+            <View style={styles.greetingBlock}>
+              <Text style={styles.greeting} accessibilityRole="text">{customerGreeting(new Date())}</Text>
+              {firstName ? (
+                <Text style={styles.name} accessibilityRole="header">{firstName}</Text>
+              ) : null}
+            </View>
+            <View accessibilityLabel="Notifications" style={styles.bell}>
+              <MaterialDesignIcons name="bell-outline" color={colors.text} size={24} />
+            </View>
+          </View>
+
+          <View style={styles.actionsCard}>
+            <NearbyRidersCard
+              embedded
+              state={nearby.state}
+              onTurnOnLocation={() => {
+                void nearby.turnOnLocation();
+              }}
+              onAllowLocation={() => {
+                void nearby.allowLocation();
+              }}
+              onTryAgain={() => {
+                void nearby.tryAgain();
+              }}
+            />
+            <View style={styles.actionsDivider} />
+            <View style={styles.sendWrap}>
+              <PrimaryButton
+                label="Send a Parcel"
+                icon="package-variant"
+                onPress={() => navigation.navigate('ParcelRequest')}
+              />
+            </View>
           </View>
         </View>
-
-        <View style={styles.hero}>
-          <Text style={styles.heroTitle} accessibilityRole="header">Need to send a parcel?</Text>
-          <Text style={styles.heroBody}>
-            Fast, reliable motorcycle deliveries across the city.
-          </Text>
-          <PrimaryButton
-            label="Send a Parcel"
-            icon="package-variant"
-            onPress={() => navigation.navigate('ParcelRequest')}
-          />
-        </View>
+        <LinearGradient
+          colors={[colors.primaryLight, colors.background]}
+          style={[styles.introFade, { marginHorizontal: -horizontalPadding }]}
+          pointerEvents="none"
+        />
 
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Recent deliveries</Text>
@@ -107,7 +143,7 @@ export default function CustomerHomeScreen() {
           </View>
         ) : null}
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -117,8 +153,15 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   content: {
-    paddingTop: spacing.lg,
     paddingBottom: spacing.xxl,
+  },
+  intro: {
+    backgroundColor: colors.primaryLight,
+    boxShadow: '0 12px 24px rgba(23, 33, 29, 0.08)',
+  },
+  introFade: {
+    height: 36,
+    marginBottom: spacing.lg,
   },
   topRow: {
     flexDirection: 'row',
@@ -141,25 +184,29 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.text,
   },
-  hero: {
-    backgroundColor: colors.primaryLight,
+  bell: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionsCard: {
+    backgroundColor: colors.background,
     borderRadius: radius.xl,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    gap: spacing.md,
-    marginBottom: spacing.xl,
+    borderWidth: 1,
+    borderColor: colors.border,
+    boxShadow: '0 8px 24px rgba(23, 33, 29, 0.08)',
+    marginBottom: spacing.lg,
+    overflow: 'hidden',
   },
-  heroTitle: {
-    fontSize: 28,
-    fontWeight: '800',
-    lineHeight: 34,
-    color: colors.text,
+  sendWrap: {
+    padding: spacing.lg,
+    paddingTop: spacing.md,
   },
-  heroBody: {
-    fontSize: typography.body,
-    fontWeight: '400',
-    lineHeight: 24,
-    color: colors.text,
+  actionsDivider: {
+    height: StyleSheet.hairlineWidth,
+    marginHorizontal: spacing.lg,
+    backgroundColor: colors.border,
   },
   sectionHeader: {
     flexDirection: 'row',

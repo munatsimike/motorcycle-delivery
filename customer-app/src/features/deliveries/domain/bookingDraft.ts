@@ -264,6 +264,11 @@ function collapse(value: string): string {
   return value.trim().replace(/\s+/g, ' ');
 }
 
+export function zimbabweNationalNumber(input: string): string | null {
+  const e164 = zimbabweMobileE164(input);
+  return e164 ? e164.slice(4) : null;
+}
+
 export function zimbabweMobileE164(input: string): string | null {
   const compact = input.trim().replace(/[\s().-]/g, '');
   if (!compact) {

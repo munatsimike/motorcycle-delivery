@@ -29,7 +29,6 @@ export function useParcelBooking(accessToken: string | null) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<'quote' | 'create' | null>(null);
   const creating = useRef(false);
-  const prefilled = useRef(false);
   const quoteRequest = useRef(0);
 
   function updateStop(which: 'pickup' | 'dropoff', patch: Partial<StopDraft>) {
@@ -49,13 +48,16 @@ export function useParcelBooking(accessToken: string | null) {
     setDraft((current) => ({ ...current, ...patch }));
   }
 
-  function prefillPickupContact(contactName: string, contactPhone: string) {
-    if (prefilled.current) {
-      return;
-    }
-    prefilled.current = true;
+  function prefillPickup(details: { contactName: string; contactPhone: string; address: string }) {
     setDraft((current) => {
-      if (current.pickup.contactName || current.pickup.contactPhone) {
+      const contactName = current.pickup.contactName || details.contactName;
+      const contactPhone = current.pickup.contactPhone || details.contactPhone;
+      const address = current.pickup.address || details.address;
+      if (
+        contactName === current.pickup.contactName &&
+        contactPhone === current.pickup.contactPhone &&
+        address === current.pickup.address
+      ) {
         return current;
       }
       return {
@@ -64,6 +66,7 @@ export function useParcelBooking(accessToken: string | null) {
           ...current.pickup,
           contactName,
           contactPhone,
+          address,
         },
       };
     });
@@ -180,7 +183,7 @@ export function useParcelBooking(accessToken: string | null) {
     busy,
     updateStop,
     updateDraft,
-    prefillPickupContact,
+    prefillPickup,
     goBack,
     goNext,
     confirm,

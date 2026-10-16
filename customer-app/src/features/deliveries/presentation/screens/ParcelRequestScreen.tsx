@@ -10,7 +10,7 @@ import { useCustomerAccount } from '../../../account/presentation/viewmodels/use
 import { useSession } from '../../../auth/presentation/viewmodels/useSession';
 import type { RootStackParamList } from '../../../../navigation/types';
 import { colors, spacing } from '../../../../theme';
-import { zimbabweMobileE164 } from '../../domain/bookingDraft';
+import { zimbabweNationalNumber } from '../../domain/bookingDraft';
 import BookingProgress, { bookingStepTitle } from '../components/BookingProgress';
 import BookingSummary from '../components/BookingSummary';
 import ParcelFields from '../components/ParcelFields';
@@ -24,6 +24,7 @@ export default function ParcelRequestScreen({ navigation }: ParcelRequestProps) 
   const { account } = useCustomerAccount(accessToken);
   const booking = useParcelBooking(accessToken);
   const allowLeave = useRef(false);
+  const pickupPrefilled = useRef(false);
 
   useEffect(() => {
     navigation.setOptions({ title: bookingStepTitle(booking.step) });
@@ -48,15 +49,16 @@ export default function ParcelRequestScreen({ navigation }: ParcelRequestProps) 
   }, [booking, navigation]);
 
   useEffect(() => {
-    if (!account) {
+    if (!account || pickupPrefilled.current) {
       return;
     }
-    const phone = nationalPhone(account.phone);
+    pickupPrefilled.current = true;
     const name = account.kind === 'BUSINESS' ? account.contactName ?? account.name : account.name;
-    if (!name || !phone) {
-      return;
-    }
-    booking.prefillPickupContact(name, phone);
+    booking.prefillPickup({
+      contactName: name ?? '',
+      contactPhone: zimbabweNationalNumber(account.phone) ?? '',
+      address: account.address,
+    });
   }, [account, booking]);
 
   function finish(deliveryId: string) {
@@ -72,7 +74,11 @@ export default function ParcelRequestScreen({ navigation }: ParcelRequestProps) 
       >
         <BookingProgress step={booking.step} />
         {booking.step === 'pickup' ? (
-          <StopFields stop={booking.draft.pickup} onChange={(patch) => booking.updateStop('pickup', patch)} />
+          <StopFields
+            stop={booking.draft.pickup}
+            onChange={(patch) => booking.updateStop('pickup', patch)}
+            showLandmark={false}
+          />
         ) : null}
         {booking.step === 'destination' ? (
           <StopFields stop={booking.draft.dropoff} onChange={(patch) => booking.updateStop('dropoff', patch)} />
@@ -117,14 +123,6 @@ export default function ParcelRequestScreen({ navigation }: ParcelRequestProps) 
       </ScrollView>
     </SafeAreaView>
   );
-}
-
-function nationalPhone(phone: string): string | null {
-  const e164 = zimbabweMobileE164(phone);
-  if (!e164) {
-    return null;
-  }
-  return e164.slice(4);
 }
 
 const styles = StyleSheet.create({

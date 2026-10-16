@@ -6,6 +6,7 @@ import {
   prepareBooking,
   quoteBody,
   zimbabweMobileE164,
+  zimbabweNationalNumber,
   type BookingDraft,
 } from './bookingDraft';
 
@@ -78,6 +79,13 @@ describe('prepareBooking', () => {
     const incomplete = draft();
     incomplete.dropoff.latitude = '91';
     expect(prepareBooking(incomplete)).toEqual({ ok: false, error: 'Enter a valid drop-off location' });
+  });
+
+  it('keeps the saved Zimbabwe mobile as the digits shown beside +263', () => {
+    expect(zimbabweNationalNumber('+263771234567')).toBe('771234567');
+    expect(zimbabweNationalNumber('0771234567')).toBe('771234567');
+    expect(zimbabweNationalNumber('771234567')).toBe('771234567');
+    expect(zimbabweNationalNumber('0612345678')).toBeNull();
   });
 
   it('rejects a Dutch mobile for a delivery contact', () => {
