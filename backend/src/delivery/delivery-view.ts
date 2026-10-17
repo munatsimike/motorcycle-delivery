@@ -33,6 +33,23 @@ export type StoredDelivery = {
   parcelInstructions: string | null;
 };
 
+export function toCustomerDeliverySummary(delivery: {
+  id: string;
+  status: DeliveryStatus;
+  createdAt: Date;
+  pickupAddress: string;
+  dropoffAddress: string;
+}) {
+  return {
+    id: delivery.id,
+    reference: delivery.id,
+    status: delivery.status,
+    createdAt: delivery.createdAt,
+    pickup: { address: delivery.pickupAddress },
+    dropoff: { address: delivery.dropoffAddress },
+  };
+}
+
 export function toCustomerDelivery(delivery: StoredDelivery) {
   return {
     id: delivery.id,

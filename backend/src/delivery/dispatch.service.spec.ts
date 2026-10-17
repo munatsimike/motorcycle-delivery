@@ -124,6 +124,91 @@ describe('progressive dispatch', () => {
     expect(ctx.deliveries[0].autoRetryCount).toBe(0);
   });
 
+  it('starts search for a committed delivery that never reached the worker', async () => {
+    const ctx = context();
+    const delivery = addDelivery(ctx);
+
+    expect(await ctx.service.processCreatedRecovery(NOW)).toBe(true);
+    expect(ctx.deliveries[0]).toMatchObject({
+      status: 'SEARCHING',
+      searchGeneration: 1,
+      autoRetryCount: 0,
+      nextRetryAt: null,
+    });
+    expect(ctx.rounds).toHaveLength(3);
+    expect(ctx.rounds.map((round) => round.roundNumber)).toEqual([1, 2, 3]);
+
+    expect(await ctx.service.processCreatedRecovery(NOW)).toBe(false);
+    expect(ctx.rounds).toHaveLength(3);
+    await expect(ctx.service.search(CUSTOMER, delivery.id, NOW)).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('does not start a second generation when two workers recover one delivery', async () => {
+    const ctx = context();
+    addDelivery(ctx);
+
+    const results = await Promise.all([
+      ctx.service.processCreatedRecovery(NOW),
+      ctx.service.processCreatedRecovery(NOW),
+    ]);
+
+    expect(results.filter(Boolean)).toHaveLength(1);
+    expect(ctx.deliveries[0].searchGeneration).toBe(1);
+    expect(ctx.rounds).toHaveLength(3);
+  });
+
+  it('recovers each stranded delivery once', async () => {
+    const ctx = context();
+    addDelivery(ctx, 'delivery-a');
+    addDelivery(ctx, 'delivery-b');
+
+    const results = await Promise.all([
+      ctx.service.processCreatedRecovery(NOW),
+      ctx.service.processCreatedRecovery(NOW),
+    ]);
+
+    expect(results).toEqual([true, true]);
+    expect(ctx.deliveries.map((delivery) => delivery.status)).toEqual(['SEARCHING', 'SEARCHING']);
+    expect(ctx.rounds).toHaveLength(6);
+    expect(new Set(ctx.rounds.map((round) => round.searchGeneration))).toEqual(new Set([1]));
+  });
+
+  it('does not recover a cancelled, finished, or already searched delivery', async () => {
+    const ctx = context();
+    const cancelled = addDelivery(ctx, 'delivery-cancelled');
+    await ctx.service.cancel(CUSTOMER, cancelled.id, NOW);
+    const finished = addDelivery(ctx, 'delivery-finished');
+    finished.status = 'DELIVERED';
+    const exhausted = addDelivery(ctx, 'delivery-exhausted');
+    exhausted.status = 'NO_RIDER_FOUND';
+    exhausted.searchGeneration = 6;
+    const started = addDelivery(ctx, 'delivery-started');
+    await ctx.service.search(CUSTOMER, started.id, NOW);
+
+    expect(await ctx.service.processCreatedRecovery(NOW)).toBe(false);
+    expect(ctx.deliveries.find((delivery) => delivery.id === cancelled.id)?.status).toBe('CANCELLED');
+    expect(ctx.deliveries.find((delivery) => delivery.id === finished.id)?.status).toBe('DELIVERED');
+    expect(ctx.deliveries.find((delivery) => delivery.id === exhausted.id)?.status).toBe('NO_RIDER_FOUND');
+    expect(ctx.deliveries.find((delivery) => delivery.id === exhausted.id)?.searchGeneration).toBe(6);
+    expect(ctx.rounds.filter((round) => round.deliveryId === started.id)).toHaveLength(3);
+    expect(ctx.rounds.filter((round) => round.deliveryId !== started.id)).toHaveLength(0);
+  });
+
+  it('lets a cancellation win without offering the delivery', async () => {
+    const ctx = context();
+    const delivery = addDelivery(ctx);
+
+    await Promise.all([
+      ctx.service.processCreatedRecovery(NOW),
+      ctx.service.cancel(CUSTOMER, delivery.id, NOW),
+    ]);
+
+    expect(ctx.deliveries[0].status).toBe('CANCELLED');
+    await drain(ctx.service, new Date(NOW.getTime() + 40_000));
+    expect(offeredRiders(ctx, delivery.id)).toEqual([]);
+    expect(ctx.rounds.length === 0 || ctx.rounds.length === 3).toBe(true);
+  });
+
   it('starts an automatic retry only after the 10-second delay', async () => {
     const ctx = context();
     const delivery = addDelivery(ctx);
@@ -819,6 +904,7 @@ function context() {
   const committed = emptyState();
   const lockLog: string[] = [];
   const heldRounds = new Set<string>();
+  const heldDeliveries = new Set<string>();
   const mutexes = new Map<string, Mutex>();
   let sequence = 1;
   let txSeq = 1;
@@ -878,6 +964,33 @@ function context() {
       const tx = {
         async $queryRaw(strings: TemplateStringsArray, ...values: unknown[]) {
           const sql = strings.join(' ');
+          if (sql.includes('SKIP LOCKED') && sql.includes("'CREATED'") && sql.includes('search_generation')) {
+            const eligible = draft.deliveries
+              .filter((delivery) => delivery.status === 'CREATED' && delivery.searchGeneration === 0)
+              .filter((delivery) => !draft.rounds.some((round) => round.deliveryId === delivery.id))
+              .filter((delivery) => !draft.assignments.some(
+                (offer) => offer.deliveryId === delivery.id && offer.status === 'OFFERED',
+              ))
+              .filter((delivery) => !heldDeliveries.has(String(delivery.id)))
+              .sort((left, right) => String(left.id).localeCompare(String(right.id)));
+            const picked = eligible[0];
+            if (!picked) {
+              return [];
+            }
+            heldDeliveries.add(String(picked.id));
+            releases.push(() => heldDeliveries.delete(String(picked.id)));
+            await hold(mutexes, `delivery:${String(picked.id)}`, txId, releases);
+            refresh();
+            const current = draft.deliveries.find((delivery) => delivery.id === picked.id);
+            if (!current || current.status !== 'CREATED' || current.searchGeneration !== 0) {
+              return [];
+            }
+            if (draft.rounds.some((round) => round.deliveryId === current.id)) {
+              return [];
+            }
+            return [{ id: current.id }];
+          }
+
           if (sql.includes('SKIP LOCKED') && sql.includes('FROM "deliveries" d')) {
             const now = values[0] as Date;
             const eligible = draft.deliveries
@@ -982,6 +1095,14 @@ function context() {
         },
         walletConfig: table(() => draft.configs, mark, () => sequence++),
         walletFeeReservation: reservationTable(() => draft.reservations, mark, () => sequence++),
+        customerAccount: {
+          async findUnique({ where }: { where: { id?: string } }) {
+            if (where.id === CUSTOMER.customerAccountId) {
+              return { id: CUSTOMER.customerAccountId, userId: CUSTOMER.userId };
+            }
+            return null;
+          },
+        },
       };
       try {
         const result = await fn(tx);

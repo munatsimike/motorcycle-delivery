@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import LoadingIndicator from '../../../../components/LoadingIndicator';
 import { colors, radius, spacing, typography } from '../../../../theme';
-import { nearbyActionLabel, nearbyCardContent, type NearbyCardContent } from '../../domain/nearbyCard';
+import { nearbyActionLabel, nearbyCardContent, type NearbyCardContent, type RiderAlertPhase } from '../../domain/nearbyCard';
 import type { NearbyAvailability } from '../../domain/nearbyAvailability';
 
 type NearbyRidersCardProps = {
@@ -12,6 +12,14 @@ type NearbyRidersCardProps = {
   onAllowLocation: () => void;
   onTryAgain: () => void;
   embedded?: boolean;
+  alert?: {
+    phase: RiderAlertPhase;
+    busy: boolean;
+    error: string | null;
+    onNotify: () => void;
+    onCancel: () => void;
+    onOpenSettings: () => void;
+  };
 };
 
 const TONES = {
@@ -27,6 +35,7 @@ export default function NearbyRidersCard({
   onAllowLocation,
   onTryAgain,
   embedded = false,
+  alert,
 }: NearbyRidersCardProps) {
   if (state.status === 'loading') {
     return (
@@ -42,6 +51,7 @@ export default function NearbyRidersCard({
   }
   const tone = TONES[content.tone];
   const action = nearbyActionLabel(content.action);
+  const showBell = content.action === 'notify' || content.action === 'cancel-alert';
 
   return (
     <View style={[styles.card, embedded && styles.embedded]}>
@@ -55,12 +65,23 @@ export default function NearbyRidersCard({
           {action ? (
             <Pressable
               accessibilityRole="button"
-              onPress={() => pressAction(content.action, onTurnOnLocation, onAllowLocation, onTryAgain)}
-              style={styles.button}
+              accessibilityState={{ disabled: alert?.busy === true }}
+              disabled={alert?.busy === true}
+              onPress={() => pressAction(content.action, {
+                onTurnOnLocation,
+                onAllowLocation,
+                onTryAgain,
+                onNotify: alert?.onNotify,
+                onCancel: alert?.onCancel,
+                onOpenSettings: alert?.onOpenSettings,
+              })}
+              style={[styles.button, alert?.busy && styles.buttonBusy]}
             >
+              {showBell ? <MaterialDesignIcons name="bell-outline" color={colors.primary} size={16} /> : null}
               <Text style={styles.buttonLabel}>{action}</Text>
             </Pressable>
           ) : null}
+          {alert?.error ? <Text style={styles.error}>{alert.error}</Text> : null}
         </View>
       </View>
     </View>
@@ -69,20 +90,37 @@ export default function NearbyRidersCard({
 
 function pressAction(
   action: NearbyCardContent['action'],
-  onTurnOnLocation: () => void,
-  onAllowLocation: () => void,
-  onTryAgain: () => void,
+  handlers: {
+    onTurnOnLocation: () => void;
+    onAllowLocation: () => void;
+    onTryAgain: () => void;
+    onNotify?: () => void;
+    onCancel?: () => void;
+    onOpenSettings?: () => void;
+  },
 ) {
   if (action === 'turn-on-location') {
-    onTurnOnLocation();
+    handlers.onTurnOnLocation();
     return;
   }
   if (action === 'allow-location') {
-    onAllowLocation();
+    handlers.onAllowLocation();
     return;
   }
   if (action === 'try-again') {
-    onTryAgain();
+    handlers.onTryAgain();
+    return;
+  }
+  if (action === 'notify') {
+    handlers.onNotify?.();
+    return;
+  }
+  if (action === 'cancel-alert') {
+    handlers.onCancel?.();
+    return;
+  }
+  if (action === 'open-notification-settings') {
+    handlers.onOpenSettings?.();
   }
 }
 
@@ -132,6 +170,7 @@ const styles = StyleSheet.create({
   },
   button: {
     alignSelf: 'flex-start',
+    flexDirection: 'row',
     minHeight: 36,
     marginTop: spacing.xs,
     borderRadius: radius.md,
@@ -141,10 +180,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: spacing.md,
+    gap: spacing.xs,
+  },
+  buttonBusy: {
+    opacity: 0.6,
   },
   buttonLabel: {
     fontSize: typography.caption,
     fontWeight: '700',
     color: colors.primary,
+  },
+  error: {
+    fontSize: typography.caption,
+    lineHeight: 20,
+    color: colors.error,
   },
 });

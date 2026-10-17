@@ -8,7 +8,7 @@ import {
 import type { CustomerContext } from '../auth/customer-access.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { readDeliveryDraft, readQuotePins, type QuotePins } from './delivery-request.js';
-import { toCustomerDelivery, type StoredDelivery } from './delivery-view.js';
+import { toCustomerDelivery, toCustomerDeliverySummary, type StoredDelivery } from './delivery-view.js';
 import { centsFromDecimal, formatCents } from './money.js';
 import { missingPricing } from './delivery-pricing.service.js';
 import { lockActivePricing } from './pricing-lock.js';
@@ -40,6 +40,42 @@ export class DeliveryService {
 
     return toCustomerDelivery(delivery);
   }
+
+  async list(customer: CustomerContext, query: Record<string, unknown>) {
+    const page = readPage(query.page, 1, 1, 100_000);
+    const limit = readPage(query.limit, 20, 1, 100);
+    const statuses = readStatuses(query.status);
+    const where = {
+      customerId: customer.customerAccountId,
+      ...(statuses ? { status: { in: statuses } } : {}),
+    };
+    const [total, rows] = await this.prisma.$transaction([
+      this.prisma.delivery.count({ where }),
+      this.prisma.delivery.findMany({
+        where,
+        skip: (page - 1) * limit,
+        take: limit,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        select: {
+          id: true,
+          status: true,
+          createdAt: true,
+          pickupAddress: true,
+          dropoffAddress: true,
+        },
+      }),
+    ]);
+    return {
+      data: rows.map((delivery) => toCustomerDeliverySummary(delivery)),
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
   async quote(body: unknown) {
     const pins = readQuotePins(body);
     const active = await this.prisma.deliveryPricingConfig.findFirst({ where: { isActive: true } });
@@ -106,6 +142,40 @@ export class DeliveryService {
       return toCustomerDelivery(created as StoredDelivery);
     });
   }
+}
+
+function readPage(value: unknown, fallback: number, minimum: number, maximum: number): number {
+  if (value === undefined) {
+    return fallback;
+  }
+  if (
+    typeof value !== 'string'
+    || !/^[0-9]+$/.test(value)
+    || !Number.isSafeInteger(Number(value))
+    || Number(value) < minimum
+    || Number(value) > maximum
+  ) {
+    throw new BadRequestException('Invalid pagination parameter');
+  }
+  return Number(value);
+}
+
+function readStatuses(value: unknown): DeliveryStatus[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const values = Array.isArray(value) ? value : [value];
+  if (values.length === 0) {
+    return undefined;
+  }
+  const statuses: DeliveryStatus[] = [];
+  for (const item of values) {
+    if (typeof item !== 'string' || !Object.values(DeliveryStatus).includes(item as DeliveryStatus)) {
+      throw new BadRequestException('Invalid delivery status');
+    }
+    statuses.push(item as DeliveryStatus);
+  }
+  return statuses;
 }
 
 function pricePins(pins: QuotePins, tariff: ActiveTariff) {

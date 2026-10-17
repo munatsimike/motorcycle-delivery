@@ -10,7 +10,10 @@ import { useCustomerAccount } from '../../../account/presentation/viewmodels/use
 import { useSession } from '../../../auth/presentation/viewmodels/useSession';
 import type { RootStackParamList } from '../../../../navigation/types';
 import { colors, spacing } from '../../../../theme';
-import { zimbabweNationalNumber } from '../../domain/bookingDraft';
+import { contactPhoneForField } from '../../domain/bookingDraft';
+import { readDropoffPin } from '../../domain/pickupLocation';
+import { expoAddressGeocoder } from '../../data/expoAddressGeocoder';
+import { expoCustomerLocation } from '../../../riders/data/expoCustomerLocation';
 import BookingProgress, { bookingStepTitle } from '../components/BookingProgress';
 import BookingSummary from '../components/BookingSummary';
 import ParcelFields from '../components/ParcelFields';
@@ -56,7 +59,7 @@ export default function ParcelRequestScreen({ navigation }: ParcelRequestProps) 
     const name = account.kind === 'BUSINESS' ? account.contactName ?? account.name : account.name;
     booking.prefillPickup({
       contactName: name ?? '',
-      contactPhone: zimbabweNationalNumber(account.phone) ?? '',
+      contactPhone: contactPhoneForField(account.phone),
       address: account.address,
     });
   }, [account, booking]);
@@ -81,7 +84,12 @@ export default function ParcelRequestScreen({ navigation }: ParcelRequestProps) 
           />
         ) : null}
         {booking.step === 'destination' ? (
-          <StopFields stop={booking.draft.dropoff} onChange={(patch) => booking.updateStop('dropoff', patch)} />
+          <StopFields
+            stop={booking.draft.dropoff}
+            onChange={(patch) => booking.updateStop('dropoff', patch)}
+            showLandmark={false}
+            showInstructions={false}
+          />
         ) : null}
         {booking.step === 'parcel' ? (
           <ParcelFields draft={booking.draft} onChange={booking.updateDraft} />
@@ -95,12 +103,9 @@ export default function ParcelRequestScreen({ navigation }: ParcelRequestProps) 
         ) : null}
         <ErrorMessage message={booking.error} />
         <View style={styles.actions}>
-          {booking.step === 'pickup' ? null : (
-            <SecondaryButton label="Back" onPress={booking.goBack} disabled={Boolean(booking.busy)} />
-          )}
-          {booking.step === 'confirm' ? (
+          {booking.step === 'review' || booking.step === 'confirm' ? (
             <PrimaryButton
-              label="Confirm delivery"
+              label="Confirm"
               loading={booking.busy === 'create'}
               loadingLabel="Booking"
               disabled={Boolean(booking.busy) || !booking.quote}
@@ -111,13 +116,23 @@ export default function ParcelRequestScreen({ navigation }: ParcelRequestProps) 
           ) : (
             <PrimaryButton
               label="Continue"
-              loading={booking.busy === 'quote'}
-              loadingLabel="Getting price"
+              loading={booking.busy === 'quote' || booking.busy === 'locate'}
+              loadingLabel={
+                booking.busy === 'locate'
+                  ? booking.step === 'pickup' ? 'Finding pickup' : 'Finding address'
+                  : 'Getting price'
+              }
               disabled={Boolean(booking.busy)}
               onPress={() => {
-                void booking.goNext();
+                void booking.goNext(
+                  (address) => readDropoffPin(address, expoCustomerLocation, expoAddressGeocoder),
+                  (address) => readDropoffPin(address, expoCustomerLocation, expoAddressGeocoder),
+                );
               }}
             />
+          )}
+          {booking.step === 'pickup' ? null : (
+            <SecondaryButton label="Back" onPress={booking.goBack} disabled={Boolean(booking.busy)} />
           )}
         </View>
       </ScrollView>

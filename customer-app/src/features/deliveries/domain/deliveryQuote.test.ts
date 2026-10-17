@@ -74,7 +74,7 @@ describe('readCustomerDeliveryDetail', () => {
       offeredPrice: '4.50',
       suggestedPrice: '4.50',
       distanceMeters: 800,
-      pickup: { address: '12 Samora Machel Avenue' },
+      pickup: { address: '12 Samora Machel Avenue', latitude: '-17.8292000', longitude: '31.0522000' },
       dropoff: { address: '4 Jason Moyo Avenue' },
       parcel: { description: 'Documents' },
     })).toMatchObject({

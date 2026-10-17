@@ -5,6 +5,9 @@ import {
   emptyBookingDraft,
   prepareBooking,
   quoteBody,
+  contactPhoneForField,
+  deliveryContactPhone,
+  stopDetailsError,
   zimbabweMobileE164,
   zimbabweNationalNumber,
   type BookingDraft,
@@ -68,11 +71,12 @@ describe('prepareBooking', () => {
     expect(createBody(prepared.booking, '2.50')).not.toHaveProperty('suggestedPrice');
   });
 
-  it('rejects a stop that has an address but no coordinates', () => {
-    const incomplete = draft();
-    incomplete.pickup.latitude = '';
-    incomplete.pickup.longitude = '';
-    expect(prepareBooking(incomplete)).toEqual({ ok: false, error: 'Enter a valid pickup location' });
+  it('accepts the prefilled pickup details without coordinate fields', () => {
+    const pickup = draft();
+    pickup.pickup.latitude = '';
+    pickup.pickup.longitude = '';
+    expect(stopDetailsError(pickup.pickup, 'pickup')).toBeNull();
+    expect(prepareBooking(pickup)).toEqual({ ok: false, error: 'Enter a valid pickup location' });
   });
 
   it('rejects coordinates outside the valid range', () => {
@@ -88,11 +92,18 @@ describe('prepareBooking', () => {
     expect(zimbabweNationalNumber('0612345678')).toBeNull();
   });
 
-  it('rejects a Dutch mobile for a delivery contact', () => {
+  it('prefills a Dutch account number and keeps it as the pickup contact', () => {
+    expect(contactPhoneForField('+31612345678')).toBe('+31612345678');
+    expect(contactPhoneForField('+263771234567')).toBe('771234567');
     expect(zimbabweMobileE164('0612345678')).toBeNull();
-    const incomplete = draft();
-    incomplete.pickup.contactPhone = '0612345678';
-    expect(prepareBooking(incomplete)).toEqual({ ok: false, error: 'Enter the pickup contact phone' });
+    expect(deliveryContactPhone('0612345678')).toBe('+31612345678');
+    const dutchPickup = draft();
+    dutchPickup.pickup.contactPhone = '+31612345678';
+    const prepared = prepareBooking(dutchPickup);
+    expect(prepared.ok).toBe(true);
+    if (prepared.ok) {
+      expect(prepared.booking.pickup.contactPhone).toBe('+31612345678');
+    }
   });
 
   it('requires parcel choices before a quote can be confirmed', () => {

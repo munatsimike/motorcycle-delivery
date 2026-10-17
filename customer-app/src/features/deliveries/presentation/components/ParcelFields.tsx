@@ -1,15 +1,14 @@
+import { type ComponentProps, useEffect } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
 
 import FormInput from '../../../../components/FormInput';
 import { colors, radius, spacing, typography } from '../../../../theme';
-import {
-  DELIVERY_PAYERS,
-  PARCEL_SIZES,
-  PAYMENT_METHODS,
-  type BookingDraft,
-  type DeliveryPayer,
-  type ParcelSize,
-  type PaymentMethod,
+import type {
+  BookingDraft,
+  DeliveryPayer,
+  ParcelSize,
+  PaymentMethod,
 } from '../../domain/bookingDraft';
 
 type ParcelFieldsProps = {
@@ -17,15 +16,27 @@ type ParcelFieldsProps = {
   onChange: (patch: Partial<BookingDraft>) => void;
 };
 
-const SIZE_LABELS: Record<ParcelSize, string> = {
-  SMALL: 'Small',
-  MEDIUM: 'Medium',
-  LARGE: 'Large',
-};
+type IconName = ComponentProps<typeof MaterialDesignIcons>['name'];
+
+const CONTENTS: { label: string; description: string; icon: IconName }[] = [
+  { label: 'Parcel', description: 'Parcel', icon: 'package-variant' },
+  { label: 'Document', description: 'Document', icon: 'file-document-outline' },
+  { label: 'Food', description: 'Food', icon: 'silverware-fork-knife' },
+];
+
+const PAYERS: { value: DeliveryPayer; label: string }[] = [
+  { value: 'SENDER', label: 'Sender' },
+  { value: 'RECIPIENT', label: 'Recipient' },
+];
+
+const PAYMENTS: { value: PaymentMethod; label: string }[] = [
+  { value: 'CASH', label: 'Cash' },
+  { value: 'ECOCASH', label: 'EcoCash' },
+];
 
 const PAYER_LABELS: Record<DeliveryPayer, string> = {
-  SENDER: 'I will pay',
-  RECIPIENT: 'Recipient will pay',
+  SENDER: 'Sender',
+  RECIPIENT: 'Recipient',
 };
 
 const PAYMENT_LABELS: Record<PaymentMethod, string> = {
@@ -36,37 +47,78 @@ const PAYMENT_LABELS: Record<PaymentMethod, string> = {
   ZIPIT: 'ZIPIT',
 };
 
+const SIZE_LABELS: Record<ParcelSize, string> = {
+  SMALL: 'Small',
+  MEDIUM: 'Medium',
+  LARGE: 'Large',
+};
+
 export default function ParcelFields({ draft, onChange }: ParcelFieldsProps) {
+  const selectedDescription = CONTENTS.some((content) => content.description === draft.description)
+    ? draft.description
+    : 'Parcel';
+
+  useEffect(() => {
+    const patch: Partial<BookingDraft> = {};
+    if (draft.description !== selectedDescription) {
+      patch.description = selectedDescription;
+    }
+    if (!draft.size) {
+      patch.size = 'SMALL';
+    }
+    if (!draft.payer) {
+      patch.payer = 'SENDER';
+    }
+    if (!draft.paymentMethod) {
+      patch.paymentMethod = 'CASH';
+    }
+    if (Object.keys(patch).length > 0) {
+      onChange(patch);
+    }
+  }, [draft.description, draft.payer, draft.paymentMethod, draft.size, onChange, selectedDescription]);
+
   return (
     <>
-      <FormInput
-        label="Description"
-        value={draft.description}
-        onChangeText={(description) => onChange({ description })}
-        maxLength={500}
-      />
-      <ChoiceGroup
-        label="Parcel size"
-        value={draft.size}
-        options={PARCEL_SIZES.map((size) => ({ value: size, label: SIZE_LABELS[size] }))}
-        onChange={(size) => onChange({ size })}
-      />
+      <Text style={styles.groupLabel}>What are you sending</Text>
+      <View style={styles.squares}>
+        {CONTENTS.map((content) => {
+          const selected = selectedDescription === content.description;
+          return (
+            <Pressable
+              key={content.description}
+              accessibilityRole="button"
+              accessibilityState={{ selected }}
+              onPress={() => onChange({ description: content.description, size: 'SMALL' })}
+              style={styles.squarePress}
+            >
+              <View style={[styles.square, selected && styles.squareSelected]}>
+                <MaterialDesignIcons
+                  name={content.icon}
+                  size={24}
+                  color={selected ? colors.primaryDark : colors.text}
+                />
+                <Text style={[styles.squareLabel, selected && styles.squareLabelSelected]}>{content.label}</Text>
+              </View>
+            </Pressable>
+          );
+        })}
+      </View>
       <FormInput
         label="Instructions (optional)"
         value={draft.instructions}
         onChangeText={(instructions) => onChange({ instructions })}
         maxLength={500}
       />
-      <ChoiceGroup
-        label="Who pays the rider"
-        value={draft.payer}
-        options={DELIVERY_PAYERS.map((payer) => ({ value: payer, label: PAYER_LABELS[payer] }))}
+      <RadioGroup
+        label="Who will pay"
+        value={draft.payer ?? 'SENDER'}
+        options={PAYERS}
         onChange={(payer) => onChange({ payer })}
       />
-      <ChoiceGroup
-        label="How the rider will be paid"
-        value={draft.paymentMethod}
-        options={PAYMENT_METHODS.map((method) => ({ value: method, label: PAYMENT_LABELS[method] }))}
+      <RadioGroup
+        label="Payment"
+        value={draft.paymentMethod ?? 'CASH'}
+        options={PAYMENTS}
         onChange={(paymentMethod) => onChange({ paymentMethod })}
       />
       <Text style={styles.note}>Payment is not collected in the app. The rider is paid using the method you choose.</Text>
@@ -86,31 +138,36 @@ export function paymentMethodLabel(method: PaymentMethod): string {
   return PAYMENT_LABELS[method];
 }
 
-type ChoiceGroupProps<T extends string> = {
+type RadioGroupProps<T extends string> = {
   label: string;
   value: T | null;
   options: { value: T; label: string }[];
   onChange: (value: T) => void;
 };
 
-function ChoiceGroup<T extends string>({ label, value, options, onChange }: ChoiceGroupProps<T>) {
+function RadioGroup<T extends string>({ label, value, options, onChange }: RadioGroupProps<T>) {
   return (
     <View style={styles.group}>
       <Text style={styles.groupLabel}>{label}</Text>
-      {options.map((option) => {
-        const selected = value === option.value;
-        return (
-          <Pressable
-            key={option.value}
-            accessibilityRole="button"
-            accessibilityState={{ selected }}
-            onPress={() => onChange(option.value)}
-            style={[styles.choice, selected && styles.choiceSelected]}
-          >
-            <Text style={[styles.choiceLabel, selected && styles.choiceLabelSelected]}>{option.label}</Text>
-          </Pressable>
-        );
-      })}
+      <View style={styles.radioOptions}>
+        {options.map((option) => {
+          const selected = value === option.value;
+          return (
+            <Pressable
+              key={option.value}
+              accessibilityRole="radio"
+              accessibilityState={{ selected }}
+              onPress={() => onChange(option.value)}
+              style={styles.radioRow}
+            >
+              <View style={[styles.radioOuter, selected && styles.radioOuterSelected]}>
+                {selected ? <View style={styles.radioInner} /> : null}
+              </View>
+              <Text style={styles.radioLabel}>{option.label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
     </View>
   );
 }
@@ -124,26 +181,75 @@ const styles = StyleSheet.create({
     fontSize: typography.caption,
     fontWeight: '700',
     color: colors.text,
+    marginBottom: spacing.sm,
   },
-  choice: {
-    minHeight: 44,
+  squares: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  squarePress: {
+    flex: 1,
+  },
+  square: {
+    height: 84,
+    alignItems: 'center',
     justifyContent: 'center',
+    gap: spacing.xs,
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.lg,
+    borderRadius: radius.sm,
     backgroundColor: colors.background,
+    padding: spacing.sm,
   },
-  choiceSelected: {
+  squareSelected: {
     borderColor: colors.primary,
     backgroundColor: colors.primaryLight,
   },
-  choiceLabel: {
+  squareLabel: {
+    fontSize: typography.caption,
+    fontWeight: '700',
+    color: colors.text,
+    textAlign: 'center',
+  },
+  squareLabelSelected: {
+    color: colors.primaryDark,
+  },
+  radioOptions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    columnGap: spacing.xl,
+    rowGap: spacing.xs,
+  },
+  radioRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexGrow: 1,
+    flexBasis: 140,
+    gap: spacing.sm,
+    minHeight: 44,
+  },
+  radioOuter: {
+    width: 22,
+    height: 22,
+    borderRadius: radius.pill,
+    borderWidth: 2,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  radioOuterSelected: {
+    borderColor: colors.primary,
+  },
+  radioInner: {
+    width: 12,
+    height: 12,
+    borderRadius: radius.pill,
+    backgroundColor: colors.primary,
+  },
+  radioLabel: {
     fontSize: typography.body,
     color: colors.text,
-  },
-  choiceLabelSelected: {
-    fontWeight: '700',
   },
   note: {
     fontSize: typography.caption,

@@ -15,6 +15,7 @@ import {
   DispatchRoundStatus,
   Prisma,
   RiderAvailability,
+  UserRole,
 } from '../generated/prisma/client.js';
 import type { CustomerContext } from '../auth/customer-access.service.js';
 import type { RiderContext } from '../auth/rider-access.service.js';
@@ -212,6 +213,10 @@ export class DispatchService {
     });
   }
 
+  processCreatedRecovery(now = new Date()): Promise<boolean> {
+    return this.prisma.$transaction(async (tx) => recoverCreatedDelivery(tx, now));
+  }
+
   processDueRound(now = new Date()): Promise<boolean> {
     return this.prisma.$transaction(async (tx) => {
       const claimed = await claimDueRound(tx, now);
@@ -358,6 +363,71 @@ export function readReleaseReason(body: unknown): AssignmentReleaseReason {
     throw new BadRequestException('Choose a release reason');
   }
   return reason as AssignmentReleaseReason;
+}
+
+async function recoverCreatedDelivery(tx: Prisma.TransactionClient, now: Date): Promise<boolean> {
+  const claimed = await claimStrandedCreated(tx);
+  if (!claimed) {
+    return false;
+  }
+  const delivery = await tx.delivery.findUnique({ where: { id: claimed.id } });
+  if (!delivery || delivery.status !== DeliveryStatus.CREATED || delivery.searchGeneration !== 0) {
+    return true;
+  }
+  const rounds = await tx.deliveryDispatchRound.findMany({ where: { deliveryId: delivery.id } });
+  if (rounds.length > 0) {
+    return true;
+  }
+  const offers = await tx.deliveryAssignment.findMany({
+    where: { deliveryId: delivery.id, status: AssignmentStatus.OFFERED },
+  });
+  if (offers.length > 0) {
+    return true;
+  }
+  const account = await tx.customerAccount.findUnique({
+    where: { id: delivery.customerId },
+    select: { id: true, userId: true },
+  });
+  if (!account) {
+    throw new NotFoundException('Delivery not found');
+  }
+  try {
+    await startSearch(tx, {
+      userId: account.userId,
+      role: UserRole.CUSTOMER,
+      customerAccountId: account.id,
+    }, delivery.id, now);
+  } catch (error) {
+    if (error instanceof ConflictException || error instanceof NotFoundException) {
+      return true;
+    }
+    throw error;
+  }
+  return true;
+}
+
+async function claimStrandedCreated(tx: Prisma.TransactionClient): Promise<{ id: string } | null> {
+  const rows = await tx.$queryRaw<Array<{ id: string }>>`
+    SELECT d."id"
+    FROM "deliveries" d
+    WHERE d."status" = 'CREATED'::"delivery_status"
+      AND d."search_generation" = 0
+      AND NOT EXISTS (
+        SELECT 1
+        FROM "delivery_dispatch_rounds" r
+        WHERE r."delivery_id" = d."id"
+      )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM "delivery_assignments" a
+        WHERE a."delivery_id" = d."id"
+          AND a."status" = 'OFFERED'::"assignment_status"
+      )
+    ORDER BY d."created_at" ASC, d."id" ASC
+    LIMIT 1
+    FOR UPDATE OF d SKIP LOCKED
+  `;
+  return rows[0] ?? null;
 }
 
 async function startSearch(

@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
-import { UserRole } from '../generated/prisma/client.js';
+import { DeliveryStatus, UserRole } from '../generated/prisma/client.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import { DeliveryPricingService } from './delivery-pricing.service.js';
 import { DeliveryService } from './delivery.service.js';
@@ -207,4 +207,109 @@ function context() {
     assignments,
     users,
   };
+}
+
+describe('DeliveryService list', () => {
+  const older = new Date('2026-10-01T00:00:00.000Z');
+  const sameTime = new Date('2026-10-16T12:00:00.000Z');
+  const rows = [
+    row('a-old', 'account-a', 'DELIVERED', older, 'Old pickup', 'Old drop-off'),
+    row('a-1', 'account-a', 'CREATED', sameTime, 'Low pickup', 'Low drop-off'),
+    row('a-2', 'account-a', 'SEARCHING', sameTime, 'High pickup', 'High drop-off'),
+    row('b-only', 'account-b', 'CREATED', sameTime, 'Other pickup', 'Other drop-off', '+263771111111'),
+  ];
+
+  it('returns only the authenticated customer deliveries in a stable order', async () => {
+    const service = new DeliveryService(listPrisma(rows) as never);
+    const page = await service.list(customer('account-a'), { customerId: 'account-b', page: '1', limit: '2' });
+    expect(page.data.map((delivery) => delivery.id)).toEqual(['a-2', 'a-1']);
+    expect(page.data[0]).toEqual({
+      id: 'a-2',
+      reference: 'a-2',
+      status: 'SEARCHING',
+      createdAt: sameTime,
+      pickup: { address: 'High pickup' },
+      dropoff: { address: 'High drop-off' },
+    });
+    expect(page.data[0]).not.toHaveProperty('pickupContactPhone');
+    expect(JSON.stringify(page)).not.toContain('account-b');
+    expect(page.pagination).toEqual({ page: 1, limit: 2, total: 3, totalPages: 2 });
+
+    const next = await service.list(customer('account-a'), { page: '2', limit: '2' });
+    expect(next.data.map((delivery) => delivery.id)).toEqual(['a-old']);
+    expect(next.data[0]?.status).toBe('DELIVERED');
+  });
+
+  it('returns an empty page when the customer has no deliveries', async () => {
+    const service = new DeliveryService(listPrisma(rows) as never);
+    await expect(service.list(customer('account-c'), {})).resolves.toEqual({
+      data: [],
+      pagination: { page: 1, limit: 20, total: 0, totalPages: 0 },
+    });
+  });
+
+  it('filters by backend statuses and rejects an invalid page', async () => {
+    const service = new DeliveryService(listPrisma(rows) as never);
+    const active = await service.list(customer('account-a'), { status: ['CREATED', 'SEARCHING'] });
+    expect(active.data.map((delivery) => delivery.status)).toEqual(['SEARCHING', 'CREATED']);
+    await expect(service.list(customer('account-a'), { page: '0' })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.list(customer('account-a'), { status: 'EN_ROUTE' })).rejects.toBeInstanceOf(BadRequestException);
+  });
+});
+
+function customer(customerAccountId: string) {
+  return { userId: 'user-1', role: UserRole.CUSTOMER as const, customerAccountId };
+}
+
+function row(
+  id: string,
+  customerId: string,
+  status: DeliveryStatus,
+  createdAt: Date,
+  pickupAddress: string,
+  dropoffAddress: string,
+  pickupContactPhone = '+263771234567',
+) {
+  return { id, customerId, status, createdAt, pickupAddress, dropoffAddress, pickupContactPhone };
+}
+
+function listPrisma(rows: ReturnType<typeof row>[]) {
+  return {
+    delivery: {
+      async count({ where }: { where: ListWhere }) {
+        return rows.filter((item) => matches(item, where)).length;
+      },
+      async findMany({ where, skip, take, select }: { where: ListWhere; skip: number; take: number; select: Record<string, boolean> }) {
+        const sorted = rows.filter((item) => matches(item, where)).sort((left, right) => {
+          const time = right.createdAt.getTime() - left.createdAt.getTime();
+          if (time !== 0) {
+            return time;
+          }
+          return left.id < right.id ? 1 : left.id > right.id ? -1 : 0;
+        });
+        return sorted.slice(skip, skip + take).map((item) => {
+          const selected: Record<string, unknown> = {};
+          for (const key of Object.keys(select)) {
+            selected[key] = item[key as keyof typeof item];
+          }
+          return selected;
+        });
+      },
+    },
+    async $transaction<T>(operations: Promise<T>[]) {
+      return Promise.all(operations);
+    },
+  };
+}
+
+type ListWhere = { customerId: string; status?: { in: DeliveryStatus[] } };
+
+function matches(item: ReturnType<typeof row>, where: ListWhere): boolean {
+  if (item.customerId !== where.customerId) {
+    return false;
+  }
+  if (where.status && !where.status.in.includes(item.status)) {
+    return false;
+  }
+  return true;
 }

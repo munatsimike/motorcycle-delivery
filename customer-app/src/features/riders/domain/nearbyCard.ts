@@ -1,11 +1,13 @@
 import type { NearbyAvailability } from './nearbyAvailability';
 
+export type RiderAlertPhase = 'checking' | 'off' | 'active' | 'denied';
+
 export type NearbyCardContent = {
   title: string;
   message: string;
-  action: 'turn-on-location' | 'allow-location' | 'try-again' | null;
+  action: 'turn-on-location' | 'allow-location' | 'try-again' | 'notify' | 'cancel-alert' | 'open-notification-settings' | null;
   tone: 'amber' | 'neutral' | 'green' | 'danger';
-  icon: 'map-marker-off' | 'map-marker-alert-outline' | 'crosshairs-gps' | 'motorbike' | 'cloud-off-outline';
+  icon: 'map-marker-off' | 'map-marker-alert-outline' | 'crosshairs-gps' | 'bike' | 'cloud-off-outline' | 'bell-outline';
 };
 
 export function nearbyCardContent(state: NearbyAvailability): NearbyCardContent | null {
@@ -54,7 +56,7 @@ export function nearbyCardContent(state: NearbyAvailability): NearbyCardContent 
       message: '0 riders are available near you.',
       action: null,
       tone: 'neutral',
-      icon: 'motorbike',
+      icon: 'bike',
     };
   }
   const riders = state.count === 1 ? '1 rider is' : `${state.count} riders are`;
@@ -63,7 +65,7 @@ export function nearbyCardContent(state: NearbyAvailability): NearbyCardContent 
     message: `${riders} available near you.`,
     action: null,
     tone: 'green',
-    icon: 'motorbike',
+    icon: 'bike',
   };
 }
 
@@ -76,6 +78,15 @@ export function nearbyActionLabel(action: NearbyCardContent['action']): string |
   }
   if (action === 'try-again') {
     return 'Try Again';
+  }
+  if (action === 'notify') {
+    return 'Notify me when available';
+  }
+  if (action === 'cancel-alert') {
+    return 'Cancel alert';
+  }
+  if (action === 'open-notification-settings') {
+    return 'Open settings';
   }
   return null;
 }

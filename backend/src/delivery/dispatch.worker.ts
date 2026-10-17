@@ -35,6 +35,13 @@ export class DispatchWorker implements OnModuleInit, OnModuleDestroy {
     this.running = true;
     try {
       for (let processed = 0; processed < 100; processed += 1) {
+        const worked = await this.dispatch.processCreatedRecovery(now);
+        if (!worked) {
+          break;
+        }
+      }
+
+      for (let processed = 0; processed < 100; processed += 1) {
         const worked = await this.dispatch.processDueRound(now);
         if (!worked) {
           break;

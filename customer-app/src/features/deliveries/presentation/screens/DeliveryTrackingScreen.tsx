@@ -8,7 +8,8 @@ import SecondaryButton from '../../../../components/SecondaryButton';
 import { useSession } from '../../../auth/presentation/viewmodels/useSession';
 import type { RootStackParamList } from '../../../../navigation/types';
 import { colors, radius, spacing, typography } from '../../../../theme';
-import { deliveryStatusLabel } from '../../domain/deliveryStatus';
+import { deliveryStatusLabel, type DeliveryStatus } from '../../domain/deliveryStatus';
+import RiderSearchMap from '../components/RiderSearchMap';
 import { useDeliveryTracking } from '../viewmodels/useDeliveryTracking';
 
 type DeliveryTrackingProps = NativeStackScreenProps<RootStackParamList, 'DeliveryTracking'>;
@@ -22,6 +23,9 @@ export default function DeliveryTrackingScreen({ route }: DeliveryTrackingProps)
       <ScrollView contentContainerStyle={styles.content}>
         {isLoading ? <LoadingIndicator /> : null}
         <ErrorMessage message={error} />
+        {delivery && findingRider(delivery.status) ? (
+          <RiderSearchMap latitude={delivery.pickupLatitude} longitude={delivery.pickupLongitude} />
+        ) : null}
         {delivery ? (
           <View style={styles.card}>
             <Text style={styles.status}>{deliveryStatusLabel(delivery.status)}</Text>
@@ -45,6 +49,10 @@ export default function DeliveryTrackingScreen({ route }: DeliveryTrackingProps)
       </ScrollView>
     </SafeAreaView>
   );
+}
+
+function findingRider(status: DeliveryStatus): boolean {
+  return status === 'CREATED' || status === 'SEARCHING';
 }
 
 function Detail({ label, value }: { label: string; value: string }) {

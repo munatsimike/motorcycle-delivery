@@ -548,8 +548,60 @@ model CustomerAccount {
 
   user       User       @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   deliveries Delivery[]
+  pushDevices CustomerPushDevice[]
+  riderAvailabilityAlerts RiderAvailabilityAlert[]
 
   @@map("customer_accounts")
+}
+
+enum RiderAvailabilityAlertStatus {
+  ACTIVE
+  SENDING
+  NOTIFIED
+  CANCELLED
+  EXPIRED
+
+  @@map("rider_availability_alert_status")
+}
+
+// One Expo push token per device. A token can move to the signed-in customer.
+// invalidated_at is set when Expo reports the token is no longer registered.
+model CustomerPushDevice {
+  id                String    @id @default(uuid(7)) @db.Uuid
+  customerAccountId String    @map("customer_account_id") @db.Uuid
+  expoPushToken     String    @unique @map("expo_push_token") @db.VarChar(255)
+  invalidatedAt     DateTime? @map("invalidated_at") @db.Timestamptz(6)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  customerAccount CustomerAccount @relation(fields: [customerAccountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([customerAccountId])
+  @@map("customer_push_devices")
+}
+
+// One open alert per customer. position geography(Point,4326) and its GiST index
+// are created by SQL and are not fields here. The alert watches the same 2 km
+// nearby-rider rule. It does not reserve or assign a rider.
+model RiderAvailabilityAlert {
+  id                String                       @id @default(uuid(7)) @db.Uuid
+  customerAccountId String                       @map("customer_account_id") @db.Uuid
+  latitude          Decimal                      @db.Decimal(10, 7)
+  longitude         Decimal                      @db.Decimal(10, 7)
+  radiusMetres      Int                          @default(2000) @map("radius_metres")
+  status            RiderAvailabilityAlertStatus @default(ACTIVE)
+  createdAt         DateTime                     @default(now()) @map("created_at") @db.Timestamptz(6)
+  expiresAt         DateTime                     @map("expires_at") @db.Timestamptz(6)
+  claimedAt         DateTime?                    @map("claimed_at") @db.Timestamptz(6)
+  notifiedAt        DateTime?                    @map("notified_at") @db.Timestamptz(6)
+  nextAttemptAt     DateTime?                    @map("next_attempt_at") @db.Timestamptz(6)
+  attemptCount      Int                          @default(0) @map("attempt_count")
+  lastFailure       String?                      @map("last_failure") @db.VarChar(40)
+
+  customerAccount CustomerAccount @relation(fields: [customerAccountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([status, expiresAt])
+  @@map("rider_availability_alerts")
 }
 
 enum AuthSubjectRole {

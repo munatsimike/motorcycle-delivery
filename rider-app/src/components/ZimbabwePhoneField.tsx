@@ -1,0 +1,80 @@
+import { StyleSheet, Text, TextInput, View } from 'react-native';
+
+import { colors, radius, spacing, typography } from '../theme';
+import { useInputFocus } from './useInputFocus';
+
+type ZimbabwePhoneFieldProps = {
+  value: string;
+  onChangeText: (value: string) => void;
+  editable?: boolean;
+};
+
+export default function ZimbabwePhoneField({
+  value,
+  onChangeText,
+  editable = true,
+}: ZimbabwePhoneFieldProps) {
+  const focus = useInputFocus();
+
+  return (
+    <>
+      <Text style={styles.label}>Mobile number</Text>
+      <View style={[styles.inputContainer, focus.style]}>
+        <Text style={styles.countryCodeText}>+263</Text>
+        <View style={styles.inputDivider} />
+        <TextInput
+          accessibilityLabel="Mobile number"
+          style={styles.input}
+          value={value}
+          onChangeText={onChangeText}
+          placeholder="771234567"
+          placeholderTextColor={colors.textSecondary}
+          keyboardType="phone-pad"
+          autoComplete="tel"
+          textContentType="telephoneNumber"
+          maxLength={16}
+          editable={editable}
+          onFocus={focus.onFocus}
+          onBlur={focus.onBlur}
+        />
+      </View>
+    </>
+  );
+}
+
+const styles = StyleSheet.create({
+  label: {
+    fontSize: typography.caption,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: spacing.sm,
+  },
+  inputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 58,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.lg,
+    backgroundColor: colors.background,
+    marginBottom: spacing.md,
+  },
+  countryCodeText: {
+    fontSize: typography.body,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  inputDivider: {
+    width: 1,
+    height: 28,
+    backgroundColor: colors.border,
+    marginHorizontal: spacing.md,
+  },
+  input: {
+    flex: 1,
+    fontSize: typography.button,
+    color: colors.text,
+    paddingVertical: spacing.sm,
+  },
+});

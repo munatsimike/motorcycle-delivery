@@ -10,9 +10,10 @@ import {
 } from '../generated/prisma/client.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import { AccessTokenService } from './access-token.service.js';
+import type { RegistrationProof } from './registration-proof.js';
 import { Clock } from './clock.js';
 import { OtpAuthService } from './otp-auth.service.js';
-import { SessionService } from './session.service.js';
+import { SessionService, type AuthTokens } from './session.service.js';
 import { hashSecret } from './token-hash.js';
 import { TooManyRequestsException } from './too-many-requests.exception.js';
 
@@ -32,7 +33,7 @@ describe('OtpAuthService', () => {
   it('creates a passwordless rider and a hashed refresh session after the code is approved', async () => {
     const ctx = context();
     await ctx.otp.startRegistration(AuthSubjectRole.RIDER, registrationBody(), '203.0.113.10');
-    const issued = await ctx.otp.verifyRegistration(AuthSubjectRole.RIDER, { phone: PHONE, code: '123456' });
+    const issued = requireSession(await ctx.otp.verifyRegistration(AuthSubjectRole.RIDER, { phone: PHONE, code: '123456' }));
 
     expect(ctx.twilio.startVerification).toHaveBeenCalledWith(E164);
     expect(ctx.users).toEqual([
@@ -91,7 +92,7 @@ describe('OtpAuthService', () => {
       status: 'PENDING',
     });
 
-    const issued = await ctx.otp.verifyRegistration(AuthSubjectRole.CUSTOMER, { phone: PHONE, code: '123456' });
+    const issued = requireSession(await ctx.otp.verifyRegistration(AuthSubjectRole.CUSTOMER, { phone: PHONE, code: '123456' }));
     expect(ctx.twilio.checkVerification).toHaveBeenCalledWith(E164, '123456');
     expect(ctx.users).toEqual([
       expect.objectContaining({
@@ -174,6 +175,132 @@ describe('OtpAuthService', () => {
     expect(ctx.twilio.checkVerification).not.toHaveBeenCalled();
     expect(ctx.challenges[0].status).toBe('EXPIRED');
     expect(ctx.users).toHaveLength(0);
+    expect(ctx.accounts).toHaveLength(0);
+  });
+
+  it('verifies a phone before collecting customer profile details', async () => {
+    const ctx = context();
+    await expect(ctx.otp.startRegistration(AuthSubjectRole.CUSTOMER, { phone: PHONE }, '203.0.113.48'))
+      .resolves.toEqual({ status: 'pending' });
+    expect(ctx.users).toHaveLength(0);
+    expect(ctx.accounts).toHaveLength(0);
+    expect(ctx.challenges[0]).toMatchObject({
+      phone: E164,
+      fullName: null,
+      accountKind: null,
+      address: null,
+      businessName: null,
+    });
+
+    const proof = await ctx.otp.verifyRegistration(AuthSubjectRole.CUSTOMER, { phone: PHONE, code: '123456' });
+    expect(proof).toMatchObject({ status: 'verified' });
+    expect(ctx.users).toHaveLength(0);
+    expect(ctx.accounts).toHaveLength(0);
+    expect(ctx.sessions).toHaveLength(0);
+    if (!('registrationToken' in proof)) {
+      throw new Error('expected a registration proof');
+    }
+    expect(() => ctx.accessTokens.verify(proof.registrationToken, ctx.clock.current)).toThrow(UnauthorizedException);
+
+    const issued = await ctx.otp.completeCustomerRegistration({
+      registrationToken: proof.registrationToken,
+      accountKind: 'INDIVIDUAL',
+      fullName: 'Rudo Ncube',
+      address: '1 First Street',
+      phone: '+263779999999',
+    });
+    expect(ctx.users).toEqual([
+      expect.objectContaining({
+        phone: E164,
+        role: UserRole.CUSTOMER,
+        fullName: 'Rudo Ncube',
+        passwordHash: null,
+      }),
+    ]);
+    expect(ctx.accounts).toEqual([
+      expect.objectContaining({
+        userId: ctx.users[0].id,
+        kind: 'INDIVIDUAL',
+        name: 'Rudo Ncube',
+        contactName: null,
+        address: '1 First Street',
+      }),
+    ]);
+    expect(ctx.accessTokens.verify(issued.accessToken, ctx.clock.current).role).toBe(UserRole.CUSTOMER);
+    expect(ctx.challenges[0].status).toBe('SUPERSEDED');
+
+    await expect(ctx.otp.completeCustomerRegistration({
+      registrationToken: proof.registrationToken,
+      accountKind: 'BUSINESS',
+      businessName: 'Second Try',
+      contactName: 'Rudo Ncube',
+      address: '1 First Street',
+    })).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(ctx.users).toHaveLength(1);
+    expect(ctx.accounts).toHaveLength(1);
+  });
+
+  it('creates a business account from the verified phone rather than a phone in the body', async () => {
+    const ctx = context();
+    await ctx.otp.startRegistration(AuthSubjectRole.CUSTOMER, { phone: '0771234567' }, '203.0.113.49');
+    const proof = await ctx.otp.verifyRegistration(AuthSubjectRole.CUSTOMER, { phone: PHONE, code: '123456' });
+    if (!('registrationToken' in proof)) {
+      throw new Error('expected a registration proof');
+    }
+    await ctx.otp.completeCustomerRegistration({
+      registrationToken: proof.registrationToken,
+      accountKind: 'BUSINESS',
+      businessName: 'Moyo Deliveries',
+      contactName: 'Tendai Moyo',
+      address: '12 Samora Machel Avenue',
+      phone: '+31612345678',
+    });
+    expect(ctx.users[0].phone).toBe(E164);
+    expect(ctx.users[0].fullName).toBe('Tendai Moyo');
+    expect(ctx.accounts[0]).toMatchObject({
+      kind: 'BUSINESS',
+      name: 'Moyo Deliveries',
+      contactName: 'Tendai Moyo',
+    });
+  });
+
+  it('does not authenticate when a phone-only registration code is rejected', async () => {
+    const ctx = context();
+    ctx.twilio.checkVerification.mockResolvedValue(false);
+    await ctx.otp.startRegistration(AuthSubjectRole.CUSTOMER, { phone: PHONE }, '203.0.113.50');
+    await expect(ctx.otp.verifyRegistration(AuthSubjectRole.CUSTOMER, { phone: PHONE, code: '000000' }))
+      .rejects.toBeInstanceOf(UnauthorizedException);
+    expect(ctx.users).toHaveLength(0);
+    expect(ctx.accounts).toHaveLength(0);
+    expect(ctx.sessions).toHaveLength(0);
+    expect(ctx.challenges[0].status).toBe('PENDING');
+  });
+
+  it('rejects an expired registration proof without creating an account', async () => {
+    const ctx = context();
+    await ctx.otp.startRegistration(AuthSubjectRole.CUSTOMER, { phone: PHONE }, '203.0.113.51');
+    const proof = await ctx.otp.verifyRegistration(AuthSubjectRole.CUSTOMER, { phone: PHONE, code: '123456' });
+    if (!('registrationToken' in proof)) {
+      throw new Error('expected a registration proof');
+    }
+    ctx.clock.current = new Date(ctx.clock.current.getTime() + 16 * 60_000);
+    await expect(ctx.otp.completeCustomerRegistration({
+      registrationToken: proof.registrationToken,
+      accountKind: 'INDIVIDUAL',
+      fullName: 'Rudo Ncube',
+      address: '1 First Street',
+    })).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(ctx.users).toHaveLength(0);
+    expect(ctx.accounts).toHaveLength(0);
+  });
+
+  it('rejects phone-only registration when the number already belongs to an account', async () => {
+    const ctx = context();
+    ctx.users.push(existingRider());
+    const error = await ctx.otp.startRegistration(AuthSubjectRole.CUSTOMER, { phone: PHONE }, '203.0.113.52')
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ConflictException);
+    expect(ctx.twilio.startVerification).not.toHaveBeenCalled();
     expect(ctx.accounts).toHaveLength(0);
   });
 
@@ -329,7 +456,7 @@ describe('OtpAuthService', () => {
         '203.0.113.30',
       );
       expect(ctx.twilio.startVerification).toHaveBeenCalledWith(dutch);
-      const issued = await ctx.otp.verifyRegistration(AuthSubjectRole.RIDER, { phone: dutch, code: '123456' });
+      const issued = requireSession(await ctx.otp.verifyRegistration(AuthSubjectRole.RIDER, { phone: dutch, code: '123456' }));
       expect(ctx.users[0].phone).toBe(dutch);
 
       await ctx.otp.startLogin(AuthSubjectRole.RIDER, { phone: '31612345678' }, '203.0.113.31');
@@ -370,6 +497,13 @@ describe('OtpAuthService', () => {
     });
   });
 });
+
+function requireSession(result: AuthTokens | RegistrationProof): AuthTokens {
+  if (!('accessToken' in result)) {
+    throw new Error('expected an authenticated session');
+  }
+  return result;
+}
 
 function registrationBody() {
   return { phone: PHONE, fullName: 'Tendai Moyo' };
@@ -609,6 +743,7 @@ function context() {
         profiles: structuredClone(profiles),
         accounts: structuredClone(accounts),
         wallets: structuredClone(wallets),
+        challenges: structuredClone(challenges),
         sessions: structuredClone(sessions),
       };
       try {
@@ -618,6 +753,7 @@ function context() {
         profiles.splice(0, profiles.length, ...snapshot.profiles);
         accounts.splice(0, accounts.length, ...snapshot.accounts);
         wallets.splice(0, wallets.length, ...snapshot.wallets);
+        challenges.splice(0, challenges.length, ...snapshot.challenges);
         sessions.splice(0, sessions.length, ...snapshot.sessions);
         throw error;
       }

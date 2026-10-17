@@ -4,8 +4,10 @@ import {
   ForbiddenException,
   Get,
   HttpCode,
+  Logger,
   Param,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -16,6 +18,8 @@ import { DispatchService } from './dispatch.service.js';
 @Controller('customers/me/deliveries')
 @UseGuards(CustomerAccessGuard)
 export class DeliveryController {
+  private readonly logger = new Logger(DeliveryController.name);
+
   constructor(
     private readonly deliveries: DeliveryService,
     private readonly dispatch: DispatchService,
@@ -29,8 +33,33 @@ export class DeliveryController {
   }
 
   @Post()
-  create(@Req() request: CustomerRequest, @Body() body: unknown) {
-    return this.deliveries.create(requiredCustomer(request), body);
+  async create(@Req() request: CustomerRequest, @Body() body: unknown) {
+    const customer = requiredCustomer(request);
+    const created = await this.deliveries.create(customer, body);
+    let started: { status: string; searchGeneration: number };
+    try {
+      started = await this.dispatch.search(customer, created.id);
+    } catch (error) {
+      this.logger.error(`Automatic search failed deliveryId=${created.id} error=${errorName(error)}`);
+      return created;
+    }
+    try {
+      return await this.deliveries.getById(customer, created.id);
+    } catch (error) {
+      this.logger.error(`Automatic search reload failed deliveryId=${created.id} error=${errorName(error)}`);
+      return {
+        ...created,
+        status: started.status,
+        searchGeneration: started.searchGeneration,
+        autoRetryCount: 0,
+        nextRetryAt: null,
+      };
+    }
+  }
+
+  @Get()
+  list(@Req() request: CustomerRequest, @Query() query: Record<string, unknown>) {
+    return this.deliveries.list(requiredCustomer(request), query);
   }
 
   @Get(':deliveryId')
@@ -55,6 +84,10 @@ function requiredCustomer(request: CustomerRequest) {
     throw new ForbiddenException('Customer access is required');
   }
   return request.customer;
+}
+
+function errorName(error: unknown): string {
+  return error instanceof Error ? error.name : 'Error';
 }
 
 

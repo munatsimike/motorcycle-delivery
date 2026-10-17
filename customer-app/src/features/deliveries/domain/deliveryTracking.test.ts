@@ -12,6 +12,8 @@ function delivery(status: CustomerDeliveryDetail['status'], id = 'delivery-1'): 
     suggestedPrice: '4.50',
     distanceMeters: 100,
     pickupAddress: 'Pickup',
+    pickupLatitude: -17.8292,
+    pickupLongitude: 31.0522,
     dropoffAddress: 'Drop-off',
     parcelDescription: 'Documents',
   };

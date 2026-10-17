@@ -30,6 +30,7 @@ import { createEmptyWallet } from '../rider/wallet-ledger.js';
 import { Clock } from './clock.js';
 import { InvalidPersonNameError, normalizePersonName } from './person-name.js';
 import { InvalidPhoneNumberError, normalizeAuthPhone } from './phone-number.js';
+import { readRegistrationProof, signRegistrationProof, type RegistrationProof } from './registration-proof.js';
 import { SessionService, type AuthTokens } from './session.service.js';
 import { hashSecret } from './token-hash.js';
 import { TooManyRequestsException } from './too-many-requests.exception.js';
@@ -64,6 +65,9 @@ export class OtpAuthService {
 
   startRegistration(role: AuthSubjectRole, body: unknown, remoteAddress: string): Promise<{ status: 'pending' }> {
     const phone = readPhone(body);
+    if (role === AuthSubjectRole.CUSTOMER && isPhoneOnlyRegistration(body)) {
+      return this.start({ role, purpose: AuthPurpose.REGISTRATION, phone, fullName: null, profile: null, remoteAddress });
+    }
     const profile = role === AuthSubjectRole.CUSTOMER ? readCustomerProfile(body) : null;
     const fullName = profile ? profile.personName : readFullName(body);
     return this.start({ role, purpose: AuthPurpose.REGISTRATION, phone, fullName, profile, remoteAddress });
@@ -74,12 +78,85 @@ export class OtpAuthService {
     return this.start({ role, purpose: AuthPurpose.LOGIN, phone, fullName: null, profile: null, remoteAddress });
   }
 
-  verifyRegistration(role: AuthSubjectRole, body: unknown): Promise<AuthTokens> {
+  verifyRegistration(role: AuthSubjectRole, body: unknown): Promise<AuthTokens | RegistrationProof> {
     return this.verify(role, AuthPurpose.REGISTRATION, body);
   }
 
-  verifyLogin(role: AuthSubjectRole, body: unknown): Promise<AuthTokens> {
-    return this.verify(role, AuthPurpose.LOGIN, body);
+  async verifyLogin(role: AuthSubjectRole, body: unknown): Promise<AuthTokens> {
+    const result = await this.verify(role, AuthPurpose.LOGIN, body);
+    if (!('accessToken' in result)) {
+      throw new UnauthorizedException('Authentication failed');
+    }
+    return result;
+  }
+
+  async completeCustomerRegistration(body: unknown): Promise<AuthTokens> {
+    const token = readRegistrationToken(body);
+    const claims = readRegistrationProof(token, this.clock.now());
+    const profile = readCustomerProfile(body);
+    const now = this.clock.now();
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const challenge = await tx.authChallenge.findFirst({ where: { id: claims.challengeId } });
+        if (
+          !challenge
+          || challenge.status !== AuthChallengeStatus.VERIFIED
+          || challenge.purpose !== AuthPurpose.REGISTRATION
+          || challenge.subjectRole !== AuthSubjectRole.CUSTOMER
+          || challenge.phone !== claims.phone
+          || challenge.accountKind !== null
+        ) {
+          throw new UnauthorizedException('Authentication failed');
+        }
+        const existing = await tx.user.findUnique({ where: { phone: challenge.phone } });
+        if (existing) {
+          throw new ConflictException('Phone number is already registered');
+        }
+        const claimed = await tx.authChallenge.updateMany({
+          where: {
+            id: challenge.id,
+            status: AuthChallengeStatus.VERIFIED,
+            accountKind: null,
+          },
+          data: {
+            status: AuthChallengeStatus.SUPERSEDED,
+            accountKind: profile.kind,
+            address: profile.address,
+            fullName: profile.personName,
+            businessName: profile.kind === CustomerAccountKind.BUSINESS ? profile.name : null,
+          },
+        });
+        if (claimed.count !== 1) {
+          throw new UnauthorizedException('Authentication failed');
+        }
+        const user = await tx.user.create({
+          data: {
+            fullName: profile.personName,
+            phone: challenge.phone,
+            role: UserRole.CUSTOMER,
+            accountStatus: AccountStatus.ACTIVE,
+            phoneVerifiedAt: now,
+            passwordHash: null,
+          },
+        });
+        await tx.customerAccount.create({
+          data: {
+            userId: user.id,
+            kind: profile.kind,
+            name: profile.name,
+            contactName: profile.contactName,
+            address: profile.address,
+            updatedAt: now,
+          },
+        });
+        return this.sessions.issue(tx, user.id, user.role, now);
+      });
+    } catch (error) {
+      if (isUniquePhone(error)) {
+        throw new ConflictException('Phone number is already registered');
+      }
+      throw error;
+    }
   }
 
   private async start(input: {
@@ -125,7 +202,7 @@ export class OtpAuthService {
     return { status: 'pending' };
   }
 
-  private async verify(role: AuthSubjectRole, purpose: AuthPurpose, body: unknown): Promise<AuthTokens> {
+  private async verify(role: AuthSubjectRole, purpose: AuthPurpose, body: unknown): Promise<AuthTokens | RegistrationProof> {
     const phone = readPhone(body);
     const code = readCode(body);
     const now = this.clock.now();
@@ -162,6 +239,18 @@ export class OtpAuthService {
         });
         if (consumed.count !== 1) {
           throw new UnauthorizedException('Verification code is invalid');
+        }
+
+        if (
+          purpose === AuthPurpose.REGISTRATION
+          && role === AuthSubjectRole.CUSTOMER
+          && challenge.accountKind === null
+          && challenge.fullName === null
+        ) {
+          return {
+            status: 'verified',
+            registrationToken: signRegistrationProof(challenge.id, challenge.phone, now),
+          };
         }
 
         const user = purpose === AuthPurpose.REGISTRATION
@@ -394,6 +483,24 @@ function readFullName(body: unknown): string {
     }
     throw error;
   }
+}
+
+function isPhoneOnlyRegistration(body: unknown): boolean {
+  if (!isRecord(body)) {
+    return false;
+  }
+  return body.accountKind === undefined
+    && body.fullName === undefined
+    && body.businessName === undefined
+    && body.contactName === undefined
+    && body.address === undefined;
+}
+
+function readRegistrationToken(body: unknown): string {
+  if (!isRecord(body) || typeof body.registrationToken !== 'string') {
+    throw new UnauthorizedException('Authentication failed');
+  }
+  return body.registrationToken;
 }
 
 function readCode(body: unknown): string {

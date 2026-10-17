@@ -68,11 +68,11 @@ export function emptyBookingDraft(): BookingDraft {
   return {
     pickup: emptyStop(),
     dropoff: emptyStop(),
-    description: '',
-    size: null,
+    description: 'Parcel',
+    size: 'SMALL',
     instructions: '',
-    payer: null,
-    paymentMethod: null,
+    payer: 'SENDER',
+    paymentMethod: 'CASH',
   };
 }
 
@@ -149,10 +149,15 @@ export function stopError(stop: StopDraft, label: 'pickup' | 'drop-off'): string
   return prepared.ok ? null : prepared.error;
 }
 
+export function stopDetailsError(stop: StopDraft, label: 'pickup' | 'drop-off'): string | null {
+  const details = readStopDetails(stop, label);
+  return details.ok ? null : details.error;
+}
+
 export function parcelError(draft: BookingDraft): string | null {
   const description = requiredText(draft.description, 500);
   if (!description) {
-    return 'Enter the parcel description';
+    return 'Choose parcel, document, or food';
   }
   if (!draft.size) {
     return 'Choose a parcel size';
@@ -174,14 +179,32 @@ function prepareStop(
   stop: StopDraft,
   label: 'pickup' | 'drop-off',
 ): { ok: true; stop: PreparedStop } | { ok: false; error: string } {
-  const address = requiredText(stop.address, 500);
-  if (!address) {
-    return { ok: false, error: `Enter the ${label} address` };
+  const details = readStopDetails(stop, label);
+  if (!details.ok) {
+    return details;
   }
   const latitude = readCoordinate(stop.latitude, -90, 90);
   const longitude = readCoordinate(stop.longitude, -180, 180);
   if (latitude === null || longitude === null) {
     return { ok: false, error: `Enter a valid ${label} location` };
+  }
+  return {
+    ok: true,
+    stop: {
+      latitude,
+      longitude,
+      ...details.stop,
+    },
+  };
+}
+
+function readStopDetails(
+  stop: StopDraft,
+  label: 'pickup' | 'drop-off',
+): { ok: true; stop: Omit<PreparedStop, 'latitude' | 'longitude'> } | { ok: false; error: string } {
+  const address = requiredText(stop.address, 500);
+  if (!address) {
+    return { ok: false, error: `Enter the ${label} address` };
   }
   const landmark = optionalText(stop.landmark, 200);
   if (landmark === undefined) {
@@ -195,15 +218,13 @@ function prepareStop(
   if (!contactName) {
     return { ok: false, error: `Enter the ${label} contact name` };
   }
-  const contactPhone = zimbabweMobileE164(stop.contactPhone);
+  const contactPhone = deliveryContactPhone(stop.contactPhone);
   if (!contactPhone) {
     return { ok: false, error: `Enter the ${label} contact phone` };
   }
   return {
     ok: true,
     stop: {
-      latitude,
-      longitude,
       address,
       landmark,
       instructions,
@@ -267,6 +288,39 @@ function collapse(value: string): string {
 export function zimbabweNationalNumber(input: string): string | null {
   const e164 = zimbabweMobileE164(input);
   return e164 ? e164.slice(4) : null;
+}
+
+/** Value stored on the pickup form: Zimbabwe digits beside +263, or a Dutch number in full. */
+export function contactPhoneForField(input: string): string {
+  return dutchMobileE164(input) ?? zimbabweNationalNumber(input) ?? '';
+}
+
+export function deliveryContactPhone(input: string): string | null {
+  return zimbabweMobileE164(input) ?? dutchMobileE164(input);
+}
+
+const DUTCH_MOBILE = /^\+316\d{8}$/;
+
+export function dutchMobileE164(input: string): string | null {
+  const compact = input.trim().replace(/[\s().-]/g, '');
+  if (!compact) {
+    return null;
+  }
+  const digits = compact.startsWith('+') ? compact.slice(1) : compact;
+  if (!/^\d+$/.test(digits)) {
+    return null;
+  }
+  let national = digits;
+  if (national.startsWith('00')) {
+    national = national.slice(2);
+  }
+  if (/^06\d{8}$/.test(national)) {
+    national = `316${national.slice(2)}`;
+  } else if (/^6\d{8}$/.test(national)) {
+    national = `31${national}`;
+  }
+  const e164 = `+${national}`;
+  return DUTCH_MOBILE.test(e164) ? e164 : null;
 }
 
 export function zimbabweMobileE164(input: string): string | null {

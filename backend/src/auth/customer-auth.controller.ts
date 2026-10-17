@@ -19,6 +19,12 @@ export class CustomerAuthController {
     return this.otp.verifyRegistration(AuthSubjectRole.CUSTOMER, body);
   }
 
+  @Post('register/complete')
+  @HttpCode(200)
+  completeRegistration(@Body() body: unknown) {
+    return this.otp.completeCustomerRegistration(body);
+  }
+
   @Post('login')
   @HttpCode(200)
   startLogin(@Body() body: unknown, @Req() request: Request) {

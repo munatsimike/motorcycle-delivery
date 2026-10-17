@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { InvalidPersonNameError, normalizePersonName } from '../auth/person-name.js';
-import { InvalidPhoneNumberError, normalizeZimbabweMobile } from '../auth/phone-number.js';
+import { InvalidPhoneNumberError, normalizeAuthPhone } from '../auth/phone-number.js';
 import { Currency, DeliveryPayer, ParcelSize, PaymentMethod } from '../generated/prisma/client.js';
 import { readMoneyCents } from './money.js';
 
@@ -157,7 +157,7 @@ function readPhone(value: unknown, message: string): string {
     throw new BadRequestException(message);
   }
   try {
-    return normalizeZimbabweMobile(value);
+    return normalizeAuthPhone(value);
   } catch (error) {
     if (error instanceof InvalidPhoneNumberError) {
       throw new BadRequestException(message);

@@ -8,6 +8,7 @@ type ZimbabwePhoneFieldProps = {
   value: string;
   onChangeText: (value: string) => void;
   editable?: boolean;
+  countryCode?: '+263' | '+31';
 };
 
 export default function ZimbabwePhoneField({
@@ -15,6 +16,7 @@ export default function ZimbabwePhoneField({
   value,
   onChangeText,
   editable = true,
+  countryCode = '+263',
 }: ZimbabwePhoneFieldProps) {
   const focus = useInputFocus();
 
@@ -23,19 +25,21 @@ export default function ZimbabwePhoneField({
       <Text style={styles.label}>{label}</Text>
       <View style={[styles.inputContainer, focus.style]}>
         <View style={styles.countryCode}>
-          <Image
-            source={require('../../assets/zimbabwe-flag.png')}
-            style={styles.flag}
-            resizeMode="cover"
-          />
-          <Text style={styles.countryCodeText}>+263</Text>
+          {countryCode === '+263' ? (
+            <Image
+              source={require('../../assets/zimbabwe-flag.png')}
+              style={styles.flag}
+              resizeMode="cover"
+            />
+          ) : null}
+          <Text style={styles.countryCodeText}>{countryCode}</Text>
         </View>
         <View style={styles.inputDivider} />
         <TextInput
           style={styles.input}
           value={value}
           onChangeText={onChangeText}
-          placeholder="771234567"
+          placeholder={countryCode === '+31' ? '612345678' : '771234567'}
           placeholderTextColor={colors.textSecondary}
           keyboardType="phone-pad"
           autoComplete="tel"

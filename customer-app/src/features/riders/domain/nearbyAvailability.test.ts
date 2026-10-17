@@ -63,6 +63,8 @@ describe('nearby rider availability', () => {
     expect(nearbyCardContent({ status: 'ready', count: 0 })).toMatchObject({
       title: 'Nearby riders',
       message: '0 riders are available near you.',
+      action: null,
+      icon: 'bike',
     });
     expect(nearbyCardContent({ status: 'check-failed', message: 'Check your connection and try again.' })).toMatchObject({
       title: 'Unable to check rider availability',

@@ -4,6 +4,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { AuthModule } from '../auth/auth.module.js';
 import { DeliveryModule } from '../delivery/delivery.module.js';
 import { DispatchWorker } from '../delivery/dispatch.worker.js';
+import { RiderAvailabilityAlertWorker } from '../delivery/rider-availability-alert.worker.js';
 import { LicenceImageCleanup } from './licence-image.cleanup.js';
 import { LicenceImageController } from './licence-image.controller.js';
 import { LicenceImageService } from './licence-image.service.js';
@@ -57,6 +58,7 @@ import { createS3Client, S3_CLIENT_FACTORY, S3ObjectStorage } from './s3-object-
     RiderLocationService,
     RiderOnboardingService,
     DispatchWorker,
+    RiderAvailabilityAlertWorker,
     CommissionPolicyService,
     WalletConfigService,
     WalletService,

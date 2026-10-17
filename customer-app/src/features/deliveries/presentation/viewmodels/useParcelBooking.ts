@@ -6,11 +6,13 @@ import {
   emptyBookingDraft,
   parcelError,
   prepareBooking,
+  stopDetailsError,
   stopError,
   type BookingDraft,
   type PreparedBooking,
   type StopDraft,
 } from '../../domain/bookingDraft';
+import type { PickupPin } from '../../domain/pickupLocation';
 import { quotesMatch, type DeliveryQuote } from '../../domain/deliveryQuote';
 import { createDelivery } from '../../domain/usecases/createDelivery';
 import { quoteDelivery } from '../../domain/usecases/quoteDelivery';
@@ -27,7 +29,7 @@ export function useParcelBooking(accessToken: string | null) {
   const [step, setStep] = useState<BookingStep>('pickup');
   const [quote, setQuote] = useState<QuotedPrice | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<'quote' | 'create' | null>(null);
+  const [busy, setBusy] = useState<'quote' | 'create' | 'locate' | null>(null);
   const creating = useRef(false);
   const quoteRequest = useRef(0);
 
@@ -83,16 +85,125 @@ export function useParcelBooking(accessToken: string | null) {
     });
   }
 
-  async function goNext() {
+  async function goNext(
+    locatePickup?: (address: string) => Promise<PickupPin>,
+    locateDropoff?: (address: string) => Promise<PickupPin>,
+  ) {
     if (busy) {
       return;
     }
-    const validation = validateStep(step, draft);
+    if (step === 'pickup') {
+      const details = stopDetailsError(draft.pickup, 'pickup');
+      if (details) {
+        setError(details);
+        return;
+      }
+      if (!locatePickup) {
+        setError('Enter a valid pickup location');
+        return;
+      }
+      const address = draft.pickup.address;
+      setBusy('locate');
+      setError(null);
+      try {
+        const pin = await locatePickup(address);
+        if (!pin.ok) {
+          setError(pin.error);
+          return;
+        }
+        setDraft((current) => ({
+          ...current,
+          pickup: {
+            ...current.pickup,
+            latitude: pin.latitude,
+            longitude: pin.longitude,
+          },
+        }));
+        setStep('destination');
+      } catch {
+        setError('This address could not be found. Enter a more specific address.');
+      } finally {
+        setBusy(null);
+      }
+      return;
+    }
+    if (step === 'destination') {
+      const details = stopDetailsError(draft.dropoff, 'drop-off');
+      if (details) {
+        setError(details);
+        return;
+      }
+      if (!locateDropoff) {
+        setError('Enter a valid drop-off location');
+        return;
+      }
+      const address = draft.dropoff.address;
+      setBusy('locate');
+      setError(null);
+      try {
+        const pin = await locateDropoff(address);
+        if (!pin.ok) {
+          setError(pin.error);
+          return;
+        }
+        setDraft((current) => ({
+          ...current,
+          dropoff: {
+            ...current.dropoff,
+            latitude: pin.latitude,
+            longitude: pin.longitude,
+          },
+        }));
+        setStep('parcel');
+      } catch {
+        setError('This address could not be found. Enter a more specific address.');
+      } finally {
+        setBusy(null);
+      }
+      return;
+    }
+    let pricingDraft = draft;
+    if (step === 'parcel' && locatePickup && locateDropoff) {
+      setBusy('locate');
+      setError(null);
+      try {
+        const pickupPin = await locatePickup(draft.pickup.address);
+        if (!pickupPin.ok) {
+          setError(pickupPin.error);
+          return;
+        }
+        const dropoffPin = await locateDropoff(draft.dropoff.address);
+        if (!dropoffPin.ok) {
+          setError(dropoffPin.error);
+          return;
+        }
+        pricingDraft = {
+          ...draft,
+          pickup: {
+            ...draft.pickup,
+            latitude: pickupPin.latitude,
+            longitude: pickupPin.longitude,
+          },
+          dropoff: {
+            ...draft.dropoff,
+            latitude: dropoffPin.latitude,
+            longitude: dropoffPin.longitude,
+          },
+        };
+        setDraft(pricingDraft);
+      } catch {
+        setError('This address could not be found. Enter a more specific address.');
+        return;
+      } finally {
+        setBusy(null);
+      }
+    }
+    const validation = validateStep(step, pricingDraft);
     if (validation) {
       setError(validation);
       return;
     }
-    const prepared = prepareBooking(draft);
+    const prepared = prepareBooking(pricingDraft);
     if (step === 'parcel' || step === 'review') {
       if (!prepared.ok) {
         setError(prepared.error);

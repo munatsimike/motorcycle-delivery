@@ -1,3 +1,5 @@
+import type { NavigatorScreenParams } from '@react-navigation/native';
+
 import type { AuthFlow } from '../features/auth/domain/auth.types';
 
 export type RootStackParamList = {
@@ -12,7 +14,7 @@ export type RootStackParamList = {
     registrationToken: string;
     phone: string;
   };
-  CustomerHome: undefined;
+  CustomerHome: NavigatorScreenParams<CustomerTabParamList>;
   ParcelRequest: undefined;
   DeliveryTracking: {
     deliveryId: string;
@@ -21,7 +23,7 @@ export type RootStackParamList = {
 };
 
 export type CustomerTabParamList = {
-  Dashboard: undefined;
+  Dashboard: { nearbyRefreshAt?: number };
   Requests: undefined;
   Profile: undefined;
 };

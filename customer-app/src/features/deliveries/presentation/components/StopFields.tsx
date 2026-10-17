@@ -6,9 +6,18 @@ type StopFieldsProps = {
   stop: StopDraft;
   onChange: (patch: Partial<StopDraft>) => void;
   showLandmark?: boolean;
+  showInstructions?: boolean;
 };
 
-export default function StopFields({ stop, onChange, showLandmark = true }: StopFieldsProps) {
+export default function StopFields({
+  stop,
+  onChange,
+  showLandmark = true,
+  showInstructions = true,
+}: StopFieldsProps) {
+  const dutch = stop.contactPhone.replace(/[\s()-]/g, '').startsWith('+31');
+  const national = dutch ? stop.contactPhone.replace(/[\s()-]/g, '').slice(3) : stop.contactPhone;
+
   return (
     <>
       <FormInput
@@ -35,15 +44,21 @@ export default function StopFields({ stop, onChange, showLandmark = true }: Stop
       />
       <ZimbabwePhoneField
         label="Contact phone"
-        value={stop.contactPhone}
-        onChangeText={(contactPhone) => onChange({ contactPhone })}
+        countryCode={dutch ? '+31' : '+263'}
+        value={national}
+        onChangeText={(next) => {
+          const digits = next.replace(/\D/g, '');
+          onChange({ contactPhone: dutch ? `+31${digits}` : digits });
+        }}
       />
-      <FormInput
-        label="Instructions (optional)"
-        value={stop.instructions}
-        onChangeText={(instructions) => onChange({ instructions })}
-        maxLength={500}
-      />
+      {showInstructions ? (
+        <FormInput
+          label="Instructions for the rider (optional)"
+          value={stop.instructions}
+          onChangeText={(instructions) => onChange({ instructions })}
+          maxLength={500}
+        />
+      ) : null}
     </>
   );
 }

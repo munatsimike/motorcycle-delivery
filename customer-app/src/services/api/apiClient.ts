@@ -29,9 +29,13 @@ export function apiPost<TResponse>(
   }, options);
 }
 
+export function apiDelete<TResponse>(path: string, options?: RequestOptions): Promise<TResponse> {
+  return apiRequest<TResponse>(path, { method: 'DELETE' }, options);
+}
+
 async function apiRequest<TResponse>(
   path: string,
-  init: { method: 'GET' | 'POST'; body?: string },
+  init: { method: 'GET' | 'POST' | 'DELETE'; body?: string },
   options?: RequestOptions,
 ): Promise<TResponse> {
   const controller = new AbortController();

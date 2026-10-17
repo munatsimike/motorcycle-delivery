@@ -9,8 +9,15 @@ import type { DeviceLocation } from '../../domain/customerLocation';
 import { resolveNearbyAvailability, type NearbyAvailability } from '../../domain/nearbyAvailability';
 import { loadNearbyRiderCount } from '../../domain/usecases/loadNearbyRiderCount';
 
+export type NearbyPoint = {
+  latitude: number;
+  longitude: number;
+};
+
 export function useNearbyRiders(accessToken: string | null) {
   const [state, setState] = useState<NearbyAvailability>({ status: 'loading' });
+  const [point, setPoint] = useState<NearbyPoint | null>(null);
+  const [revision, setRevision] = useState(0);
   const request = useRef(0);
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -30,6 +37,10 @@ export function useNearbyRiders(accessToken: string | null) {
     );
     if (request.current === current) {
       setState(availability);
+      setPoint(location.status === 'ready'
+        ? { latitude: location.latitude, longitude: location.longitude }
+        : null);
+      setRevision((value) => value + 1);
     }
   }, [accessToken]);
 
@@ -64,6 +75,8 @@ export function useNearbyRiders(accessToken: string | null) {
 
   return {
     state,
+    point,
+    revision,
     turnOnLocation,
     allowLocation,
     tryAgain: refresh,
