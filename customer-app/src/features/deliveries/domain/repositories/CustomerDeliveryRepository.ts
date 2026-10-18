@@ -9,4 +9,5 @@ export type CustomerDeliveryRepository = {
   getById(accessToken: string, deliveryId: string): Promise<CustomerDeliveryDetail>;
   list(accessToken: string, path: string): Promise<CustomerDeliveryPage>;
   search(accessToken: string, deliveryId: string): Promise<void>;
+  cancel(accessToken: string, deliveryId: string): Promise<void>;
 };

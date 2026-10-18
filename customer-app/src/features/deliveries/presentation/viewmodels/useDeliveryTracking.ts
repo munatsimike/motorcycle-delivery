@@ -6,6 +6,7 @@ import { ApiError } from '../../../../services/api/apiClient';
 import { errorMessage } from '../../../auth/presentation/errorMessage';
 import { customerDeliveryRepository } from '../../data/CustomerDeliveryApiRepository';
 import { createDeliveryTracker, type TrackingClock, type TrackingSnapshot } from '../../domain/deliveryTracking';
+import { cancelCustomerDelivery } from '../../domain/usecases/cancelCustomerDelivery';
 import { loadCustomerDelivery } from '../../domain/usecases/loadCustomerDelivery';
 
 const EMPTY: TrackingSnapshot = {
@@ -16,7 +17,10 @@ const EMPTY: TrackingSnapshot = {
 
 export function useDeliveryTracking(accessToken: string | null, deliveryId: string) {
   const [snapshot, setSnapshot] = useState<TrackingSnapshot>(EMPTY);
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
   const trackerRef = useRef<ReturnType<typeof createDeliveryTracker> | null>(null);
+  const cancellingRef = useRef(false);
 
   useEffect(() => {
     const tracker = createDeliveryTracker({
@@ -55,11 +59,33 @@ export function useDeliveryTracking(accessToken: string | null, deliveryId: stri
     trackerRef.current?.refresh();
   }, []);
 
+  const cancelSearch = useCallback(async () => {
+    if (cancellingRef.current) {
+      return false;
+    }
+    cancellingRef.current = true;
+    setCancelling(true);
+    setCancelError(null);
+    try {
+      await cancelCustomerDelivery(customerDeliveryRepository, accessToken, deliveryId);
+      return true;
+    } catch (caught: unknown) {
+      setCancelError(errorMessage(caught, 'This search could not be cancelled.'));
+      return false;
+    } finally {
+      cancellingRef.current = false;
+      setCancelling(false);
+    }
+  }, [accessToken, deliveryId]);
+
   return {
     delivery: snapshot.delivery,
     isLoading: snapshot.isLoading,
     error: snapshot.error,
     reload,
+    cancelling,
+    cancelError,
+    cancelSearch,
   };
 }
 

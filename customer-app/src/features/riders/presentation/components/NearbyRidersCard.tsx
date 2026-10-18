@@ -1,5 +1,5 @@
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import LoadingIndicator from '../../../../components/LoadingIndicator';
 import { colors, radius, spacing, typography } from '../../../../theme';
@@ -56,9 +56,18 @@ export default function NearbyRidersCard({
   return (
     <View style={[styles.card, embedded && styles.embedded]}>
       <View style={styles.row}>
-        <View style={[styles.badge, { backgroundColor: tone.background }]}>
-          <MaterialDesignIcons name={content.icon} color={tone.color} size={20} />
-        </View>
+        {content.icon === 'bike' ? (
+          <Image
+            source={require('../../../../../assets/motorcycle-icon.png')}
+            style={styles.motorcycle}
+            resizeMode="contain"
+            accessibilityIgnoresInvertColors
+          />
+        ) : (
+          <View style={[styles.badge, { backgroundColor: tone.background }]}>
+            <MaterialDesignIcons name={content.icon} color={tone.color} size={20} />
+          </View>
+        )}
         <View style={styles.copy}>
           <Text style={styles.title}>{content.title}</Text>
           {content.message ? <Text style={styles.message}>{content.message}</Text> : null}
@@ -153,6 +162,11 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  motorcycle: {
+    width: 48,
+    height: 40,
+    transform: [{ scaleX: -1 }],
   },
   copy: {
     flex: 1,

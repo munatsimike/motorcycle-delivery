@@ -1,7 +1,7 @@
 
 import { LinearGradient } from 'expo-linear-gradient';
 import { NavigationContainer } from '@react-navigation/native';
-import { colors, spacing, typography, radius } from '../theme';
+import { colors, spacing, typography } from '../theme';
 import {
   createNativeStackNavigator,
   type NativeStackScreenProps,
@@ -20,6 +20,7 @@ import PrimaryButton from '../components/PrimaryButton';
 import SecondaryButton from '../components/SecondaryButton';
 import SignUpScreen from '../features/auth/SignupScreen';
 import CustomerTabs from './CustomerTabs';
+import EditProfileScreen from '../features/account/presentation/screens/EditProfileScreen';
 import ParcelRequestScreen from '../features/deliveries/presentation/screens/ParcelRequestScreen';
 import DeliveryTrackingScreen from '../features/deliveries/presentation/screens/DeliveryTrackingScreen';
 import OtpVerificationScreen from '../features/auth/presentation/screens/OtpVerificationScreen';
@@ -81,11 +82,13 @@ function WelcomeScreen({ navigation }: WelcomeProps) {
         </Text>
         <View style={styles.bottom}>
           <PrimaryButton
-            label="Sign In →"
+            label="Sign In"
+            trailingIcon="chevron-right"
             onPress={() => navigation.navigate('SignIn')}
           />
           <SecondaryButton
             label="Sign Up"
+            soft
             onPress={() => navigation.navigate('SignUp')}
           />
         </View>
@@ -124,6 +127,11 @@ export default function AppNavigator() {
               name="DeliveryTracking"
               component={DeliveryTrackingScreen}
               options={{ title: 'Track Delivery' }}
+            />
+            <Stack.Screen
+              name="EditProfile"
+              component={EditProfileScreen}
+              options={{ title: 'Edit Profile' }}
             />
           </>
         ) : status === 'locked' ? (
@@ -220,28 +228,6 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.md,
   },
 
-  dots: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    marginTop: spacing.lg,
-    marginBottom: spacing.lg,
-  },
-
-  dot: {
-    width: 7,
-    height: 7,
-    borderRadius: radius.pill,
-    backgroundColor: colors.disabled,
-  },
-
-  activeDot: {
-    width: 28,
-    height: 7,
-    borderRadius: radius.pill,
-    backgroundColor: colors.primary,
-  },
-
   heading: {
     fontSize: typography.title,
     fontWeight: '800',
@@ -264,40 +250,5 @@ const styles = StyleSheet.create({
     marginTop: spacing.xl,
     paddingHorizontal: spacing.xl,
     gap: spacing.md,
-  },
-
-  signInButton: {
-    backgroundColor: colors.primary,
-    minHeight: 56,
-    borderRadius: radius.lg,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  signUpButton: {
-    width: '100%',
-    minHeight: 56,
-    backgroundColor: colors.background,
-    borderWidth: 1,
-    borderColor: colors.primary,
-    borderRadius: radius.lg,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  signUpButtonText: {
-    color: colors.primary,
-    fontSize: typography.button,
-    fontWeight: '700',
-  },
-
-  signInButtonText: {
-    color: colors.textInverse,
-    fontSize: typography.button,
-    fontWeight: '700',
-  },
-
-  buttonPressed: {
-    opacity: 0.8,
   },
 });

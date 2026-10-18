@@ -91,7 +91,8 @@ export default function OtpVerificationScreen({ navigation, route }: OtpProps) {
         />
         <ErrorMessage message={saveError ?? error} />
         <PrimaryButton
-          label="Verify & Continue"
+          label="Verify"
+          trailingIcon="chevron-right"
           onPress={() => {
             void handleVerify();
           }}
@@ -101,6 +102,7 @@ export default function OtpVerificationScreen({ navigation, route }: OtpProps) {
         <View style={styles.resend}>
           <SecondaryButton
             label={resendLabel}
+            icon="refresh"
             onPress={() => {
               void resend();
             }}

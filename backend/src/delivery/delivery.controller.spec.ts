@@ -32,7 +32,7 @@ describe('DeliveryController', () => {
     async cancel() {
       return { status: 'CANCELLED' };
     },
-  } as never);
+  } as never, {} as never);
 
   it('requires an authenticated customer account', async () => {
     expect(() => controller.quote({}, {})).toThrow(ForbiddenException);
@@ -65,7 +65,7 @@ describe('DeliveryController', () => {
       async search() {
         throw new ConflictException('A search is already running');
       },
-    } as never);
+    } as never, {} as never);
 
     const response = await failing.create({ customer: CUSTOMER }, {});
     expect(response).toEqual(created);
@@ -85,7 +85,7 @@ describe('DeliveryController', () => {
       async search() {
         return { deliveryId: 'delivery-4', status: 'SEARCHING', searchGeneration: 1 };
       },
-    } as never);
+    } as never, {} as never);
 
     await expect(reloading.create({ customer: CUSTOMER }, {})).resolves.toEqual({
       id: 'delivery-4',

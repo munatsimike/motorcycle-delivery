@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { Image, StyleSheet, Text, View } from 'react-native';
 
 import ErrorMessage from '../../../../components/ErrorMessage';
 import LoadingIndicator from '../../../../components/LoadingIndicator';
@@ -38,6 +38,12 @@ export default function DeliverySection({
       {error && onRetry ? <SecondaryButton label="Try again" onPress={onRetry} /> : null}
       {!error && deliveries.length === 0 ? (
         <View style={styles.empty}>
+          <Image
+            source={require('../../../../../assets/parcel-box.png')}
+            style={styles.emptyImage}
+            resizeMode="contain"
+            accessibilityIgnoresInvertColors
+          />
           <Text style={styles.emptyTitle}>{emptyTitle}</Text>
           <Text style={styles.emptyBody}>{emptyBody}</Text>
         </View>
@@ -57,21 +63,27 @@ export default function DeliverySection({
 const styles = StyleSheet.create({
   empty: {
     backgroundColor: colors.background,
-    borderWidth: 1,
-    borderColor: colors.border,
     borderRadius: radius.lg,
     padding: spacing.xl,
+    alignItems: 'center',
+  },
+  emptyImage: {
+    width: 48,
+    height: 48,
+    marginBottom: spacing.sm,
   },
   emptyTitle: {
     fontSize: typography.heading,
     fontWeight: '700',
     color: colors.text,
     marginBottom: spacing.sm,
+    textAlign: 'center',
   },
   emptyBody: {
     fontSize: typography.body,
-    lineHeight: 24,
+    lineHeight: 18,
     color: colors.textSecondary,
+    textAlign: 'center',
   },
   list: {
     gap: spacing.md,

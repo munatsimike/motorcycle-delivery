@@ -3,17 +3,20 @@ import {
   Controller,
   ForbiddenException,
   Get,
+  Header,
   HttpCode,
   Logger,
   Param,
   Post,
   Query,
   Req,
+  StreamableFile,
   UseGuards,
 } from '@nestjs/common';
 import { CustomerAccessGuard, type CustomerRequest } from '../auth/customer-access.guard.js';
 import { DeliveryService } from './delivery.service.js';
 import { DispatchService } from './dispatch.service.js';
+import { PlacesService } from './places.service.js';
 
 @Controller('customers/me/deliveries')
 @UseGuards(CustomerAccessGuard)
@@ -23,6 +26,7 @@ export class DeliveryController {
   constructor(
     private readonly deliveries: DeliveryService,
     private readonly dispatch: DispatchService,
+    private readonly places: PlacesService,
   ) {}
 
   @Post('quote')
@@ -60,6 +64,19 @@ export class DeliveryController {
   @Get()
   list(@Req() request: CustomerRequest, @Query() query: Record<string, unknown>) {
     return this.deliveries.list(requiredCustomer(request), query);
+  }
+
+  @Get(':deliveryId/map')
+  @Header('Cache-Control', 'private, max-age=86400')
+  async map(@Req() request: CustomerRequest, @Param('deliveryId') deliveryId: string) {
+    const delivery = await this.deliveries.getById(requiredCustomer(request), deliveryId);
+    const bytes = await this.places.deliveryMap(
+      Number(delivery.pickup.latitude),
+      Number(delivery.pickup.longitude),
+      Number(delivery.dropoff.latitude),
+      Number(delivery.dropoff.longitude),
+    );
+    return new StreamableFile(Buffer.from(bytes), { type: 'image/png', disposition: 'inline' });
   }
 
   @Get(':deliveryId')

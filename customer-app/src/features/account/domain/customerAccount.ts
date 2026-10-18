@@ -5,6 +5,7 @@ export type CustomerAccount = {
   contactName: string | null;
   address: string;
   phone: string;
+  email: string | null;
   photoUrl: string | null;
 };
 
@@ -16,6 +17,7 @@ export function readCustomerAccount(value: unknown): CustomerAccount {
   const name = text(value.name);
   const address = text(value.address);
   const phone = text(value.phone);
+  const email = readEmail(value.email);
   const contactName = value.contactName === null ? null : text(value.contactName);
   if (!kind || !name || !address || !phone || contactName === undefined) {
     throw new Error('Account details are unavailable.');
@@ -27,12 +29,24 @@ export function readCustomerAccount(value: unknown): CustomerAccount {
     contactName,
     address,
     phone,
+    email,
     photoUrl: optionalPhoto(value.photoUrl),
   };
 }
 
 function text(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+function readEmail(value: unknown): string | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  const email = text(value);
+  if (!email) {
+    throw new Error('Account details are unavailable.');
+  }
+  return email;
 }
 
 function optionalPhoto(value: unknown): string | null {

@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 import { DeliveryStatus, UserRole } from '../generated/prisma/client.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
+import type { RoadDistance } from './geoapify.js';
 import { DeliveryPricingService } from './delivery-pricing.service.js';
 import { DeliveryService } from './delivery.service.js';
 
@@ -92,6 +93,12 @@ describe('DeliveryService', () => {
     expect(ctx.deliveryRows).toHaveLength(0);
   });
 });
+
+const zeroRoadDistance: RoadDistance = {
+  async metres() {
+    return 0;
+  },
+};
 
 function tariff(baseFee: string, pricePerKilometre: string, minimumTripMetres: number, maximumTripMetres: number) {
   return { baseFee, pricePerKilometre, minimumTripMetres, maximumTripMetres };
@@ -200,7 +207,7 @@ function context() {
   const prisma = db as unknown as PrismaService;
   return {
     pricing: new DeliveryPricingService(prisma),
-    deliveries: new DeliveryService(prisma),
+    deliveries: new DeliveryService(prisma, zeroRoadDistance),
     configs,
     deliveryRows,
     events,

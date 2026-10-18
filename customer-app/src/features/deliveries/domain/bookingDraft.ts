@@ -15,6 +15,8 @@ export type StopDraft = {
   contactPhone: string;
   latitude: string;
   longitude: string;
+  approximate: boolean;
+  precision: 'exact' | 'area' | 'unverified' | null;
 };
 
 export type BookingDraft = {
@@ -61,6 +63,8 @@ export function emptyStop(): StopDraft {
     contactPhone: '',
     latitude: '',
     longitude: '',
+    approximate: false,
+    precision: null,
   };
 }
 
@@ -149,9 +153,20 @@ export function stopError(stop: StopDraft, label: 'pickup' | 'drop-off'): string
   return prepared.ok ? null : prepared.error;
 }
 
-export function stopDetailsError(stop: StopDraft, label: 'pickup' | 'drop-off'): string | null {
+export function stopEntryError(stop: StopDraft, label: 'pickup' | 'drop-off'): string | null {
   const details = readStopDetails(stop, label);
   return details.ok ? null : details.error;
+}
+
+export function stopDetailsError(stop: StopDraft, label: 'pickup' | 'drop-off'): string | null {
+  const entry = stopEntryError(stop, label);
+  if (entry) {
+    return entry;
+  }
+  if (!stop.latitude.trim() || !stop.longitude.trim()) {
+    return `Choose the ${label} address`;
+  }
+  return null;
 }
 
 export function parcelError(draft: BookingDraft): string | null {

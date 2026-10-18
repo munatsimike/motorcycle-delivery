@@ -50,7 +50,7 @@ function readPerson(value: unknown, message: string): string {
   }
 }
 
-function readAddress(value: unknown): string {
+export function readAddress(value: unknown): string {
   if (typeof value !== 'string') {
     throw new BadRequestException('Address is required');
   }

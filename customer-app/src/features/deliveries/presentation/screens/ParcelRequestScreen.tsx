@@ -10,10 +10,9 @@ import { useCustomerAccount } from '../../../account/presentation/viewmodels/use
 import { useSession } from '../../../auth/presentation/viewmodels/useSession';
 import type { RootStackParamList } from '../../../../navigation/types';
 import { colors, spacing } from '../../../../theme';
+import { customerDeliveryRepository } from '../../data/CustomerDeliveryApiRepository';
+import { selectedPlaceBias, usePlaceBias } from '../viewmodels/usePlaceBias';
 import { contactPhoneForField } from '../../domain/bookingDraft';
-import { readDropoffPin } from '../../domain/pickupLocation';
-import { expoAddressGeocoder } from '../../data/expoAddressGeocoder';
-import { expoCustomerLocation } from '../../../riders/data/expoCustomerLocation';
 import BookingProgress, { bookingStepTitle } from '../components/BookingProgress';
 import BookingSummary from '../components/BookingSummary';
 import ParcelFields from '../components/ParcelFields';
@@ -26,6 +25,7 @@ export default function ParcelRequestScreen({ navigation }: ParcelRequestProps) 
   const { accessToken } = useSession();
   const { account } = useCustomerAccount(accessToken);
   const booking = useParcelBooking(accessToken);
+  const deviceBias = usePlaceBias();
   const allowLeave = useRef(false);
   const pickupPrefilled = useRef(false);
 
@@ -80,6 +80,8 @@ export default function ParcelRequestScreen({ navigation }: ParcelRequestProps) 
           <StopFields
             stop={booking.draft.pickup}
             onChange={(patch) => booking.updateStop('pickup', patch)}
+            searchPlaces={(text) => searchPlaces(accessToken, text, deviceBias)}
+            areaChoices={booking.areaChoices}
             showLandmark={false}
           />
         ) : null}
@@ -87,6 +89,12 @@ export default function ParcelRequestScreen({ navigation }: ParcelRequestProps) 
           <StopFields
             stop={booking.draft.dropoff}
             onChange={(patch) => booking.updateStop('dropoff', patch)}
+            searchPlaces={(text) => searchPlaces(
+              accessToken,
+              text,
+              selectedPlaceBias(booking.draft.pickup.latitude, booking.draft.pickup.longitude) ?? deviceBias,
+            )}
+            areaChoices={booking.areaChoices}
             showLandmark={false}
             showInstructions={false}
           />
@@ -116,28 +124,33 @@ export default function ParcelRequestScreen({ navigation }: ParcelRequestProps) 
           ) : (
             <PrimaryButton
               label="Continue"
+              trailingIcon={booking.step === 'parcel' ? 'chevron-right' : undefined}
               loading={booking.busy === 'quote' || booking.busy === 'locate'}
-              loadingLabel={
-                booking.busy === 'locate'
-                  ? booking.step === 'pickup' ? 'Finding pickup' : 'Finding address'
-                  : 'Getting price'
-              }
+              loadingLabel={booking.busy === 'locate' ? 'Finding address' : 'Getting price'}
               disabled={Boolean(booking.busy)}
               onPress={() => {
-                void booking.goNext(
-                  (address) => readDropoffPin(address, expoCustomerLocation, expoAddressGeocoder),
-                  (address) => readDropoffPin(address, expoCustomerLocation, expoAddressGeocoder),
-                );
+                void booking.goNext();
               }}
             />
           )}
           {booking.step === 'pickup' ? null : (
-            <SecondaryButton label="Back" onPress={booking.goBack} disabled={Boolean(booking.busy)} />
+            <SecondaryButton label="Back" soft onPress={booking.goBack} disabled={Boolean(booking.busy)} />
           )}
         </View>
       </ScrollView>
     </SafeAreaView>
   );
+}
+
+function searchPlaces(
+  accessToken: string | null,
+  text: string,
+  bias: { latitude: number; longitude: number } | null,
+) {
+  if (!accessToken) {
+    return Promise.reject(new Error('Sign in to search for an address.'));
+  }
+  return customerDeliveryRepository.searchPlaces(accessToken, text, bias);
 }
 
 const styles = StyleSheet.create({

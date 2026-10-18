@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import BrandLogo from '../../../../components/BrandLogo';
+import BrandMark from '../../../../components/BrandMark';
 import ErrorMessage from '../../../../components/ErrorMessage';
 import PrimaryButton from '../../../../components/PrimaryButton';
 import SecondaryButton from '../../../../components/SecondaryButton';
@@ -29,7 +29,7 @@ export default function UnlockScreen() {
 
   return (
     <SafeAreaView style={styles.screen} edges={['top', 'bottom']}>
-      <BrandLogo style={styles.logo} />
+      <BrandMark style={styles.brand} />
       <Text style={styles.title}>Unlock Riders</Text>
       <Text style={styles.subtitle}>
         Confirm it's you to open the session already stored on this phone.
@@ -37,6 +37,7 @@ export default function UnlockScreen() {
       <ErrorMessage message={error} />
       <PrimaryButton
         label="Unlock"
+        icon="fingerprint"
         onPress={() => {
           void handleUnlock();
         }}
@@ -45,6 +46,8 @@ export default function UnlockScreen() {
       <View style={styles.signOut}>
         <SecondaryButton
           label="Log out"
+          icon="logout"
+          tone="danger"
           onPress={() => {
             void logout();
           }}
@@ -62,7 +65,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xl,
     paddingTop: spacing.xxl,
   },
-  logo: {
+  brand: {
     marginBottom: spacing.xxxl,
   },
   title: {

@@ -7,6 +7,7 @@ import {
   deliveriesInGroup,
   deliveryGroup,
   deliveryStatusLabel,
+  deliveryUsesPackageIcon,
   type CustomerDelivery,
 } from './deliveryStatus';
 
@@ -60,7 +61,18 @@ describe('deliveryStatusLabel', () => {
     expect(deliveryStatusLabel('SEARCHING')).toBe('Finding a rider');
     expect(deliveryStatusLabel('ASSIGNED')).toBe('Rider assigned');
     expect(deliveryStatusLabel('NO_RIDER_FOUND')).toBe('No rider found');
-    expect(deliveryStatusLabel('PICKED_UP')).toBe('Picked up');
+    expect(deliveryStatusLabel('PICKED_UP')).toBe('Parcel picked up');
+    expect(deliveryStatusLabel('DELIVERED')).toBe('Delivered');
     expect(deliveryStatusLabel('FAILED')).toBe('Failed');
+  });
+});
+
+describe('deliveryUsesPackageIcon', () => {
+  it('uses a package icon for deliveries that are not active', () => {
+    expect(deliveryUsesPackageIcon('DELIVERED')).toBe(true);
+    expect(deliveryUsesPackageIcon('CANCELLED')).toBe(true);
+    expect(deliveryUsesPackageIcon('FAILED')).toBe(true);
+    expect(deliveryUsesPackageIcon('SEARCHING')).toBe(false);
+    expect(deliveryUsesPackageIcon('IN_TRANSIT')).toBe(false);
   });
 });

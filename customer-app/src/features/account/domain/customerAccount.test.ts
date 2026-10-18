@@ -18,6 +18,7 @@ describe('readCustomerAccount', () => {
       contactName: null,
       address: '1 First Street',
       phone: '+263771234567',
+      email: null,
       photoUrl: null,
     });
   });
@@ -54,6 +55,25 @@ describe('readCustomerAccount', () => {
       phone: '+263771234567',
       photoUrl: '   ',
     }).photoUrl).toBeNull();
+  });
+
+  it('reads an optional email and ignores a missing one', () => {
+    expect(readCustomerAccount({
+      kind: 'INDIVIDUAL',
+      name: 'Rudo Ncube',
+      contactName: null,
+      address: '1 First Street',
+      phone: '+263771234567',
+      email: ' Rudo@Example.com ',
+    }).email).toBe('Rudo@Example.com');
+
+    expect(readCustomerAccount({
+      kind: 'INDIVIDUAL',
+      name: 'Rudo Ncube',
+      contactName: null,
+      address: '1 First Street',
+      phone: '+263771234567',
+    }).email).toBeNull();
   });
 
   it('rejects a response that is missing account fields', () => {

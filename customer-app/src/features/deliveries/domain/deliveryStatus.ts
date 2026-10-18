@@ -49,10 +49,10 @@ const STATUS_LABELS: Record<DeliveryStatus, string> = {
   NO_RIDER_FOUND: 'No rider found',
   ASSIGNED: 'Rider assigned',
   ARRIVED_AT_PICKUP: 'Rider at pickup',
-  PICKED_UP: 'Picked up',
+  PICKED_UP: 'Parcel picked up',
   IN_TRANSIT: 'In transit',
   ARRIVED_AT_DROPOFF: 'At dropoff',
-  DELIVERED: 'Completed',
+  DELIVERED: 'Delivered',
   CANCELLED: 'Cancelled',
   FAILED: 'Failed',
 };
@@ -67,6 +67,10 @@ export function deliveriesInGroup(deliveries: CustomerDelivery[], group: Deliver
 
 export function deliveryStatusLabel(status: DeliveryStatus): string {
   return STATUS_LABELS[status];
+}
+
+export function deliveryUsesPackageIcon(status: DeliveryStatus): boolean {
+  return deliveryGroup(status) === 'history';
 }
 
 export function isKnownDeliveryStatus(status: string): status is DeliveryStatus {

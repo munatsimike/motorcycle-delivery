@@ -51,6 +51,7 @@ const RIDER_RELEASE_REASONS = new Set<AssignmentReleaseReason>([
 const CANCELLABLE = new Set<DeliveryStatus>([
   DeliveryStatus.CREATED,
   DeliveryStatus.SEARCHING,
+  DeliveryStatus.NO_RIDER_FOUND,
   DeliveryStatus.ASSIGNED,
   DeliveryStatus.ARRIVED_AT_PICKUP,
 ]);

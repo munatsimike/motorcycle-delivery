@@ -58,6 +58,7 @@ describe('createDelivery', () => {
       getById: () => Promise.reject(new Error('unused')),
       list: () => Promise.reject(new Error('unused')),
       search: () => Promise.reject(new Error('unused')),
+      cancel: () => Promise.reject(new Error('unused')),
     };
     await expect(createDelivery(repository, 'token', {} as PreparedBooking, '0.00')).rejects.toThrow(
       'The quoted price cannot be booked.',

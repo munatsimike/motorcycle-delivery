@@ -5,6 +5,7 @@ import {
   customerAvatarColors,
   customerInitials,
 } from '../features/account/domain/customerAvatar';
+import { radius } from '../theme';
 
 type CustomerAvatarProps = {
   kind: 'INDIVIDUAL' | 'BUSINESS';
@@ -36,7 +37,7 @@ export default function CustomerAvatar({
         accessibilityLabel={name ? `${name} profile photo` : 'Profile photo'}
         source={{ uri: photo }}
         onError={() => setPhotoFailed(true)}
-        style={[styles.avatar, { width: size, height: size, borderRadius: size / 2 }]}
+        style={[styles.avatar, { width: size, height: size, borderRadius: radius.lg }]}
       />
     );
   }
@@ -50,7 +51,7 @@ export default function CustomerAvatar({
         {
           width: size,
           height: size,
-          borderRadius: size / 2,
+          borderRadius: radius.lg,
           backgroundColor: palette.backgroundColor,
         },
       ]}

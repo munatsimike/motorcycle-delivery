@@ -2,13 +2,12 @@ import { CompositeNavigationProp, useNavigation } from '@react-navigation/native
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import CustomerAvatar from '../../../../components/CustomerAvatar';
+import GreenSurface from '../../../../components/GreenSurface';
 import PrimaryButton from '../../../../components/PrimaryButton';
-import SecondaryButton from '../../../../components/SecondaryButton';
 import type { CustomerTabParamList, RootStackParamList } from '../../../../navigation/types';
 import { colors, radius, spacing, typography } from '../../../../theme';
 import { customerFirstName, customerGreeting } from '../../../account/domain/customerGreeting';
@@ -16,11 +15,8 @@ import { useCustomerAccount } from '../../../account/presentation/viewmodels/use
 import { customerDeliveryRepository } from '../../../deliveries/data/CustomerDeliveryApiRepository';
 import DeliverySection from '../../../deliveries/presentation/components/DeliverySection';
 import { deliveryTrackingTarget } from '../../../deliveries/domain/customerDeliveryList';
-import { ACTIVE_LIST_STATUSES, deliveriesInGroup } from '../../../deliveries/domain/deliveryStatus';
 import { useCustomerDeliveries } from '../../../deliveries/presentation/viewmodels/useCustomerDeliveries';
 import { useSession } from '../viewmodels/useSession';
-import NearbyRidersCard from '../../../riders/presentation/components/NearbyRidersCard';
-import { useNearbyRiders } from '../../../riders/presentation/viewmodels/useNearbyRiders';
 
 type HomeNavigation = CompositeNavigationProp<
   BottomTabNavigationProp<CustomerTabParamList, 'Dashboard'>,
@@ -31,16 +27,12 @@ export default function CustomerHomeScreen() {
   const navigation = useNavigation<HomeNavigation>();
   const { accessToken } = useSession();
   const { account } = useCustomerAccount(accessToken);
-  const { deliveries, isLoading, isLoadingMore, error, hasMore, reload, loadMore } = useCustomerDeliveries(
-    accessToken,
-    ACTIVE_LIST_STATUSES,
-  );
+  const { deliveries, isLoading, error, reload } = useCustomerDeliveries(accessToken);
   const firstName = account ? customerFirstName(account) : null;
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const horizontalPadding = width < 360 ? spacing.lg : spacing.xl;
-  const activeDeliveries = deliveriesInGroup(deliveries, 'active');
-  const nearby = useNearbyRiders(accessToken);
+  const recentDeliveries = deliveries.slice(0, 2);
 
   return (
     <View style={styles.screen}>
@@ -48,7 +40,7 @@ export default function CustomerHomeScreen() {
         contentContainerStyle={[styles.content, { paddingHorizontal: horizontalPadding }]}
         showsVerticalScrollIndicator={false}
       >
-        <View
+        <GreenSurface
           style={[
             styles.intro,
             {
@@ -57,6 +49,7 @@ export default function CustomerHomeScreen() {
               paddingTop: insets.top + spacing.lg,
             },
           ]}
+          fadeStyle={[styles.introFade, { marginHorizontal: -horizontalPadding }]}
         >
           <View style={styles.topRow}>
             <CustomerAvatar
@@ -78,19 +71,40 @@ export default function CustomerHomeScreen() {
           </View>
 
           <View style={styles.actionsCard}>
-            <NearbyRidersCard
-              embedded
-              state={nearby.state}
-              onTurnOnLocation={() => {
-                void nearby.turnOnLocation();
-              }}
-              onAllowLocation={() => {
-                void nearby.allowLocation();
-              }}
-              onTryAgain={() => {
-                void nearby.tryAgain();
-              }}
-            />
+            <View style={styles.deliveryIntro}>
+              <Image
+                source={require('../../../../../assets/rider-image.png')}
+                style={styles.riderImage}
+                resizeMode="contain"
+                accessibilityIgnoresInvertColors
+              />
+              <View style={styles.deliveryCopy}>
+                <View style={styles.deliveryText}>
+                  <Text style={styles.deliveryTitle}>Motorbike delivery</Text>
+                  <Text style={styles.deliveryMessage}>Get your parcels picked up and delivered by a motorbike.</Text>
+                </View>
+              </View>
+            </View>
+            <View style={styles.promises}>
+              <View style={styles.promise}>
+                <View style={[styles.promiseIcon, { backgroundColor: '#FFF1E0' }]}>
+                  <MaterialDesignIcons name="flash" color="#E07A2F" size={16} />
+                </View>
+                <Text style={styles.promiseLabel}>Fast</Text>
+              </View>
+              <View style={styles.promise}>
+                <View style={[styles.promiseIcon, { backgroundColor: '#E8F1FF' }]}>
+                  <MaterialDesignIcons name="check" color="#3B6FE8" size={16} />
+                </View>
+                <Text style={styles.promiseLabel}>Reliable</Text>
+              </View>
+              <View style={styles.promise}>
+                <View style={[styles.promiseIcon, { backgroundColor: colors.primaryLight }]}>
+                  <MaterialDesignIcons name="cash" color={colors.primary} size={16} />
+                </View>
+                <Text style={styles.promiseLabel}>Affordable</Text>
+              </View>
+            </View>
             <View style={styles.actionsDivider} />
             <View style={styles.sendWrap}>
               <PrimaryButton
@@ -100,12 +114,7 @@ export default function CustomerHomeScreen() {
               />
             </View>
           </View>
-        </View>
-        <LinearGradient
-          colors={[colors.primaryLight, colors.background]}
-          style={[styles.introFade, { marginHorizontal: -horizontalPadding }]}
-          pointerEvents="none"
-        />
+        </GreenSurface>
 
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Recent deliveries</Text>
@@ -119,11 +128,11 @@ export default function CustomerHomeScreen() {
           </Pressable>
         </View>
         <DeliverySection
-          deliveries={activeDeliveries}
+          deliveries={recentDeliveries}
           isLoading={isLoading}
           error={error}
-          emptyTitle="No active deliveries"
-          emptyBody="Your current delivery will appear here once you book."
+          emptyTitle="No deliveries"
+          emptyBody="Recent deliveries will appear here when you book."
           onOpenDetails={(deliveryId) => {
             const target = deliveryTrackingTarget(deliveryId);
             navigation.navigate(target.screen, target.params);
@@ -137,11 +146,6 @@ export default function CustomerHomeScreen() {
           }}
           onRetry={reload}
         />
-        {hasMore ? (
-          <View style={styles.more}>
-            <SecondaryButton label="Load more" onPress={loadMore} loading={isLoadingMore} disabled={isLoading} />
-          </View>
-        ) : null}
       </ScrollView>
     </View>
   );
@@ -156,18 +160,17 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.xxl,
   },
   intro: {
-    backgroundColor: colors.primaryLight,
     boxShadow: '0 12px 24px rgba(23, 33, 29, 0.08)',
   },
   introFade: {
-    height: 36,
-    marginBottom: spacing.lg,
+    height: 12,
+    marginBottom: spacing.xs,
   },
   topRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
-    marginBottom: spacing.xxxl,
+    marginBottom: spacing.lg,
   },
   greetingBlock: {
     flex: 1,
@@ -196,8 +199,65 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     boxShadow: '0 8px 24px rgba(23, 33, 29, 0.08)',
-    marginBottom: spacing.lg,
+    marginBottom: spacing.sm,
     overflow: 'hidden',
+  },
+  deliveryIntro: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.xs,
+  },
+  riderImage: {
+    width: 129,
+    height: 97,
+  },
+  deliveryCopy: {
+    flex: 1,
+    alignSelf: 'stretch',
+    justifyContent: 'center',
+  },
+  deliveryText: {
+    flexGrow: 0,
+    flexShrink: 1,
+  },
+  deliveryTitle: {
+    fontSize: 18,
+    lineHeight: 17,
+    fontWeight: '800',
+    color: colors.text,
+    includeFontPadding: false,
+  },
+  deliveryMessage: {
+    fontSize: typography.caption,
+    lineHeight: 18,
+    marginTop: spacing.xs,
+    color: colors.textSecondary,
+    includeFontPadding: false,
+  },
+  promises: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.md,
+  },
+  promise: {
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  promiseIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  promiseLabel: {
+    fontSize: typography.caption,
+    fontWeight: '700',
+    color: colors.text,
   },
   sendWrap: {
     padding: spacing.lg,
@@ -230,8 +290,5 @@ const styles = StyleSheet.create({
     fontSize: typography.body,
     fontWeight: '700',
     color: colors.primary,
-  },
-  more: {
-    marginTop: spacing.md,
   },
 });

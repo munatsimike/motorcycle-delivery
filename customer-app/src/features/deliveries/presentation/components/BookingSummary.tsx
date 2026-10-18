@@ -1,9 +1,11 @@
+import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
 
 import LoadingIndicator from '../../../../components/LoadingIndicator';
 import { colors, radius, spacing, typography } from '../../../../theme';
 import { deliveryContactPhone, type BookingDraft, type StopDraft } from '../../domain/bookingDraft';
+import { deliveryCardAddress } from '../../domain/deliveryCard';
 import type { DeliveryQuote } from '../../domain/deliveryQuote';
 import { parcelSizeLabel, payerLabel, paymentMethodLabel } from './ParcelFields';
 
@@ -22,19 +24,42 @@ export default function BookingSummary({ draft, quote, quoting }: BookingSummary
       </View>
 
       <View style={styles.facts}>
-        <Fact label="Sending" value={describeParcel(draft)} />
-        <Fact label="Pays" value={draft.payer ? payerLabel(draft.payer) : ''} />
-        <Fact label="Method" value={draft.paymentMethod ? paymentMethodLabel(draft.paymentMethod) : ''} />
+        <Fact
+          icon="package-variant"
+          label="Sending"
+          value={describeParcel(draft)}
+          iconColor={colors.primary}
+          backgroundColor={colors.primaryLight}
+        />
+        <Fact
+          icon="account-group"
+          label="Pays"
+          value={draft.payer ? payerLabel(draft.payer) : ''}
+          iconColor="#3B6FE8"
+          backgroundColor="#E8F1FF"
+        />
+        <Fact
+          icon="wallet"
+          label="Method"
+          value={draft.paymentMethod ? paymentMethodLabel(draft.paymentMethod) : ''}
+          iconColor="#E07A2F"
+          backgroundColor="#FFF1E0"
+        />
       </View>
 
       <View style={styles.priceCard}>
         {quoting ? <LoadingIndicator /> : null}
         {quote && !quoting ? (
-          <>
-            <Text style={styles.priceLabel}>Price</Text>
-            <Text style={styles.price}>{quote.currency} {quote.suggestedPrice}</Text>
-            <Text style={styles.distance}>{formatDistance(quote.distanceMeters)}</Text>
-          </>
+          <View style={styles.priceRow}>
+            <View style={styles.priceCopy}>
+              <Text style={styles.priceLabel}>Price</Text>
+              <Text style={styles.price}>{quote.currency} {quote.suggestedPrice}</Text>
+            </View>
+            <View style={styles.distanceCopy}>
+              <Text style={styles.priceLabel}>Distance</Text>
+              <Text style={styles.distance}>{formatDistance(quote.distanceMeters)}</Text>
+            </View>
+          </View>
         ) : null}
       </View>
     </View>
@@ -44,29 +69,72 @@ export default function BookingSummary({ draft, quote, quoting }: BookingSummary
 function RouteStop({ label, stop, last }: { label: string; stop: StopDraft; last: boolean }) {
   const name = stop.contactName.trim();
   const phone = displayPhone(stop.contactPhone);
+  const pin = last ? colors.error : colors.primary;
+  const badge = last ? '#FDECEC' : colors.primaryLight;
   return (
     <View style={styles.stop}>
       <View style={styles.rail}>
-        <MaterialDesignIcons
-          name={last ? 'map-marker' : 'circle-slice-8'}
-          size={18}
-          color={last ? colors.primaryDark : colors.primary}
-        />
-        {last ? null : <View style={styles.line} />}
+        <View style={[styles.pinCircle, { backgroundColor: badge }]}>
+          <MaterialDesignIcons name="map-marker" color={pin} size={18} />
+        </View>
+        {last ? null : <DottedConnector />}
       </View>
       <View style={styles.stopCopy}>
         <Text style={styles.stopLabel}>{label}</Text>
-        <Text style={styles.stopAddress}>{stop.address.trim()}</Text>
-        {name ? <Text style={styles.stopName}>{name}</Text> : null}
-        {phone ? <Text style={styles.stopPhone}>{phone}</Text> : null}
+        <Text style={styles.stopAddress}>{deliveryCardAddress(stop.address.trim())}</Text>
+        {name ? (
+          <View style={styles.meta}>
+            <MaterialDesignIcons name="account" size={16} color={colors.primary} />
+            <Text style={styles.stopName}>{name}</Text>
+          </View>
+        ) : null}
+        {phone ? (
+          <View style={styles.meta}>
+            <MaterialDesignIcons name="phone" size={16} color={colors.primary} />
+            <Text style={styles.stopPhone}>{phone}</Text>
+          </View>
+        ) : null}
       </View>
     </View>
   );
 }
 
-function Fact({ label, value }: { label: string; value: string }) {
+function DottedConnector() {
+  const [count, setCount] = useState(0);
+
+  return (
+    <View
+      pointerEvents="none"
+      style={styles.connector}
+      onLayout={(event) => {
+        const next = Math.max(1, Math.floor(event.nativeEvent.layout.height / 7));
+        setCount((current) => (current === next ? current : next));
+      }}
+    >
+      {Array.from({ length: count }, (_, index) => (
+        <View key={index} style={styles.dot} />
+      ))}
+    </View>
+  );
+}
+function Fact({
+  icon,
+  label,
+  value,
+  iconColor,
+  backgroundColor,
+}: {
+  icon: 'package-variant' | 'account-group' | 'wallet';
+  label: string;
+  value: string;
+  iconColor: string;
+  backgroundColor: string;
+}) {
   return (
     <View style={styles.fact}>
+      <View style={[styles.factIcon, { backgroundColor }]}>
+        <MaterialDesignIcons name={icon} size={18} color={iconColor} />
+      </View>
       <Text style={styles.factLabel}>{label}</Text>
       <Text style={styles.factValue}>{value}</Text>
     </View>
@@ -113,38 +181,51 @@ const styles = StyleSheet.create({
     marginBottom: spacing.lg,
   },
   route: {
-    backgroundColor: colors.surface,
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.border,
     borderRadius: radius.lg,
     padding: spacing.lg,
-    gap: spacing.sm,
+    gap: spacing.lg,
   },
   stop: {
     flexDirection: 'row',
     gap: spacing.md,
   },
   rail: {
-    width: 18,
+    width: 32,
     alignItems: 'center',
   },
-  line: {
-    width: 2,
-    flex: 1,
-    minHeight: 16,
-    marginTop: spacing.xs,
-    backgroundColor: colors.primary,
-    opacity: 0.35,
+  pinCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  connector: {
+    position: 'absolute',
+    top: 32,
+    bottom: -spacing.lg,
+    width: 32,
+    alignItems: 'center',
+    justifyContent: 'space-evenly',
+  },
+  dot: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: '#B7C2BC',
   },
   stopCopy: {
     flex: 1,
     gap: spacing.xs,
-    paddingBottom: spacing.sm,
+    paddingBottom: spacing.md,
   },
   stopLabel: {
     fontSize: typography.small,
     fontWeight: '700',
     color: colors.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
   },
   stopAddress: {
     fontSize: typography.body,
@@ -153,13 +234,20 @@ const styles = StyleSheet.create({
     color: colors.text,
   },
   stopName: {
+    flex: 1,
     fontSize: typography.caption,
     color: colors.textSecondary,
   },
   stopPhone: {
+    flex: 1,
     fontSize: typography.caption,
     fontWeight: '700',
     color: colors.text,
+  },
+  meta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
   },
   facts: {
     flexDirection: 'row',
@@ -175,6 +263,13 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     gap: spacing.xs,
   },
+  factIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   factLabel: {
     fontSize: typography.small,
     color: colors.textSecondary,
@@ -185,18 +280,31 @@ const styles = StyleSheet.create({
     color: colors.text,
   },
   priceCard: {
-    backgroundColor: colors.primaryLight,
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.border,
     borderRadius: radius.lg,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.lg,
+  },
+  priceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
+  priceCopy: {
+    flex: 1,
+    gap: spacing.xs,
+  },
+  distanceCopy: {
+    alignItems: 'flex-end',
     gap: spacing.xs,
   },
   priceLabel: {
     fontSize: typography.small,
     fontWeight: '700',
-    color: colors.primaryDark,
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
+    color: colors.textSecondary,
   },
   price: {
     fontSize: typography.title,
@@ -205,6 +313,6 @@ const styles = StyleSheet.create({
   },
   distance: {
     fontSize: typography.caption,
-    color: colors.primaryDark,
+    color: colors.textSecondary,
   },
 });

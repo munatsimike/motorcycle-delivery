@@ -31,6 +31,7 @@ export type StoredDelivery = {
   parcelDescription: string;
   parcelSize: ParcelSize;
   parcelInstructions: string | null;
+  createdAt?: Date | string;
 };
 
 export function toCustomerDeliverySummary(delivery: {
@@ -87,7 +88,16 @@ export function toCustomerDelivery(delivery: StoredDelivery) {
       size: delivery.parcelSize,
       instructions: delivery.parcelInstructions,
     },
+    createdAt: createdAtText(delivery.createdAt),
   };
+}
+
+function createdAtText(value: Date | string | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
 export function toRiderDelivery(delivery: StoredDelivery) {

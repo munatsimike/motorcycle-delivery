@@ -1,14 +1,15 @@
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
 import type { ComponentProps } from 'react';
-import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import ErrorMessage from '../../../../components/ErrorMessage';
 import { colors, radius, spacing, typography } from '../../../../theme';
 import { errorMessage } from '../../../auth/presentation/errorMessage';
-import { deliveryWhenLabel, shortDeliveryReference } from '../../domain/deliveryCard';
+import { deliveryCardAddress } from '../../domain/deliveryCard';
 import {
   deliveryStatusLabel,
+  deliveryUsesPackageIcon,
   type CustomerDelivery,
   type DeliveryStatus,
 } from '../../domain/deliveryStatus';
@@ -53,7 +54,7 @@ export default function DeliveryCard({
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const tone = STATUS_TONES[delivery.status];
-  const when = deliveryWhenLabel(delivery.createdAt);
+  const packageIcon = deliveryUsesPackageIcon(delivery.status);
   const canSearch = delivery.status === 'NO_RIDER_FOUND' && Boolean(onSearchAgain);
 
   async function searchAgain() {
@@ -74,22 +75,22 @@ export default function DeliveryCard({
   return (
     <View style={styles.card}>
       <View style={styles.body}>
-        <View style={styles.header}>
-          <View style={styles.identity}>
-            <View style={styles.packageBadge}>
-              <MaterialDesignIcons name="package-variant" color={colors.primary} size={18} />
-            </View>
-            <View style={styles.identityText}>
-              <Text style={styles.reference}>{shortDeliveryReference(delivery.id)}</Text>
-              {when ? <Text style={styles.when}>{when}</Text> : null}
-            </View>
+        {packageIcon ? (
+          <View style={styles.packageIcon}>
+            <MaterialDesignIcons name="package-variant" color={colors.primary} size={20} />
           </View>
-          <View style={[styles.pill, { backgroundColor: tone.background }]}>
-            <MaterialDesignIcons name={tone.icon} color={tone.color} size={14} />
-            <Text style={[styles.pillText, { color: tone.color }]}>{deliveryStatusLabel(delivery.status)}</Text>
-          </View>
-        </View>
-        <RouteStops pickup={delivery.pickupAddress} dropoff={delivery.dropoffAddress} />
+        ) : null}
+        <RouteStops
+          pickup={delivery.pickupAddress}
+          dropoff={delivery.dropoffAddress}
+          status={(
+            <StatusPill
+              tone={tone}
+              label={deliveryStatusLabel(delivery.status)}
+              pulse={delivery.status === 'SEARCHING'}
+            />
+          )}
+        />
         {onOpenDetails ? (
           <View style={styles.actions}>
             <Pressable
@@ -126,10 +127,55 @@ export default function DeliveryCard({
   );
 }
 
-function RouteStops({ pickup, dropoff }: { pickup: string; dropoff: string }) {
+function StatusPill({ tone, label, pulse }: { tone: StatusTone; label: string; pulse: boolean }) {
+  const opacity = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    if (!pulse) {
+      opacity.stopAnimation();
+      opacity.setValue(1);
+      return;
+    }
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, {
+          toValue: 0.35,
+          duration: 900,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: 900,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [opacity, pulse]);
+
+  return (
+    <Animated.View style={[styles.pill, { backgroundColor: tone.background, opacity }]}>
+      <MaterialDesignIcons name={tone.icon} color={tone.color} size={14} />
+      <Text style={[styles.pillText, { color: tone.color }]}>{label}</Text>
+    </Animated.View>
+  );
+}
+
+function RouteStops({
+  pickup,
+  dropoff,
+  status,
+}: {
+  pickup: string;
+  dropoff: string;
+  status: ReactNode;
+}) {
   return (
     <View style={styles.route}>
-      <Stop label="Pickup" address={pickup} pin={colors.primary} badge={colors.primaryLight} connect />
+      <Stop label="Pickup" address={pickup} pin={colors.primary} badge={colors.primaryLight} connect aside={status} />
       <Stop label="Drop-off" address={dropoff} pin={colors.error} badge="#FDECEC" />
     </View>
   );
@@ -141,12 +187,14 @@ function Stop({
   pin,
   badge,
   connect = false,
+  aside = null,
 }: {
   label: string;
   address: string;
   pin: string;
   badge: string;
   connect?: boolean;
+  aside?: ReactNode;
 }) {
   return (
     <View style={styles.stop}>
@@ -157,8 +205,11 @@ function Stop({
         {connect ? <DottedConnector /> : null}
       </View>
       <View style={styles.placeText}>
-        <Text style={styles.placeLabel}>{label}</Text>
-        <Text style={styles.placeValue}>{address}</Text>
+        <View style={styles.placeHead}>
+          <Text style={styles.placeLabel}>{label}</Text>
+          {aside}
+        </View>
+        <Text style={styles.placeValue}>{deliveryCardAddress(address)}</Text>
       </View>
     </View>
   );
@@ -195,43 +246,18 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     gap: spacing.md,
   },
-  divider: {
-    height: StyleSheet.hairlineWidth,
-    marginHorizontal: spacing.lg,
-    backgroundColor: colors.border,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: spacing.sm,
-  },
-  identity: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  packageBadge: {
+  packageIcon: {
     width: 36,
     height: 36,
-    borderRadius: 18,
+    borderRadius: radius.lg,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.primaryLight,
   },
-  identityText: {
-    flex: 1,
-    gap: 2,
-  },
-  reference: {
-    fontSize: typography.body,
-    fontWeight: '800',
-    color: colors.text,
-  },
-  when: {
-    fontSize: typography.caption,
-    color: colors.textSecondary,
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    marginHorizontal: spacing.lg,
+    backgroundColor: colors.border,
   },
   pill: {
     flexDirection: 'row',
@@ -283,6 +309,12 @@ const styles = StyleSheet.create({
   placeText: {
     flex: 1,
     gap: 2,
+  },
+  placeHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
   },
   placeLabel: {
     fontSize: typography.caption,

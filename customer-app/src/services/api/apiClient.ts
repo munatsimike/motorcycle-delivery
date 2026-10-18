@@ -29,13 +29,48 @@ export function apiPost<TResponse>(
   }, options);
 }
 
+export function apiPatch<TResponse>(
+  path: string,
+  body: unknown,
+  options?: RequestOptions,
+): Promise<TResponse> {
+  return apiRequest<TResponse>(path, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  }, options);
+}
+
+export async function apiGetBytes(path: string, options?: RequestOptions): Promise<Uint8Array | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const headers: Record<string, string> = { Accept: 'image/png' };
+    if (options?.accessToken) {
+      headers.Authorization = `Bearer ${options.accessToken}`;
+    }
+    const response = await fetch(`${apiBaseUrl()}${path}`, {
+      method: 'GET',
+      headers,
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      return null;
+    }
+    return new Uint8Array(await response.arrayBuffer());
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export function apiDelete<TResponse>(path: string, options?: RequestOptions): Promise<TResponse> {
   return apiRequest<TResponse>(path, { method: 'DELETE' }, options);
 }
 
 async function apiRequest<TResponse>(
   path: string,
-  init: { method: 'GET' | 'POST' | 'DELETE'; body?: string },
+  init: { method: 'GET' | 'POST' | 'PATCH' | 'DELETE'; body?: string },
   options?: RequestOptions,
 ): Promise<TResponse> {
   const controller = new AbortController();

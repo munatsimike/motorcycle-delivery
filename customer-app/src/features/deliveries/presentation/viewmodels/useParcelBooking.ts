@@ -2,17 +2,20 @@ import { useRef, useState } from 'react';
 
 import { errorMessage } from '../../../auth/presentation/errorMessage';
 import { customerDeliveryRepository } from '../../data/CustomerDeliveryApiRepository';
+import { expoAddressGeocoder, expoDeviceAddressAccess } from '../../data/expoAddressGeocoder';
+import { resolveManualAddress, typedHouseNumber, type ResolvedLocation } from '../../domain/addressResolution';
 import {
   emptyBookingDraft,
   parcelError,
   prepareBooking,
-  stopDetailsError,
+  stopEntryError,
   stopError,
   type BookingDraft,
   type PreparedBooking,
   type StopDraft,
 } from '../../domain/bookingDraft';
-import type { PickupPin } from '../../domain/pickupLocation';
+import { readDeviceAddressPin } from '../../domain/deviceAddress';
+import type { PlaceSuggestion } from '../../domain/placeSuggestion';
 import { quotesMatch, type DeliveryQuote } from '../../domain/deliveryQuote';
 import { createDelivery } from '../../domain/usecases/createDelivery';
 import { quoteDelivery } from '../../domain/usecases/quoteDelivery';
@@ -30,14 +33,16 @@ export function useParcelBooking(accessToken: string | null) {
   const [quote, setQuote] = useState<QuotedPrice | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<'quote' | 'create' | 'locate' | null>(null);
+  const [areaChoices, setAreaChoices] = useState<PlaceSuggestion[]>([]);
   const creating = useRef(false);
   const quoteRequest = useRef(0);
 
   function updateStop(which: 'pickup' | 'dropoff', patch: Partial<StopDraft>) {
     setError(null);
-    if (patch.latitude !== undefined || patch.longitude !== undefined) {
+    if (patch.latitude !== undefined || patch.longitude !== undefined || patch.address !== undefined) {
       quoteRequest.current += 1;
       setQuote(null);
+      setAreaChoices([]);
     }
     setDraft((current) => ({
       ...current,
@@ -85,119 +90,76 @@ export function useParcelBooking(accessToken: string | null) {
     });
   }
 
-  async function goNext(
-    locatePickup?: (address: string) => Promise<PickupPin>,
-    locateDropoff?: (address: string) => Promise<PickupPin>,
-  ) {
+  async function goNext() {
     if (busy) {
       return;
     }
-    if (step === 'pickup') {
-      const details = stopDetailsError(draft.pickup, 'pickup');
+    if (step === 'pickup' || step === 'destination') {
+      const which = step === 'pickup' ? 'pickup' : 'dropoff';
+      const stop = draft[which];
+      const label = step === 'pickup' ? 'pickup' : 'drop-off';
+      const details = stopEntryError(stop, label);
       if (details) {
         setError(details);
         return;
       }
-      if (!locatePickup) {
-        setError('Enter a valid pickup location');
-        return;
-      }
-      const address = draft.pickup.address;
-      setBusy('locate');
-      setError(null);
-      try {
-        const pin = await locatePickup(address);
-        if (!pin.ok) {
-          setError(pin.error);
+      let located = stop;
+      if (!stop.latitude.trim() || !stop.longitude.trim()) {
+        if (stop.address.trim().length < 3 || !accessToken) {
+          setError(`Choose the ${label} address`);
           return;
         }
-        setDraft((current) => ({
-          ...current,
-          pickup: {
-            ...current.pickup,
-            latitude: pin.latitude,
-            longitude: pin.longitude,
-          },
-        }));
-        setStep('destination');
-      } catch {
-        setError('This address could not be found. Enter a more specific address.');
-      } finally {
-        setBusy(null);
+        setBusy('locate');
+        setError(null);
+        setAreaChoices([]);
+        try {
+          const typed = stop.address.trim();
+          let suggestions: PlaceSuggestion[] = [];
+          let lookupError: string | null = null;
+          try {
+            suggestions = await customerDeliveryRepository.searchPlaces(accessToken, typed);
+          } catch (caught: unknown) {
+            lookupError = errorMessage(caught, 'Address suggestions are unavailable. You can type the address.');
+          }
+          let devicePoint: { latitude: string; longitude: string } | null = null;
+          let deviceMessage: string | null = null;
+          if (!suggestions.some((suggestion) => suggestion.exact)) {
+            const device = await readDeviceAddressPin(typed, expoDeviceAddressAccess, expoAddressGeocoder);
+            if (device.status === 'found') {
+              devicePoint = device;
+            } else if (device.status === 'unavailable') {
+              deviceMessage = device.message;
+            }
+          }
+          const resolution = resolveManualAddress(typed, suggestions, devicePoint);
+          if (resolution.status === 'resolved' || resolution.status === 'confirm-pin') {
+            located = applyResolvedLocation(stop, resolution.location);
+            setDraft((current) => ({ ...current, [which]: located }));
+          } else if (resolution.status === 'choose-area') {
+            setAreaChoices(resolution.areas);
+            setError(deviceMessage
+              ? `${deviceMessage} You can also choose a nearby area.`
+              : 'This street was not found. Choose a nearby area.');
+            return;
+          } else if (lookupError) {
+            setError(lookupError);
+            return;
+          } else if (deviceMessage) {
+            setError(deviceMessage);
+            return;
+          } else {
+            setError('This address could not be found. Choose a nearby area.');
+            return;
+          }
+        } finally {
+          setBusy(null);
+        }
       }
+      setError(null);
+      setStep(step === 'pickup' ? 'destination' : 'parcel');
       return;
     }
-    if (step === 'destination') {
-      const details = stopDetailsError(draft.dropoff, 'drop-off');
-      if (details) {
-        setError(details);
-        return;
-      }
-      if (!locateDropoff) {
-        setError('Enter a valid drop-off location');
-        return;
-      }
-      const address = draft.dropoff.address;
-      setBusy('locate');
-      setError(null);
-      try {
-        const pin = await locateDropoff(address);
-        if (!pin.ok) {
-          setError(pin.error);
-          return;
-        }
-        setDraft((current) => ({
-          ...current,
-          dropoff: {
-            ...current.dropoff,
-            latitude: pin.latitude,
-            longitude: pin.longitude,
-          },
-        }));
-        setStep('parcel');
-      } catch {
-        setError('This address could not be found. Enter a more specific address.');
-      } finally {
-        setBusy(null);
-      }
-      return;
-    }
-    let pricingDraft = draft;
-    if (step === 'parcel' && locatePickup && locateDropoff) {
-      setBusy('locate');
-      setError(null);
-      try {
-        const pickupPin = await locatePickup(draft.pickup.address);
-        if (!pickupPin.ok) {
-          setError(pickupPin.error);
-          return;
-        }
-        const dropoffPin = await locateDropoff(draft.dropoff.address);
-        if (!dropoffPin.ok) {
-          setError(dropoffPin.error);
-          return;
-        }
-        pricingDraft = {
-          ...draft,
-          pickup: {
-            ...draft.pickup,
-            latitude: pickupPin.latitude,
-            longitude: pickupPin.longitude,
-          },
-          dropoff: {
-            ...draft.dropoff,
-            latitude: dropoffPin.latitude,
-            longitude: dropoffPin.longitude,
-          },
-        };
-        setDraft(pricingDraft);
-      } catch {
-        setError('This address could not be found. Enter a more specific address.');
-        return;
-      } finally {
-        setBusy(null);
-      }
-    }
+    const pricingDraft = draft;
     const validation = validateStep(step, pricingDraft);
     if (validation) {
       setError(validation);
@@ -292,12 +254,25 @@ export function useParcelBooking(accessToken: string | null) {
     quote,
     error,
     busy,
+    areaChoices,
     updateStop,
     updateDraft,
     prefillPickup,
     goBack,
     goNext,
     confirm,
+  };
+}
+
+function applyResolvedLocation(stop: StopDraft, location: ResolvedLocation): StopDraft {
+  return {
+    ...stop,
+    address: location.label,
+    landmark: location.precision === 'exact' ? stop.landmark : typedHouseNumber(stop.address, location.precision),
+    latitude: location.latitude,
+    longitude: location.longitude,
+    approximate: location.precision !== 'exact',
+    precision: location.precision,
   };
 }
 

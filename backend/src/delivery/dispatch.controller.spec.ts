@@ -60,7 +60,7 @@ describe('dispatch route guards', () => {
       async cancel() {
         return { status: 'CANCELLED' };
       },
-    } as never);
+    } as never, {} as never);
     const offerController = new RiderOfferController({
       async listOffers(actor: { riderProfileId: string }) {
         offers.push(actor.riderProfileId);

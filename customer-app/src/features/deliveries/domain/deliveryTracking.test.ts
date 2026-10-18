@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { CustomerDeliveryDetail } from './customerDeliveryDetail';
-import { createDeliveryTracker, TRACKING_POLL_MS, type TrackingClock } from './deliveryTracking';
+import { createDeliveryTracker, type TrackingClock } from './deliveryTracking';
 
 function delivery(status: CustomerDeliveryDetail['status'], id = 'delivery-1'): CustomerDeliveryDetail {
   return {
@@ -16,6 +16,7 @@ function delivery(status: CustomerDeliveryDetail['status'], id = 'delivery-1'): 
     pickupLongitude: 31.0522,
     dropoffAddress: 'Drop-off',
     parcelDescription: 'Documents',
+    createdAt: null,
   };
 }
 
@@ -51,7 +52,7 @@ function deferred<T>() {
 }
 
 describe('delivery tracking updates', () => {
-  it('loads immediately when the screen is focused and polls while the delivery is active', async () => {
+  it('loads when the screen is focused and waits for a manual refresh', async () => {
     const timer = clock();
     const loads: Array<ReturnType<typeof deferred<CustomerDeliveryDetail>>> = [];
     const tracker = createDeliveryTracker({
@@ -72,13 +73,11 @@ describe('delivery tracking updates', () => {
 
     loads[0]?.resolve(delivery('SEARCHING'));
     await loads[0]?.promise;
-    expect(timer.pending()).toEqual({ callback: expect.any(Function), delayMs: TRACKING_POLL_MS });
+    expect(timer.pending()).toBeNull();
+    expect(loads).toHaveLength(1);
 
-    timer.fire();
+    tracker.refresh();
     expect(loads).toHaveLength(2);
-    loads[1]?.resolve(delivery('ASSIGNED'));
-    await loads[1]?.promise;
-    expect(timer.pending()?.delayMs).toBe(TRACKING_POLL_MS);
   });
 
   it('does not start another request while one is still running', async () => {
@@ -103,7 +102,7 @@ describe('delivery tracking updates', () => {
 
     loads[0]?.resolve(delivery('CREATED'));
     await loads[0]?.promise;
-    expect(timer.pending()?.delayMs).toBe(TRACKING_POLL_MS);
+    expect(timer.pending()).toBeNull();
   });
 
   it('stops away from the screen and refreshes when it returns', async () => {
@@ -120,7 +119,7 @@ describe('delivery tracking updates', () => {
 
     tracker.setFocused(true);
     await Promise.resolve();
-    expect(timer.pending()?.delayMs).toBe(TRACKING_POLL_MS);
+    expect(timer.pending()).toBeNull();
 
     tracker.setFocused(false);
     expect(timer.pending()).toBeNull();
@@ -154,7 +153,7 @@ describe('delivery tracking updates', () => {
     tracker.setAppActive(true);
     await Promise.resolve();
     expect(calls).toBe(2);
-    expect(timer.pending()?.delayMs).toBe(TRACKING_POLL_MS);
+    expect(timer.pending()).toBeNull();
   });
 
   it('stops polling a completed, cancelled, or failed delivery', async () => {
@@ -173,7 +172,7 @@ describe('delivery tracking updates', () => {
     }
   });
 
-  it('keeps the last delivery when a later request fails and recovers on the next poll', async () => {
+  it('keeps the last delivery when a later request fails and recovers on refresh', async () => {
     const timer = clock();
     const seen: Array<{ id: string; error: string | null }> = [];
     let calls = 0;
@@ -197,9 +196,9 @@ describe('delivery tracking updates', () => {
 
     tracker.setFocused(true);
     await Promise.resolve();
-    timer.fire();
+    tracker.refresh();
     await Promise.resolve();
-    timer.fire();
+    tracker.refresh();
     await Promise.resolve();
 
     expect(seen).toEqual([

@@ -9,10 +9,13 @@ type FormInputProps = {
   onChangeText: (value: string) => void;
   placeholder?: string;
   keyboardType?: KeyboardTypeOptions;
-  autoComplete?: 'tel' | 'sms-otp' | 'off';
-  textContentType?: 'telephoneNumber' | 'oneTimeCode' | 'name' | 'fullStreetAddress' | 'none';
+  autoComplete?: 'tel' | 'sms-otp' | 'name' | 'email' | 'off';
+  textContentType?: 'telephoneNumber' | 'oneTimeCode' | 'name' | 'emailAddress' | 'fullStreetAddress' | 'none';
+  autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
   maxLength?: number;
   editable?: boolean;
+  error?: string | null;
+  onFocus?: () => void;
 };
 
 export default function FormInput({
@@ -23,8 +26,11 @@ export default function FormInput({
   keyboardType,
   autoComplete,
   textContentType,
+  autoCapitalize,
   maxLength,
   editable = true,
+  error,
+  onFocus,
 }: FormInputProps) {
   const focus = useInputFocus();
 
@@ -38,13 +44,18 @@ export default function FormInput({
         placeholder={placeholder}
         placeholderTextColor={colors.textSecondary}
         keyboardType={keyboardType}
+        autoCapitalize={autoCapitalize}
         autoComplete={autoComplete}
         textContentType={textContentType}
         maxLength={maxLength}
         editable={editable}
-        onFocus={focus.onFocus}
+        onFocus={() => {
+          focus.onFocus();
+          onFocus?.();
+        }}
         onBlur={focus.onBlur}
       />
+      {error ? <Text style={styles.error}>{error}</Text> : null}
     </>
   );
 }
@@ -70,5 +81,12 @@ const styles = StyleSheet.create({
   locked: {
     backgroundColor: colors.surface,
     color: colors.textSecondary,
+  },
+  error: {
+    marginTop: -spacing.sm,
+    marginBottom: spacing.md,
+    fontSize: typography.caption,
+    lineHeight: 20,
+    color: colors.error,
   },
 });

@@ -1,10 +1,14 @@
 import FormInput from '../../../../components/FormInput';
 import ZimbabwePhoneField from '../../../../components/ZimbabwePhoneField';
 import type { StopDraft } from '../../domain/bookingDraft';
+import type { PlaceSuggestion } from '../../domain/placeSuggestion';
+import AddressField from './AddressField';
 
 type StopFieldsProps = {
   stop: StopDraft;
   onChange: (patch: Partial<StopDraft>) => void;
+  searchPlaces: (text: string) => Promise<PlaceSuggestion[]>;
+  areaChoices?: PlaceSuggestion[];
   showLandmark?: boolean;
   showInstructions?: boolean;
 };
@@ -12,6 +16,8 @@ type StopFieldsProps = {
 export default function StopFields({
   stop,
   onChange,
+  searchPlaces,
+  areaChoices = [],
   showLandmark = true,
   showInstructions = true,
 }: StopFieldsProps) {
@@ -20,12 +26,11 @@ export default function StopFields({
 
   return (
     <>
-      <FormInput
-        label="Address"
-        value={stop.address}
-        onChangeText={(address) => onChange({ address })}
-        textContentType="fullStreetAddress"
-        maxLength={500}
+      <AddressField
+        stop={stop}
+        onChange={onChange}
+        searchPlaces={searchPlaces}
+        areaChoices={areaChoices}
       />
       {showLandmark ? (
         <FormInput

@@ -29,6 +29,6 @@ export function normalizePhone(phone: string): string {
   }
 
   throw new Error(
-    'Enter a valid Zimbabwean or Dutch mobile number.',
+    'Enter a valid Zimbabwe mobile number.',
   );
 }

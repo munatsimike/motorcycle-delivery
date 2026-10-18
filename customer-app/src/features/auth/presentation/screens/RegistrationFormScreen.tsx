@@ -1,5 +1,17 @@
-import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
+import type { ComponentProps } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import {
+  Dimensions,
+  Keyboard,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import ErrorMessage from '../../../../components/ErrorMessage';
@@ -7,16 +19,93 @@ import FormInput from '../../../../components/FormInput';
 import PrimaryButton from '../../../../components/PrimaryButton';
 import type { RootStackParamList } from '../../../../navigation/types';
 import { colors, radius, spacing, typography } from '../../../../theme';
+import { customerDeliveryRepository } from '../../../deliveries/data/CustomerDeliveryApiRepository';
+import { emptyStop, type StopDraft } from '../../../deliveries/domain/bookingDraft';
+import AddressField from '../../../deliveries/presentation/components/AddressField';
+import { usePlaceBias } from '../../../deliveries/presentation/viewmodels/usePlaceBias';
 import { useRegistrationForm } from '../viewmodels/useRegistrationForm';
 import { useSession } from '../viewmodels/useSession';
 
 type RegistrationProps = NativeStackScreenProps<RootStackParamList, 'RegistrationForm'>;
+
+const FIELD_CLEARANCE = 88;
+
+function useKeyboardLift() {
+  const scrollRef = useRef<ScrollView>(null);
+  const scrollY = useRef(0);
+  const keyboardTop = useRef<number | null>(null);
+  const [keyboardInset, setKeyboardInset] = useState(0);
+
+  function revealFocusedField() {
+    const top = keyboardTop.current;
+    const focused = TextInput.State.currentlyFocusedInput() as {
+      measureInWindow?: (
+        callback: (x: number, y: number, width: number, height: number) => void,
+      ) => void;
+    } | null;
+    if (top == null || focused?.measureInWindow == null) {
+      return;
+    }
+    focused.measureInWindow((_x, y, _width, height) => {
+      const overlap = y + height + FIELD_CLEARANCE - top;
+      if (overlap <= 0) {
+        return;
+      }
+      scrollRef.current?.scrollTo({
+        y: scrollY.current + overlap,
+        animated: true,
+      });
+    });
+  }
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSubscription = Keyboard.addListener(showEvent, (event) => {
+      const windowHeight = Dimensions.get('window').height;
+      const top = event.endCoordinates.screenY;
+      const inset = top > 0
+        ? Math.max(0, windowHeight - top)
+        : event.endCoordinates.height;
+      keyboardTop.current = top > 0 ? top : windowHeight - inset;
+      setKeyboardInset(inset);
+    });
+    const hideSubscription = Keyboard.addListener(hideEvent, () => {
+      keyboardTop.current = null;
+      setKeyboardInset(0);
+    });
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (keyboardInset === 0) {
+      return;
+    }
+    const frame = requestAnimationFrame(revealFocusedField);
+    return () => cancelAnimationFrame(frame);
+  }, [keyboardInset]);
+
+  return {
+    scrollRef,
+    keyboardInset,
+    revealFocusedField,
+    onScroll: (offsetY: number) => {
+      scrollY.current = offsetY;
+    },
+  };
+}
 
 export default function RegistrationFormScreen({ route }: RegistrationProps) {
   const { registrationToken, phone } = route.params;
   const { saveSession } = useSession();
   const form = useRegistrationForm(registrationToken);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [addressStop, setAddressStop] = useState<StopDraft>(emptyStop);
+  const placeBias = usePlaceBias();
+  const keyboard = useKeyboardLift();
 
   async function handleSubmit() {
     setSaveError(null);
@@ -33,26 +122,43 @@ export default function RegistrationFormScreen({ route }: RegistrationProps) {
 
   return (
     <ScrollView
+      ref={keyboard.scrollRef}
       style={styles.container}
-      contentContainerStyle={styles.content}
+      contentContainerStyle={[
+        styles.content,
+        { paddingBottom: spacing.xxl + keyboard.keyboardInset },
+      ]}
       keyboardShouldPersistTaps="handled"
+      onScroll={(event) => {
+        keyboard.onScroll(event.nativeEvent.contentOffset.y);
+      }}
+      scrollEventThrottle={16}
     >
       <Text style={styles.title}>Finish your account</Text>
       <Text style={styles.subtitle}>
         This number is verified and stays with this account.
       </Text>
-      <Text style={styles.label}>Verified mobile number</Text>
-      <Text style={styles.phone}>{phone}</Text>
+      <View style={styles.phoneRow}>
+        <View style={styles.phoneIcon}>
+          <MaterialDesignIcons name="phone" size={20} color="#3B6FE8" />
+        </View>
+        <View style={styles.phoneCopy}>
+          <Text style={styles.phoneLabel}>Verified mobile number</Text>
+          <Text style={styles.phone}>{phone}</Text>
+        </View>
+      </View>
 
       <Text style={styles.label}>Account type</Text>
       <View style={styles.kinds}>
         <KindButton
           label="Individual"
+          icon="account"
           selected={form.accountKind === 'INDIVIDUAL'}
           onPress={() => form.setAccountKind('INDIVIDUAL')}
         />
         <KindButton
           label="Business"
+          icon="office-building"
           selected={form.accountKind === 'BUSINESS'}
           onPress={() => form.setAccountKind('BUSINESS')}
         />
@@ -67,6 +173,7 @@ export default function RegistrationFormScreen({ route }: RegistrationProps) {
           textContentType="name"
           autoComplete="off"
           editable={!form.isLoading}
+          onFocus={keyboard.revealFocusedField}
         />
       ) : (
         <>
@@ -77,6 +184,7 @@ export default function RegistrationFormScreen({ route }: RegistrationProps) {
             placeholder="Moyo Deliveries"
             autoComplete="off"
             editable={!form.isLoading}
+            onFocus={keyboard.revealFocusedField}
           />
           <FormInput
             label="Contact person"
@@ -86,22 +194,27 @@ export default function RegistrationFormScreen({ route }: RegistrationProps) {
             textContentType="name"
             autoComplete="off"
             editable={!form.isLoading}
+            onFocus={keyboard.revealFocusedField}
           />
         </>
       )}
 
-      <FormInput
-        label="Address"
-        value={form.address}
-        onChangeText={form.setAddress}
-        placeholder="12 Samora Machel Avenue"
-        textContentType="fullStreetAddress"
-        autoComplete="off"
+      <AddressField
+        stop={addressStop}
         editable={!form.isLoading}
+        onFocus={keyboard.revealFocusedField}
+        searchPlaces={(text) => customerDeliveryRepository.searchRegistrationPlaces(registrationToken, text, placeBias)}
+        onChange={(patch) => {
+          setAddressStop((current) => ({ ...current, ...patch }));
+          if (patch.address !== undefined) {
+            form.setAddress(patch.address);
+          }
+        }}
       />
       <ErrorMessage message={saveError ?? form.error} />
       <PrimaryButton
         label="Create account"
+        trailingIcon="chevron-right"
         onPress={() => {
           void handleSubmit();
         }}
@@ -113,20 +226,33 @@ export default function RegistrationFormScreen({ route }: RegistrationProps) {
 
 function KindButton({
   label,
+  icon,
   selected,
   onPress,
 }: {
   label: string;
+  icon: ComponentProps<typeof MaterialDesignIcons>['name'];
   selected: boolean;
   onPress: () => void;
 }) {
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityState={{ selected }}
       onPress={onPress}
-      style={[styles.kind, selected && styles.kindSelected]}
+      style={({ pressed }) => [styles.kindPress, pressed && styles.pressed]}
     >
-      <Text style={[styles.kindLabel, selected && styles.kindLabelSelected]}>{label}</Text>
+      <View style={[styles.kind, selected && styles.kindSelected]}>
+        {selected ? (
+          <View style={styles.check}>
+            <MaterialDesignIcons name="check" size={12} color={colors.textInverse} />
+          </View>
+        ) : null}
+        <View style={[styles.kindIcon, selected && styles.kindIconSelected]}>
+          <MaterialDesignIcons name={icon} size={22} color={selected ? colors.primary : colors.text} />
+        </View>
+        <Text style={[styles.kindLabel, selected && styles.kindLabelSelected]}>{label}</Text>
+      </View>
     </Pressable>
   );
 }
@@ -159,33 +285,85 @@ const styles = StyleSheet.create({
     color: colors.text,
     marginBottom: spacing.sm,
   },
-  phone: {
-    fontSize: typography.button,
-    color: colors.textSecondary,
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
+  phoneRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    backgroundColor: '#F8FAF9',
+    borderRadius: radius.lg,
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.lg,
+    paddingVertical: spacing.md,
     marginBottom: spacing.xl,
+  },
+  phoneIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#E8F1FF',
+  },
+  phoneCopy: {
+    flex: 1,
+    gap: spacing.xs,
+  },
+  phoneLabel: {
+    fontSize: typography.caption,
+    color: colors.textSecondary,
+  },
+  phone: {
+    fontSize: typography.body,
+    fontWeight: '600',
+    color: colors.text,
   },
   kinds: {
     flexDirection: 'row',
-    gap: spacing.md,
+    gap: spacing.sm,
     marginBottom: spacing.xl,
   },
-  kind: {
+  kindPress: {
     flex: 1,
-    minHeight: 48,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
+  },
+  pressed: {
+    opacity: 0.8,
+  },
+  kind: {
+    minHeight: 84,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: spacing.xs,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
     backgroundColor: colors.background,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.sm,
   },
   kindSelected: {
     borderColor: colors.primary,
     backgroundColor: colors.primaryLight,
+  },
+  check: {
+    position: 'absolute',
+    top: spacing.sm,
+    right: spacing.sm,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primary,
+  },
+  kindIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface,
+  },
+  kindIconSelected: {
+    backgroundColor: colors.background,
   },
   kindLabel: {
     color: colors.text,

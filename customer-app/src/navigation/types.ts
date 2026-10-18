@@ -1,5 +1,6 @@
 import type { NavigatorScreenParams } from '@react-navigation/native';
 
+import type { CustomerAccount } from '../features/account/domain/customerAccount';
 import type { AuthFlow } from '../features/auth/domain/auth.types';
 
 export type RootStackParamList = {
@@ -18,6 +19,9 @@ export type RootStackParamList = {
   ParcelRequest: undefined;
   DeliveryTracking: {
     deliveryId: string;
+  };
+  EditProfile: {
+    account: CustomerAccount;
   };
   Unlock: undefined;
 };

@@ -11,6 +11,7 @@ type PrimaryButtonProps = {
   loading?: boolean;
   loadingLabel?: string;
   icon?: ComponentProps<typeof MaterialDesignIcons>['name'];
+  trailingIcon?: ComponentProps<typeof MaterialDesignIcons>['name'];
 };
 
 export default function PrimaryButton({
@@ -20,6 +21,7 @@ export default function PrimaryButton({
   loading,
   loadingLabel,
   icon,
+  trailingIcon,
 }: PrimaryButtonProps) {
   const inactive = disabled || loading;
 
@@ -47,6 +49,14 @@ export default function PrimaryButton({
       ) : (
         <Text style={styles.label}>{label}</Text>
       )}
+      {!loading && trailingIcon ? (
+        <MaterialDesignIcons
+          name={trailingIcon}
+          color={colors.textInverse}
+          size={22}
+          style={styles.trailing}
+        />
+      ) : null}
     </Pressable>
   );
 }
@@ -70,6 +80,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
+  },
+  trailing: {
+    position: 'absolute',
+    right: spacing.lg,
   },
   label: {
     color: colors.textInverse,

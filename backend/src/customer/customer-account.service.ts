@@ -3,6 +3,7 @@ import { CustomerAccountKind, Prisma, UserRole } from '../generated/prisma/clien
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { CustomerSession } from '../auth/customer-access.service.js';
 import { readCustomerProfile } from './customer-profile.js';
+import { readCustomerProfileUpdate } from './customer-profile-update.js';
 
 export type CustomerAccountResponse = {
   id: string;
@@ -11,6 +12,7 @@ export type CustomerAccountResponse = {
   contactName: string | null;
   address: string;
   phone: string;
+  email: string | null;
 };
 
 type AccountRow = {
@@ -30,13 +32,50 @@ export class CustomerAccountService {
     if (!user.customerAccount) {
       throw new ForbiddenException('Customer access is required');
     }
-    return toResponse(user.customerAccount, user.phone);
+    return toResponse(user.customerAccount, user.phone, user.email);
+  }
+
+  async update(customer: { userId: string }, body: unknown): Promise<CustomerAccountResponse> {
+    const user = await this.ownedUser(customer.userId);
+    if (!user.customerAccount) {
+      throw new ForbiddenException('Customer access is required');
+    }
+    const profile = readCustomerProfileUpdate(body);
+    const accountId = user.customerAccount.id;
+    const kind = user.customerAccount.kind;
+    try {
+      const saved = await this.prisma.$transaction(async (tx) => {
+        const updatedUser = await tx.user.update({
+          where: { id: user.id },
+          data: {
+            fullName: profile.fullName,
+            email: profile.email,
+          },
+        });
+        const account = await tx.customerAccount.update({
+          where: { id: accountId },
+          data: {
+            ...(kind === CustomerAccountKind.BUSINESS
+              ? { contactName: profile.fullName }
+              : { name: profile.fullName }),
+            address: profile.address,
+          },
+        });
+        return { account, phone: updatedUser.phone, email: updatedUser.email };
+      });
+      return toResponse(saved.account, saved.phone, saved.email);
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new ConflictException('Email address is already in use.');
+      }
+      throw error;
+    }
   }
 
   async activate(session: CustomerSession, body: unknown, now = new Date()): Promise<CustomerAccountResponse> {
     const user = await this.ownedUser(session.userId);
     if (user.customerAccount) {
-      return toResponse(user.customerAccount, user.phone);
+      return toResponse(user.customerAccount, user.phone, user.email);
     }
     const profile = readCustomerProfile(body);
     try {
@@ -50,12 +89,12 @@ export class CustomerAccountService {
           updatedAt: now,
         },
       });
-      return toResponse(created, user.phone);
+      return toResponse(created, user.phone, user.email);
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         const existing = await this.prisma.customerAccount.findUnique({ where: { userId: user.id } });
         if (existing) {
-          return toResponse(existing, user.phone);
+          return toResponse(existing, user.phone, user.email);
         }
         throw new ConflictException('Phone number is already registered');
       }
@@ -75,7 +114,7 @@ export class CustomerAccountService {
   }
 }
 
-function toResponse(account: AccountRow, phone: string): CustomerAccountResponse {
+function toResponse(account: AccountRow, phone: string, email: string | null): CustomerAccountResponse {
   return {
     id: account.id,
     kind: account.kind,
@@ -83,5 +122,6 @@ function toResponse(account: AccountRow, phone: string): CustomerAccountResponse
     contactName: account.contactName,
     address: account.address,
     phone,
+    email,
   };
 }

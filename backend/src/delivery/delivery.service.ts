@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
 import {
   Currency,
   DeliveryActorType,
@@ -12,7 +12,8 @@ import { toCustomerDelivery, toCustomerDeliverySummary, type StoredDelivery } fr
 import { centsFromDecimal, formatCents } from './money.js';
 import { missingPricing } from './delivery-pricing.service.js';
 import { lockActivePricing } from './pricing-lock.js';
-import { straightLineMetres, suggestedCents } from './straight-line.js';
+import { ROAD_DISTANCE, geoapifyRoadDistance, type RoadDistance } from './geoapify.js';
+import { suggestedCents } from './straight-line.js';
 
 type ActiveTariff = {
   pricingVersion: number;
@@ -24,7 +25,14 @@ type ActiveTariff = {
 
 @Injectable()
 export class DeliveryService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly roads: RoadDistance;
+
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() @Inject(ROAD_DISTANCE) roads?: RoadDistance,
+  ) {
+    this.roads = roads ?? geoapifyRoadDistance();
+  }
 
   async getById(customer: CustomerContext, deliveryId: string) {
     const delivery = await this.prisma.delivery.findFirst({
@@ -82,7 +90,7 @@ export class DeliveryService {
     if (!active) {
       throw missingPricing();
     }
-    const priced = pricePins(pins, active);
+    const priced = this.priceMetres(await this.roadMetres(pins), active);
     return {
       distanceMeters: priced.distanceMeters,
       pricingVersion: priced.pricingVersion,
@@ -93,12 +101,13 @@ export class DeliveryService {
 
   async create(customer: CustomerContext, body: unknown) {
     const draft = readDeliveryDraft(body);
+    const metres = await this.roadMetres(draft);
     return this.prisma.$transaction(async (tx) => {
       const active = await lockActivePricing(tx);
       if (!active) {
         throw missingPricing();
       }
-      const priced = pricePins(draft, active);
+      const priced = this.priceMetres(metres, active);
       const created = await tx.delivery.create({
         data: {
           customerId: customer.customerAccountId,
@@ -142,6 +151,48 @@ export class DeliveryService {
       return toCustomerDelivery(created as StoredDelivery);
     });
   }
+
+  private async roadMetres(pins: QuotePins): Promise<number> {
+    try {
+      return Math.round(await this.roads.metres(
+        Number(pins.pickupLatitude),
+        Number(pins.pickupLongitude),
+        Number(pins.dropoffLatitude),
+        Number(pins.dropoffLongitude),
+      ));
+    } catch (error) {
+      if (error instanceof ServiceUnavailableException) {
+        throw error;
+      }
+      throw new BadRequestException('A road route is not available for these locations.');
+    }
+  }
+
+  private priceMetres(distanceMeters: number, tariff: ActiveTariff) {
+    if (!Number.isSafeInteger(distanceMeters) || distanceMeters < 0) {
+      throw new BadRequestException('A road route is not available for these locations.');
+    }
+    if (distanceMeters < tariff.minimumTripMetres || distanceMeters > tariff.maximumTripMetres) {
+      throw new BadRequestException('Trip distance is outside the configured range');
+    }
+    let cents: number;
+    try {
+      cents = suggestedCents(distanceMeters, {
+        baseFeeCents: centsFromDecimal(tariff.baseFee),
+        pricePerKilometreCents: centsFromDecimal(tariff.pricePerKilometre),
+      });
+    } catch (error) {
+      if (error instanceof RangeError) {
+        throw new BadRequestException('Suggested price is too large');
+      }
+      throw error;
+    }
+    return {
+      distanceMeters,
+      pricingVersion: tariff.pricingVersion,
+      suggestedPrice: formatCents(cents),
+    };
+  }
 }
 
 function readPage(value: unknown, fallback: number, minimum: number, maximum: number): number {
@@ -178,32 +229,4 @@ function readStatuses(value: unknown): DeliveryStatus[] | undefined {
   return statuses;
 }
 
-function pricePins(pins: QuotePins, tariff: ActiveTariff) {
-  const distanceMeters = straightLineMetres(
-    Number(pins.pickupLatitude),
-    Number(pins.pickupLongitude),
-    Number(pins.dropoffLatitude),
-    Number(pins.dropoffLongitude),
-  );
-  if (distanceMeters < tariff.minimumTripMetres || distanceMeters > tariff.maximumTripMetres) {
-    throw new BadRequestException('Trip distance is outside the configured range');
-  }
-  let cents: number;
-  try {
-    cents = suggestedCents(distanceMeters, {
-      baseFeeCents: centsFromDecimal(tariff.baseFee),
-      pricePerKilometreCents: centsFromDecimal(tariff.pricePerKilometre),
-    });
-  } catch (error) {
-    if (error instanceof RangeError) {
-      throw new BadRequestException('Suggested price is too large');
-    }
-    throw error;
-  }
-  return {
-    distanceMeters,
-    pricingVersion: tariff.pricingVersion,
-    suggestedPrice: formatCents(cents),
-  };
-}
 

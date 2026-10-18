@@ -12,6 +12,7 @@ export type CustomerDeliveryDetail = {
   pickupLongitude: number;
   dropoffAddress: string;
   parcelDescription: string;
+  createdAt: string | null;
 };
 
 export function readCustomerDeliveryDetail(value: unknown): CustomerDeliveryDetail {
@@ -58,6 +59,7 @@ export function readCustomerDeliveryDetail(value: unknown): CustomerDeliveryDeta
     pickupLongitude,
     dropoffAddress,
     parcelDescription,
+    createdAt: typeof value.createdAt === 'string' && value.createdAt.trim() ? value.createdAt : null,
   };
 }
 

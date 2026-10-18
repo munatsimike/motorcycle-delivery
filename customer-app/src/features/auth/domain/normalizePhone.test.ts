@@ -17,9 +17,9 @@ describe('normalizePhone', () => {
     expect(normalizePhone('+31 6 12345678')).toBe('+31612345678');
   });
 
-  it('rejects numbers that are not Zimbabwean or Dutch mobiles', () => {
-    expect(() => normalizePhone('0812345678')).toThrow('Enter a valid Zimbabwean or Dutch mobile number.');
-    expect(() => normalizePhone('+2637712345678')).toThrow('Enter a valid Zimbabwean or Dutch mobile number.');
-    expect(() => normalizePhone('')).toThrow('Enter a valid Zimbabwean or Dutch mobile number.');
+  it('rejects an invalid mobile number', () => {
+    expect(() => normalizePhone('0812345678')).toThrow('Enter a valid Zimbabwe mobile number.');
+    expect(() => normalizePhone('+2637712345678')).toThrow('Enter a valid Zimbabwe mobile number.');
+    expect(() => normalizePhone('')).toThrow('Enter a valid Zimbabwe mobile number.');
   });
 });

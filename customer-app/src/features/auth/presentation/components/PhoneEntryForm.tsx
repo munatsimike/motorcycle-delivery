@@ -8,7 +8,10 @@ import {
   View,
 } from 'react-native';
 
-import BrandLogo from '../../../../components/BrandLogo';
+import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
+import type { ComponentProps } from 'react';
+
+import BrandMark from '../../../../components/BrandMark';
 import ErrorMessage from '../../../../components/ErrorMessage';
 import PrimaryButton from '../../../../components/PrimaryButton';
 import ZimbabwePhoneField from '../../../../components/ZimbabwePhoneField';
@@ -18,6 +21,7 @@ type PhoneEntryFormProps = {
   title: string;
   subtitle: string;
   buttonLabel: string;
+  trailingIcon?: ComponentProps<typeof MaterialDesignIcons>['name'];
   isLoading: boolean;
   error: string | null;
   phone: string;
@@ -32,6 +36,7 @@ export default function PhoneEntryForm({
   title,
   subtitle,
   buttonLabel,
+  trailingIcon,
   isLoading,
   error,
   phone,
@@ -51,7 +56,7 @@ export default function PhoneEntryForm({
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.content}>
-          <BrandLogo style={styles.logo} />
+          <BrandMark style={styles.logo} />
           <Text style={styles.title}>{title}</Text>
           <Text style={styles.subtitle}>{subtitle}</Text>
           <ZimbabwePhoneField
@@ -60,12 +65,13 @@ export default function PhoneEntryForm({
             editable={!isLoading}
           />
           <Text style={styles.helperText}>
-            Zimbabwe or Netherlands mobile numbers are accepted.
+            Enter a Zimbabwe mobile number.
             We'll send a one-time SMS code.
           </Text>
           <ErrorMessage message={error} />
           <PrimaryButton
             label={buttonLabel}
+            trailingIcon={trailingIcon}
             onPress={onSubmit}
             loading={isLoading}
             loadingLabel="Processing"

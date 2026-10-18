@@ -24,6 +24,8 @@ function draft(): BookingDraft {
       contactPhone: '0771234567',
       latitude: '-17.8292',
       longitude: '31.0522',
+      approximate: false,
+      precision: 'exact',
     },
     dropoff: {
       address: '4 Jason Moyo Avenue',
@@ -33,6 +35,8 @@ function draft(): BookingDraft {
       contactPhone: '+263777654321',
       latitude: '-17.8250',
       longitude: '31.0330',
+      approximate: false,
+      precision: 'exact',
     },
     description: ' Documents ',
     size: 'SMALL',
@@ -71,11 +75,19 @@ describe('prepareBooking', () => {
     expect(createBody(prepared.booking, '2.50')).not.toHaveProperty('suggestedPrice');
   });
 
+  it('accepts an area pickup without a separate house number', () => {
+    const pickup = draft();
+    pickup.pickup.approximate = true;
+    pickup.pickup.precision = 'area';
+    pickup.pickup.landmark = '';
+    expect(stopDetailsError(pickup.pickup, 'pickup')).toBeNull();
+  });
+
   it('accepts the prefilled pickup details without coordinate fields', () => {
     const pickup = draft();
     pickup.pickup.latitude = '';
     pickup.pickup.longitude = '';
-    expect(stopDetailsError(pickup.pickup, 'pickup')).toBeNull();
+    expect(stopDetailsError(pickup.pickup, 'pickup')).toBe('Choose the pickup address');
     expect(prepareBooking(pickup)).toEqual({ ok: false, error: 'Enter a valid pickup location' });
   });
 

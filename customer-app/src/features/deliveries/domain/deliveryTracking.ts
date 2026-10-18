@@ -1,8 +1,6 @@
 import { deliveryGroup, type DeliveryStatus } from './deliveryStatus';
 import type { CustomerDeliveryDetail } from './customerDeliveryDetail';
 
-export const TRACKING_POLL_MS = 5_000;
-
 export type TrackingClock = {
   schedule(callback: () => void, delayMs: number): void;
   clear(): void;
@@ -58,12 +56,6 @@ export function createDeliveryTracker(options: TrackerOptions) {
 
   function arm() {
     options.clock.clear();
-    if (!watching() || inFlight) {
-      return;
-    }
-    options.clock.schedule(() => {
-      void refresh(false);
-    }, TRACKING_POLL_MS);
   }
 
   async function refresh(manual: boolean) {
@@ -72,7 +64,6 @@ export function createDeliveryTracker(options: TrackerOptions) {
     }
     if (manual) {
       authFailed = false;
-      error = null;
     }
     inFlight = true;
     const current = generation + 1;

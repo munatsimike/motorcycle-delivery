@@ -23,7 +23,8 @@ export default function SignInScreen({ navigation }: SignInProps) {
     <PhoneEntryForm
       title="Welcome back"
       subtitle="Enter your mobile number and we'll send a one-time code."
-      buttonLabel="Continue →"
+      buttonLabel="Continue"
+      trailingIcon="chevron-right"
       isLoading={isLoading}
       error={error}
       phone={phone}

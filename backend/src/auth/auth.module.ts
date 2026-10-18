@@ -7,6 +7,7 @@ import { OtpAuthService } from './otp-auth.service.js';
 import { RiderAccessGuard } from './rider-access.guard.js';
 import { RiderAccessService } from './rider-access.service.js';
 import { CustomerAccessGuard, CustomerSessionGuard } from './customer-access.guard.js';
+import { RegistrationProofGuard } from './registration-proof.guard.js';
 import { CustomerAccessService } from './customer-access.service.js';
 import { CustomerAuthController } from './customer-auth.controller.js';
 import { RiderAuthController } from './rider-auth.controller.js';
@@ -36,10 +37,11 @@ import { AdminAuthController } from './admin-auth.controller.js';
     CustomerAccessService,
     CustomerSessionGuard,
     CustomerAccessGuard,
+    RegistrationProofGuard,
     AdminAccessService,
     AdminOtpEmailService,
     AdminLoginRateLimitService,
-    AdminOtpChallengeService,
+    AdminOtpChallengeService,
     AdminLoginService,
     AdminAccessGuard,
     HttpTwilioVerifyClient,
@@ -51,6 +53,7 @@ import { AdminAuthController } from './admin-auth.controller.js';
     RiderAccessService,
     CustomerAccessGuard,
     CustomerSessionGuard,
+    RegistrationProofGuard,
     CustomerAccessService,
     AdminAccessGuard,
     AdminAccessService,

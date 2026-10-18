@@ -1,6 +1,60 @@
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+const CARD_CITIES = new Set([
+  'harare',
+  'bulawayo',
+  'chitungwiza',
+  'mutare',
+  'epworth',
+  'gweru',
+  'kwekwe',
+  'kadoma',
+  'masvingo',
+  'chinhoyi',
+  'norton',
+  'marondera',
+  'ruwa',
+  'chegutu',
+  'zvishavane',
+  'bindura',
+  'beitbridge',
+  'redcliff',
+  'victoria falls',
+  'hwange',
+  'chiredzi',
+  'kariba',
+  'karoi',
+  'chipinge',
+  'gwanda',
+  'shurugwi',
+]);
+
+export function deliveryDetailAddress(address: string): string {
+  const parts = addressParts(address);
+  dropCountry(parts);
+  return parts.join(', ');
+}
+
+export function deliveryCardAddress(address: string): string {
+  const parts = addressParts(address);
+  dropCountry(parts);
+  if (parts.length > 1 && CARD_CITIES.has(parts[parts.length - 1].toLowerCase())) {
+    parts.pop();
+  }
+  return parts.join(', ');
+}
+
+function addressParts(address: string): string[] {
+  return address.split(',').map((part) => part.trim()).filter((part) => part.length > 0);
+}
+
+function dropCountry(parts: string[]) {
+  if (parts.length > 1 && parts[parts.length - 1].toLowerCase() === 'zimbabwe') {
+    parts.pop();
+  }
+}
+
 export function shortDeliveryReference(id: string): string {
   const compact = id.replace(/[^a-zA-Z0-9]/g, '');
   const tail = compact.slice(-5).toUpperCase();
@@ -19,9 +73,6 @@ export function deliveryWhenLabel(createdAt: string, now = new Date()): string {
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const startOfDate = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
   const dayDiff = Math.round((startOfToday - startOfDate) / DAY_MS);
-  if (dayDiff === 0) {
-    return `Today, ${dateText} • ${time}`;
-  }
   if (dayDiff === 1) {
     return `Yesterday, ${dateText} • ${time}`;
   }

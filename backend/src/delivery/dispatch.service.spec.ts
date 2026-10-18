@@ -194,6 +194,16 @@ describe('progressive dispatch', () => {
     expect(ctx.rounds.filter((round) => round.deliveryId !== started.id)).toHaveLength(0);
   });
 
+  it('cancels a delivery when no rider was found', async () => {
+    const ctx = context();
+    const delivery = addDelivery(ctx, 'delivery-exhausted');
+    delivery.status = 'NO_RIDER_FOUND';
+
+    await ctx.service.cancel(CUSTOMER, delivery.id, NOW);
+
+    expect(ctx.deliveries[0]?.status).toBe('CANCELLED');
+  });
+
   it('lets a cancellation win without offering the delivery', async () => {
     const ctx = context();
     const delivery = addDelivery(ctx);

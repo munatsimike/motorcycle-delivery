@@ -23,7 +23,8 @@ export default function SignUpScreen({ navigation }: SignUpProps) {
     <PhoneEntryForm
       title="Create your account"
       subtitle="Join Riders and enjoy fast, safe, and reliable motorcycle deliveries."
-      buttonLabel="Continue →"
+      buttonLabel="Continue"
+      trailingIcon="chevron-right"
       isLoading={isLoading}
       error={error}
       phone={phone}
