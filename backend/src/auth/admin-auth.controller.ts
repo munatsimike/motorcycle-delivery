@@ -1,5 +1,6 @@
 import { Body, Controller, HttpCode, Post, Req } from '@nestjs/common';
 import type { Request } from 'express';
+import { rateLimitAddress } from '../http/client-address.js';
 import { AdminLoginService } from './admin-login.service.js';
 
 @Controller('auth/admin')
@@ -11,7 +12,11 @@ export class AdminAuthController {
   startLogin(@Body() body: unknown, @Req() request: Request) {
     return this.adminLogin.startLogin(
       body,
-      request.ip || request.socket?.remoteAddress || 'unknown',
+      rateLimitAddress(
+        request,
+        process.env.TRUSTED_PROXY_CIDRS,
+        process.env.TRUST_RAILWAY_EDGE_CLIENT_IP,
+      ),
     );
   }
 
@@ -20,7 +25,11 @@ export class AdminAuthController {
   verifyLogin(@Body() body: unknown, @Req() request: Request) {
     return this.adminLogin.verifyLogin(
       body,
-      request.ip || request.socket?.remoteAddress || 'unknown',
+      rateLimitAddress(
+        request,
+        process.env.TRUSTED_PROXY_CIDRS,
+        process.env.TRUST_RAILWAY_EDGE_CLIENT_IP,
+      ),
     );
   }
 }

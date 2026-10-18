@@ -1,6 +1,7 @@
 import { Body, Controller, HttpCode, Post, Req } from '@nestjs/common';
 import type { Request } from 'express';
 import { AuthSubjectRole } from '../generated/prisma/client.js';
+import { rateLimitAddress } from '../http/client-address.js';
 import { OtpAuthService } from './otp-auth.service.js';
 
 @Controller('auth/rider')
@@ -33,5 +34,9 @@ export class RiderAuthController {
 }
 
 function clientAddress(request: Request): string {
-  return request.ip || request.socket?.remoteAddress || 'unknown';
+  return rateLimitAddress(
+    request,
+    process.env.TRUSTED_PROXY_CIDRS,
+    process.env.TRUST_RAILWAY_EDGE_CLIENT_IP,
+  );
 }
