@@ -32,13 +32,15 @@ create extension if not exists postgis;
 
 The migration role must be able to resolve `geography`. On Supabase, PostGIS is often installed in the `extensions` schema, so that schema has to be on the role's search path.
 
-Apply the existing migrations from `backend`. This does not generate a new migration:
+Apply the existing migrations from `backend` before starting the API. This does not generate a new migration, and it must not run as part of API startup:
 
 ```bash
-npx prisma migrate deploy
+npm run migrate:deploy
 ```
 
-Run that with the direct SSL URL. Do not point it at the pooler. The repository migrations do not create the PostGIS extension themselves.
+Run one deployment at a time. A second concurrent run can observe the first run's session state. The command refuses a database URL that uses port 6543, the transaction pooler. Use the direct connection, or the session pooler on port 5432, with `sslmode=require`.
+
+On a completely fresh database, Prisma applies every migration in one session. The first migration leaves a temporary PostGIS guard table, and `20261014160000_progressive_dispatch` then tries to create that same table. `npm run migrate:deploy` continues only when that failure is PostgreSQL `42P07` for `postgis_catalog_guard` and a read-only check shows the failed migration created no tables, enum types, columns, indexes, or constraints. It then marks that migration rolled back and runs `prisma migrate deploy` in a new process. Any other error stops with no recovery.
 
 ## Client IP for OTP limits
 
