@@ -3,20 +3,11 @@ import { loadBackendEnv } from '../load-env.js';
 
 const logger = new Logger('Geoapify');
 
-export type PlaceSuggestion = {
-  label: string;
-  latitude: number;
-  longitude: number;
-  exact: boolean;
-};
-
 export type RoadRoute = {
   metres: number;
   line: Array<[number, number]>;
 };
 
-const EXACT_RESULT_TYPES = new Set(['building', 'street']);
-export const AUTOCOMPLETE_LIMIT = 10;
 const HIDDEN_STREET_LABELS = [
   'highway-name-path',
   'highway-name-minor',
@@ -25,34 +16,6 @@ const HIDDEN_STREET_LABELS = [
   'highway-shield-us-interstate',
   'highway-shield-us-other',
 ].map((layer) => `${layer}:none`).join('|');
-
-export function readPlaceSuggestions(body: unknown): PlaceSuggestion[] {
-  const results = resultsOf(body);
-  const suggestions: PlaceSuggestion[] = [];
-  for (const result of results) {
-    if (!isRecord(result)) {
-      continue;
-    }
-    const label = typeof result.formatted === 'string' ? result.formatted.trim() : '';
-    const latitude = finite(result.lat);
-    const longitude = finite(result.lon);
-    if (!label || latitude === null || longitude === null || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
-      continue;
-    }
-    const resultType = typeof result.result_type === 'string' ? result.result_type : '';
-    const houseNumber = typeof result.housenumber === 'string' ? result.housenumber.trim() : '';
-    suggestions.push({
-      label: suggestionLabel(result, label),
-      latitude,
-      longitude,
-      exact: EXACT_RESULT_TYPES.has(resultType) || houseNumber.length > 0,
-    });
-    if (suggestions.length === AUTOCOMPLETE_LIMIT) {
-      break;
-    }
-  }
-  return suggestions;
-}
 
 export function readRoadRoute(body: unknown): RoadRoute | null {
   const features = isRecord(body) && Array.isArray(body.features) ? body.features : [];
@@ -107,16 +70,6 @@ export class GeoapifyClient {
     private readonly apiKey: string,
     private readonly fetchImpl: typeof fetch = fetch,
   ) {}
-
-  async autocomplete(
-    text: string,
-    bias?: { latitude: number; longitude: number } | null,
-  ): Promise<PlaceSuggestion[]> {
-    const url = autocompleteRequestUrl(text, this.key(), bias);
-    const suggestions = readPlaceSuggestions(await this.getJson(url));
-    logger.log(`Geoapify autocomplete results=${suggestions.length}`);
-    return suggestions;
-  }
 
   async route(pickupLatitude: number, pickupLongitude: number, dropoffLatitude: number, dropoffLongitude: number): Promise<RoadRoute> {
     const url = new URL('https://api.geoapify.com/v1/routing');
@@ -209,32 +162,6 @@ export class GeoapifyClient {
   }
 }
 
-export function autocompleteRequestUrl(
-  text: string,
-  apiKey: string,
-  bias?: { latitude: number; longitude: number } | null,
-): URL {
-  const url = new URL('https://api.geoapify.com/v1/geocode/autocomplete');
-  url.searchParams.set('text', text);
-  url.searchParams.set('filter', 'countrycode:zw');
-  url.searchParams.set('limit', String(AUTOCOMPLETE_LIMIT));
-  url.searchParams.set('format', 'json');
-  const latitude = bias ? finite(bias.latitude) : null;
-  const longitude = bias ? finite(bias.longitude) : null;
-  if (
-    latitude !== null
-    && longitude !== null
-    && latitude >= -90
-    && latitude <= 90
-    && longitude >= -180
-    && longitude <= 180
-  ) {
-    url.searchParams.set('bias', `proximity:${longitude},${latitude}`);
-  }
-  url.searchParams.set('apiKey', apiKey);
-  return url;
-}
-
 export function createGeoapifyClient(): GeoapifyClient {
   loadBackendEnv();
   return new GeoapifyClient(process.env.GEOAPIFY_API_KEY ?? '');
@@ -300,61 +227,6 @@ function encodeSigned(value: number): string {
   }
   encoded += String.fromCharCode(shifted + 63);
   return encoded;
-}
-
-function suggestionLabel(result: Record<string, unknown>, formatted: string): string {
-  const parts = addressParts(formatted);
-  const area = suburbName(result);
-  if (!area) {
-    return parts.join(', ');
-  }
-  const city = text(result.city).toLowerCase();
-  const withoutCity = city && parts.length > 1 && parts[parts.length - 1].toLowerCase() === city
-    ? parts.slice(0, -1)
-    : parts;
-  if (withoutCity.some((part) => part.toLowerCase() === area.toLowerCase())) {
-    return withoutCity.join(', ');
-  }
-  return [...withoutCity, area].join(', ');
-}
-
-function suburbName(result: Record<string, unknown>): string {
-  const suburb = text(result.suburb);
-  const city = text(result.city);
-  if (!suburb || suburb.toLowerCase() === city.toLowerCase() || /^ward\b/i.test(suburb)) {
-    return '';
-  }
-  return suburb;
-}
-
-function addressParts(label: string): string[] {
-  const parts = label.split(',').map((part) => part.trim()).filter((part) => part.length > 0);
-  if (parts.length > 1 && parts[parts.length - 1].toLowerCase() === 'zimbabwe') {
-    parts.pop();
-  }
-  return parts;
-}
-
-function text(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
-}
-
-function resultsOf(body: unknown): unknown[] {
-  if (!isRecord(body)) {
-    return [];
-  }
-  if (Array.isArray(body.results)) {
-    return body.results;
-  }
-  if (!Array.isArray(body.features)) {
-    return [];
-  }
-  return body.features.map((feature) => {
-    if (!isRecord(feature) || !isRecord(feature.properties)) {
-      return null;
-    }
-    return feature.properties;
-  });
 }
 
 function finite(value: unknown): number | null {

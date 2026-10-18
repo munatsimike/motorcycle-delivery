@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 
 import { errorMessage } from '../../../auth/presentation/errorMessage';
+import { useSession } from '../../../auth/presentation/viewmodels/useSession';
 import { customerAccountRepository } from '../../data/CustomerAccountApiRepository';
 import type { CustomerAccount } from '../../domain/customerAccount';
 import { loadCustomerAccount } from '../../domain/usecases/loadCustomerAccount';
@@ -12,6 +13,7 @@ import {
 } from './customerAccountCache';
 
 export function useCustomerAccount(accessToken: string | null) {
+  const { confirmCustomer } = useSession();
   const [account, setAccount] = useState<CustomerAccount | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -36,6 +38,9 @@ export function useCustomerAccount(accessToken: string | null) {
       setAccount(saved);
       setError(null);
       setIsLoading(false);
+      if (saved.id) {
+        void confirmCustomer(saved.id);
+      }
       return;
     }
 
@@ -44,11 +49,17 @@ export function useCustomerAccount(accessToken: string | null) {
     setIsLoading(true);
     setError(null);
     loadCustomerAccount(customerAccountRepository, accessToken)
-      .then((loaded) => {
+      .then(async (loaded) => {
         if (!active || started !== customerAccountRevision()) {
           return;
         }
         rememberCustomerAccount(accessToken, loaded);
+        if (loaded.id) {
+          await confirmCustomer(loaded.id);
+        }
+        if (!active || started !== customerAccountRevision()) {
+          return;
+        }
         setError(null);
       })
       .catch((caught: unknown) => {
@@ -66,7 +77,7 @@ export function useCustomerAccount(accessToken: string | null) {
     return () => {
       active = false;
     };
-  }, [accessToken]);
+  }, [accessToken, confirmCustomer]);
 
   return { account, isLoading, error };
 }

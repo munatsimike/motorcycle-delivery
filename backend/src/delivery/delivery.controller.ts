@@ -6,6 +6,7 @@ import {
   Header,
   HttpCode,
   Logger,
+  NotFoundException,
   Param,
   Post,
   Query,
@@ -70,11 +71,18 @@ export class DeliveryController {
   @Header('Cache-Control', 'private, max-age=86400')
   async map(@Req() request: CustomerRequest, @Param('deliveryId') deliveryId: string) {
     const delivery = await this.deliveries.getById(requiredCustomer(request), deliveryId);
+    const pickupLatitude = finiteCoordinate(delivery.pickup.latitude);
+    const pickupLongitude = finiteCoordinate(delivery.pickup.longitude);
+    const dropoffLatitude = finiteCoordinate(delivery.dropoff.latitude);
+    const dropoffLongitude = finiteCoordinate(delivery.dropoff.longitude);
+    if (pickupLatitude === null || pickupLongitude === null || dropoffLatitude === null || dropoffLongitude === null) {
+      throw new NotFoundException('The map preview is unavailable.');
+    }
     const bytes = await this.places.deliveryMap(
-      Number(delivery.pickup.latitude),
-      Number(delivery.pickup.longitude),
-      Number(delivery.dropoff.latitude),
-      Number(delivery.dropoff.longitude),
+      pickupLatitude,
+      pickupLongitude,
+      dropoffLatitude,
+      dropoffLongitude,
     );
     return new StreamableFile(Buffer.from(bytes), { type: 'image/png', disposition: 'inline' });
   }
@@ -101,6 +109,14 @@ function requiredCustomer(request: CustomerRequest) {
     throw new ForbiddenException('Customer access is required');
   }
   return request.customer;
+}
+
+function finiteCoordinate(value: string | null): number | null {
+  if (value == null || !value.trim()) {
+    return null;
+  }
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
 }
 
 function errorName(error: unknown): string {

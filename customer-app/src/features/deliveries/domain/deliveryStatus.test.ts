@@ -70,7 +70,7 @@ describe('deliveryStatusLabel', () => {
 describe('deliveryUsesPackageIcon', () => {
   it('uses a package icon for deliveries that are not active', () => {
     expect(deliveryUsesPackageIcon('DELIVERED')).toBe(true);
-    expect(deliveryUsesPackageIcon('CANCELLED')).toBe(true);
+    expect(deliveryUsesPackageIcon('CANCELLED')).toBe(false);
     expect(deliveryUsesPackageIcon('FAILED')).toBe(true);
     expect(deliveryUsesPackageIcon('SEARCHING')).toBe(false);
     expect(deliveryUsesPackageIcon('IN_TRANSIT')).toBe(false);

@@ -1,6 +1,6 @@
 import type { PlaceSuggestion } from './placeSuggestion';
 
-export type LocationProvider = 'geoapify' | 'device';
+export type LocationProvider = 'google_places' | 'device';
 export type LocationPrecision = 'exact' | 'area' | 'unverified';
 
 export type ResolvedLocation = {
@@ -8,6 +8,7 @@ export type ResolvedLocation = {
   latitude: string;
   longitude: string;
   provider: LocationProvider;
+  placeId: string | null;
   precision: LocationPrecision;
 };
 
@@ -27,15 +28,16 @@ export function resolveManualAddress(
   suggestions: PlaceSuggestion[],
   devicePoint: DevicePoint | null,
 ): ManualAddressResolution {
-  const exact = suggestions.find((suggestion) => suggestion.exact);
-  if (exact) {
+  const exact = suggestions.find((suggestion) => suggestion.exact && suggestion.placeId);
+  if (exact?.placeId) {
     return {
       status: 'resolved',
       location: {
         label: withoutCountry(exact.label),
         latitude: exact.latitude,
         longitude: exact.longitude,
-        provider: 'geoapify',
+        provider: 'google_places',
+        placeId: exact.placeId,
         precision: 'exact',
       },
     };
@@ -48,6 +50,7 @@ export function resolveManualAddress(
         latitude: devicePoint.latitude,
         longitude: devicePoint.longitude,
         provider: 'device',
+        placeId: null,
         precision: 'unverified',
       },
     };
@@ -80,7 +83,8 @@ export function confirmMapPin(area: PlaceSuggestion): ResolvedLocation {
     label: withoutCountry(area.label),
     latitude: area.latitude,
     longitude: area.longitude,
-    provider: 'geoapify',
+    provider: 'google_places',
+    placeId: area.placeId ?? null,
     precision: area.exact ? 'exact' : 'area',
   };
 }

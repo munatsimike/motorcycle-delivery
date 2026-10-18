@@ -86,11 +86,24 @@ describe('DeliveryService', () => {
     await ctx.pricing.replace(ADMIN, tariff('2.00', '1.00', 0, 100_000));
     const invalid = deliveryBody('1.500');
     await expect(ctx.deliveries.create(CUSTOMER, invalid)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(ctx.deliveries.create(CUSTOMER, deliveryBody('1000.01'))).rejects.toBeInstanceOf(BadRequestException);
+    await expect(ctx.deliveries.create(CUSTOMER, deliveryBody('0.00'))).rejects.toBeInstanceOf(BadRequestException);
+    await expect(ctx.deliveries.create(CUSTOMER, deliveryBody('-1.00'))).rejects.toBeInstanceOf(BadRequestException);
+    await expect(ctx.deliveries.create(CUSTOMER, deliveryBody('NaN'))).rejects.toBeInstanceOf(BadRequestException);
+    await expect(ctx.deliveries.create(CUSTOMER, deliveryBody('Infinity'))).rejects.toBeInstanceOf(BadRequestException);
     await expect(ctx.deliveries.create(CUSTOMER, { ...deliveryBody('1.00'), pickup: { ...stop('0771234567', 'Tendai Moyo', '   ') } }))
       .rejects.toBeInstanceOf(BadRequestException);
     await expect(ctx.deliveries.create(CUSTOMER, { ...deliveryBody('1.00'), pickup: { ...stop('123', 'Tendai Moyo', '12 Samora Machel Avenue') } }))
       .rejects.toBeInstanceOf(BadRequestException);
     expect(ctx.deliveryRows).toHaveLength(0);
+  });
+
+  it('stores the customer offer at the limit and keeps the server suggestion', async () => {
+    const ctx = context();
+    await ctx.pricing.replace(ADMIN, tariff('2.00', '1.00', 0, 100_000));
+    const created = await ctx.deliveries.create(CUSTOMER, deliveryBody('1000.00'));
+    expect(created).toMatchObject({ offeredPrice: '1000.00', suggestedPrice: '2.00' });
+    expect(ctx.deliveryRows[0]).toMatchObject({ price: '1000.00', suggestedPrice: '2.00' });
   });
 });
 
@@ -137,6 +150,8 @@ function stop(contactPhone: string, contactName: string, address: string) {
     instructions: 'Call on arrival',
     contactName,
     contactPhone,
+    placeId: 'ChIJstreet0001',
+    coordinateSource: 'GOOGLE_PLACES',
   };
 }
 

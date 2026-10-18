@@ -15,6 +15,8 @@ function delivery(status: CustomerDeliveryDetail['status'], id = 'delivery-1'): 
     pickupLatitude: -17.8292,
     pickupLongitude: 31.0522,
     dropoffAddress: 'Drop-off',
+    dropoffLatitude: -17.825,
+    dropoffLongitude: 31.033,
     parcelDescription: 'Documents',
     createdAt: null,
   };

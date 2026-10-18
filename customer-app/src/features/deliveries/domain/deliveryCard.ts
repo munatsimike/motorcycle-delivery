@@ -36,13 +36,33 @@ export function deliveryDetailAddress(address: string): string {
   return parts.join(', ');
 }
 
+const STREET_TYPES: Record<string, string> = {
+  road: 'Rd',
+  street: 'St',
+  avenue: 'Ave',
+  close: 'Cl',
+  drive: 'Dr',
+  crescent: 'Cres',
+  lane: 'Ln',
+  court: 'Ct',
+  place: 'Pl',
+  boulevard: 'Blvd',
+  terrace: 'Ter',
+};
+
+const STREET_TYPE_PATTERN = new RegExp(`\\b(${Object.keys(STREET_TYPES).join('|')})\\b`, 'gi');
+
 export function deliveryCardAddress(address: string): string {
   const parts = addressParts(address);
   dropCountry(parts);
   if (parts.length > 1 && CARD_CITIES.has(parts[parts.length - 1].toLowerCase())) {
     parts.pop();
   }
-  return parts.join(', ');
+  return parts.map(abbreviateStreetType).join(', ');
+}
+
+function abbreviateStreetType(part: string): string {
+  return part.replace(STREET_TYPE_PATTERN, (word) => STREET_TYPES[word.toLowerCase()] ?? word);
 }
 
 function addressParts(address: string): string[] {

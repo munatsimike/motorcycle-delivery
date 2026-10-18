@@ -13,6 +13,7 @@ import { useSession } from '../../../auth/presentation/viewmodels/useSession';
 import { deliveryTrackingTarget } from '../../../deliveries/domain/customerDeliveryList';
 import { customerDeliveryRepository } from '../../../deliveries/data/CustomerDeliveryApiRepository';
 import DeliverySection from '../../../deliveries/presentation/components/DeliverySection';
+import { savedDeliveryMessage } from '../../../deliveries/domain/recentDeliveryCache';
 import { useCustomerDeliveries } from '../../../deliveries/presentation/viewmodels/useCustomerDeliveries';
 import { deliveriesInGroup, type DeliveryGroup } from '../../../deliveries/domain/deliveryStatus';
 
@@ -28,8 +29,9 @@ const GROUPS: { id: DeliveryGroup; label: string }[] = [
 
 export default function RequestsScreen() {
   const navigation = useNavigation<DeliveriesNavigation>();
-  const { accessToken } = useSession();
-  const { deliveries, isLoading, isLoadingMore, error, hasMore, reload, loadMore } = useCustomerDeliveries(accessToken);
+  const { accessToken, customerId } = useSession();
+  const { deliveries, isLoading, isLoadingMore, error, hasMore, reload, loadMore, showingSaved, savedAt } = useCustomerDeliveries(accessToken, customerId);
+  const offlineNote = showingSaved && savedAt ? savedDeliveryMessage(savedAt) : null;
   const [group, setGroup] = useState<DeliveryGroup>('active');
   const scrollOffset = useRef(0);
   const scrollIntent = useRef(0);
@@ -116,6 +118,8 @@ export default function RequestsScreen() {
           error={error}
           emptyTitle={group === 'active' ? 'No active deliveries' : 'No past deliveries'}
           emptyBody="All your deliveries will appear here once you book."
+          offlineNote={offlineNote}
+          cached={showingSaved}
           onOpenDetails={(deliveryId) => {
             const target = deliveryTrackingTarget(deliveryId);
             navigation.navigate(target.screen, target.params);

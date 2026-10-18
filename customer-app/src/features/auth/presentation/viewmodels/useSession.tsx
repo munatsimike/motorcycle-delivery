@@ -1,10 +1,17 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
+import {
+  clearCustomerIdentity,
+  clearRecentDeliveries,
+  loadCustomerIdentity,
+  saveCustomerIdentity,
+} from '../../../deliveries/data/recentDeliveryStore';
 import { customerAuthRepository } from '../../data/repositories/CustomerAuthApiRepository';
 import type { AuthSession } from '../../domain/auth.types';
 import { logoutCustomer } from '../../domain/usecases/logoutCustomer';
 import { restoreSession } from '../../domain/usecases/restoreSession';
 import { authenticateForSession, canUseBiometrics } from '../../../../services/session/biometricUnlock';
+import { confirmCustomerIdentity, customerIdForSession } from '../../../../services/session/customerIdentity';
 import { secureSessionStore } from '../../../../services/session/secureSessionStore';
 
 type SessionStatus = 'loading' | 'signedOut' | 'locked' | 'signedIn';
@@ -16,7 +23,9 @@ type SessionContextValue = {
   biometricAvailable: boolean;
   biometricEnabled: boolean;
   accessToken: string | null;
+  customerId: string | null;
   saveSession: (session: AuthSession) => Promise<void>;
+  confirmCustomer: (customerId: string) => Promise<void>;
   logout: () => Promise<void>;
   unlock: () => Promise<boolean>;
   setBiometricEnabled: (enabled: boolean) => Promise<BiometricUpdate>;
@@ -27,6 +36,7 @@ const SessionContext = createContext<SessionContextValue | null>(null);
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<SessionStatus>('loading');
   const [session, setSession] = useState<AuthSession | null>(null);
+  const [customerId, setCustomerId] = useState<string | null>(null);
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [biometricEnabled, setBiometricEnabledState] = useState(false);
 
@@ -61,14 +71,21 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           return;
         }
         if (!restored) {
+          setCustomerId(null);
           setSession(null);
           setStatus('signedOut');
           return;
         }
+        const identity = await loadCustomerIdentity();
+        if (!active) {
+          return;
+        }
+        setCustomerId(customerIdForSession(identity, restored.refreshToken));
         setSession(restored);
         setStatus('signedIn');
       } catch {
         if (active) {
+          setCustomerId(null);
           setSession(null);
           setStatus('signedOut');
         }
@@ -86,15 +103,43 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     biometricAvailable,
     biometricEnabled,
     accessToken: session?.accessToken ?? null,
+    customerId,
     async saveSession(next) {
       await secureSessionStore.save(next);
+      setCustomerId(null);
       setSession(next);
       setStatus('signedIn');
     },
+    async confirmCustomer(nextCustomerId) {
+      const refreshToken = session?.refreshToken;
+      if (!refreshToken) {
+        return;
+      }
+      const current = await loadCustomerIdentity();
+      const update = confirmCustomerIdentity(current, nextCustomerId, refreshToken);
+      if (!update) {
+        return;
+      }
+      if (update.replacedCustomerId) {
+        await clearRecentDeliveries(update.replacedCustomerId);
+      }
+      await saveCustomerIdentity(update.identity);
+      setCustomerId(update.identity.customerId);
+    },
     async logout() {
       const accessToken = session?.accessToken;
+      const knownCustomerId = customerId;
+      setCustomerId(null);
       setSession(null);
       setStatus('signedOut');
+      try {
+        if (knownCustomerId) {
+          await clearRecentDeliveries(knownCustomerId);
+        }
+        await clearCustomerIdentity();
+      } catch {
+        // Signing out still continues when the saved deliveries cannot be removed.
+      }
       try {
         if (!accessToken) {
           await secureSessionStore.clear();
@@ -112,10 +157,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       }
       const restored = await restoreSession(customerAuthRepository, secureSessionStore);
       if (!restored) {
+        setCustomerId(null);
         setSession(null);
         setStatus('signedOut');
         return false;
       }
+      const identity = await loadCustomerIdentity();
+      setCustomerId(customerIdForSession(identity, restored.refreshToken));
       setSession(restored);
       setStatus('signedIn');
       return true;
@@ -139,7 +187,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setBiometricEnabledState(true);
       return 'enabled';
     },
-  }), [biometricAvailable, biometricEnabled, session, status]);
+  }), [biometricAvailable, biometricEnabled, customerId, session, status]);
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }

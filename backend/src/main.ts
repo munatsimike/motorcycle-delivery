@@ -7,6 +7,7 @@ import { loadBackendEnv } from './load-env.js';
 loadBackendEnv();
 const startup = new Logger('Bootstrap');
 startup.log(process.env.GEOAPIFY_API_KEY?.trim() ? 'Geoapify API key is configured' : 'Geoapify API key is not configured');
+startup.log(process.env.GOOGLE_MAPS_API_KEY?.trim() ? 'Google Maps API key is configured' : 'Google Maps API key is not configured');
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);

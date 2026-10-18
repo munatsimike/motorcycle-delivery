@@ -18,6 +18,7 @@ type IconName = ComponentProps<typeof MaterialDesignIcons>['name'];
 
 type DeliveryCardProps = {
   delivery: CustomerDelivery;
+  cached?: boolean;
   onOpenDetails?: (deliveryId: string) => void;
   onSearchAgain?: (deliveryId: string) => Promise<void>;
 };
@@ -48,6 +49,7 @@ const DOT_STEP = 7;
 
 export default function DeliveryCard({
   delivery,
+  cached = false,
   onOpenDetails,
   onSearchAgain,
 }: DeliveryCardProps) {
@@ -87,7 +89,7 @@ export default function DeliveryCard({
             <StatusPill
               tone={tone}
               label={deliveryStatusLabel(delivery.status)}
-              pulse={delivery.status === 'SEARCHING'}
+              pulse={!cached && delivery.status === 'SEARCHING'}
             />
           )}
         />
@@ -342,7 +344,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: radius.md,
     paddingHorizontal: spacing.sm,
-    backgroundColor: colors.background,
+    backgroundColor: colors.surface,
   },
   detailsText: {
     fontSize: typography.caption,

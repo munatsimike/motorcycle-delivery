@@ -8,6 +8,7 @@ import {
   View,
 } from 'react-native';
 
+import { useHeaderHeight } from '@react-navigation/elements';
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
 import type { ComponentProps } from 'react';
 
@@ -46,10 +47,13 @@ export default function PhoneEntryForm({
   footerAction,
   onFooterPress,
 }: PhoneEntryFormProps) {
+  const headerHeight = useHeaderHeight();
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? headerHeight : 0}
     >
       <ScrollView
         contentContainerStyle={styles.scrollContent}

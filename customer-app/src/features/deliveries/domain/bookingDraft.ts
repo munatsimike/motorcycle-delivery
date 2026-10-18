@@ -17,6 +17,8 @@ export type StopDraft = {
   longitude: string;
   approximate: boolean;
   precision: 'exact' | 'area' | 'unverified' | null;
+  placeId: string | null;
+  coordinateSource: 'GOOGLE_PLACES' | 'DEVICE_GEOCODER' | null;
 };
 
 export type BookingDraft = {
@@ -37,6 +39,8 @@ export type PreparedStop = {
   instructions: string | null;
   contactName: string;
   contactPhone: string;
+  placeId: string | null;
+  coordinateSource: 'GOOGLE_PLACES' | 'DEVICE_GEOCODER';
 };
 
 export type PreparedBooking = {
@@ -65,6 +69,8 @@ export function emptyStop(): StopDraft {
     longitude: '',
     approximate: false,
     precision: null,
+    placeId: null,
+    coordinateSource: null,
   };
 }
 
@@ -237,6 +243,15 @@ function readStopDetails(
   if (!contactPhone) {
     return { ok: false, error: `Enter the ${label} contact phone` };
   }
+  if (stop.coordinateSource !== 'GOOGLE_PLACES' && stop.coordinateSource !== 'DEVICE_GEOCODER') {
+    return { ok: false, error: `Choose the ${label} address` };
+  }
+  if (stop.coordinateSource === 'GOOGLE_PLACES' && !stop.placeId) {
+    return { ok: false, error: `Choose the ${label} address` };
+  }
+  if (stop.coordinateSource === 'DEVICE_GEOCODER' && stop.placeId) {
+    return { ok: false, error: `Choose the ${label} address` };
+  }
   return {
     ok: true,
     stop: {
@@ -245,6 +260,8 @@ function readStopDetails(
       instructions,
       contactName,
       contactPhone,
+      placeId: stop.placeId,
+      coordinateSource: stop.coordinateSource,
     },
   };
 }
@@ -254,6 +271,8 @@ function stopBody(stop: PreparedStop) {
     latitude: stop.latitude,
     longitude: stop.longitude,
     address: stop.address,
+    placeId: stop.placeId,
+    coordinateSource: stop.coordinateSource,
     landmark: stop.landmark,
     instructions: stop.instructions,
     contactName: stop.contactName,

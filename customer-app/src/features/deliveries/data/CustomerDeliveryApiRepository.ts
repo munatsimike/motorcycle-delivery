@@ -3,7 +3,7 @@ import { createBody, quoteBody, type PreparedBooking } from '../domain/bookingDr
 import { readCustomerDeliveryDetail, type CustomerDeliveryDetail } from '../domain/customerDeliveryDetail';
 import { readCustomerDeliveryPage, type CustomerDeliveryPage } from '../domain/customerDeliveryList';
 import { readDeliveryQuote, type DeliveryQuote } from '../domain/deliveryQuote';
-import { readPlaceSuggestions, type PlaceSuggestion } from '../domain/placeSuggestion';
+import { readPlaceSuggestions, readResolvedPlace, type PlaceSuggestion, type ResolvedPlace } from '../domain/placeSuggestion';
 import type { CustomerDeliveryRepository } from '../domain/repositories/CustomerDeliveryRepository';
 
 export type PlaceBias = {
@@ -11,9 +11,10 @@ export type PlaceBias = {
   longitude: number;
 };
 
-function placeQuery(text: string, bias?: PlaceBias | null): string {
+function placeQuery(text: string, bias: PlaceBias | null | undefined, sessionToken: string): string {
   const params = new URLSearchParams();
   params.set('text', text);
+  params.set('sessionToken', sessionToken);
   if (
     bias
     && Number.isFinite(bias.latitude)
@@ -29,11 +30,18 @@ function placeQuery(text: string, bias?: PlaceBias | null): string {
   return params.toString();
 }
 
-function placeCacheKey(text: string, bias?: PlaceBias | null): string {
+function detailQuery(placeId: string, sessionToken: string): string {
+  const params = new URLSearchParams();
+  params.set('placeId', placeId);
+  params.set('sessionToken', sessionToken);
+  return params.toString();
+}
+
+function placeCacheKey(text: string, bias: PlaceBias | null | undefined, sessionToken: string): string {
   const point = bias && Number.isFinite(bias.latitude) && Number.isFinite(bias.longitude)
     ? `${bias.latitude.toFixed(3)},${bias.longitude.toFixed(3)}`
     : '';
-  return `${text.trim().toLowerCase()}|${point}`;
+  return `${sessionToken}|${text.trim().toLowerCase()}|${point}`;
 }
 
 export class CustomerDeliveryApiRepository implements CustomerDeliveryRepository {
@@ -60,26 +68,42 @@ export class CustomerDeliveryApiRepository implements CustomerDeliveryRepository
   searchPlaces(
     accessToken: string,
     text: string,
-    bias?: PlaceBias | null,
+    bias: PlaceBias | null | undefined,
+    sessionToken: string,
   ): Promise<PlaceSuggestion[]> {
-    return this.loadPlaces(`/customers/me/places?${placeQuery(text, bias)}`, accessToken, text, bias);
+    return this.loadPlaces(`/customers/me/places?${placeQuery(text, bias, sessionToken)}`, accessToken, text, bias, sessionToken);
   }
 
   searchRegistrationPlaces(
     registrationToken: string,
     text: string,
-    bias?: PlaceBias | null,
+    bias: PlaceBias | null | undefined,
+    sessionToken: string,
   ): Promise<PlaceSuggestion[]> {
-    return this.loadPlaces(`/auth/customer/places?${placeQuery(text, bias)}`, registrationToken, text, bias);
+    return this.loadPlaces(`/auth/customer/places?${placeQuery(text, bias, sessionToken)}`, registrationToken, text, bias, sessionToken);
+  }
+
+  resolvePlace(accessToken: string, placeId: string, sessionToken: string): Promise<ResolvedPlace> {
+    return this.loadPlace(`/customers/me/places/detail?${detailQuery(placeId, sessionToken)}`, accessToken);
+  }
+
+  resolveRegistrationPlace(registrationToken: string, placeId: string, sessionToken: string): Promise<ResolvedPlace> {
+    return this.loadPlace(`/auth/customer/places/detail?${detailQuery(placeId, sessionToken)}`, registrationToken);
+  }
+
+  private async loadPlace(path: string, token: string): Promise<ResolvedPlace> {
+    const body = await apiGet<unknown>(path, { accessToken: token });
+    return readResolvedPlace(body);
   }
 
   private async loadPlaces(
     path: string,
     token: string,
     text: string,
-    bias?: PlaceBias | null,
+    bias: PlaceBias | null | undefined,
+    sessionToken: string,
   ): Promise<PlaceSuggestion[]> {
-    const key = placeCacheKey(text, bias);
+    const key = placeCacheKey(text, bias, sessionToken);
     const saved = searchCache.get(key);
     if (saved && Date.now() - saved.at < SEARCH_CACHE_MS) {
       return saved.suggestions;

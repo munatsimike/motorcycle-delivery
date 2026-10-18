@@ -15,6 +15,7 @@ import { useCustomerAccount } from '../../../account/presentation/viewmodels/use
 import { customerDeliveryRepository } from '../../../deliveries/data/CustomerDeliveryApiRepository';
 import DeliverySection from '../../../deliveries/presentation/components/DeliverySection';
 import { deliveryTrackingTarget } from '../../../deliveries/domain/customerDeliveryList';
+import { savedDeliveryMessage } from '../../../deliveries/domain/recentDeliveryCache';
 import { useCustomerDeliveries } from '../../../deliveries/presentation/viewmodels/useCustomerDeliveries';
 import { useSession } from '../viewmodels/useSession';
 
@@ -25,9 +26,10 @@ type HomeNavigation = CompositeNavigationProp<
 
 export default function CustomerHomeScreen() {
   const navigation = useNavigation<HomeNavigation>();
-  const { accessToken } = useSession();
+  const { accessToken, customerId } = useSession();
   const { account } = useCustomerAccount(accessToken);
-  const { deliveries, isLoading, error, reload } = useCustomerDeliveries(accessToken);
+  const { deliveries, isLoading, error, reload, showingSaved, savedAt } = useCustomerDeliveries(accessToken, customerId);
+  const offlineNote = showingSaved && savedAt ? savedDeliveryMessage(savedAt) : null;
   const firstName = account ? customerFirstName(account) : null;
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
@@ -64,9 +66,6 @@ export default function CustomerHomeScreen() {
               {firstName ? (
                 <Text style={styles.name} accessibilityRole="header">{firstName}</Text>
               ) : null}
-            </View>
-            <View accessibilityLabel="Notifications" style={styles.bell}>
-              <MaterialDesignIcons name="bell-outline" color={colors.text} size={24} />
             </View>
           </View>
 
@@ -133,6 +132,8 @@ export default function CustomerHomeScreen() {
           error={error}
           emptyTitle="No deliveries"
           emptyBody="Recent deliveries will appear here when you book."
+          offlineNote={offlineNote}
+          cached={showingSaved}
           onOpenDetails={(deliveryId) => {
             const target = deliveryTrackingTarget(deliveryId);
             navigation.navigate(target.screen, target.params);
@@ -186,12 +187,6 @@ const styles = StyleSheet.create({
     fontSize: typography.heading,
     fontWeight: '600',
     color: colors.text,
-  },
-  bell: {
-    width: 44,
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   actionsCard: {
     backgroundColor: colors.background,

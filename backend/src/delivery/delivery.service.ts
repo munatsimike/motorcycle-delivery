@@ -108,6 +108,7 @@ export class DeliveryService {
         throw missingPricing();
       }
       const priced = this.priceMetres(metres, active);
+      const retrievedAt = new Date();
       const created = await tx.delivery.create({
         data: {
           customerId: customer.customerAccountId,
@@ -115,6 +116,9 @@ export class DeliveryService {
           pickupAddress: draft.pickupAddress,
           pickupLatitude: draft.pickupLatitude,
           pickupLongitude: draft.pickupLongitude,
+          pickupPlaceId: draft.pickupPlaceId,
+          pickupCoordinateSource: draft.pickupCoordinateSource,
+          pickupCoordinateRetrievedAt: retrievedAt,
           pickupLandmark: draft.pickupLandmark,
           pickupInstructions: draft.pickupInstructions,
           pickupContactName: draft.pickupContactName,
@@ -122,6 +126,9 @@ export class DeliveryService {
           dropoffAddress: draft.dropoffAddress,
           dropoffLatitude: draft.dropoffLatitude,
           dropoffLongitude: draft.dropoffLongitude,
+          dropoffPlaceId: draft.dropoffPlaceId,
+          dropoffCoordinateSource: draft.dropoffCoordinateSource,
+          dropoffCoordinateRetrievedAt: retrievedAt,
           dropoffLandmark: draft.dropoffLandmark,
           dropoffInstructions: draft.dropoffInstructions,
           parcelDescription: draft.parcelDescription,

@@ -17,7 +17,7 @@ import type { RootStackParamList } from '../../../../navigation/types';
 import { colors, radius, spacing, typography } from '../../../../theme';
 import { customerDeliveryRepository, loadDeliveryMapImage } from '../../data/CustomerDeliveryApiRepository';
 import { cancelCustomerDelivery } from '../../domain/usecases/cancelCustomerDelivery';
-import type { CustomerDeliveryDetail } from '../../domain/customerDeliveryDetail';
+import { deliveryHasMapCoordinates, type CustomerDeliveryDetail } from '../../domain/customerDeliveryDetail';
 import { deliveryCardAddress, deliveryWhenLabel, shortDeliveryReference } from '../../domain/deliveryCard';
 import { deliveryStatusLabel } from '../../domain/deliveryStatus';
 import { riderSearchView } from '../../domain/riderSearchView';
@@ -63,8 +63,12 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
   }, []);
 
   const deliveryId = delivery?.id ?? null;
+  const mapCoordinates = delivery ? deliveryHasMapCoordinates(delivery) : false;
   useEffect(() => {
-    if (view !== 'searching' || !accessToken || !deliveryId) {
+    if (!mapCoordinates) {
+      setMapUri(null);
+    }
+    if (view !== 'searching' || !accessToken || !deliveryId || !mapCoordinates) {
       return;
     }
     let current = true;
@@ -76,7 +80,7 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
     return () => {
       current = false;
     };
-  }, [accessToken, deliveryId, view]);
+  }, [accessToken, deliveryId, mapCoordinates, view]);
 
   function confirmCancelSearch() {
     if (cancelling) {

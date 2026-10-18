@@ -8,9 +8,11 @@ export type CustomerDeliveryDetail = {
   suggestedPrice: string;
   distanceMeters: number;
   pickupAddress: string;
-  pickupLatitude: number;
-  pickupLongitude: number;
+  pickupLatitude: number | null;
+  pickupLongitude: number | null;
   dropoffAddress: string;
+  dropoffLatitude: number | null;
+  dropoffLongitude: number | null;
   parcelDescription: string;
   createdAt: string | null;
 };
@@ -26,17 +28,15 @@ export function readCustomerDeliveryDetail(value: unknown): CustomerDeliveryDeta
     throw new Error('Delivery details are unavailable.');
   }
   const pickupAddress = text(value.pickup.address);
-  const pickupLatitude = coordinate(value.pickup.latitude, 90);
-  const pickupLongitude = coordinate(value.pickup.longitude, 180);
+  const pickupPoint = coordinatePair(value.pickup.latitude, value.pickup.longitude);
   const dropoffAddress = text(value.dropoff.address);
+  const dropoffPoint = coordinatePair(value.dropoff.latitude, value.dropoff.longitude);
   const parcelDescription = text(value.parcel.description);
   const offeredPrice = text(value.offeredPrice);
   const suggestedPrice = text(value.suggestedPrice);
   const currency = text(value.currency);
   if (
     !pickupAddress
-    || pickupLatitude === null
-    || pickupLongitude === null
     || !dropoffAddress
     || !parcelDescription
     || !offeredPrice
@@ -55,12 +55,30 @@ export function readCustomerDeliveryDetail(value: unknown): CustomerDeliveryDeta
     suggestedPrice,
     distanceMeters: value.distanceMeters,
     pickupAddress,
-    pickupLatitude,
-    pickupLongitude,
+    pickupLatitude: pickupPoint.latitude,
+    pickupLongitude: pickupPoint.longitude,
     dropoffAddress,
+    dropoffLatitude: dropoffPoint.latitude,
+    dropoffLongitude: dropoffPoint.longitude,
     parcelDescription,
     createdAt: typeof value.createdAt === 'string' && value.createdAt.trim() ? value.createdAt : null,
   };
+}
+
+function coordinatePair(latitude: unknown, longitude: unknown): { latitude: number | null; longitude: number | null } {
+  const parsedLatitude = coordinate(latitude, 90);
+  const parsedLongitude = coordinate(longitude, 180);
+  if (parsedLatitude === null || parsedLongitude === null) {
+    return { latitude: null, longitude: null };
+  }
+  return { latitude: parsedLatitude, longitude: parsedLongitude };
+}
+
+export function deliveryHasMapCoordinates(delivery: CustomerDeliveryDetail): boolean {
+  return delivery.pickupLatitude !== null
+    && delivery.pickupLongitude !== null
+    && delivery.dropoffLatitude !== null
+    && delivery.dropoffLongitude !== null;
 }
 
 function coordinate(value: unknown, limit: number): number | null {

@@ -4,6 +4,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import ErrorMessage from '../../../../components/ErrorMessage';
 import FormInput from '../../../../components/FormInput';
+import { useKeyboardLift } from '../../../../components/useKeyboardLift';
 import PrimaryButton from '../../../../components/PrimaryButton';
 import SecondaryButton from '../../../../components/SecondaryButton';
 import type { RootStackParamList } from '../../../../navigation/types';
@@ -21,6 +22,7 @@ export default function EditProfileScreen({ route, navigation }: EditProfileProp
   const { accessToken } = useSession();
   const form = useEditProfile(accessToken, route.params.account);
   const placeBias = usePlaceBias();
+  const keyboard = useKeyboardLift();
   const [addressStop, setAddressStop] = useState<StopDraft>(() => ({
     ...emptyStop(),
     address: route.params.account.address,
@@ -41,9 +43,17 @@ export default function EditProfileScreen({ route, navigation }: EditProfileProp
 
   return (
     <ScrollView
+      ref={keyboard.scrollRef}
       style={styles.screen}
-      contentContainerStyle={styles.content}
+      contentContainerStyle={[
+        styles.content,
+        { paddingBottom: spacing.xxl + keyboard.keyboardInset },
+      ]}
       keyboardShouldPersistTaps="handled"
+      onScroll={(event) => {
+        keyboard.onScroll(event.nativeEvent.contentOffset.y);
+      }}
+      scrollEventThrottle={16}
     >
       <Text style={styles.section}>Personal information</Text>
       <FormInput
@@ -55,12 +65,15 @@ export default function EditProfileScreen({ route, navigation }: EditProfileProp
         textContentType="name"
         maxLength={200}
         error={form.fieldErrors.fullName}
+        onFocus={keyboard.revealFocusedField}
       />
       <AddressField
         stop={addressStop}
         error={form.fieldErrors.address}
         showMatchNote={false}
-        searchPlaces={(text) => searchPlaces(accessToken, text, placeBias)}
+        searchPlaces={(text, sessionToken) => searchPlaces(accessToken, text, placeBias, sessionToken)}
+        resolvePlace={(placeId, sessionToken) => resolvePlace(accessToken, placeId, sessionToken)}
+        onFocus={keyboard.revealFocusedField}
         onChange={(patch) => {
           setAddressStop((current) => ({ ...current, ...patch }));
           if (patch.address !== undefined) {
@@ -103,11 +116,19 @@ function searchPlaces(
   accessToken: string | null,
   text: string,
   bias: { latitude: number; longitude: number } | null,
+  sessionToken: string,
 ) {
   if (!accessToken) {
     return Promise.reject(new Error('Sign in to search for an address.'));
   }
-  return customerDeliveryRepository.searchPlaces(accessToken, text, bias);
+  return customerDeliveryRepository.searchPlaces(accessToken, text, bias, sessionToken);
+}
+
+function resolvePlace(accessToken: string | null, placeId: string, sessionToken: string) {
+  if (!accessToken) {
+    return Promise.reject(new Error('Sign in to search for an address.'));
+  }
+  return customerDeliveryRepository.resolvePlace(accessToken, placeId, sessionToken);
 }
 
 const styles = StyleSheet.create({

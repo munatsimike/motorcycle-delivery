@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import ErrorMessage from '../../../../components/ErrorMessage';
+import { useKeyboardLift } from '../../../../components/useKeyboardLift';
 import PrimaryButton from '../../../../components/PrimaryButton';
 import SecondaryButton from '../../../../components/SecondaryButton';
 import { useCustomerAccount } from '../../../account/presentation/viewmodels/useCustomerAccount';
@@ -25,6 +26,7 @@ export default function ParcelRequestScreen({ navigation }: ParcelRequestProps) 
   const { accessToken } = useSession();
   const { account } = useCustomerAccount(accessToken);
   const booking = useParcelBooking(accessToken);
+  const keyboard = useKeyboardLift();
   const deviceBias = usePlaceBias();
   const allowLeave = useRef(false);
   const pickupPrefilled = useRef(false);
@@ -72,15 +74,24 @@ export default function ParcelRequestScreen({ navigation }: ParcelRequestProps) 
   return (
     <SafeAreaView style={styles.screen} edges={['bottom']}>
       <ScrollView
-        contentContainerStyle={styles.content}
+        ref={keyboard.scrollRef}
+        contentContainerStyle={[
+          styles.content,
+          { paddingBottom: spacing.xxl + keyboard.keyboardInset },
+        ]}
         keyboardShouldPersistTaps="handled"
+        onScroll={(event) => {
+          keyboard.onScroll(event.nativeEvent.contentOffset.y);
+        }}
+        scrollEventThrottle={16}
       >
         <BookingProgress step={booking.step} />
         {booking.step === 'pickup' ? (
           <StopFields
             stop={booking.draft.pickup}
             onChange={(patch) => booking.updateStop('pickup', patch)}
-            searchPlaces={(text) => searchPlaces(accessToken, text, deviceBias)}
+            searchPlaces={(text, sessionToken) => searchPlaces(accessToken, text, deviceBias, sessionToken)}
+            resolvePlace={(placeId, sessionToken) => resolvePlace(accessToken, placeId, sessionToken)}
             areaChoices={booking.areaChoices}
             showLandmark={false}
           />
@@ -89,11 +100,13 @@ export default function ParcelRequestScreen({ navigation }: ParcelRequestProps) 
           <StopFields
             stop={booking.draft.dropoff}
             onChange={(patch) => booking.updateStop('dropoff', patch)}
-            searchPlaces={(text) => searchPlaces(
+            searchPlaces={(text, sessionToken) => searchPlaces(
               accessToken,
               text,
               selectedPlaceBias(booking.draft.pickup.latitude, booking.draft.pickup.longitude) ?? deviceBias,
+              sessionToken,
             )}
+            resolvePlace={(placeId, sessionToken) => resolvePlace(accessToken, placeId, sessionToken)}
             areaChoices={booking.areaChoices}
             showLandmark={false}
             showInstructions={false}
@@ -107,6 +120,10 @@ export default function ParcelRequestScreen({ navigation }: ParcelRequestProps) 
             draft={booking.draft}
             quote={booking.quote}
             quoting={booking.busy === 'quote'}
+            offerText={booking.offerText}
+            onOfferChange={booking.updateOffer}
+            offerEditable={booking.busy === null}
+            onOfferFocus={keyboard.revealFocusedField}
           />
         ) : null}
         <ErrorMessage message={booking.error} />
@@ -146,11 +163,19 @@ function searchPlaces(
   accessToken: string | null,
   text: string,
   bias: { latitude: number; longitude: number } | null,
+  sessionToken: string,
 ) {
   if (!accessToken) {
     return Promise.reject(new Error('Sign in to search for an address.'));
   }
-  return customerDeliveryRepository.searchPlaces(accessToken, text, bias);
+  return customerDeliveryRepository.searchPlaces(accessToken, text, bias, sessionToken);
+}
+
+function resolvePlace(accessToken: string | null, placeId: string, sessionToken: string) {
+  if (!accessToken) {
+    return Promise.reject(new Error('Sign in to search for an address.'));
+  }
+  return customerDeliveryRepository.resolvePlace(accessToken, placeId, sessionToken);
 }
 
 const styles = StyleSheet.create({

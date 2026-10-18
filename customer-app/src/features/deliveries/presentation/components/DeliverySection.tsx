@@ -6,6 +6,7 @@ import SecondaryButton from '../../../../components/SecondaryButton';
 import { colors, radius, spacing, typography } from '../../../../theme';
 import type { CustomerDelivery } from '../../domain/deliveryStatus';
 import DeliveryCard from './DeliveryCard';
+import OfflineDeliveriesNotice from './OfflineDeliveriesNotice';
 
 type DeliverySectionProps = {
   deliveries: CustomerDelivery[];
@@ -13,6 +14,8 @@ type DeliverySectionProps = {
   error: string | null;
   emptyTitle: string;
   emptyBody: string;
+  offlineNote?: string | null;
+  cached?: boolean;
   onOpenDetails?: (deliveryId: string) => void;
   onRetry?: () => void;
   onSearchAgain?: (deliveryId: string) => Promise<void>;
@@ -24,6 +27,8 @@ export default function DeliverySection({
   error,
   emptyTitle,
   emptyBody,
+  offlineNote = null,
+  cached = false,
   onOpenDetails,
   onRetry,
   onSearchAgain,
@@ -34,6 +39,7 @@ export default function DeliverySection({
 
   return (
     <View style={styles.list}>
+      {offlineNote ? <OfflineDeliveriesNotice message={offlineNote} onRetry={onRetry} /> : null}
       {error ? <ErrorMessage message={error} /> : null}
       {error && onRetry ? <SecondaryButton label="Try again" onPress={onRetry} /> : null}
       {!error && deliveries.length === 0 ? (
@@ -52,6 +58,7 @@ export default function DeliverySection({
         <DeliveryCard
           key={delivery.id}
           delivery={delivery}
+          cached={cached}
           onOpenDetails={onOpenDetails}
           onSearchAgain={onSearchAgain}
         />

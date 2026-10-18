@@ -7,6 +7,7 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
+      "bundleIdentifier": "com.riders.customer",
       "supportsTablet": true,
       "infoPlist": {
         "NSFaceIDUsageDescription": "Unlock your Riders session with Face ID."
@@ -35,6 +36,9 @@
         "expo-location",
         {
           "locationWhenInUsePermission": "Allow Riders to access your location to find available riders nearby.",
+          "locationAlwaysAndWhenInUsePermission": false,
+          "locationAlwaysPermission": false,
+          "motionUsagePermission": false,
           "isAndroidBackgroundLocationEnabled": false,
           "isIosBackgroundLocationEnabled": false
         }

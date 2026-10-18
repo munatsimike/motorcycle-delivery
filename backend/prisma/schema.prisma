@@ -210,6 +210,16 @@ enum DeliveryStatus {
   @@map("delivery_status")
 }
 
+// UNREVIEWED is not an exemption from Google coordinate retention.
+// Existing rows use it because the stored point does not say which provider produced it.
+enum CoordinateSource {
+  GOOGLE_PLACES
+  DEVICE_GEOCODER
+  UNREVIEWED
+
+  @@map("coordinate_source")
+}
+
 enum AssignmentStatus {
   OFFERED
   ACCEPTED
@@ -387,15 +397,23 @@ model Delivery {
   customerId        String         @map("customer_id") @db.Uuid
   deliveryType      DeliveryType   @default(PARCEL) @map("delivery_type")
   pickupAddress        String         @map("pickup_address") @db.VarChar(500)
-  pickupLatitude       Decimal        @map("pickup_latitude") @db.Decimal(10, 7)
-  pickupLongitude      Decimal        @map("pickup_longitude") @db.Decimal(10, 7)
+  pickupLatitude       Decimal?       @map("pickup_latitude") @db.Decimal(10, 7)
+  pickupLongitude      Decimal?       @map("pickup_longitude") @db.Decimal(10, 7)
+  pickupPlaceId        String?        @map("pickup_place_id") @db.VarChar(255)
+  pickupCoordinateSource CoordinateSource @map("pickup_coordinate_source")
+  pickupCoordinateRetrievedAt DateTime? @map("pickup_coordinate_retrieved_at") @db.Timestamptz(6)
+  pickupCoordinateRefreshAttemptedAt DateTime? @map("pickup_coordinate_refresh_attempted_at") @db.Timestamptz(6)
   pickupLandmark       String?        @map("pickup_landmark") @db.VarChar(200)
   pickupInstructions   String?        @map("pickup_instructions") @db.VarChar(500)
   pickupContactName    String         @map("pickup_contact_name") @db.VarChar(200)
   pickupContactPhone   String         @map("pickup_contact_phone") @db.VarChar(20)
   dropoffAddress       String         @map("dropoff_address") @db.VarChar(500)
-  dropoffLatitude      Decimal        @map("dropoff_latitude") @db.Decimal(10, 7)
-  dropoffLongitude     Decimal        @map("dropoff_longitude") @db.Decimal(10, 7)
+  dropoffLatitude      Decimal?       @map("dropoff_latitude") @db.Decimal(10, 7)
+  dropoffLongitude     Decimal?       @map("dropoff_longitude") @db.Decimal(10, 7)
+  dropoffPlaceId       String?        @map("dropoff_place_id") @db.VarChar(255)
+  dropoffCoordinateSource CoordinateSource @map("dropoff_coordinate_source")
+  dropoffCoordinateRetrievedAt DateTime? @map("dropoff_coordinate_retrieved_at") @db.Timestamptz(6)
+  dropoffCoordinateRefreshAttemptedAt DateTime? @map("dropoff_coordinate_refresh_attempted_at") @db.Timestamptz(6)
   dropoffLandmark      String?        @map("dropoff_landmark") @db.VarChar(200)
   dropoffInstructions  String?        @map("dropoff_instructions") @db.VarChar(500)
   parcelDescription    String         @map("parcel_description") @db.VarChar(500)
@@ -429,6 +447,16 @@ model Delivery {
   @@index([customerId, createdAt])
   @@index([status, createdAt])
   @@map("deliveries")
+}
+
+// One row. The retention pass claims it so two processes cannot delete
+// coordinates at the same time. This table stores no coordinates.
+model CoordinateRetentionLock {
+  id          Int       @id
+  lockedUntil DateTime? @map("locked_until") @db.Timestamptz(6)
+  owner       String?   @db.Uuid
+
+  @@map("coordinate_retention_lock")
 }
 
 model DeliveryAssignment {

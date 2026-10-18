@@ -8,6 +8,7 @@ const street: PlaceSuggestion = {
   latitude: '-17.8900000',
   longitude: '30.9600000',
   exact: true,
+  placeId: 'ChIJstreet0001',
 };
 
 const suburb: PlaceSuggestion = {
@@ -15,6 +16,7 @@ const suburb: PlaceSuggestion = {
   latitude: '-17.9000000',
   longitude: '30.9500000',
   exact: false,
+  placeId: 'ChIJsuburb0001',
 };
 
 const devicePoint = { latitude: '-17.8910000', longitude: '30.9610000' };
@@ -27,7 +29,8 @@ describe('resolveManualAddress', () => {
         label: '66 Mungongoma Road, Mufakose, Harare',
         latitude: street.latitude,
         longitude: street.longitude,
-        provider: 'geoapify',
+        provider: 'google_places',
+        placeId: 'ChIJstreet0001',
         precision: 'exact',
       },
     });
@@ -41,6 +44,7 @@ describe('resolveManualAddress', () => {
         latitude: devicePoint.latitude,
         longitude: devicePoint.longitude,
         provider: 'device',
+        placeId: null,
         precision: 'unverified',
       },
     });
@@ -72,7 +76,8 @@ describe('confirmMapPin', () => {
       label: 'Mufakose, Harare',
       latitude: suburb.latitude,
       longitude: suburb.longitude,
-      provider: 'geoapify',
+      provider: 'google_places',
+      placeId: 'ChIJsuburb0001',
       precision: 'area',
     });
   });

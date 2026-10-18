@@ -12,8 +12,24 @@ export class PlacesController {
     @Query('text') text: unknown,
     @Query('latitude') latitude: unknown,
     @Query('longitude') longitude: unknown,
+    @Query('sessionToken') sessionToken: unknown,
   ) {
-    return this.places.search(typeof text === 'string' ? text : '', readSearchBias(latitude, longitude));
+    return this.places.search(
+      typeof text === 'string' ? text : '',
+      readSearchBias(latitude, longitude),
+      typeof sessionToken === 'string' ? sessionToken : '',
+    );
+  }
+
+  @Get('detail')
+  detail(
+    @Query('placeId') placeId: unknown,
+    @Query('sessionToken') sessionToken: unknown,
+  ) {
+    return this.places.place(
+      typeof placeId === 'string' ? placeId : '',
+      typeof sessionToken === 'string' ? sessionToken : '',
+    );
   }
 
   @Get('map')

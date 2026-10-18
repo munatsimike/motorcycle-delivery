@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { Currency, DeliveryPayer, DeliveryStatus, ParcelSize, PaymentMethod } from '../generated/prisma/client.js';
-import { toRiderDelivery, type StoredDelivery } from './delivery-view.js';
+import { Currency, DeliveryPayer, DeliveryStatus, ParcelSize, PaymentMethod, CoordinateSource } from '../generated/prisma/client.js';
+import { toCustomerDelivery, toRiderDelivery, type StoredDelivery } from './delivery-view.js';
 
 describe('rider delivery view', () => {
   it('omits the suggested price', () => {
@@ -8,6 +8,42 @@ describe('rider delivery view', () => {
     expect(view.offeredPrice).toBe('4.00');
     expect(JSON.stringify(view)).not.toContain('suggestedPrice');
     expect(JSON.stringify(view)).not.toContain('1.50');
+  });
+
+  it('keeps a present coordinate and returns null when one is missing', () => {
+    const present = toCustomerDelivery(stored());
+    expect(present.pickup.latitude).toBe('-17.8292000');
+    expect(present.dropoff.longitude).toBe('31.0531000');
+    const cleared = toCustomerDelivery({
+      ...stored(),
+      pickupLatitude: null,
+      pickupLongitude: null,
+    });
+    expect(cleared.pickup.latitude).toBeNull();
+    expect(cleared.pickup.longitude).toBeNull();
+    expect(cleared.dropoff.latitude).toBe('-17.7833000');
+    expect(cleared.pickup.address).toBe('12 Samora Machel Avenue');
+  });
+
+  it('withholds restored coordinates that are already due for deletion', () => {
+    const restored = toCustomerDelivery({
+      ...stored(),
+      createdAt: new Date('2026-08-01T00:00:00.000Z'),
+      pickupCoordinateSource: CoordinateSource.GOOGLE_PLACES,
+      pickupPlaceId: 'ChIJstreet0001',
+      pickupCoordinateRetrievedAt: new Date('2026-08-01T00:00:00.000Z'),
+      dropoffCoordinateSource: CoordinateSource.GOOGLE_PLACES,
+      dropoffPlaceId: 'ChIJstreet0001',
+      dropoffCoordinateRetrievedAt: new Date('2026-08-01T00:00:00.000Z'),
+    });
+    expect(restored.pickup.latitude).toBeNull();
+    expect(restored.pickup.longitude).toBeNull();
+    expect(restored.dropoff.latitude).toBeNull();
+    expect(restored.dropoff.longitude).toBeNull();
+    expect(restored.pickup.address).toBe('12 Samora Machel Avenue');
+    expect(restored.dropoff.address).toBe('4 Jason Moyo Avenue');
+    expect(restored.offeredPrice).toBe('4.00');
+    expect(restored.status).toBe(DeliveryStatus.CREATED);
   });
 });
 

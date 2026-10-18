@@ -1,21 +1,33 @@
 import { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, TextInput, View } from 'react-native';
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
 
 import LoadingIndicator from '../../../../components/LoadingIndicator';
 import { colors, radius, spacing, typography } from '../../../../theme';
 import { deliveryContactPhone, type BookingDraft, type StopDraft } from '../../domain/bookingDraft';
 import { deliveryCardAddress } from '../../domain/deliveryCard';
-import type { DeliveryQuote } from '../../domain/deliveryQuote';
+import { normalizeCustomerOffer, type DeliveryQuote } from '../../domain/deliveryQuote';
 import { parcelSizeLabel, payerLabel, paymentMethodLabel } from './ParcelFields';
 
 type BookingSummaryProps = {
   draft: BookingDraft;
   quote: DeliveryQuote | null;
   quoting: boolean;
+  offerText: string;
+  onOfferChange: (value: string) => void;
+  offerEditable?: boolean;
+  onOfferFocus?: () => void;
 };
 
-export default function BookingSummary({ draft, quote, quoting }: BookingSummaryProps) {
+export default function BookingSummary({
+  draft,
+  quote,
+  quoting,
+  offerText,
+  onOfferChange,
+  offerEditable = true,
+  onOfferFocus,
+}: BookingSummaryProps) {
   return (
     <View style={styles.wrap}>
       <View style={styles.route}>
@@ -50,20 +62,47 @@ export default function BookingSummary({ draft, quote, quoting }: BookingSummary
       <View style={styles.priceCard}>
         {quoting ? <LoadingIndicator /> : null}
         {quote && !quoting ? (
-          <View style={styles.priceRow}>
-            <View style={styles.priceCopy}>
-              <Text style={styles.priceLabel}>Price</Text>
-              <Text style={styles.price}>{quote.currency} {quote.suggestedPrice}</Text>
+          <View style={styles.priceBlock}>
+            <View style={styles.priceRow}>
+              <View style={styles.priceCopy}>
+                <Text style={styles.priceLabel}>Suggested price</Text>
+                <Text style={styles.price}>{quote.currency} {quote.suggestedPrice}</Text>
+              </View>
+              <View style={styles.distanceCopy}>
+                <Text style={styles.priceLabel}>Distance</Text>
+                <Text style={styles.distance}>{formatDistance(quote.distanceMeters)}</Text>
+              </View>
             </View>
-            <View style={styles.distanceCopy}>
-              <Text style={styles.priceLabel}>Distance</Text>
-              <Text style={styles.distance}>{formatDistance(quote.distanceMeters)}</Text>
+            <Text style={styles.offerLabel}>Your offer</Text>
+            <View style={styles.offerField}>
+              <Text style={styles.offerCurrency}>{quote.currency}</Text>
+              <TextInput
+                style={styles.offerInput}
+                value={offerText}
+                onChangeText={onOfferChange}
+                keyboardType="decimal-pad"
+                inputMode="decimal"
+                placeholder="0.00"
+                placeholderTextColor={colors.textSecondary}
+                maxLength={7}
+                editable={offerEditable}
+                onFocus={onOfferFocus}
+              />
             </View>
+            <Text style={styles.offerNote}>{offerNote(quote.currency, offerText)}</Text>
           </View>
         ) : null}
       </View>
     </View>
   );
+}
+
+function offerNote(currency: string, offerText: string): string {
+  const offered = normalizeCustomerOffer(offerText);
+  if (!offered) {
+    return 'The rider will see the amount you offer.';
+  }
+  return `The rider will see ${currency} ${offered}.`;
 }
 
 function RouteStop({ label, stop, last }: { label: string; stop: StopDraft; last: boolean }) {
@@ -307,9 +346,45 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
   },
   price: {
-    fontSize: typography.title,
+    fontSize: typography.heading,
     fontWeight: '800',
     color: colors.text,
+  },
+  priceBlock: {
+    gap: spacing.md,
+  },
+  offerLabel: {
+    fontSize: typography.small,
+    fontWeight: '700',
+    color: colors.textSecondary,
+  },
+  offerField: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    minHeight: 48,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.background,
+    paddingHorizontal: spacing.md,
+  },
+  offerCurrency: {
+    fontSize: typography.caption,
+    fontWeight: '700',
+    color: colors.textSecondary,
+  },
+  offerInput: {
+    flex: 1,
+    fontSize: typography.button,
+    fontWeight: '700',
+    color: colors.text,
+    paddingVertical: spacing.sm,
+  },
+  offerNote: {
+    fontSize: typography.caption,
+    lineHeight: 18,
+    color: colors.textSecondary,
   },
   distance: {
     fontSize: typography.caption,

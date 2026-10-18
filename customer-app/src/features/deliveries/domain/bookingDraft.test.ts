@@ -26,6 +26,8 @@ function draft(): BookingDraft {
       longitude: '31.0522',
       approximate: false,
       precision: 'exact',
+      placeId: 'ChIJpickup0001',
+      coordinateSource: 'GOOGLE_PLACES',
     },
     dropoff: {
       address: '4 Jason Moyo Avenue',
@@ -37,6 +39,8 @@ function draft(): BookingDraft {
       longitude: '31.0330',
       approximate: false,
       precision: 'exact',
+      placeId: 'ChIJdropoff001',
+      coordinateSource: 'GOOGLE_PLACES',
     },
     description: ' Documents ',
     size: 'SMALL',
@@ -60,6 +64,8 @@ describe('prepareBooking', () => {
       contactPhone: '+263771234567',
       latitude: -17.8292,
       longitude: 31.0522,
+      placeId: 'ChIJpickup0001',
+      coordinateSource: 'GOOGLE_PLACES',
     });
     expect(prepared.booking.dropoff.contactPhone).toBe('+263777654321');
     expect(prepared.booking.parcel).toEqual({
@@ -72,6 +78,10 @@ describe('prepareBooking', () => {
       dropoff: { latitude: -17.825, longitude: 31.033 },
     });
     expect(createBody(prepared.booking, '2.50').offeredPrice).toBe('2.50');
+    expect(createBody(prepared.booking, '2.50').pickup).toMatchObject({
+      placeId: 'ChIJpickup0001',
+      coordinateSource: 'GOOGLE_PLACES',
+    });
     expect(createBody(prepared.booking, '2.50')).not.toHaveProperty('suggestedPrice');
   });
 

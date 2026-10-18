@@ -6,6 +6,7 @@ import { DeliveryController } from './delivery.controller.js';
 import { DeliveryPricingController } from './delivery-pricing.controller.js';
 import { DeliveryPricingService } from './delivery-pricing.service.js';
 import { DeliveryService } from './delivery.service.js';
+import { CoordinateRetentionService } from './coordinate-retention.service.js';
 import { DispatchService } from './dispatch.service.js';
 import { ROAD_DISTANCE, geoapifyRoadDistance } from './geoapify.js';
 import { NearbyRidersController } from './nearby-riders.controller.js';
@@ -29,8 +30,9 @@ import { RiderOfferController } from './rider-offer.controller.js';
     NearbyRidersService,
     PlacesService,
     RiderAvailabilityAlertService,
+    CoordinateRetentionService,
     { provide: ROAD_DISTANCE, useFactory: () => geoapifyRoadDistance() },
   ],
-  exports: [DispatchService, RiderAvailabilityAlertService],
+  exports: [DispatchService, RiderAvailabilityAlertService, CoordinateRetentionService],
 })
 export class DeliveryModule {}

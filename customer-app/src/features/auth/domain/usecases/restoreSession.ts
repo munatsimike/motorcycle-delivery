@@ -1,3 +1,5 @@
+import { loadCustomerIdentity, saveCustomerIdentity } from '../../../deliveries/data/recentDeliveryStore';
+import { rebindCustomerIdentity } from '../../../../services/session/customerIdentity';
 import type { AuthSession } from '../auth.types';
 import type { CustomerAuthRepository } from '../repositories/CustomerAuthRepository';
 import type { CustomerSessionStore } from '../repositories/CustomerSessionStore';
@@ -21,6 +23,11 @@ export async function restoreSession(
 
   try {
     const refreshed = await repository.refresh(stored.refreshToken);
+    const identity = await loadCustomerIdentity();
+    const rebound = rebindCustomerIdentity(identity, stored.refreshToken, refreshed.refreshToken);
+    if (rebound) {
+      await saveCustomerIdentity(rebound);
+    }
     await store.save(refreshed);
     return refreshed;
   } catch {

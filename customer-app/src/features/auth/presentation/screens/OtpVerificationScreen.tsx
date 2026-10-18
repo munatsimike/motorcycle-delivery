@@ -7,6 +7,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { useHeaderHeight } from '@react-navigation/elements';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import ErrorMessage from '../../../../components/ErrorMessage';
@@ -64,11 +65,13 @@ export default function OtpVerificationScreen({ navigation, route }: OtpProps) {
   const resendLabel = secondsRemaining > 0
     ? `Send another code in ${secondsRemaining}s`
     : 'Send another code';
+  const headerHeight = useHeaderHeight();
 
   return (
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? headerHeight : 0}
     >
       <ScrollView
         contentContainerStyle={styles.content}

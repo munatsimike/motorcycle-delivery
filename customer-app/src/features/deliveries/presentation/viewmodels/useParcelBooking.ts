@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 
 import { errorMessage } from '../../../auth/presentation/errorMessage';
 import { customerDeliveryRepository } from '../../data/CustomerDeliveryApiRepository';
+import { createPlaceSessionToken } from '../../domain/placeSession';
 import { expoAddressGeocoder, expoDeviceAddressAccess } from '../../data/expoAddressGeocoder';
 import { resolveManualAddress, typedHouseNumber, type ResolvedLocation } from '../../domain/addressResolution';
 import {
@@ -15,10 +16,17 @@ import {
   type StopDraft,
 } from '../../domain/bookingDraft';
 import { readDeviceAddressPin } from '../../domain/deviceAddress';
-import type { PlaceSuggestion } from '../../domain/placeSuggestion';
-import { quotesMatch, type DeliveryQuote } from '../../domain/deliveryQuote';
+import { selectedAddressLabel, type PlaceSuggestion } from '../../domain/placeSuggestion';
+import {
+  customerOfferForBooking,
+  nextCustomerOffer,
+  offerFieldText,
+  quotesMatch,
+  type DeliveryQuote,
+} from '../../domain/deliveryQuote';
 import { createDelivery } from '../../domain/usecases/createDelivery';
 import { quoteDelivery } from '../../domain/usecases/quoteDelivery';
+import { selectedPlaceBias } from './usePlaceBias';
 
 export const BOOKING_STEPS = ['pickup', 'destination', 'parcel', 'review', 'confirm'] as const;
 export type BookingStep = (typeof BOOKING_STEPS)[number];
@@ -27,10 +35,17 @@ type QuotedPrice = DeliveryQuote & {
   pinKey: string;
 };
 
+type CustomerOffer = {
+  text: string;
+  edited: boolean;
+  pinKey: string | null;
+};
+
 export function useParcelBooking(accessToken: string | null) {
   const [draft, setDraft] = useState<BookingDraft>(emptyBookingDraft);
   const [step, setStep] = useState<BookingStep>('pickup');
   const [quote, setQuote] = useState<QuotedPrice | null>(null);
+  const [offer, setOffer] = useState<CustomerOffer>({ text: '', edited: false, pinKey: null });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<'quote' | 'create' | 'locate' | null>(null);
   const [areaChoices, setAreaChoices] = useState<PlaceSuggestion[]>([]);
@@ -42,6 +57,7 @@ export function useParcelBooking(accessToken: string | null) {
     if (patch.latitude !== undefined || patch.longitude !== undefined || patch.address !== undefined) {
       quoteRequest.current += 1;
       setQuote(null);
+      setOffer({ text: '', edited: false, pinKey: null });
       setAreaChoices([]);
     }
     setDraft((current) => ({
@@ -114,13 +130,31 @@ export function useParcelBooking(accessToken: string | null) {
         setAreaChoices([]);
         try {
           const typed = stop.address.trim();
+          const sessionToken = createPlaceSessionToken();
           let suggestions: PlaceSuggestion[] = [];
           let lookupError: string | null = null;
           try {
-            suggestions = await customerDeliveryRepository.searchPlaces(accessToken, typed);
+            const bias = which === 'dropoff'
+              ? selectedPlaceBias(draft.pickup.latitude, draft.pickup.longitude)
+              : null;
+            suggestions = (await customerDeliveryRepository.searchPlaces(accessToken, typed, bias, sessionToken))
+              .map((suggestion) => ({ ...suggestion, sessionToken }));
+            const exact = suggestions.find((suggestion) => suggestion.exact && suggestion.placeId && !suggestion.latitude);
+            if (exact?.placeId) {
+              const resolved = await customerDeliveryRepository.resolvePlace(accessToken, exact.placeId, sessionToken);
+              suggestions = suggestions.map((suggestion) => suggestion.placeId === exact.placeId
+                ? {
+                  ...suggestion,
+                  label: selectedAddressLabel(suggestion.label, resolved),
+                  latitude: resolved.latitude,
+                  longitude: resolved.longitude,
+                }
+                : suggestion);
+            }
           } catch (caught: unknown) {
             lookupError = errorMessage(caught, 'Address suggestions are unavailable. You can type the address.');
           }
+          suggestions = suggestions.filter((suggestion) => suggestion.latitude.trim() || !suggestion.exact);
           let devicePoint: { latitude: string; longitude: string } | null = null;
           let deviceMessage: string | null = null;
           if (!suggestions.some((suggestion) => suggestion.exact)) {
@@ -198,13 +232,18 @@ export function useParcelBooking(accessToken: string | null) {
       setError('Request a price before confirming.');
       return;
     }
+    const submission = customerOfferForBooking(offer.text);
+    if (!('offeredPrice' in submission)) {
+      setError(submission.error);
+      return;
+    }
     creating.current = true;
     setBusy('create');
     setError(null);
     try {
       const fresh = await quoteDelivery(customerDeliveryRepository, accessToken, prepared.booking);
       if (!quotesMatch(quote, fresh)) {
-        setQuote({ ...fresh, pinKey: prepared.booking.pinKey });
+        rememberQuote({ ...fresh, pinKey: prepared.booking.pinKey });
         setError('The price changed. Review the new price and confirm again.');
         return;
       }
@@ -212,7 +251,7 @@ export function useParcelBooking(accessToken: string | null) {
         customerDeliveryRepository,
         accessToken,
         prepared.booking,
-        fresh.suggestedPrice,
+        submission.offeredPrice,
       );
       onCreated(created.id);
     } catch (caught: unknown) {
@@ -233,7 +272,7 @@ export function useParcelBooking(accessToken: string | null) {
       if (quoteRequest.current !== request) {
         return false;
       }
-      setQuote({ ...next, pinKey: booking.pinKey });
+      rememberQuote({ ...next, pinKey: booking.pinKey });
       return true;
     } catch (caught: unknown) {
       if (quoteRequest.current === request) {
@@ -248,15 +287,37 @@ export function useParcelBooking(accessToken: string | null) {
     }
   }
 
+  function rememberQuote(next: QuotedPrice) {
+    setQuote(next);
+    setOffer((current) => nextCustomerOffer({
+      current: current.text,
+      edited: current.edited,
+      previousPinKey: current.pinKey,
+      pinKey: next.pinKey,
+      suggestedPrice: next.suggestedPrice,
+    }));
+  }
+
+  function updateOffer(value: string) {
+    setError(null);
+    setOffer((current) => ({
+      text: offerFieldText(value),
+      edited: true,
+      pinKey: current.pinKey,
+    }));
+  }
+
   return {
     draft,
     step,
     quote,
+    offerText: offer.text,
     error,
     busy,
     areaChoices,
     updateStop,
     updateDraft,
+    updateOffer,
     prefillPickup,
     goBack,
     goNext,
@@ -273,6 +334,8 @@ function applyResolvedLocation(stop: StopDraft, location: ResolvedLocation): Sto
     longitude: location.longitude,
     approximate: location.precision !== 'exact',
     precision: location.precision,
+    placeId: location.placeId,
+    coordinateSource: location.provider === 'google_places' ? 'GOOGLE_PLACES' : 'DEVICE_GEOCODER',
   };
 }
 

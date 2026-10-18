@@ -9,6 +9,7 @@ import {
 import {
   AssignmentReleaseReason,
   AssignmentStatus,
+  CoordinateSource,
   Currency,
   DeliveryActorType,
   DeliveryStatus,
@@ -20,6 +21,7 @@ import {
 import type { CustomerContext } from '../auth/customer-access.service.js';
 import type { RiderContext } from '../auth/rider-access.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { shouldWithholdCoordinates } from './coordinate-retention.js';
 import { motorcycleForAcceptance, type AcceptanceRider } from '../rider/motorcycle-eligibility.js';
 import { lockRiderProfile } from '../rider/motorcycle-lock.js';
 import {
@@ -97,19 +99,28 @@ type DeliveryRow = {
   parcelSize: string;
   parcelInstructions: string | null;
   pickupAddress: string;
-  pickupLatitude: string | { toFixed(digits: number): string };
-  pickupLongitude: string | { toFixed(digits: number): string };
+  pickupLatitude: string | { toFixed(digits: number): string } | null;
+  pickupLongitude: string | { toFixed(digits: number): string } | null;
   pickupLandmark: string | null;
   pickupInstructions: string | null;
   pickupContactName: string;
   pickupContactPhone: string;
   dropoffAddress: string;
-  dropoffLatitude: string | { toFixed(digits: number): string };
-  dropoffLongitude: string | { toFixed(digits: number): string };
+  dropoffLatitude: string | { toFixed(digits: number): string } | null;
+  dropoffLongitude: string | { toFixed(digits: number): string } | null;
   dropoffLandmark: string | null;
   dropoffInstructions: string | null;
   recipientName: string;
   recipientPhone: string;
+  createdAt?: Date;
+  pickupCoordinateSource?: CoordinateSource;
+  pickupPlaceId?: string | null;
+  pickupCoordinateRetrievedAt?: Date | null;
+  pickupCoordinateRefreshAttemptedAt?: Date | null;
+  dropoffCoordinateSource?: CoordinateSource;
+  dropoffPlaceId?: string | null;
+  dropoffCoordinateRetrievedAt?: Date | null;
+  dropoffCoordinateRefreshAttemptedAt?: Date | null;
 };
 
 type ProfileRow = {
@@ -139,8 +150,8 @@ export type RiderOffer = {
 
 type StopView = {
   address: string;
-  latitude: string;
-  longitude: string;
+  latitude: string | null;
+  longitude: string | null;
   landmark: string | null;
   instructions: string | null;
   contactName: string;
@@ -755,14 +766,18 @@ async function executeRound(tx: Prisma.TransactionClient, roundId: string, now: 
     && delivery.searchGeneration === round.searchGeneration;
   if (active && delivery) {
     await expireOffers(tx, delivery.id, null, now);
-    const candidates = await findDispatchCandidates(tx, {
-      pickupLatitude: coordinateText(delivery.pickupLatitude),
-      pickupLongitude: coordinateText(delivery.pickupLongitude),
-      radiusMetres: round.radiusMetres,
-      freshAfter: new Date(now.getTime() - GPS_FRESH_MS),
-      deliveryId: delivery.id,
-      searchGeneration: round.searchGeneration,
-    });
+    const pickupLatitude = servableCoordinate(delivery, 'pickup', delivery.pickupLatitude);
+    const pickupLongitude = servableCoordinate(delivery, 'pickup', delivery.pickupLongitude);
+    const candidates = pickupLatitude == null || pickupLongitude == null
+      ? []
+      : await findDispatchCandidates(tx, {
+        pickupLatitude,
+        pickupLongitude,
+        radiusMetres: round.radiusMetres,
+        freshAfter: new Date(now.getTime() - GPS_FRESH_MS),
+        deliveryId: delivery.id,
+        searchGeneration: round.searchGeneration,
+      });
     const assignments = await tx.deliveryAssignment.findMany({ where: { deliveryId: delivery.id } });
     for (const candidate of candidates) {
       if (riderIsBlocked(assignments, candidate.riderProfileId, round.searchGeneration)) {
@@ -1148,8 +1163,8 @@ function toRiderOffer(assignment: AssignmentRow, delivery: DeliveryRow): RiderOf
     },
     pickup: {
       address: delivery.pickupAddress,
-      latitude: coordinateText(delivery.pickupLatitude),
-      longitude: coordinateText(delivery.pickupLongitude),
+      latitude: servableCoordinate(delivery, 'pickup', delivery.pickupLatitude),
+      longitude: servableCoordinate(delivery, 'pickup', delivery.pickupLongitude),
       landmark: delivery.pickupLandmark,
       instructions: delivery.pickupInstructions,
       contactName: delivery.pickupContactName,
@@ -1157,8 +1172,8 @@ function toRiderOffer(assignment: AssignmentRow, delivery: DeliveryRow): RiderOf
     },
     dropoff: {
       address: delivery.dropoffAddress,
-      latitude: coordinateText(delivery.dropoffLatitude),
-      longitude: coordinateText(delivery.dropoffLongitude),
+      latitude: servableCoordinate(delivery, 'dropoff', delivery.dropoffLatitude),
+      longitude: servableCoordinate(delivery, 'dropoff', delivery.dropoffLongitude),
       landmark: delivery.dropoffLandmark,
       instructions: delivery.dropoffInstructions,
       contactName: delivery.recipientName,
@@ -1167,7 +1182,41 @@ function toRiderOffer(assignment: AssignmentRow, delivery: DeliveryRow): RiderOf
   };
 }
 
-function coordinateText(value: string | { toFixed(digits: number): string }): string {
+function servableCoordinate(
+  delivery: DeliveryRow & { status: DeliveryStatus; createdAt?: Date },
+  side: 'pickup' | 'dropoff',
+  value: string | { toFixed(digits: number): string } | null,
+): string | null {
+  const text = coordinateText(value);
+  const withheld = shouldWithholdCoordinates(
+    delivery.status,
+    delivery.createdAt,
+    side === 'pickup'
+      ? {
+        source: delivery.pickupCoordinateSource,
+        placeId: delivery.pickupPlaceId,
+        latitude: coordinateText(delivery.pickupLatitude),
+        longitude: coordinateText(delivery.pickupLongitude),
+        retrievedAt: delivery.pickupCoordinateRetrievedAt,
+        refreshAttemptedAt: delivery.pickupCoordinateRefreshAttemptedAt,
+      }
+      : {
+        source: delivery.dropoffCoordinateSource,
+        placeId: delivery.dropoffPlaceId,
+        latitude: coordinateText(delivery.dropoffLatitude),
+        longitude: coordinateText(delivery.dropoffLongitude),
+        retrievedAt: delivery.dropoffCoordinateRetrievedAt,
+        refreshAttemptedAt: delivery.dropoffCoordinateRefreshAttemptedAt,
+      },
+    new Date(),
+  );
+  return withheld ? null : text;
+}
+
+function coordinateText(value: string | { toFixed(digits: number): string } | null): string | null {
+  if (value == null) {
+    return null;
+  }
   return typeof value === 'string' ? value : value.toFixed(7);
 }
 

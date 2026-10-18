@@ -23,7 +23,7 @@ export default function SecondaryButton({
   loading,
   tone = 'primary',
   icon,
-  soft = false,
+  soft = true,
 }: SecondaryButtonProps) {
   const inactive = disabled || loading;
   const accent = tone === 'danger' ? colors.error : colors.primary;
@@ -60,7 +60,7 @@ export default function SecondaryButton({
 const styles = StyleSheet.create({
   button: {
     minHeight: 56,
-    backgroundColor: colors.background,
+    backgroundColor: colors.primaryLight,
     borderWidth: 1,
     borderColor: colors.primary,
     borderRadius: radius.lg,

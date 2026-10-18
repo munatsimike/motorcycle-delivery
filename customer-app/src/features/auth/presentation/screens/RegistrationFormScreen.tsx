@@ -1,21 +1,18 @@
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
 import type { ComponentProps } from 'react';
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import {
-  Dimensions,
-  Keyboard,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import ErrorMessage from '../../../../components/ErrorMessage';
 import FormInput from '../../../../components/FormInput';
+import { useKeyboardLift } from '../../../../components/useKeyboardLift';
 import PrimaryButton from '../../../../components/PrimaryButton';
 import type { RootStackParamList } from '../../../../navigation/types';
 import { colors, radius, spacing, typography } from '../../../../theme';
@@ -27,76 +24,6 @@ import { useRegistrationForm } from '../viewmodels/useRegistrationForm';
 import { useSession } from '../viewmodels/useSession';
 
 type RegistrationProps = NativeStackScreenProps<RootStackParamList, 'RegistrationForm'>;
-
-const FIELD_CLEARANCE = 88;
-
-function useKeyboardLift() {
-  const scrollRef = useRef<ScrollView>(null);
-  const scrollY = useRef(0);
-  const keyboardTop = useRef<number | null>(null);
-  const [keyboardInset, setKeyboardInset] = useState(0);
-
-  function revealFocusedField() {
-    const top = keyboardTop.current;
-    const focused = TextInput.State.currentlyFocusedInput() as {
-      measureInWindow?: (
-        callback: (x: number, y: number, width: number, height: number) => void,
-      ) => void;
-    } | null;
-    if (top == null || focused?.measureInWindow == null) {
-      return;
-    }
-    focused.measureInWindow((_x, y, _width, height) => {
-      const overlap = y + height + FIELD_CLEARANCE - top;
-      if (overlap <= 0) {
-        return;
-      }
-      scrollRef.current?.scrollTo({
-        y: scrollY.current + overlap,
-        animated: true,
-      });
-    });
-  }
-
-  useEffect(() => {
-    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const showSubscription = Keyboard.addListener(showEvent, (event) => {
-      const windowHeight = Dimensions.get('window').height;
-      const top = event.endCoordinates.screenY;
-      const inset = top > 0
-        ? Math.max(0, windowHeight - top)
-        : event.endCoordinates.height;
-      keyboardTop.current = top > 0 ? top : windowHeight - inset;
-      setKeyboardInset(inset);
-    });
-    const hideSubscription = Keyboard.addListener(hideEvent, () => {
-      keyboardTop.current = null;
-      setKeyboardInset(0);
-    });
-    return () => {
-      showSubscription.remove();
-      hideSubscription.remove();
-    };
-  }, []);
-
-  useEffect(() => {
-    if (keyboardInset === 0) {
-      return;
-    }
-    const frame = requestAnimationFrame(revealFocusedField);
-    return () => cancelAnimationFrame(frame);
-  }, [keyboardInset]);
-
-  return {
-    scrollRef,
-    keyboardInset,
-    revealFocusedField,
-    onScroll: (offsetY: number) => {
-      scrollY.current = offsetY;
-    },
-  };
-}
 
 export default function RegistrationFormScreen({ route }: RegistrationProps) {
   const { registrationToken, phone } = route.params;
@@ -203,7 +130,8 @@ export default function RegistrationFormScreen({ route }: RegistrationProps) {
         stop={addressStop}
         editable={!form.isLoading}
         onFocus={keyboard.revealFocusedField}
-        searchPlaces={(text) => customerDeliveryRepository.searchRegistrationPlaces(registrationToken, text, placeBias)}
+        searchPlaces={(text, sessionToken) => customerDeliveryRepository.searchRegistrationPlaces(registrationToken, text, placeBias, sessionToken)}
+        resolvePlace={(placeId, sessionToken) => customerDeliveryRepository.resolveRegistrationPlace(registrationToken, placeId, sessionToken)}
         onChange={(patch) => {
           setAddressStop((current) => ({ ...current, ...patch }));
           if (patch.address !== undefined) {

@@ -70,7 +70,7 @@ export function deliveryStatusLabel(status: DeliveryStatus): string {
 }
 
 export function deliveryUsesPackageIcon(status: DeliveryStatus): boolean {
-  return deliveryGroup(status) === 'history';
+  return deliveryGroup(status) === 'history' && status !== 'CANCELLED';
 }
 
 export function isKnownDeliveryStatus(status: string): status is DeliveryStatus {

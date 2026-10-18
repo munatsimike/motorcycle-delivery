@@ -1,7 +1,8 @@
 import { BadRequestException } from '@nestjs/common';
 import { InvalidPersonNameError, normalizePersonName } from '../auth/person-name.js';
 import { InvalidPhoneNumberError, normalizeAuthPhone } from '../auth/phone-number.js';
-import { Currency, DeliveryPayer, ParcelSize, PaymentMethod } from '../generated/prisma/client.js';
+import { CoordinateSource, Currency, DeliveryPayer, ParcelSize, PaymentMethod } from '../generated/prisma/client.js';
+import { isPlaceId } from './google-places.js';
 import { readMoneyCents } from './money.js';
 
 export type QuotePins = {
@@ -13,11 +14,15 @@ export type QuotePins = {
 
 export type DeliveryDraft = QuotePins & {
   pickupAddress: string;
+  pickupPlaceId: string | null;
+  pickupCoordinateSource: CoordinateSource;
   pickupLandmark: string | null;
   pickupInstructions: string | null;
   pickupContactName: string;
   pickupContactPhone: string;
   dropoffAddress: string;
+  dropoffPlaceId: string | null;
+  dropoffCoordinateSource: CoordinateSource;
   dropoffLandmark: string | null;
   dropoffInstructions: string | null;
   dropoffContactName: string;
@@ -31,6 +36,17 @@ export type DeliveryDraft = QuotePins & {
 };
 
 const PAYMENT_METHODS = new Set<string>(Object.values(PaymentMethod));
+
+// Keep this aligned with MAXIMUM_CUSTOMER_OFFER_CENTS in the customer app.
+export const MAXIMUM_CUSTOMER_OFFER_CENTS = 100_000;
+
+export function readCustomerOfferCents(value: unknown): number {
+  const cents = readMoneyCents(value, false, 'Enter an offered price');
+  if (cents > MAXIMUM_CUSTOMER_OFFER_CENTS) {
+    throw new BadRequestException('Enter an offer of 1000.00 or less');
+  }
+  return cents;
+}
 
 export function readQuotePins(body: unknown): QuotePins {
   const record = recordOf(body, 'Enter the pickup and drop-off');
@@ -56,6 +72,8 @@ export function readDeliveryDraft(body: unknown): DeliveryDraft {
     pickupLatitude: pickup.latitude,
     pickupLongitude: pickup.longitude,
     pickupAddress: pickup.address,
+    pickupPlaceId: pickup.placeId,
+    pickupCoordinateSource: pickup.coordinateSource,
     pickupLandmark: pickup.landmark,
     pickupInstructions: pickup.instructions,
     pickupContactName: pickup.contactName,
@@ -63,6 +81,8 @@ export function readDeliveryDraft(body: unknown): DeliveryDraft {
     dropoffLatitude: dropoff.latitude,
     dropoffLongitude: dropoff.longitude,
     dropoffAddress: dropoff.address,
+    dropoffPlaceId: dropoff.placeId,
+    dropoffCoordinateSource: dropoff.coordinateSource,
     dropoffLandmark: dropoff.landmark,
     dropoffInstructions: dropoff.instructions,
     dropoffContactName: dropoff.contactName,
@@ -70,7 +90,7 @@ export function readDeliveryDraft(body: unknown): DeliveryDraft {
     parcelDescription: readRequiredText(parcel.description, 500, 'Enter the parcel description'),
     parcelSize: readSize(parcel.size),
     parcelInstructions: readOptionalText(parcel.instructions, 500, 'Enter parcel instructions'),
-    offeredPriceCents: readMoneyCents(record.offeredPrice, false, 'Enter an offered price'),
+    offeredPriceCents: readCustomerOfferCents(record.offeredPrice),
     payer: readPayer(record.payer),
     paymentMethod: readPaymentMethod(record.paymentMethod),
   };
@@ -98,6 +118,8 @@ type StopDraft = {
   latitude: string;
   longitude: string;
   address: string;
+  placeId: string | null;
+  coordinateSource: CoordinateSource;
   landmark: string | null;
   instructions: string | null;
   contactName: string;
@@ -106,15 +128,42 @@ type StopDraft = {
 
 function readStop(value: unknown, label: string): StopDraft {
   const stop = recordOf(value, `Enter the ${label}`);
+  const coordinateSource = readCoordinateSource(stop.coordinateSource, label);
+  const placeId = readPlaceId(stop.placeId, label);
+  if (coordinateSource === CoordinateSource.GOOGLE_PLACES && !placeId) {
+    throw new BadRequestException(`Enter a valid ${label} location`);
+  }
+  if (coordinateSource === CoordinateSource.DEVICE_GEOCODER && placeId) {
+    throw new BadRequestException(`Enter a valid ${label} location`);
+  }
   return {
     latitude: readCoordinate(stop.latitude, -90, 90, `Enter a valid ${label} location`),
     longitude: readCoordinate(stop.longitude, -180, 180, `Enter a valid ${label} location`),
     address: readRequiredText(stop.address, 500, `Enter the ${label} address`),
+    placeId,
+    coordinateSource,
     landmark: readOptionalText(stop.landmark, 200, `Enter the ${label} landmark`),
     instructions: readOptionalText(stop.instructions, 500, `Enter the ${label} instructions`),
     contactName: readPerson(stop.contactName, `Enter the ${label} contact name`),
     contactPhone: readPhone(stop.contactPhone, `Enter the ${label} contact phone`),
   };
+}
+
+function readCoordinateSource(value: unknown, label: string): CoordinateSource {
+  if (value === CoordinateSource.GOOGLE_PLACES || value === CoordinateSource.DEVICE_GEOCODER) {
+    return value;
+  }
+  throw new BadRequestException(`Enter a valid ${label} location`);
+}
+
+function readPlaceId(value: unknown, label: string): string | null {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+  if (typeof value !== 'string' || !isPlaceId(value.trim())) {
+    throw new BadRequestException(`Enter a valid ${label} location`);
+  }
+  return value.trim();
 }
 
 function readSize(value: unknown): ParcelSize {
