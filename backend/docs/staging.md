@@ -24,6 +24,8 @@ Use Node 22 or 24. The repository does not pin a version.
 
 Use Supabase's direct Postgres connection, not the transaction pooler on port 6543. Put that URL in `DATABASE_URL` with `sslmode=require`. Migrations and the running API both use this one variable.
 
+Set `DATABASE_SSL_CA` on Railway to the Supabase root CA, including the BEGIN and END lines. The API verifies that certificate and checks the server hostname. Leave `DATABASE_SSL_CA` unset for local PostgreSQL. An invalid certificate stops startup.
+
 Before the first migration, enable the `postgis` extension in the Supabase SQL editor:
 
 ```sql

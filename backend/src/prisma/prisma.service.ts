@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PrismaClient } from '../generated/prisma/client.js';
+import { databasePoolConfig, describeDatabaseError } from './database-connection.js';
 
 const logger = new Logger('PrismaService');
 
@@ -32,25 +33,14 @@ function loadDatabaseUrl(): string {
   return databaseUrl;
 }
 
-function failureMessage(error: unknown): string {
-  if (typeof error === 'object' && error !== null && 'code' in error) {
-    const code = error.code;
-    if (typeof code === 'string' && /^[A-Z0-9_]+$/.test(code)) {
-      return `Database connectivity check failed (${code})`;
-    }
-  }
-
-  return 'Database connectivity check failed';
-}
-
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
   constructor() {
     const adapter = new PrismaPg(
-      { connectionString: loadDatabaseUrl() },
+      databasePoolConfig(loadDatabaseUrl(), process.env.DATABASE_SSL_CA),
       {
-        onPoolError: () => {
-          logger.error('PostgreSQL pool reported a connection error');
+        onPoolError: (error) => {
+          logger.error(describeDatabaseError(error, 'PostgreSQL pool reported a connection error'));
         },
       },
     );
@@ -63,7 +53,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       await this.$connect();
       await this.verifyConnectivity();
     } catch (error) {
-      logger.error(failureMessage(error));
+      logger.error(describeDatabaseError(error, 'Database connectivity check failed'));
       throw new Error('Database connectivity check failed');
     }
   }
