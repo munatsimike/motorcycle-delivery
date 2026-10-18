@@ -8,6 +8,7 @@ import {
   contactPhoneForField,
   deliveryContactPhone,
   stopDetailsError,
+  stopEntryError,
   zimbabweMobileE164,
   zimbabweNationalNumber,
   type BookingDraft,
@@ -93,12 +94,16 @@ describe('prepareBooking', () => {
     expect(stopDetailsError(pickup.pickup, 'pickup')).toBeNull();
   });
 
-  it('accepts the prefilled pickup details without coordinate fields', () => {
+  it('accepts a prefilled pickup address before a map pin is chosen', () => {
     const pickup = draft();
     pickup.pickup.latitude = '';
     pickup.pickup.longitude = '';
+    pickup.pickup.placeId = null;
+    pickup.pickup.coordinateSource = null;
+    pickup.pickup.precision = null;
+    expect(stopEntryError(pickup.pickup, 'pickup')).toBeNull();
     expect(stopDetailsError(pickup.pickup, 'pickup')).toBe('Choose the pickup address');
-    expect(prepareBooking(pickup)).toEqual({ ok: false, error: 'Enter a valid pickup location' });
+    expect(prepareBooking(pickup)).toEqual({ ok: false, error: 'Choose the pickup address' });
   });
 
   it('rejects coordinates outside the valid range', () => {

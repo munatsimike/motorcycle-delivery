@@ -1,3 +1,7 @@
+import { Platform } from 'react-native';
+
+import { resolveApiBaseUrl } from './apiBaseUrl';
+
 const REQUEST_TIMEOUT_MS = 15_000;
 
 export class ApiError extends Error {
@@ -113,11 +117,11 @@ async function apiRequest<TResponse>(
 
 function apiBaseUrl(): string {
   const env = process.env as { EXPO_PUBLIC_API_BASE_URL?: string };
-  const configured = env.EXPO_PUBLIC_API_BASE_URL?.trim();
-  if (!configured) {
-    throw new Error('The app is missing its API address.');
-  }
-  return configured.replace(/\/$/, '');
+  return resolveApiBaseUrl({
+    configured: env.EXPO_PUBLIC_API_BASE_URL,
+    dev: typeof __DEV__ === 'boolean' ? __DEV__ : false,
+    platform: Platform.OS,
+  });
 }
 
 async function readBody(response: Response): Promise<unknown> {

@@ -6,7 +6,7 @@ import LoadingIndicator from '../../../../components/LoadingIndicator';
 import { colors, radius, spacing, typography } from '../../../../theme';
 import { deliveryContactPhone, type BookingDraft, type StopDraft } from '../../domain/bookingDraft';
 import { deliveryCardAddress } from '../../domain/deliveryCard';
-import { normalizeCustomerOffer, type DeliveryQuote } from '../../domain/deliveryQuote';
+import type { DeliveryQuote } from '../../domain/deliveryQuote';
 import { parcelSizeLabel, payerLabel, paymentMethodLabel } from './ParcelFields';
 
 type BookingSummaryProps = {
@@ -89,20 +89,11 @@ export default function BookingSummary({
                 onFocus={onOfferFocus}
               />
             </View>
-            <Text style={styles.offerNote}>{offerNote(quote.currency, offerText)}</Text>
           </View>
         ) : null}
       </View>
     </View>
   );
-}
-
-function offerNote(currency: string, offerText: string): string {
-  const offered = normalizeCustomerOffer(offerText);
-  if (!offered) {
-    return 'The rider will see the amount you offer.';
-  }
-  return `The rider will see ${currency} ${offered}.`;
 }
 
 function RouteStop({ label, stop, last }: { label: string; stop: StopDraft; last: boolean }) {
@@ -380,11 +371,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.text,
     paddingVertical: spacing.sm,
-  },
-  offerNote: {
-    fontSize: typography.caption,
-    lineHeight: 18,
-    color: colors.textSecondary,
   },
   distance: {
     fontSize: typography.caption,

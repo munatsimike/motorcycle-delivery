@@ -160,7 +160,7 @@ export function stopError(stop: StopDraft, label: 'pickup' | 'drop-off'): string
 }
 
 export function stopEntryError(stop: StopDraft, label: 'pickup' | 'drop-off'): string | null {
-  const details = readStopDetails(stop, label);
+  const details = readStopText(stop, label);
   return details.ok ? null : details.error;
 }
 
@@ -219,10 +219,10 @@ function prepareStop(
   };
 }
 
-function readStopDetails(
+function readStopText(
   stop: StopDraft,
   label: 'pickup' | 'drop-off',
-): { ok: true; stop: Omit<PreparedStop, 'latitude' | 'longitude'> } | { ok: false; error: string } {
+): { ok: true; stop: Pick<PreparedStop, 'address' | 'landmark' | 'instructions' | 'contactName' | 'contactPhone'> } | { ok: false; error: string } {
   const address = requiredText(stop.address, 500);
   if (!address) {
     return { ok: false, error: `Enter the ${label} address` };
@@ -243,6 +243,20 @@ function readStopDetails(
   if (!contactPhone) {
     return { ok: false, error: `Enter the ${label} contact phone` };
   }
+  return {
+    ok: true,
+    stop: { address, landmark, instructions, contactName, contactPhone },
+  };
+}
+
+function readStopDetails(
+  stop: StopDraft,
+  label: 'pickup' | 'drop-off',
+): { ok: true; stop: Omit<PreparedStop, 'latitude' | 'longitude'> } | { ok: false; error: string } {
+  const text = readStopText(stop, label);
+  if (!text.ok) {
+    return text;
+  }
   if (stop.coordinateSource !== 'GOOGLE_PLACES' && stop.coordinateSource !== 'DEVICE_GEOCODER') {
     return { ok: false, error: `Choose the ${label} address` };
   }
@@ -255,11 +269,7 @@ function readStopDetails(
   return {
     ok: true,
     stop: {
-      address,
-      landmark,
-      instructions,
-      contactName,
-      contactPhone,
+      ...text.stop,
       placeId: stop.placeId,
       coordinateSource: stop.coordinateSource,
     },

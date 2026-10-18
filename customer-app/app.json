@@ -8,7 +8,7 @@
     "userInterfaceStyle": "light",
     "ios": {
       "bundleIdentifier": "com.riders.customer",
-      "supportsTablet": true,
+      "supportsTablet": false,
       "infoPlist": {
         "NSFaceIDUsageDescription": "Unlock your Riders session with Face ID."
       }
