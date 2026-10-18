@@ -4,7 +4,7 @@ import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { ComponentProps } from 'react';
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import CustomerAvatar from '../../../../components/CustomerAvatar';
@@ -34,20 +34,20 @@ export default function ProfileScreen() {
   const { account, isLoading, error } = useCustomerAccount(accessToken);
   const navigation = useNavigation<ProfileNavigation>();
   const insets = useSafeAreaInsets();
-  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [signingOut, setSigningOut] = useState<'device' | 'all' | null>(null);
   const [isUpdatingBiometric, setIsUpdatingBiometric] = useState(false);
   const [biometricError, setBiometricError] = useState<string | null>(null);
   const kindLabel = account?.kind === 'BUSINESS' ? 'Business' : 'Individual';
 
-  async function handleLogout() {
-    if (isLoggingOut) {
+  async function handleLogout(scope: 'device' | 'all') {
+    if (signingOut) {
       return;
     }
-    setIsLoggingOut(true);
+    setSigningOut(scope);
     try {
-      await logout();
+      await logout(scope);
     } finally {
-      setIsLoggingOut(false);
+      setSigningOut(null);
     }
   }
 
@@ -149,6 +149,7 @@ export default function ProfileScreen() {
           </View>
         ) : null}
 
+        {Platform.OS === 'ios' || biometricEnabled ? (
         <View style={styles.card}>
           <View style={styles.setting}>
             <View style={styles.iconBox}>
@@ -156,7 +157,11 @@ export default function ProfileScreen() {
             </View>
             <View style={styles.settingCopy}>
               <Text style={styles.settingTitle}>Unlock with biometrics</Text>
-              <Text style={styles.settingBody}>Use fingerprint or face unlock on this phone.</Text>
+              <Text style={styles.settingBody}>
+                {Platform.OS === 'android'
+                  ? 'Fingerprint protection stays on for this saved session. Turning it off keeps you signed in.'
+                  : 'Use fingerprint or face unlock on this phone.'}
+              </Text>
             </View>
             <Switch
               value={biometricEnabled}
@@ -168,6 +173,7 @@ export default function ProfileScreen() {
             />
           </View>
         </View>
+        ) : null}
         <ErrorMessage message={biometricError} />
 
         <View style={styles.edit}>
@@ -175,9 +181,20 @@ export default function ProfileScreen() {
             label="Log out"
             icon="logout"
             tone="danger"
-            loading={isLoggingOut}
+            loading={signingOut === 'device'}
+            disabled={signingOut !== null}
             onPress={() => {
-              void handleLogout();
+              void handleLogout('device');
+            }}
+          />
+          <SecondaryButton
+            label="Log out of all devices"
+            icon="logout"
+            tone="danger"
+            loading={signingOut === 'all'}
+            disabled={signingOut !== null}
+            onPress={() => {
+              void handleLogout('all');
             }}
           />
         </View>
@@ -265,6 +282,7 @@ const styles = StyleSheet.create({
   },
   edit: {
     marginHorizontal: spacing.xl,
+    gap: spacing.md,
   },
   pressed: {
     opacity: 0.8,

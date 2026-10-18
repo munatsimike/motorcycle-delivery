@@ -27,6 +27,7 @@ import OtpVerificationScreen from '../features/auth/presentation/screens/OtpVeri
 import RegistrationFormScreen from '../features/auth/presentation/screens/RegistrationFormScreen';
 import SignInScreen from '../features/auth/presentation/screens/SignInScreen';
 import UnlockScreen from '../features/auth/presentation/screens/UnlockScreen';
+import BiometricOfferScreen from '../features/auth/presentation/screens/BiometricOfferScreen';
 import { useSession } from '../features/auth/presentation/viewmodels/useSession';
 import type { RootStackParamList } from './types';
 
@@ -134,7 +135,13 @@ export default function AppNavigator() {
               options={{ title: 'Edit Profile' }}
             />
           </>
-        ) : status === 'locked' ? (
+        ) : status === 'offerBiometric' ? (
+          <Stack.Screen
+            name="Unlock"
+            component={BiometricOfferScreen}
+            options={{ headerShown: false }}
+          />
+        ) : status === 'locked' || status === 'needsConnection' ? (
           <Stack.Screen
             name="Unlock"
             component={UnlockScreen}

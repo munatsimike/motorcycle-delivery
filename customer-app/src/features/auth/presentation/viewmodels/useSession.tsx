@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Platform } from 'react-native';
 
 import {
   clearCustomerIdentity,
@@ -9,12 +10,15 @@ import {
 import { customerAuthRepository } from '../../data/repositories/CustomerAuthApiRepository';
 import type { AuthSession } from '../../domain/auth.types';
 import { logoutCustomer } from '../../domain/usecases/logoutCustomer';
-import { restoreSession } from '../../domain/usecases/restoreSession';
-import { authenticateForSession, canUseBiometrics } from '../../../../services/session/biometricUnlock';
+import { restoreSession, type SessionRestore } from '../../domain/usecases/restoreSession';
+import { sessionGate } from '../../domain/sessionGate';
 import { confirmCustomerIdentity, customerIdForSession } from '../../../../services/session/customerIdentity';
-import { secureSessionStore } from '../../../../services/session/secureSessionStore';
+import { BiometricPromptCancelled, supportsBiometricCredentialProtection } from '../../../../services/session/credentialAccess';
+import { authenticateForSession, canUseBiometrics } from '../../../../services/session/biometricUnlock';
+import { reconcileInstallMarker } from '../../../../services/session/installMarker';
+import { osBiometricProtectionAvailable, secureSessionStore } from '../../../../services/session/secureSessionStore';
 
-type SessionStatus = 'loading' | 'signedOut' | 'locked' | 'signedIn';
+type SessionStatus = 'loading' | 'signedOut' | 'locked' | 'needsConnection' | 'offerBiometric' | 'signedIn';
 
 export type BiometricUpdate = 'enabled' | 'disabled' | 'cancelled' | 'unavailable';
 
@@ -26,8 +30,11 @@ type SessionContextValue = {
   customerId: string | null;
   saveSession: (session: AuthSession) => Promise<void>;
   confirmCustomer: (customerId: string) => Promise<void>;
-  logout: () => Promise<void>;
-  unlock: () => Promise<boolean>;
+  logout: (scope?: 'device' | 'all') => Promise<void>;
+  unlock: () => Promise<'restored' | 'cancelled' | 'offline' | 'signed-out'>;
+  retryRestore: () => Promise<void>;
+  acceptBiometricOffer: () => Promise<BiometricUpdate>;
+  declineBiometricOffer: () => Promise<void>;
   setBiometricEnabled: (enabled: boolean) => Promise<BiometricUpdate>;
 };
 
@@ -45,24 +52,50 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
     async function restore() {
       try {
-        const [available, enabled] = await Promise.all([
+        const install = await reconcileInstallMarker();
+        if (!active) {
+          return;
+        }
+        if (install === 'reinstall') {
+          await secureSessionStore.clear();
+          await secureSessionStore.saveBiometricEnabled(false);
+          setCustomerId(null);
+          setSession(null);
+          setBiometricEnabledState(false);
+          setStatus('signedOut');
+          return;
+        }
+        const [available, enabled, protectedSession] = await Promise.all([
           canUseBiometrics(),
           secureSessionStore.loadBiometricEnabled(),
+          secureSessionStore.isProtected(),
         ]);
         if (!active) {
           return;
         }
-        setBiometricAvailable(available);
-        setBiometricEnabledState(enabled && available);
-        const stored = await secureSessionStore.load();
-        if (!active) {
-          return;
-        }
-        if (!stored) {
+        const osAvailable = osBiometricProtectionAvailable();
+        const credentialProtection = protectedSession || (biometricProtectionSupported() && enabled);
+        setBiometricAvailable(credentialProtection && available && osAvailable);
+        setBiometricEnabledState(credentialProtection && available && osAvailable);
+        if (protectedSession && !osAvailable) {
+          await secureSessionStore.clear();
+          await secureSessionStore.saveBiometricEnabled(false);
           setStatus('signedOut');
           return;
         }
-        if (enabled && available) {
+        const gate = sessionGate({
+          hasStoredSession: await secureSessionStore.hasSession(),
+          biometricEnabled: credentialProtection,
+          biometricAvailable: available && osAvailable,
+        });
+        if (!active) {
+          return;
+        }
+        if (gate === 'signed-out') {
+          setStatus('signedOut');
+          return;
+        }
+        if (gate === 'biometric' || gate === 'biometric-unavailable') {
           setStatus('locked');
           return;
         }
@@ -70,19 +103,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         if (!active) {
           return;
         }
-        if (!restored) {
-          setCustomerId(null);
-          setSession(null);
-          setStatus('signedOut');
-          return;
-        }
-        const identity = await loadCustomerIdentity();
+        const next = await readRestoredCustomer(restored);
         if (!active) {
           return;
         }
-        setCustomerId(customerIdForSession(identity, restored.refreshToken));
-        setSession(restored);
-        setStatus('signedIn');
+        applyRestoredCustomer(next, setSession, setCustomerId, setStatus);
       } catch {
         if (active) {
           setCustomerId(null);
@@ -108,6 +133,22 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       await secureSessionStore.save(next);
       setCustomerId(null);
       setSession(next);
+      const [enabled, declined, available] = await Promise.all([
+        secureSessionStore.loadBiometricEnabled(),
+        secureSessionStore.loadBiometricDeclined(),
+        canUseBiometrics(),
+      ]);
+      if (
+        biometricProtectionSupported()
+        && !enabled
+        && !declined
+        && available
+        && osBiometricProtectionAvailable()
+      ) {
+        setBiometricAvailable(true);
+        setStatus('offerBiometric');
+        return;
+      }
       setStatus('signedIn');
     },
     async confirmCustomer(nextCustomerId) {
@@ -126,11 +167,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       await saveCustomerIdentity(update.identity);
       setCustomerId(update.identity.customerId);
     },
-    async logout() {
-      const accessToken = session?.accessToken;
+    async logout(scope: 'device' | 'all' = 'device') {
       const knownCustomerId = customerId;
+      const accessToken = session?.accessToken ?? null;
       setCustomerId(null);
       setSession(null);
+      setBiometricEnabledState(false);
       setStatus('signedOut');
       try {
         if (knownCustomerId) {
@@ -141,51 +183,92 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         // Signing out still continues when the saved deliveries cannot be removed.
       }
       try {
-        if (!accessToken) {
-          await secureSessionStore.clear();
-          return;
-        }
-        await logoutCustomer(customerAuthRepository, secureSessionStore, accessToken);
+        await logoutCustomer(customerAuthRepository, secureSessionStore, accessToken, scope);
       } catch {
+        await secureSessionStore.saveBiometricEnabled(false);
         await secureSessionStore.clear();
       }
     },
     async unlock() {
-      const authenticated = await authenticateForSession();
-      if (!authenticated) {
-        return false;
+      try {
+        const protectedSession = await secureSessionStore.isProtected();
+        let preloaded: AuthSession | null = null;
+        if (!protectedSession) {
+          if (!biometricAvailable) {
+            return 'cancelled';
+          }
+        if (Platform.OS === 'ios') {
+            const authenticated = await authenticateForSession();
+            if (!authenticated) {
+              return 'cancelled';
+            }
+          }
+          preloaded = await secureSessionStore.load();
+          if (!preloaded) {
+            setStatus('signedOut');
+            return 'signed-out';
+          }
+          if (biometricProtectionSupported() && osBiometricProtectionAvailable()) {
+            await secureSessionStore.protect(preloaded);
+            setBiometricEnabledState(true);
+          }
+        }
+        const restored = await restoreSession(
+          customerAuthRepository,
+          secureSessionStore,
+          Date.now(),
+          preloaded,
+        );
+        const next = await readRestoredCustomer(restored);
+        applyRestoredCustomer(next, setSession, setCustomerId, setStatus);
+        if (next.status === 'signedIn') {
+          return 'restored';
+        }
+        return next.status === 'needsConnection' ? 'offline' : 'signed-out';
+      } catch (error: unknown) {
+        if (error instanceof BiometricPromptCancelled) {
+          return 'cancelled';
+        }
+        return 'cancelled';
       }
+    },
+    async retryRestore() {
       const restored = await restoreSession(customerAuthRepository, secureSessionStore);
-      if (!restored) {
-        setCustomerId(null);
-        setSession(null);
-        setStatus('signedOut');
-        return false;
+      const next = await readRestoredCustomer(restored);
+      applyRestoredCustomer(next, setSession, setCustomerId, setStatus);
+    },
+    async acceptBiometricOffer() {
+      if (!session) {
+        return 'unavailable';
       }
-      const identity = await loadCustomerIdentity();
-      setCustomerId(customerIdForSession(identity, restored.refreshToken));
-      setSession(restored);
+      const enabled = await enableStoredBiometric(session);
+      if (enabled === 'enabled') {
+        setBiometricEnabledState(true);
+        setStatus('signedIn');
+      }
+      return enabled;
+    },
+    async declineBiometricOffer() {
+      await secureSessionStore.declineBiometricOffer();
       setStatus('signedIn');
-      return true;
     },
     async setBiometricEnabled(enabled) {
       if (!enabled) {
-        await secureSessionStore.saveBiometricEnabled(false);
+        if (session) {
+          await secureSessionStore.release(session);
+        } else {
+          await secureSessionStore.saveBiometricEnabled(false);
+          await secureSessionStore.clear();
+        }
         setBiometricEnabledState(false);
         return 'disabled';
       }
-      const available = await canUseBiometrics();
-      setBiometricAvailable(available);
-      if (!available) {
-        return 'unavailable';
+      const result = session ? await enableStoredBiometric(session) : 'unavailable';
+      if (result === 'enabled') {
+        setBiometricEnabledState(true);
+        setBiometricAvailable(true);
       }
-      const authenticated = await authenticateForSession();
-      if (!authenticated) {
-        return 'cancelled';
-      }
-      await secureSessionStore.saveBiometricEnabled(true);
-      setBiometricEnabledState(true);
-      return 'enabled';
+      return result;
     },
   }), [biometricAvailable, biometricEnabled, customerId, session, status]);
 
@@ -198,4 +281,67 @@ export function useSession(): SessionContextValue {
     throw new Error('SessionProvider is missing');
   }
   return value;
+}
+
+type RestoredCustomer =
+  | { status: 'signedIn'; session: AuthSession; customerId: string | null }
+  | { status: 'needsConnection' }
+  | { status: 'signedOut' };
+
+async function readRestoredCustomer(restored: SessionRestore): Promise<RestoredCustomer> {
+  if (restored.status === 'offline') {
+    return { status: 'needsConnection' };
+  }
+  if (restored.status !== 'ready') {
+    return { status: 'signedOut' };
+  }
+  const identity = await loadCustomerIdentity();
+  return {
+    status: 'signedIn',
+    session: restored.session,
+    customerId: customerIdForSession(identity, restored.session.refreshToken),
+  };
+}
+
+function applyRestoredCustomer(
+  next: RestoredCustomer,
+  setSession: (session: AuthSession | null) => void,
+  setCustomerId: (customerId: string | null) => void,
+  setStatus: (status: SessionStatus) => void,
+) {
+  if (next.status === 'signedIn') {
+    setSession(next.session);
+    setCustomerId(next.customerId);
+    setStatus('signedIn');
+    return;
+  }
+  setSession(null);
+  setCustomerId(null);
+  setStatus(next.status === 'needsConnection' ? 'needsConnection' : 'signedOut');
+}
+
+function biometricProtectionSupported(): boolean {
+  return supportsBiometricCredentialProtection(Platform.OS === 'ios' ? 'ios' : 'android');
+}
+
+async function enableStoredBiometric(current: AuthSession): Promise<BiometricUpdate> {
+  const available = await canUseBiometrics();
+  if (!biometricProtectionSupported() || !available || !osBiometricProtectionAvailable()) {
+    return 'unavailable';
+  }
+  if (Platform.OS === 'ios') {
+    const authenticated = await authenticateForSession();
+    if (!authenticated) {
+      return 'cancelled';
+    }
+  }
+  try {
+    await secureSessionStore.protect(current);
+    return 'enabled';
+  } catch (error: unknown) {
+    if (error instanceof BiometricPromptCancelled) {
+      return 'cancelled';
+    }
+    return 'cancelled';
+  }
 }
