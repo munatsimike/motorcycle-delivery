@@ -1,0 +1,292 @@
+package com.riders.rider
+
+import com.riders.rider.core.network.ApiError
+import com.riders.rider.core.network.ApiResult
+import com.riders.rider.core.network.OfferResponse
+import com.riders.rider.core.network.ParcelResponse
+import com.riders.rider.core.network.StopResponse
+import com.riders.rider.feature.delivery.domain.ActiveDelivery
+import com.riders.rider.feature.delivery.domain.AssignmentLookup
+import com.riders.rider.feature.delivery.domain.DeliveryRecoveryCoordinator
+import com.riders.rider.feature.delivery.domain.applyDeliveryTransition
+import com.riders.rider.feature.delivery.domain.loadedDelivery
+import com.riders.rider.feature.delivery.domain.nextDeliveryStatus
+import com.riders.rider.feature.delivery.domain.releaseActionVisible
+import com.riders.rider.feature.delivery.domain.toActiveDelivery
+import com.riders.rider.feature.home.homeShift
+import com.riders.rider.feature.offers.domain.AcceptKeys
+import com.riders.rider.feature.offers.domain.AcceptedDelivery
+import com.riders.rider.feature.offers.domain.MemoryAcceptKeyStore
+import com.riders.rider.feature.offers.domain.OfferAcceptance
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class RiderDeliveryTest {
+    @Test
+    fun acceptIgnoresASecondTapWhileTheFirstIsRunning() = runTest {
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        var calls = 0
+        val acceptance = OfferAcceptance(AcceptKeys(MemoryAcceptKeyStore()) { "key-1" }) { _, _ ->
+            calls += 1
+            started.complete(Unit)
+            release.await()
+            ApiResult.Ok(accepted())
+        }
+        val first = async { acceptance.accept("assignment-1") }
+        started.await()
+        val second = acceptance.accept("assignment-1")
+        release.complete(Unit)
+        assertNull(second)
+        assertTrue(first.await() is ApiResult.Ok)
+        assertEquals(1, calls)
+    }
+
+    @Test
+    fun unresolvedAcceptKeepsTheSameIdempotencyKey() = runTest {
+        val store = MemoryAcceptKeyStore()
+        var sent: String? = null
+        val timedOut = OfferAcceptance(AcceptKeys(store) { "key-1" }) { _, key ->
+            sent = key
+            ApiResult.Err(ApiError.Timeout)
+        }
+        assertTrue(timedOut.accept("assignment-1") is ApiResult.Err)
+        assertEquals("key-1", sent)
+        assertEquals("key-1", store.read("assignment-1"))
+
+        val retried = OfferAcceptance(AcceptKeys(store) { "key-2" }) { _, key ->
+            sent = key
+            ApiResult.Ok(accepted())
+        }
+        assertTrue(retried.accept("assignment-1") is ApiResult.Ok)
+        assertEquals("key-1", sent)
+        assertNull(store.read("assignment-1"))
+    }
+
+    @Test
+    fun resolvedAcceptFailureAllowsANewKey() = runTest {
+        val store = MemoryAcceptKeyStore()
+        var sent: String? = null
+        OfferAcceptance(AcceptKeys(store) { "key-1" }) { _, key ->
+            sent = key
+            ApiResult.Err(ApiError.Conflict("This offer has expired"))
+        }.accept("assignment-1")
+        OfferAcceptance(AcceptKeys(store) { "key-2" }) { _, key ->
+            sent = key
+            ApiResult.Err(ApiError.Conflict("This offer is no longer available"))
+        }.accept("assignment-1")
+        assertEquals("key-2", sent)
+        assertNull(store.read("assignment-1"))
+    }
+
+    @Test
+    fun acceptedDeliverySurvivesOfferCacheReplacement() {
+        val offer = offer()
+        val stored = offer.toActiveDelivery("delivery-1", "assignment-1", "ASSIGNED")
+        val replaced = listOf(
+            offer.copy(
+                assignmentId = "assignment-2",
+                deliveryId = "delivery-2",
+                pickup = offer.pickup.copy(address = "Somewhere else"),
+            ),
+        )
+        val loaded = loadedDelivery(stored, replaced, "delivery-1")
+        assertEquals("12 Samora Machel Avenue", loaded?.pickupAddress)
+        assertEquals("9 Nelson Mandela Avenue", loaded?.dropoffAddress)
+        assertEquals("Documents", loaded?.parcelDescription)
+        assertFalse(loaded?.pickupAddress?.contains(offer.pickup.contactPhone) == true)
+        assertFalse(loaded?.dropoffAddress?.contains(offer.dropoff.contactPhone) == true)
+        assertNull(replaced.find { it.deliveryId == "delivery-1" })
+    }
+
+    @Test
+    fun busyWithoutALocalAssignmentRequiresRecovery() {
+        val shift = homeShift("BUSY", canAcceptDeliveries = true, active = null)
+        assertFalse(shift.showGoOnline)
+        assertFalse(shift.showGoOffline)
+        assertFalse(shift.showOffers)
+        assertFalse(shift.showActiveDelivery)
+        assertTrue(shift.recoveryRequired)
+        assertEquals(
+            "You are marked as busy, but there is no active delivery to resume. You cannot go online.",
+            shift.recoveryMessage,
+        )
+        val checking = homeShift("BUSY", canAcceptDeliveries = true, active = null, recovering = true)
+        assertFalse(checking.showGoOnline)
+        assertFalse(checking.recoveryRequired)
+        assertTrue(checking.recovering)
+        assertNull(checking.recoveryMessage)
+    }
+
+    @Test
+    fun recoveryAfterRestartUsesTheServerDelivery() = runTest {
+        val store = MemoryDeliverySnapshot(delivery(status = "ASSIGNED"))
+        val restarted = coordinator(store) { AssignmentLookup.Found(delivery(status = "IN_TRANSIT")) }
+        val result = restarted.reconcile()
+        assertEquals("IN_TRANSIT", result.visible?.status)
+        assertEquals("IN_TRANSIT", store.value?.status)
+        assertEquals("12 Samora Machel Avenue", store.value?.pickupAddress)
+        assertFalse(result.offline)
+        assertFalse(result.clearStored)
+    }
+
+    @Test
+    fun busyWithoutASnapshotRestoresTheServerAssignment() = runTest {
+        val store = MemoryDeliverySnapshot(null)
+        var accepts = 0
+        val result = coordinator(store) {
+            accepts += 0
+            AssignmentLookup.Found(delivery(status = "ASSIGNED"))
+        }.reconcile()
+        assertEquals("delivery-1", result.visible?.deliveryId)
+        assertEquals("ASSIGNED", store.value?.status)
+        assertEquals(0, accepts)
+        val shift = homeShift("BUSY", canAcceptDeliveries = false, active = result.visible)
+        assertTrue(shift.showActiveDelivery)
+        assertFalse(shift.recoveryRequired)
+        assertFalse(shift.showGoOnline)
+    }
+
+    @Test
+    fun lostAcceptResponseIsRestoredWithoutAnotherAccept() = runTest {
+        val store = MemoryDeliverySnapshot(null)
+        var accepts = 0
+        val result = coordinator(store) { AssignmentLookup.Found(delivery(status = "ASSIGNED")) }.reconcile()
+        assertEquals("assignment-1", result.persist?.assignmentId)
+        assertEquals("9 Nelson Mandela Avenue", store.value?.dropoffAddress)
+        assertEquals(0, accepts)
+    }
+
+    @Test
+    fun staleLocalStatusIsReplacedByTheServer() = runTest {
+        val store = MemoryDeliverySnapshot(delivery(status = "ASSIGNED"))
+        val result = coordinator(store) { AssignmentLookup.Found(delivery(status = "PICKED_UP")) }.reconcile()
+        assertEquals("PICKED_UP", result.visible?.status)
+        assertEquals("PICKED_UP", store.value?.status)
+        assertFalse(releaseActionVisible(onAcceptedDelivery = true, result.visible?.status.orEmpty()))
+    }
+
+    @Test
+    fun confirmedEmptyAssignmentClearsTheLocalSnapshot() = runTest {
+        val store = MemoryDeliverySnapshot(delivery(status = "ARRIVED_AT_PICKUP"))
+        val result = coordinator(store) { AssignmentLookup.None }.reconcile()
+        assertNull(result.visible)
+        assertTrue(result.clearStored)
+        assertNull(store.value)
+        assertFalse(result.offline)
+        val shift = homeShift("BUSY", canAcceptDeliveries = false, active = null)
+        assertTrue(shift.recoveryRequired)
+        assertFalse(shift.showGoOnline)
+        assertFalse(shift.showActiveDelivery)
+    }
+
+    @Test
+    fun networkFailureKeepsTheLocalSnapshot() = runTest {
+        val store = MemoryDeliverySnapshot(delivery(status = "IN_TRANSIT"))
+        val result = coordinator(store) { AssignmentLookup.Unavailable(ApiError.Network) }.reconcile()
+        assertTrue(result.offline)
+        assertFalse(result.clearStored)
+        assertEquals("IN_TRANSIT", store.value?.status)
+        assertEquals("IN_TRANSIT", result.visible?.status)
+        val shift = homeShift("BUSY", canAcceptDeliveries = false, active = result.visible, recoveryFailed = true)
+        assertTrue(shift.showActiveDelivery)
+        assertTrue(shift.recoveryFailed)
+        assertFalse(shift.showGoOnline)
+        val missing = homeShift("BUSY", canAcceptDeliveries = false, active = null, recoveryFailed = true)
+        assertFalse(missing.showGoOnline)
+        assertFalse(missing.recoveryRequired)
+        assertEquals(
+            "Your current delivery could not be loaded. Check your connection and try again.",
+            missing.recoveryMessage,
+        )
+    }
+
+    @Test
+    fun releaseActionsAreVisibleOnlyForAnAcceptedReleasableDelivery() {
+        assertFalse(releaseActionVisible(onAcceptedDelivery = false, "ASSIGNED"))
+        assertFalse(releaseActionVisible(onAcceptedDelivery = false, "ARRIVED_AT_PICKUP"))
+        assertTrue(releaseActionVisible(onAcceptedDelivery = true, "ASSIGNED"))
+        assertTrue(releaseActionVisible(onAcceptedDelivery = true, "ARRIVED_AT_PICKUP"))
+        assertFalse(releaseActionVisible(onAcceptedDelivery = true, "PICKED_UP"))
+        assertFalse(releaseActionVisible(onAcceptedDelivery = true, "IN_TRANSIT"))
+        assertFalse(releaseActionVisible(onAcceptedDelivery = true, "DELIVERED"))
+    }
+
+    @Test
+    fun deliveryStateTransitionsFollowTheBackendOrder() {
+        val steps = listOf(
+            "ASSIGNED",
+            "ARRIVED_AT_PICKUP",
+            "PICKED_UP",
+            "IN_TRANSIT",
+            "ARRIVED_AT_DROPOFF",
+            "DELIVERED",
+        )
+        var status = steps.first()
+        for (next in steps.drop(1)) {
+            assertEquals(next, nextDeliveryStatus(status))
+            assertEquals(next, applyDeliveryTransition(status, next))
+            status = next
+        }
+        assertNull(nextDeliveryStatus("DELIVERED"))
+        assertNull(applyDeliveryTransition("ASSIGNED", "PICKED_UP"))
+        assertNull(applyDeliveryTransition("ASSIGNED", "DELIVERED"))
+        assertNull(applyDeliveryTransition("DELIVERED", "ASSIGNED"))
+    }
+
+    private fun coordinator(
+        store: MemoryDeliverySnapshot,
+        lookup: suspend () -> AssignmentLookup,
+    ): DeliveryRecoveryCoordinator {
+        return DeliveryRecoveryCoordinator(
+            read = { store.value },
+            write = { store.value = it },
+            clear = { store.value = null },
+            lookup = lookup,
+        )
+    }
+
+    private fun delivery(status: String): ActiveDelivery {
+        return ActiveDelivery(
+            deliveryId = "delivery-1",
+            assignmentId = "assignment-1",
+            status = status,
+            parcelDescription = "Documents",
+            pickupAddress = "12 Samora Machel Avenue",
+            dropoffAddress = "9 Nelson Mandela Avenue",
+        )
+    }
+
+    private fun accepted() = AcceptedDelivery("assignment-1", "delivery-1", "ASSIGNED", "BUSY")
+
+    private class MemoryDeliverySnapshot(var value: ActiveDelivery?)
+
+private fun offer(): OfferResponse {
+        return OfferResponse(
+            assignmentId = "assignment-1",
+            deliveryId = "delivery-1",
+            expiresAt = "soon",
+            offeredPrice = "3.00",
+            currency = "USD",
+            payer = "SENDER",
+            paymentMethod = "CASH",
+            parcel = ParcelResponse("Documents", "SMALL", null),
+            pickup = StopResponse(
+                address = "12 Samora Machel Avenue",
+                contactName = "Pickup Person",
+                contactPhone = "+263771111111",
+            ),
+            dropoff = StopResponse(
+                address = "9 Nelson Mandela Avenue",
+                contactName = "Recipient Person",
+                contactPhone = "+263772222222",
+            ),
+        )
+    }
+}

@@ -63,6 +63,16 @@ const RELEASEABLE = new Set<DeliveryStatus>([
   DeliveryStatus.ARRIVED_AT_PICKUP,
 ]);
 
+export const RIDER_RESUMABLE_STATUSES = [
+  DeliveryStatus.ASSIGNED,
+  DeliveryStatus.ARRIVED_AT_PICKUP,
+  DeliveryStatus.PICKED_UP,
+  DeliveryStatus.IN_TRANSIT,
+  DeliveryStatus.ARRIVED_AT_DROPOFF,
+] as const;
+
+const RIDER_RESUMABLE = new Set<DeliveryStatus>(RIDER_RESUMABLE_STATUSES);
+
 const DELIVERY_PROGRESS = [
   DeliveryStatus.ASSIGNED,
   DeliveryStatus.ARRIVED_AT_PICKUP,
@@ -158,6 +168,22 @@ type StopView = {
   contactPhone: string;
 };
 
+export type ActiveAssignment = {
+  assignmentId: string;
+  deliveryId: string;
+  status: (typeof RIDER_RESUMABLE_STATUSES)[number];
+  parcel: RiderOffer['parcel'];
+  pickup: StopView;
+  dropoff: StopView;
+};
+
+type ActiveAssignmentRow = {
+  id: string;
+  riderProfileId: string;
+  status: AssignmentStatus;
+  delivery: DeliveryRow;
+};
+
 export type AcceptanceResult = {
   assignmentId: string;
   deliveryId: string;
@@ -190,6 +216,18 @@ export class DispatchService {
 
   listOffers(rider: RiderContext, now = new Date()) {
     return this.prisma.$transaction((tx) => listOpenOffers(tx, rider, now));
+  }
+
+  async activeAssignment(rider: RiderContext, now = new Date()) {
+    const rows = await this.prisma.deliveryAssignment.findMany({
+      where: {
+        riderProfileId: rider.riderProfileId,
+        status: AssignmentStatus.ACCEPTED,
+        delivery: { status: { in: [...RIDER_RESUMABLE_STATUSES] } },
+      },
+      include: { delivery: true },
+    });
+    return { assignment: activeAssignmentFromRows(rider.riderProfileId, rows, now) };
   }
 
   async accept(rider: RiderContext, assignmentId: string, idempotencyKey: string, now = new Date()) {
@@ -1148,6 +1186,7 @@ async function claimDueRound(tx: Prisma.TransactionClient, now: Date): Promise<{
 }
 
 function toRiderOffer(assignment: AssignmentRow, delivery: DeliveryRow): RiderOffer {
+  const stops = riderStops(delivery, new Date());
   return {
     assignmentId: assignment.id,
     deliveryId: delivery.id,
@@ -1156,6 +1195,38 @@ function toRiderOffer(assignment: AssignmentRow, delivery: DeliveryRow): RiderOf
     currency: delivery.currency,
     payer: delivery.payer,
     paymentMethod: delivery.paymentMethod,
+    parcel: stops.parcel,
+    pickup: stops.pickup,
+    dropoff: stops.dropoff,
+  };
+}
+
+export function activeAssignmentFromRows(
+  riderProfileId: string,
+  rows: ActiveAssignmentRow[],
+  now: Date,
+): ActiveAssignment | null {
+  const match = rows.find((row) =>
+    row.riderProfileId === riderProfileId
+    && row.status === AssignmentStatus.ACCEPTED
+    && RIDER_RESUMABLE.has(row.delivery.status),
+  );
+  if (!match) {
+    return null;
+  }
+  const stops = riderStops(match.delivery, now);
+  return {
+    assignmentId: match.id,
+    deliveryId: match.delivery.id,
+    status: match.delivery.status as ActiveAssignment['status'],
+    parcel: stops.parcel,
+    pickup: stops.pickup,
+    dropoff: stops.dropoff,
+  };
+}
+
+function riderStops(delivery: DeliveryRow, now: Date) {
+  return {
     parcel: {
       description: delivery.parcelDescription,
       size: delivery.parcelSize,
@@ -1163,8 +1234,8 @@ function toRiderOffer(assignment: AssignmentRow, delivery: DeliveryRow): RiderOf
     },
     pickup: {
       address: delivery.pickupAddress,
-      latitude: servableCoordinate(delivery, 'pickup', delivery.pickupLatitude),
-      longitude: servableCoordinate(delivery, 'pickup', delivery.pickupLongitude),
+      latitude: servableCoordinate(delivery, 'pickup', delivery.pickupLatitude, now),
+      longitude: servableCoordinate(delivery, 'pickup', delivery.pickupLongitude, now),
       landmark: delivery.pickupLandmark,
       instructions: delivery.pickupInstructions,
       contactName: delivery.pickupContactName,
@@ -1172,8 +1243,8 @@ function toRiderOffer(assignment: AssignmentRow, delivery: DeliveryRow): RiderOf
     },
     dropoff: {
       address: delivery.dropoffAddress,
-      latitude: servableCoordinate(delivery, 'dropoff', delivery.dropoffLatitude),
-      longitude: servableCoordinate(delivery, 'dropoff', delivery.dropoffLongitude),
+      latitude: servableCoordinate(delivery, 'dropoff', delivery.dropoffLatitude, now),
+      longitude: servableCoordinate(delivery, 'dropoff', delivery.dropoffLongitude, now),
       landmark: delivery.dropoffLandmark,
       instructions: delivery.dropoffInstructions,
       contactName: delivery.recipientName,
@@ -1186,6 +1257,7 @@ function servableCoordinate(
   delivery: DeliveryRow & { status: DeliveryStatus; createdAt?: Date },
   side: 'pickup' | 'dropoff',
   value: string | { toFixed(digits: number): string } | null,
+  now = new Date(),
 ): string | null {
   const text = coordinateText(value);
   const withheld = shouldWithholdCoordinates(
@@ -1208,7 +1280,7 @@ function servableCoordinate(
         retrievedAt: delivery.dropoffCoordinateRetrievedAt,
         refreshAttemptedAt: delivery.dropoffCoordinateRefreshAttemptedAt,
       },
-    new Date(),
+    now,
   );
   return withheld ? null : text;
 }

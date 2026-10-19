@@ -16,12 +16,13 @@ import { RegistrationPlacesController } from './registration-places.controller.j
 import { PlacesService } from './places.service.js';
 import { RiderAvailabilityAlertController } from './rider-availability-alert.controller.js';
 import { RiderAvailabilityAlertService } from './rider-availability-alert.service.js';
+import { RiderAssignmentController } from './rider-assignment.controller.js';
 import { RiderDeliveryController } from './rider-delivery.controller.js';
 import { RiderOfferController } from './rider-offer.controller.js';
 
 @Module({
   imports: [AuthModule],
-  controllers: [AdminDeliveryController, DeliveryController, DeliveryPricingController, NearbyRidersController, PlacesController, RegistrationPlacesController, RiderAvailabilityAlertController, RiderDeliveryController, RiderOfferController],
+  controllers: [AdminDeliveryController, DeliveryController, DeliveryPricingController, NearbyRidersController, PlacesController, RegistrationPlacesController, RiderAssignmentController, RiderAvailabilityAlertController, RiderDeliveryController, RiderOfferController],
   providers: [
     AdminDeliveryListService,
     DeliveryService,
