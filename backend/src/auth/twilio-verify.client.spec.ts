@@ -72,11 +72,32 @@ describe('HttpTwilioVerifyClient', () => {
     const logged = warn.mock.calls.map((call) => String(call[0])).join('\n');
     expect(logged).toContain('httpStatus=401');
     expect(logged).toContain('twilioCode=20003');
+    expect(logged).toContain('accountSidSuffix=aaaa');
+    expect(logged).toContain('serviceSidSuffix=bbbb');
+    expect(logged).toContain('destinationCountry=+263');
     expect(logged).toContain('message=Authenticate failed for [phone]');
     expect(logged).not.toContain('+263771234567');
     expect(logged).not.toContain('771234567');
+    expect(logged).not.toContain(process.env.TWILIO_ACCOUNT_SID);
+    expect(logged).not.toContain(process.env.TWILIO_VERIFY_SERVICE_SID);
     expect(logged).not.toContain(process.env.TWILIO_AUTH_TOKEN);
     expect(logged).not.toContain('Authorization');
+  });
+
+  it('logs a Dutch destination as +31 without the rest of the number', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(403, { code: 21608, message: 'The number +31612345678 is unverified' }));
+
+    await expect(client.startVerification('+31612345678')).rejects.toMatchObject({
+      message: 'SMS verification is unavailable',
+    });
+
+    const logged = warn.mock.calls.map((call) => String(call[0])).join('\n');
+    expect(logged).toContain('httpStatus=403');
+    expect(logged).toContain('twilioCode=21608');
+    expect(logged).toContain('destinationCountry=+31');
+    expect(logged).not.toContain('+31612345678');
+    expect(logged).not.toContain('612345678');
+    expect(logged).not.toContain(process.env.TWILIO_AUTH_TOKEN);
   });
 
   it('redacts secrets from Twilio and network failure logs', async () => {
@@ -90,6 +111,9 @@ describe('HttpTwilioVerifyClient', () => {
     const logged = warn.mock.calls.map((call) => String(call[0])).join('\n');
     expect(logged).toContain('httpStatus=none');
     expect(logged).toContain('twilioCode=none');
+    expect(logged).toContain('accountSidSuffix=aaaa');
+    expect(logged).toContain('serviceSidSuffix=bbbb');
+    expect(logged).toContain('destinationCountry=+263');
     expect(logged).toContain('[url]');
     expect(logged).toContain('[phone]');
     expect(logged).toContain('Basic [redacted]');

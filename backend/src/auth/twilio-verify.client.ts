@@ -19,12 +19,12 @@ export class HttpTwilioVerifyClient extends TwilioVerifyClient {
       throw new TooManyRequestsException('Too many verification attempts. Try again later.');
     }
     if (!response.ok) {
-      await logHttpFailure('Verifications', response);
+      await logHttpFailure('Verifications', response, phone);
       throw new ServiceUnavailableException('SMS verification is unavailable');
     }
     const body = await readJson(response);
     if (typeof body.sid !== 'string' || body.sid.length === 0) {
-      logTwilioFailure('Verifications', response.status, null, 'Verification response did not include a sid');
+      logTwilioFailure('Verifications', response.status, null, 'Verification response did not include a sid', phone);
       throw new ServiceUnavailableException('SMS verification is unavailable');
     }
     return { sid: body.sid };
@@ -39,7 +39,7 @@ export class HttpTwilioVerifyClient extends TwilioVerifyClient {
       return false;
     }
     if (response.status >= 500) {
-      await logHttpFailure('VerificationCheck', response);
+      await logHttpFailure('VerificationCheck', response, phone);
       throw new ServiceUnavailableException('SMS verification is unavailable');
     }
     if (!response.ok) {
@@ -63,7 +63,7 @@ export class HttpTwilioVerifyClient extends TwilioVerifyClient {
         signal: AbortSignal.timeout(10_000),
       });
     } catch (error) {
-      logTwilioFailure(action, null, null, networkFailureMessage(error));
+      logTwilioFailure(action, null, null, networkFailureMessage(error), fields.To);
       throw new ServiceUnavailableException('SMS verification is unavailable');
     }
   }
@@ -83,10 +83,14 @@ function isToken(value: string): boolean {
   return value.length >= 16 && !/[\r\n]/.test(value);
 }
 
-async function logHttpFailure(action: 'Verifications' | 'VerificationCheck', response: Response): Promise<void> {
+async function logHttpFailure(
+  action: 'Verifications' | 'VerificationCheck',
+  response: Response,
+  phone: string,
+): Promise<void> {
   const body = await readJson(response);
   const message = typeof body.message === 'string' ? sanitizeMessage(body.message) : 'Twilio Verify request failed';
-  logTwilioFailure(action, response.status, twilioCode(body), message);
+  logTwilioFailure(action, response.status, twilioCode(body), message, phone);
 }
 
 function logTwilioFailure(
@@ -94,10 +98,28 @@ function logTwilioFailure(
   httpStatus: number | null,
   twilioCode: number | null,
   message: string,
+  phone: string | undefined,
 ): void {
   logger.warn(
-    `Twilio Verify ${action} failed httpStatus=${httpStatus ?? 'none'} twilioCode=${twilioCode ?? 'none'} message=${message}`,
+    `Twilio Verify ${action} failed httpStatus=${httpStatus ?? 'none'} twilioCode=${twilioCode ?? 'none'} accountSidSuffix=${sidSuffix(process.env.TWILIO_ACCOUNT_SID)} serviceSidSuffix=${sidSuffix(process.env.TWILIO_VERIFY_SERVICE_SID)} destinationCountry=${destinationCountry(phone)} message=${message}`,
   );
+}
+
+function sidSuffix(value: string | undefined): string {
+  if (!value || value.length < 4) {
+    return 'none';
+  }
+  return value.slice(-4);
+}
+
+function destinationCountry(phone: string | undefined): '+263' | '+31' | 'unknown' {
+  if (phone?.startsWith('+263')) {
+    return '+263';
+  }
+  if (phone?.startsWith('+31')) {
+    return '+31';
+  }
+  return 'unknown';
 }
 
 function twilioCode(body: Record<string, unknown>): number | null {
