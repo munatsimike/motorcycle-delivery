@@ -14,9 +14,14 @@
     "preview": {
       "distribution": "internal",
       "environment": "preview",
-      "env": {
-        "APP_VARIANT": "preview"
-      }
+      "android": {
+          "buildType": "apk"
+        },
+       
+        "env": {
+          "APP_VARIANT": "preview",
+          "EXPO_PUBLIC_API_BASE_URL": "https://motorcycle-delivery-production.up.railway.app"
+        }
     },
     "production": {
       "distribution": "store",
@@ -30,4 +35,5 @@
   "submit": {
     "production": {}
   }
-}
+  }
+

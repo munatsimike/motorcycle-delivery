@@ -14,6 +14,13 @@ export class ApiError extends Error {
   }
 }
 
+export class InvalidResponseError extends Error {
+  constructor(status: number) {
+    super(`Invalid response from server (${status}).`);
+    this.name = 'InvalidResponseError';
+  }
+}
+
 type RequestOptions = {
   accessToken?: string;
 };
@@ -103,7 +110,7 @@ async function apiRequest<TResponse>(
     }
     return data as TResponse;
   } catch (error) {
-    if (error instanceof ApiError) {
+    if (error instanceof ApiError || error instanceof InvalidResponseError) {
       throw error;
     }
     if (isAbortError(error)) {
@@ -116,9 +123,8 @@ async function apiRequest<TResponse>(
 }
 
 function apiBaseUrl(): string {
-  const env = process.env as { EXPO_PUBLIC_API_BASE_URL?: string };
   return resolveApiBaseUrl({
-    configured: env.EXPO_PUBLIC_API_BASE_URL,
+    configured: process.env.EXPO_PUBLIC_API_BASE_URL,
     dev: typeof __DEV__ === 'boolean' ? __DEV__ : false,
     platform: Platform.OS,
   });
@@ -132,7 +138,7 @@ async function readBody(response: Response): Promise<unknown> {
   try {
     return JSON.parse(text) as unknown;
   } catch {
-    throw new Error('Invalid response from server.');
+    throw new InvalidResponseError(response.status);
   }
 }
 

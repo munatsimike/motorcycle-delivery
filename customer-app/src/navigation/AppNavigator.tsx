@@ -1,4 +1,3 @@
-
 import { LinearGradient } from 'expo-linear-gradient';
 import { NavigationContainer } from '@react-navigation/native';
 import { colors, spacing, typography } from '../theme';
