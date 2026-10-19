@@ -7,15 +7,10 @@ export async function logoutCustomer(
     saveBiometricEnabled(enabled: boolean): Promise<void>;
   },
   accessToken: string | null,
-  scope: 'device' | 'all' = 'device',
 ): Promise<void> {
   try {
     if (accessToken) {
-      if (scope === 'all') {
-        await repository.logoutAll(accessToken);
-      } else {
-        await repository.logout(accessToken);
-      }
+      await repository.logout(accessToken);
     }
   } finally {
     try {

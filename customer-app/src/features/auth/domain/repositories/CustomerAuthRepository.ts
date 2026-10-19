@@ -13,5 +13,4 @@ export interface CustomerAuthRepository {
   completeRegistration(request: CompleteRegistrationRequest): Promise<AuthSession>;
   refresh(refreshToken: string): Promise<AuthSession>;
   logout(accessToken: string): Promise<void>;
-  logoutAll(accessToken: string): Promise<void>;
 }

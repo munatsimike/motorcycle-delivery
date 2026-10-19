@@ -35,10 +35,6 @@ export class CustomerAuthApiRepository implements CustomerAuthRepository {
   async logout(accessToken: string): Promise<void> {
     await apiPost<unknown>('/auth/session/logout', {}, { accessToken });
   }
-
-  async logoutAll(accessToken: string): Promise<void> {
-    await apiPost<unknown>('/auth/session/logout-all', {}, { accessToken });
-  }
 }
 
 export const customerAuthRepository = new CustomerAuthApiRepository();

@@ -34,20 +34,20 @@ export default function ProfileScreen() {
   const { account, isLoading, error } = useCustomerAccount(accessToken);
   const navigation = useNavigation<ProfileNavigation>();
   const insets = useSafeAreaInsets();
-  const [signingOut, setSigningOut] = useState<'device' | 'all' | null>(null);
+  const [signingOut, setSigningOut] = useState(false);
   const [isUpdatingBiometric, setIsUpdatingBiometric] = useState(false);
   const [biometricError, setBiometricError] = useState<string | null>(null);
   const kindLabel = account?.kind === 'BUSINESS' ? 'Business' : 'Individual';
 
-  async function handleLogout(scope: 'device' | 'all') {
+  async function handleLogout() {
     if (signingOut) {
       return;
     }
-    setSigningOut(scope);
+    setSigningOut(true);
     try {
-      await logout(scope);
+      await logout();
     } finally {
-      setSigningOut(null);
+      setSigningOut(false);
     }
   }
 
@@ -181,20 +181,10 @@ export default function ProfileScreen() {
             label="Log out"
             icon="logout"
             tone="danger"
-            loading={signingOut === 'device'}
-            disabled={signingOut !== null}
+            loading={signingOut}
+            disabled={signingOut}
             onPress={() => {
-              void handleLogout('device');
-            }}
-          />
-          <SecondaryButton
-            label="Log out of all devices"
-            icon="logout"
-            tone="danger"
-            loading={signingOut === 'all'}
-            disabled={signingOut !== null}
-            onPress={() => {
-              void handleLogout('all');
+              void handleLogout();
             }}
           />
         </View>

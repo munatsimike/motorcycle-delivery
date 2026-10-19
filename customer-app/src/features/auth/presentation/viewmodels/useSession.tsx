@@ -30,7 +30,7 @@ type SessionContextValue = {
   customerId: string | null;
   saveSession: (session: AuthSession) => Promise<void>;
   confirmCustomer: (customerId: string) => Promise<void>;
-  logout: (scope?: 'device' | 'all') => Promise<void>;
+  logout: () => Promise<void>;
   unlock: () => Promise<'restored' | 'cancelled' | 'offline' | 'signed-out'>;
   retryRestore: () => Promise<void>;
   acceptBiometricOffer: () => Promise<BiometricUpdate>;
@@ -167,7 +167,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       await saveCustomerIdentity(update.identity);
       setCustomerId(update.identity.customerId);
     },
-    async logout(scope: 'device' | 'all' = 'device') {
+    async logout() {
       const knownCustomerId = customerId;
       const accessToken = session?.accessToken ?? null;
       setCustomerId(null);
@@ -183,7 +183,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         // Signing out still continues when the saved deliveries cannot be removed.
       }
       try {
-        await logoutCustomer(customerAuthRepository, secureSessionStore, accessToken, scope);
+        await logoutCustomer(customerAuthRepository, secureSessionStore, accessToken);
       } catch {
         await secureSessionStore.saveBiometricEnabled(false);
         await secureSessionStore.clear();

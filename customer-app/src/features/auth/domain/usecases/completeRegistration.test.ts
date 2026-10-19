@@ -81,8 +81,5 @@ function fakeRepository(): CustomerAuthRepository & { completed: CompleteRegistr
     logout(): Promise<void> {
       throw new Error('not used');
     },
-    logoutAll(): Promise<void> {
-      throw new Error('not used');
-    },
   };
 }

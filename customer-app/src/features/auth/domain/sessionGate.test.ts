@@ -57,7 +57,6 @@ function repository(refresh: CustomerAuthRepository['refresh']): CustomerAuthRep
     completeRegistration: () => Promise.reject(new Error('unused')),
     refresh,
     logout: () => Promise.resolve(),
-    logoutAll: () => Promise.resolve(),
   };
 }
 
@@ -181,21 +180,17 @@ describe('logoutCustomer', () => {
       scope = 'device';
       return Promise.resolve();
     };
-    auth.logoutAll = () => {
-      scope = 'all';
-      return Promise.resolve();
-    };
-    await logoutCustomer(auth, store, 'access-token', 'device');
+    await logoutCustomer(auth, store, 'access-token');
     expect(scope).toBe('device');
     expect(await store.load()).toBeNull();
     expect(store.biometricEnabled()).toBe(false);
   });
 
-  it('revokes every device session and still clears local state when the request fails', async () => {
+  it('still clears local state when this device cannot reach the server', async () => {
     const store = memoryStore(session(60_000, 60_000), true);
     const auth = repository(() => Promise.reject(new Error('unused')));
-    auth.logoutAll = () => Promise.reject(new Error('offline'));
-    await expect(logoutCustomer(auth, store, 'access-token', 'all')).rejects.toThrow('offline');
+    auth.logout = () => Promise.reject(new Error('offline'));
+    await expect(logoutCustomer(auth, store, 'access-token')).rejects.toThrow('offline');
     expect(await store.load()).toBeNull();
     expect(store.biometricEnabled()).toBe(false);
   });
