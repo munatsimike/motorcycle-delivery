@@ -7,11 +7,15 @@ import okhttp3.OkHttpClient
 import okhttp3.ResponseBody
 import retrofit2.Response
 import retrofit2.Retrofit
+import okhttp3.MultipartBody
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.Header
+import retrofit2.http.Multipart
+import retrofit2.http.PATCH
 import retrofit2.http.POST
 import retrofit2.http.PUT
+import retrofit2.http.Part
 import retrofit2.http.Path
 import java.util.concurrent.TimeUnit
 
@@ -41,8 +45,33 @@ interface AuthService {
 }
 
 interface RiderService {
+    @GET("riders/me/profile")
+    suspend fun profile(): RiderProfileResponse
+
     @GET("riders/me/onboarding")
     suspend fun onboarding(): OnboardingResponse
+
+    @GET("riders/me/licence-image")
+    suspend fun licenceImage(): LicenceImageResponse
+
+    @Multipart
+    @POST("riders/me/licence-image")
+    suspend fun uploadLicence(@Part image: MultipartBody.Part): LicenceImageResponse
+
+    @GET("riders/me/motorcycles")
+    suspend fun motorcycles(): List<MotorcycleResponse>
+
+    @POST("riders/me/motorcycles")
+    suspend fun registerMotorcycle(@Body body: MotorcycleRequest): MotorcycleResponse
+
+    @PATCH("riders/me/motorcycles/{id}")
+    suspend fun updateMotorcycle(
+        @Path("id") id: String,
+        @Body body: MotorcycleRequest,
+    ): MotorcycleResponse
+
+    @PUT("riders/me/motorcycles/{id}/active")
+    suspend fun selectMotorcycle(@Path("id") id: String): MotorcycleResponse
 
     @POST("riders/me/availability/online")
     suspend fun online(): AvailabilityResponse

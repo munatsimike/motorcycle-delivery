@@ -1,28 +1,38 @@
 package com.riders.rider.core.design
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Typography
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.Color
-
-private val Green = Color(0xFF169B62)
-private val GreenDark = Color(0xFF087A4A)
-private val Background = Color(0xFFFFFFFF)
-private val Text = Color(0xFF17211D)
 
 private val Colors = lightColorScheme(
-    primary = Green,
-    onPrimary = Color.White,
-    primaryContainer = Color(0xFFE9F8EF),
-    secondary = GreenDark,
-    background = Background,
-    surface = Color(0xFFF1FAF5),
-    onBackground = Text,
-    onSurface = Text,
-    error = Color(0xFFD92D20),
+    primary = RidersColors.primary,
+    onPrimary = RidersColors.textInverse,
+    primaryContainer = RidersColors.primaryLight,
+    onPrimaryContainer = RidersColors.primaryDark,
+    secondary = RidersColors.primaryDark,
+    onSecondary = RidersColors.textInverse,
+    background = RidersColors.background,
+    onBackground = RidersColors.text,
+    surface = RidersColors.surface,
+    onSurface = RidersColors.text,
+    onSurfaceVariant = RidersColors.textSecondary,
+    outline = RidersColors.border,
+    error = RidersColors.error,
+    onError = RidersColors.textInverse,
+)
+
+private val Type = Typography(
+    headlineLarge = RidersType.title,
+    headlineSmall = RidersType.heading,
+    titleMedium = RidersType.bodyStrong,
+    bodyLarge = RidersType.body,
+    bodyMedium = RidersType.caption,
+    labelLarge = RidersType.button,
+    labelSmall = RidersType.small,
 )
 
 @Composable
 fun RiderTheme(content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = Colors, content = content)
+    MaterialTheme(colorScheme = Colors, typography = Type, content = content)
 }

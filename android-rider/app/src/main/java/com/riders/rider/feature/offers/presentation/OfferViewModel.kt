@@ -11,13 +11,14 @@ import com.riders.rider.feature.delivery.data.ActiveDeliveryStore
 import com.riders.rider.feature.delivery.domain.toActiveDelivery
 import com.riders.rider.feature.offers.data.OfferRepository
 import com.riders.rider.feature.offers.domain.AcceptedDelivery
+import com.riders.rider.feature.offers.domain.OfferBoard
+import com.riders.rider.feature.offers.domain.offerBoardAfterLoad
+import com.riders.rider.feature.offers.domain.offerIsExpired
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 data class OfferUi(
@@ -38,12 +39,37 @@ class OfferViewModel @Inject constructor(
 ) : ViewModel() {
     private val state = MutableStateFlow(OfferUi())
     val ui: StateFlow<OfferUi> = state.asStateFlow()
+    private var loadingRequest = false
 
-    init {
+    fun refresh() {
+        if (loadingRequest) {
+            return
+        }
+        loadingRequest = true
         viewModelScope.launch {
-            while (isActive) {
-                refresh()
-                delay(4_000)
+            try {
+                val previous = state.value
+                state.value = previous.copy(loading = true, error = null)
+                when (val result = offers.list()) {
+                    is ApiResult.Ok -> {
+                        val board = offerBoardAfterLoad(OfferBoard(previous.offers.size, loading = true), result.value.size, null)
+                        val stillVisible = previous.selected?.takeIf { selected ->
+                            result.value.any { it.assignmentId == selected.assignmentId }
+                        }
+                        state.value = previous.copy(
+                            loading = board.loading,
+                            offers = result.value,
+                            selected = stillVisible,
+                            error = board.error,
+                        )
+                    }
+                    is ApiResult.Err -> {
+                        val board = offerBoardAfterLoad(OfferBoard(previous.offers.size), null, result.error.text())
+                        state.value = previous.copy(loading = board.loading, error = board.error)
+                    }
+                }
+            } finally {
+                loadingRequest = false
             }
         }
     }
@@ -53,6 +79,10 @@ class OfferViewModel @Inject constructor(
     }
 
     fun accept(offer: OfferResponse) {
+        if (offerIsExpired(offer.expiresAt, System.currentTimeMillis())) {
+            state.value = state.value.copy(error = "This offer has expired")
+            return
+        }
         if (!freshness.canAccept(System.currentTimeMillis())) {
             state.value = state.value.copy(error = "A fresh location is required")
             return
@@ -84,13 +114,6 @@ class OfferViewModel @Inject constructor(
             } finally {
                 state.value = state.value.copy(accepting = false)
             }
-        }
-    }
-
-    private suspend fun refresh() {
-        when (val result = offers.list()) {
-            is ApiResult.Ok -> state.value = state.value.copy(loading = false, offers = result.value, error = null)
-            is ApiResult.Err -> state.value = state.value.copy(loading = false, error = result.error.text())
         }
     }
 }

@@ -11,6 +11,8 @@ import com.riders.rider.core.network.ApiError
 import com.riders.rider.core.network.SessionStorageException
 import com.riders.rider.core.session.AuthSession
 import com.riders.rider.core.session.SessionStore
+import com.riders.rider.feature.auth.domain.BiometricPreference
+import com.riders.rider.feature.auth.domain.MemoryBiometricPreference
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
@@ -20,17 +22,18 @@ import kotlinx.coroutines.withContext
 class AuthRepository @Inject constructor(
     private val auth: AuthService,
     private val sessions: SessionStore,
+    private val biometrics: BiometricPreference = MemoryBiometricPreference(),
 ) {
     suspend fun requestLogin(phone: String): ApiResult<Unit> {
-        return apiCall { auth.requestLogin(PhoneRequest(phone)) }.map { Unit }
+        return apiCall(establishedSession = false) { auth.requestLogin(PhoneRequest(phone)) }.map { Unit }
     }
 
     suspend fun requestRegistration(phone: String, fullName: String): ApiResult<Unit> {
-        return apiCall { auth.requestRegistration(RegisterRequest(phone, fullName)) }.map { Unit }
+        return apiCall(establishedSession = false) { auth.requestRegistration(RegisterRequest(phone, fullName)) }.map { Unit }
     }
 
     suspend fun verify(flow: String, phone: String, code: String): ApiResult<Unit> {
-        val result = apiCall {
+        val result = apiCall(establishedSession = false) {
             if (flow == "registration") {
                 auth.verifyRegistration(VerifyRequest(phone, code))
             } else {
@@ -53,6 +56,7 @@ class AuthRepository @Inject constructor(
             // Local sign-out still clears the session when the server cannot be reached.
         }
         sessions.clear()
+        biometrics.clear()
     }
 }
 

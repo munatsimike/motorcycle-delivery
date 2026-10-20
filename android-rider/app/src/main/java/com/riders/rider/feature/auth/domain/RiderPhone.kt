@@ -2,6 +2,16 @@ package com.riders.rider.feature.auth.domain
 
 private val ZimbabweMobile = Regex("^\\+2637\\d{8}$")
 
+fun riderPhoneEntry(local: String): String {
+    val trimmed = local.trim()
+    if (trimmed.isEmpty()) {
+        return trimmed
+    }
+    val head = trimmed.replace(Regex("[\\s().-]"), "")
+    val alreadyQualified = head.startsWith("+") || head.startsWith("00") || head.startsWith("263") || head.startsWith("0")
+    return if (alreadyQualified) trimmed else "+263$head"
+}
+
 fun normalizeRiderPhone(input: String): String {
     val compact = input.trim().replace(Regex("[\\s().-]"), "")
     if (compact.isEmpty()) {

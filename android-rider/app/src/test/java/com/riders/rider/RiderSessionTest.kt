@@ -17,6 +17,7 @@ import com.riders.rider.core.session.AuthSession
 import com.riders.rider.core.session.MemorySessionStore
 import com.riders.rider.core.session.SessionStore
 import com.riders.rider.feature.auth.data.AuthRepository
+import com.riders.rider.feature.auth.domain.MemoryBiometricPreference
 import com.riders.rider.feature.offers.domain.AcceptKeys
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -32,6 +33,7 @@ import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
 import okhttp3.mockwebserver.SocketPolicy
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -54,6 +56,53 @@ class RiderSessionTest {
             val body = recorded.body.readUtf8()
             assertTrue(body.contains("+263771234567"))
             assertTrue(!body.contains("code"))
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun invalidOtpShowsTheServerMessageAndDoesNotSaveASession() = runTest {
+        val server = MockWebServer()
+        server.enqueue(json("""{"message":"Verification code is invalid","error":"Unauthorized","statusCode":401}""", 401))
+        server.start()
+        try {
+            val store = MemorySessionStore()
+            val result = AuthRepository(server.auth(), store).verify("login", "+263771234567", "000000")
+            assertEquals("Verification code is invalid", (result as ApiResult.Err).error.text())
+            assertNull(store.read())
+            assertEquals("/auth/rider/login/verify", server.takeRequest().path)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun rejectedRegistrationShowsTheServerMessage() = runTest {
+        val server = MockWebServer()
+        server.enqueue(json("""{"message":"Authentication failed","error":"Unauthorized","statusCode":401}""", 401))
+        server.start()
+        try {
+            val store = MemorySessionStore()
+            val result = AuthRepository(server.auth(), store).verify("registration", "+263771234567", "123456")
+            assertEquals("Authentication failed", (result as ApiResult.Err).error.text())
+            assertNull(store.read())
+            assertEquals("/auth/rider/register/verify", server.takeRequest().path)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun verifyNetworkFailureDoesNotSaveASession() = runTest {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START))
+        server.start()
+        try {
+            val store = MemorySessionStore()
+            val result = AuthRepository(server.auth(), store).verify("login", "+263771234567", "123456")
+            assertEquals(ApiError.Network, (result as ApiResult.Err).error)
+            assertNull(store.read())
         } finally {
             server.shutdown()
         }
@@ -196,6 +245,24 @@ class RiderSessionTest {
             val result = AuthRepository(server.auth(), store).verify("login", "+263771234567", "123456")
             assertEquals(SessionStorageException.MESSAGE, (result as ApiResult.Err).error.text())
             assertNull(store.read())
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun logoutClearsTheSessionAndBiometricPreference() = runTest {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setResponseCode(500))
+        server.start()
+        try {
+            val store = MemorySessionStore(AuthSession("access-1", "refresh-1", "soon", "later"))
+            val biometric = MemoryBiometricPreference()
+            biometric.enable()
+            AuthRepository(server.auth(), store, biometric).logout()
+            assertNull(store.read())
+            assertFalse(biometric.isEnabled())
+            assertFalse(biometric.isDeclined())
         } finally {
             server.shutdown()
         }

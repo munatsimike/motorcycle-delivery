@@ -4,11 +4,11 @@ import retrofit2.HttpException
 import java.io.IOException
 import java.io.InterruptedIOException
 
-suspend fun <T> apiCall(block: suspend () -> T): ApiResult<T> {
+suspend fun <T> apiCall(establishedSession: Boolean = true, block: suspend () -> T): ApiResult<T> {
     return try {
         ApiResult.Ok(block())
     } catch (error: HttpException) {
-        ApiResult.Err(mapHttpFailure(error.code(), error.response()?.errorBody()?.string()))
+        ApiResult.Err(mapHttpFailure(error.code(), error.response()?.errorBody()?.string(), establishedSession))
     } catch (error: IOException) {
         ApiResult.Err(ioFailure(error))
     }

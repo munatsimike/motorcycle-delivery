@@ -25,6 +25,7 @@ import kotlinx.coroutines.launch
 
 data class HomeUi(
     val loading: Boolean = true,
+    val changingAvailability: Boolean = false,
     val onboarding: RiderOnboarding? = null,
     val readiness: RiderReadiness? = null,
     val active: ActiveDelivery? = null,
@@ -43,75 +44,124 @@ class HomeViewModel @Inject constructor(
 ) : ViewModel() {
     private val state = MutableStateFlow(HomeUi())
     val ui: StateFlow<HomeUi> = state.asStateFlow()
+    private var dashboardBusy = false
 
     fun refresh() {
+        if (dashboardBusy) {
+            return
+        }
+        dashboardBusy = true
         viewModelScope.launch {
-            val stored = deliveries.read()
-            val previous = state.value
-            state.value = previous.copy(
-                loading = true,
-                error = null,
-                active = stored,
-                shift = homeShift(
-                    previous.onboarding?.availability,
-                    previous.readiness?.canAcceptDeliveries == true,
-                    stored,
-                    recovering = true,
-                ),
-            )
-            val onboard = onboarding.load()
-            val recovery = DeliveryRecoveryCoordinator(
-                read = deliveries::read,
-                write = deliveries::write,
-                clear = deliveries::clear,
-                lookup = assignments::lookup,
-            ).reconcile()
-            val active = recovery.visible
-            val availabilityName = (onboard as? ApiResult.Ok)?.value?.availability
-            val readiness = (onboard as? ApiResult.Ok)?.value?.let { riderReadiness(it) }
-            if (onboard is ApiResult.Ok) {
-                availability.applySharing(onboard.value.availability)
+            try {
+                load(confirmedAvailability = null, notice = null)
+            } finally {
+                dashboardBusy = false
             }
-            val offline = recovery.offline || (onboard is ApiResult.Err && onboard.error.isRecoverable())
-            val shift = homeShift(
-                availabilityName ?: previous.onboarding?.availability,
-                if (readiness != null) readiness.canAcceptDeliveries else previous.readiness?.canAcceptDeliveries == true,
-                active,
-                recovering = false,
-                recoveryFailed = offline,
-            )
-            state.value = HomeUi(
-                loading = false,
-                onboarding = (onboard as? ApiResult.Ok)?.value ?: previous.onboarding,
-                readiness = readiness ?: previous.readiness,
-                active = active,
-                shift = shift,
-                error = when {
-                    onboard is ApiResult.Err && !onboard.error.isRecoverable() -> onboard.error.text()
-                    recovery.offline && shift.recoveryMessage == null -> "Your current delivery could not be loaded. Check your connection and try again."
-                    onboard is ApiResult.Err && shift.recoveryMessage == null -> onboard.error.text()
-                    else -> null
-                },
-            )
         }
     }
 
     fun goOnline() {
+        changeAvailability(online = true)
+    }
+
+    fun goOffline() {
+        changeAvailability(online = false)
+    }
+
+    private fun changeAvailability(online: Boolean) {
+        val started = beginAvailabilityChange(
+            AvailabilityChange(
+                availability = state.value.onboarding?.availability,
+                changing = dashboardBusy || state.value.changingAvailability,
+            ),
+        ) ?: return
+        dashboardBusy = true
+        state.value = state.value.copy(changingAvailability = started.changing, error = null)
         viewModelScope.launch {
-            when (val result = availability.online()) {
-                is ApiResult.Ok -> refresh()
-                is ApiResult.Err -> state.value = state.value.copy(error = result.error.text())
+            try {
+                val result = if (online) availability.online() else availability.offline()
+                when (result) {
+                    is ApiResult.Ok -> {
+                        val confirmed = confirmAvailability(
+                            AvailabilityChange(started.availability, changing = true),
+                            result.value.availability,
+                            result.value.message,
+                        )
+                        load(confirmed.availability, confirmed.error)
+                    }
+                    is ApiResult.Err -> {
+                        val failed = failAvailability(
+                            AvailabilityChange(started.availability, changing = true),
+                            result.error.text(),
+                        )
+                        state.value = state.value.copy(changingAvailability = failed.changing, error = failed.error)
+                    }
+                }
+            } finally {
+                dashboardBusy = false
             }
         }
     }
 
-    fun goOffline() {
-        viewModelScope.launch {
-            when (val result = availability.offline()) {
-                is ApiResult.Ok -> refresh()
-                is ApiResult.Err -> state.value = state.value.copy(error = result.error.text())
-            }
+    private suspend fun load(confirmedAvailability: String?, notice: String?) {
+        val stored = deliveries.read()
+        val previous = state.value
+        state.value = previous.copy(
+            loading = true,
+            changingAvailability = confirmedAvailability != null || previous.changingAvailability,
+            error = null,
+            active = stored,
+            shift = homeShift(
+                confirmedAvailability ?: previous.onboarding?.availability,
+                previous.readiness?.canAcceptDeliveries == true,
+                stored,
+                recovering = true,
+            ),
+        )
+        val onboard = onboarding.load()
+        val recovery = DeliveryRecoveryCoordinator(
+            read = deliveries::read,
+            write = deliveries::write,
+            clear = deliveries::clear,
+            lookup = assignments::lookup,
+        ).reconcile()
+        val active = recovery.visible
+        val loaded = (onboard as? ApiResult.Ok)?.value
+        val current = previous.onboarding
+        val shown = when {
+            loaded != null && confirmedAvailability != null && loaded.availability != "BUSY" ->
+                loaded.copy(availability = confirmedAvailability)
+            loaded != null -> loaded
+            current != null && confirmedAvailability != null -> current.copy(availability = confirmedAvailability)
+            else -> current
         }
+        val readiness = shown?.let { riderReadiness(it) }
+        if (shown != null) {
+            availability.applySharing(shown.availability)
+        }
+        val offline = recovery.offline || (onboard is ApiResult.Err && onboard.error.isRecoverable())
+        val shift = homeShift(
+            shown?.availability,
+            readiness?.canAcceptDeliveries == true,
+            active,
+            recovering = false,
+            recoveryFailed = offline,
+        )
+        state.value = HomeUi(
+            loading = false,
+            changingAvailability = false,
+            onboarding = shown,
+            readiness = readiness ?: previous.readiness,
+            active = active,
+            shift = shift,
+            error = when {
+                !notice.isNullOrBlank() -> notice
+                onboard is ApiResult.Err && !onboard.error.isRecoverable() -> onboard.error.text()
+                recovery.offline && shift.recoveryMessage == null -> "Your current delivery could not be loaded. Check your connection and try again."
+                onboard is ApiResult.Err && shift.recoveryMessage == null -> onboard.error.text()
+                else -> null
+            },
+        )
     }
 
     fun logout() {

@@ -102,6 +102,7 @@ dependencies {
     implementation(libs.serialization.converter)
     implementation(libs.okhttp)
     implementation(libs.security.crypto)
+    implementation(libs.biometric)
     implementation(libs.coroutines)
     implementation(libs.play.location)
     debugImplementation(libs.compose.ui.tooling)

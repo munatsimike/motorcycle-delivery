@@ -13,19 +13,28 @@ data class RiderOnboarding(
 
 data class RiderReadiness(
     val canAcceptDeliveries: Boolean,
+    val canGoOnline: Boolean,
     val availabilityLabel: String,
     val licenceLabel: String,
     val approvalLabel: String,
     val message: String,
 )
 
+fun needsOnboarding(onboarding: RiderOnboarding): Boolean {
+    return onboarding.approvalStatus != "APPROVED"
+        || onboarding.licenceVerificationStatus != "VERIFIED"
+        || !onboarding.activeVerifiedMotorcycle
+}
+
 fun riderReadiness(onboarding: RiderOnboarding): RiderReadiness {
     val approved = onboarding.approvalStatus == "APPROVED"
     val licensed = onboarding.licenceVerificationStatus == "VERIFIED"
     val availability = if (approved) onboarding.availability else "OFFLINE"
-    val ready = approved && licensed && onboarding.activeVerifiedMotorcycle && availability == "AVAILABLE"
+    val motorcycleReady = onboarding.activeVerifiedMotorcycle
+    val ready = approved && licensed && motorcycleReady && availability == "AVAILABLE"
     return RiderReadiness(
         canAcceptDeliveries = ready,
+        canGoOnline = approved && licensed && motorcycleReady && availability == "OFFLINE",
         availabilityLabel = availabilityLabel(availability),
         licenceLabel = licenceLabel(onboarding.licenceVerificationStatus),
         approvalLabel = approvalLabel(onboarding.approvalStatus),

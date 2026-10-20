@@ -20,7 +20,7 @@ sealed interface ApiError {
     data object SessionEnded : ApiError
     data object Forbidden : ApiError
     data class Conflict(val message: String) : ApiError
-    data object TooManyRequests : ApiError
+    data class TooManyRequests(val message: String) : ApiError
     data object Unavailable : ApiError
     data class Unexpected(val message: String) : ApiError
 }
@@ -32,20 +32,26 @@ fun ApiError.text(): String = when (this) {
     ApiError.SessionEnded -> "Your session has ended. Sign in again."
     ApiError.Forbidden -> "Rider access is required."
     is ApiError.Conflict -> message
-    ApiError.TooManyRequests -> "Too many verification attempts. Try again later."
+    is ApiError.TooManyRequests -> message
     ApiError.Unavailable -> "SMS verification is unavailable."
     is ApiError.Unexpected -> message
 }
 
-fun mapHttpFailure(code: Int, body: String?): ApiError {
+fun mapHttpFailure(code: Int, body: String?, establishedSession: Boolean = true): ApiError {
     val message = apiMessage(body)
     return when (code) {
         400 -> ApiError.Validation(message ?: "The request could not be completed.")
-        401 -> ApiError.SessionEnded
+        401 -> if (establishedSession) {
+            ApiError.SessionEnded
+        } else {
+            ApiError.Validation(message ?: "Authentication failed")
+        }
         403 -> ApiError.Forbidden
         409 -> ApiError.Conflict(message ?: "This request conflicts with the current delivery.")
-        429 -> ApiError.TooManyRequests
-        503 -> ApiError.Unavailable
+        413 -> ApiError.Validation(message ?: "Licence image is too large")
+        415 -> ApiError.Validation(message ?: "Licence image must be a JPEG, PNG, or WebP file")
+        429 -> ApiError.TooManyRequests(message ?: "Too many verification attempts. Try again later.")
+        503 -> message?.let { ApiError.Unexpected(it) } ?: ApiError.Unavailable
         else -> ApiError.Unexpected(message ?: "The request could not be completed.")
     }
 }
@@ -90,6 +96,40 @@ data class VerifyRequest(val phone: String, val code: String)
 
 @Serializable
 data class RefreshRequest(val refreshToken: String)
+
+@Serializable
+data class RiderProfileResponse(
+    val fullName: String,
+    val phone: String,
+)
+
+@Serializable
+data class LicenceImageResponse(
+    val id: String,
+    val reviewStatus: String,
+    val contentType: String,
+    val byteSize: Int,
+    val uploadedAt: String,
+)
+
+@Serializable
+data class MotorcycleResponse(
+    val id: String,
+    val registrationNumber: String,
+    val make: String,
+    val model: String,
+    val colour: String,
+    val verificationStatus: String,
+    val isActive: Boolean,
+)
+
+@Serializable
+data class MotorcycleRequest(
+    val registrationNumber: String,
+    val make: String,
+    val model: String,
+    val colour: String,
+)
 
 @Serializable
 data class OnboardingResponse(
