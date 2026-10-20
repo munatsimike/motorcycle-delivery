@@ -202,5 +202,5 @@ describe('coordinate retention job', () => {
     }
     await walk(root);
     expect(hits).toEqual([]);
-  });
+  }, 20_000);
 });

@@ -1,13 +1,20 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import {
+  AccountStatus,
   LicenceReviewDecision,
   MotorcycleVerificationStatus,
   RiderApprovalStatus,
   RiderAvailability,
   RiderVerificationStatus,
+  UserRole,
 } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { RiderContext } from '../auth/rider-access.service.js';
+
+export type RiderProfileResponse = {
+  fullName: string;
+  phone: string;
+};
 
 export type RiderOnboardingResponse = {
   licenceVerificationStatus: RiderVerificationStatus;
@@ -23,6 +30,17 @@ export type RiderOnboardingResponse = {
 @Injectable()
 export class RiderOnboardingService {
   constructor(private readonly prisma: PrismaService) {}
+
+  async profile(rider: RiderContext): Promise<RiderProfileResponse> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: rider.userId },
+      select: { fullName: true, phone: true, role: true, accountStatus: true },
+    });
+    if (!user || user.role !== UserRole.RIDER || user.accountStatus !== AccountStatus.ACTIVE) {
+      throw new ForbiddenException('Rider access is required');
+    }
+    return { fullName: user.fullName, phone: user.phone };
+  }
 
   async current(rider: RiderContext): Promise<RiderOnboardingResponse> {
     const profile = await this.prisma.riderProfile.findUnique({ where: { id: rider.riderProfileId } });

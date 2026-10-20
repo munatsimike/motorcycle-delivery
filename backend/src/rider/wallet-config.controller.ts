@@ -1,13 +1,21 @@
 import { Body, Controller, ForbiddenException, Get, HttpCode, Put, Req, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiBody, ApiForbiddenResponse, ApiOkResponse, ApiOperation, ApiTags, ApiUnauthorizedResponse } from '@nestjs/swagger';
 import { AdminAccessGuard, type AdminRequest } from '../auth/admin-access.guard.js';
+import { WalletConfigBody, WalletConfigResponse } from '../openapi/schemas.js';
 import { WalletConfigService } from './wallet-config.service.js';
 
+@ApiTags('Admin wallet')
+@ApiBearerAuth('bearer')
+@ApiUnauthorizedResponse({ description: 'Authentication failed' })
+@ApiForbiddenResponse({ description: 'Admin access is required' })
 @Controller('admin/wallet-config')
 @UseGuards(AdminAccessGuard)
 export class WalletConfigController {
   constructor(private readonly wallets: WalletConfigService) {}
 
   @Get()
+  @ApiOperation({ summary: 'Read the active wallet configuration' })
+  @ApiOkResponse({ type: WalletConfigResponse })
   current(@Req() request: AdminRequest) {
     requiredAdmin(request);
     return this.wallets.current();
@@ -15,6 +23,9 @@ export class WalletConfigController {
 
   @Put()
   @HttpCode(200)
+  @ApiOperation({ summary: 'Replace the active wallet configuration' })
+  @ApiBody({ type: WalletConfigBody })
+  @ApiOkResponse({ type: WalletConfigResponse })
   replace(@Req() request: AdminRequest, @Body() body: unknown) {
     const admin = requiredAdmin(request);
     return this.wallets.replace(admin, body);

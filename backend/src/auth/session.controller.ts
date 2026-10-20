@@ -1,7 +1,10 @@
 import { Body, Controller, Headers, HttpCode, Post, UnauthorizedException } from '@nestjs/common';
+import { ApiBearerAuth, ApiBody, ApiNoContentResponse, ApiOkResponse, ApiOperation, ApiTags, ApiUnauthorizedResponse } from '@nestjs/swagger';
+import { RefreshBody, SessionResponse } from '../openapi/schemas.js';
 import { AccessTokenService, readBearerToken } from './access-token.service.js';
 import { SessionService } from './session.service.js';
 
+@ApiTags('Sessions')
 @Controller('auth/session')
 export class SessionController {
   constructor(
@@ -11,6 +14,10 @@ export class SessionController {
 
   @Post('refresh')
   @HttpCode(200)
+  @ApiOperation({ summary: 'Rotate the refresh token and issue a new session' })
+  @ApiBody({ type: RefreshBody })
+  @ApiOkResponse({ type: SessionResponse })
+  @ApiUnauthorizedResponse({ description: 'Authentication failed' })
   refresh(@Body() body: unknown) {
     if (!isRecord(body) || typeof body.refreshToken !== 'string') {
       throw new UnauthorizedException('Authentication failed');
@@ -20,6 +27,10 @@ export class SessionController {
 
   @Post('logout')
   @HttpCode(204)
+  @ApiBearerAuth('bearer')
+  @ApiOperation({ summary: 'Revoke the current session' })
+  @ApiNoContentResponse({ description: 'The presented session was revoked. An expired access token is still accepted.' })
+  @ApiUnauthorizedResponse({ description: 'Authentication failed' })
   async logout(@Headers('authorization') authorization?: string | string[]) {
     const claims = this.accessTokens.verify(readBearerToken(singleHeader(authorization)), new Date(), {
       ignoreExpiration: true,
@@ -29,6 +40,10 @@ export class SessionController {
 
   @Post('logout-all')
   @HttpCode(204)
+  @ApiBearerAuth('bearer')
+  @ApiOperation({ summary: 'Revoke every active session for the signed-in user' })
+  @ApiNoContentResponse({ description: 'Every active session for the user was revoked.' })
+  @ApiUnauthorizedResponse({ description: 'Authentication failed' })
   async logoutAll(@Headers('authorization') authorization?: string | string[]) {
     const claims = this.accessTokens.verify(readBearerToken(singleHeader(authorization)), new Date(), {
       ignoreExpiration: true,

@@ -1,8 +1,8 @@
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
-import helmet from 'helmet';
 import { AppModule } from './app.module.js';
 import { loadBackendEnv } from './load-env.js';
+import { configureHttpSecurity, configureSwagger } from './openapi/setup.js';
 
 loadBackendEnv();
 const startup = new Logger('Bootstrap');
@@ -12,7 +12,8 @@ startup.log(process.env.GOOGLE_MAPS_API_KEY?.trim() ? 'Google Maps API key is co
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  app.use(helmet());
+  configureHttpSecurity(app);
+  configureSwagger(app);
 
   app.enableShutdownHooks();
   await app.listen(process.env.PORT ?? 3000);

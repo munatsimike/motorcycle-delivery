@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AccountStatus,
   LicenceReviewDecision,
   MotorcycleVerificationStatus,
   RiderApprovalStatus,
   RiderAvailability,
   RiderVerificationStatus,
+  UserRole,
 } from '../generated/prisma/client.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import type { RiderContext } from '../auth/rider-access.service.js';
@@ -44,6 +46,21 @@ describe('rider onboarding', () => {
     expect(json).not.toContain('reviewerId');
     expect(json).not.toContain('objectKey');
     expect(json).not.toContain('bucket');
+  });
+
+  it('returns the registered name and phone without a write', async () => {
+    const ctx = context();
+    await expect(ctx.service.profile(RIDER)).resolves.toEqual({
+      fullName: 'Tendai Moyo',
+      phone: '+263771234567',
+    });
+    expect(ctx.userUpdates).toBe(0);
+  });
+
+  it('refuses a profile read when the account is not an active rider', async () => {
+    const ctx = context();
+    ctx.user.accountStatus = AccountStatus.DEACTIVATED;
+    await expect(ctx.service.profile(RIDER)).rejects.toThrow('Rider access is required');
   });
 
   it('hides an older rejection after the latest review verifies the licence', async () => {
@@ -110,7 +127,24 @@ function context() {
   }];
   const reviews: ReviewRow[] = [];
   const motorcycles: Array<{ riderProfileId: string; verificationStatus: MotorcycleVerificationStatus; isActive: boolean }> = [];
+  const user = {
+    id: 'user-1',
+    fullName: 'Tendai Moyo',
+    phone: '+263771234567',
+    role: UserRole.RIDER,
+    accountStatus: AccountStatus.ACTIVE,
+  };
+  let userUpdates = 0;
   const db = {
+    user: {
+      async findUnique({ where }: { where: { id: string } }) {
+        return user.id === where.id ? user : null;
+      },
+      async update() {
+        userUpdates += 1;
+        return user;
+      },
+    },
     riderProfile: {
       async findUnique({ where }: { where: { id: string } }) {
         return profiles.find((profile) => profile.id === where.id) ?? null;
@@ -139,6 +173,10 @@ function context() {
     motorcycles,
     get profile() {
       return profiles[0];
+    },
+    user,
+    get userUpdates() {
+      return userUpdates;
     },
   };
 }
