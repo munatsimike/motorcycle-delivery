@@ -18,6 +18,8 @@ type ParcelFieldsProps = {
 type IconName = ComponentProps<typeof MaterialDesignIcons>['name'];
 
 const INSTRUCTION_LIMIT = 200;
+const NOTE_BLUE = '#3B82F6';
+const NOTE_BLUE_SURFACE = '#E8F2FC';
 
 const CONTENTS: { label: string; description: string; icon: IconName }[] = [
   { label: 'Parcel', description: 'Parcel', icon: 'package-variant' },
@@ -188,7 +190,7 @@ export default function ParcelFields({ draft, onChange }: ParcelFieldsProps) {
           })}
         </View>
         <View style={styles.note}>
-          <MaterialDesignIcons name="information" size={18} color={colors.primary} />
+          <MaterialDesignIcons name="information" size={18} color={NOTE_BLUE} />
           <Text style={styles.noteText}>
             Payment is not collected in the app. The rider is paid using the method you choose.
           </Text>
@@ -360,7 +362,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     gap: spacing.sm,
     borderRadius: radius.md,
-    backgroundColor: colors.primaryLight,
+    backgroundColor: NOTE_BLUE_SURFACE,
     padding: spacing.md,
   },
   noteText: {
