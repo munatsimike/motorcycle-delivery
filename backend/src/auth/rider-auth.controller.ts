@@ -1,12 +1,13 @@
 import { Body, Controller, HttpCode, Post, Req } from '@nestjs/common';
-import { ApiBadRequestResponse, ApiBody, ApiConflictResponse, ApiOkResponse, ApiOperation, ApiServiceUnavailableResponse, ApiTags, ApiTooManyRequestsResponse, ApiUnauthorizedResponse } from '@nestjs/swagger';
+import { ApiBadRequestResponse, ApiBody, ApiConflictResponse, ApiExtraModels, ApiOkResponse, ApiOperation, ApiServiceUnavailableResponse, ApiTags, ApiTooManyRequestsResponse, ApiUnauthorizedResponse, getSchemaPath } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { AuthSubjectRole } from '../generated/prisma/client.js';
 import { rateLimitAddress } from '../http/client-address.js';
-import { OtpVerifyBody, PendingResponse, PhoneBody, RiderRegistrationBody, SessionResponse } from '../openapi/schemas.js';
+import { OtpVerifyBody, PendingResponse, PhoneBody, RegistrationProofResponse, RiderRegistrationBody, RiderRegistrationCompleteBody, SessionResponse } from '../openapi/schemas.js';
 import { OtpAuthService } from './otp-auth.service.js';
 
 @ApiTags('Rider authentication')
+@ApiExtraModels(RegistrationProofResponse, SessionResponse)
 @Controller('auth/rider')
 export class RiderAuthController {
   constructor(private readonly otp: OtpAuthService) {}
@@ -16,7 +17,7 @@ export class RiderAuthController {
   @ApiOperation({ summary: 'Request a rider registration code' })
   @ApiBody({ type: RiderRegistrationBody })
   @ApiOkResponse({ type: PendingResponse })
-  @ApiBadRequestResponse({ description: 'Enter a valid Zimbabwe mobile number, or full name is required.' })
+  @ApiBadRequestResponse({ description: 'Enter a valid Zimbabwe mobile number.' })
   @ApiConflictResponse({ description: 'Phone number is already registered' })
   @ApiTooManyRequestsResponse({ description: 'Too many verification attempts. Try again later.' })
   @ApiServiceUnavailableResponse({ description: 'SMS verification is unavailable.' })
@@ -26,15 +27,30 @@ export class RiderAuthController {
 
   @Post('register/verify')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Verify a rider registration code and create the session' })
+  @ApiOperation({ summary: 'Verify a rider registration code' })
   @ApiBody({ type: OtpVerifyBody })
-  @ApiOkResponse({ type: SessionResponse })
+  @ApiOkResponse({
+    description: 'A registration proof when the account still has to be completed, including saved details when this phone already belongs to a customer. A session when the name was included for a new rider, or when this phone already has a rider profile.',
+    schema: { oneOf: [{ $ref: getSchemaPath(RegistrationProofResponse) }, { $ref: getSchemaPath(SessionResponse) }] },
+  })
   @ApiBadRequestResponse({ description: 'Verification code is invalid, or the phone number is invalid.' })
   @ApiUnauthorizedResponse({ description: 'Verification code is invalid' })
   @ApiConflictResponse({ description: 'Phone number is already registered' })
   @ApiTooManyRequestsResponse({ description: 'Too many verification attempts. Try again later.' })
   verifyRegistration(@Body() body: unknown) {
     return this.otp.verifyRegistration(AuthSubjectRole.RIDER, body);
+  }
+
+  @Post('register/complete')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Finish an individual rider account after the phone is verified' })
+  @ApiBody({ type: RiderRegistrationCompleteBody })
+  @ApiOkResponse({ type: SessionResponse })
+  @ApiBadRequestResponse({ description: 'Full name and address are required. Rider accounts are individual.' })
+  @ApiUnauthorizedResponse({ description: 'Authentication failed' })
+  @ApiConflictResponse({ description: 'Phone number is already registered' })
+  completeRegistration(@Body() body: unknown) {
+    return this.otp.completeRiderRegistration(body);
   }
 
   @Post('login/otp')

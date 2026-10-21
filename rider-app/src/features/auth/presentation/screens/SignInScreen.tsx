@@ -23,7 +23,7 @@ export default function SignInScreen({ navigation }: SignInProps) {
     <AuthForm
       title="Welcome back"
       subtitle="Enter the mobile number on your rider account."
-      buttonLabel="Continue"
+      buttonLabel="Sign in"
       isLoading={isLoading}
       error={error}
       phone={phone}

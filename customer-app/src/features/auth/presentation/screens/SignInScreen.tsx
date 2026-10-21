@@ -7,7 +7,7 @@ import { useSignIn } from '../viewmodels/useSignIn';
 
 type SignInProps = NativeStackScreenProps<RootStackParamList, 'SignIn'>;
 
-export default function SignInScreen({ navigation }: SignInProps) {
+export default function SignInScreen({ navigation, route }: SignInProps) {
   const [phone, setPhone] = useState('');
   const { isLoading, error, requestCode } = useSignIn();
 
@@ -26,14 +26,14 @@ export default function SignInScreen({ navigation }: SignInProps) {
       buttonLabel="Continue"
       trailingIcon="chevron-right"
       isLoading={isLoading}
-      error={error}
+      error={error ?? route.params?.notice ?? null}
       phone={phone}
       onChangePhone={setPhone}
       onSubmit={() => {
         void handleContinue();
       }}
       footerText="New to Riders?"
-      footerAction="Sign Up"
+      footerAction="Create account"
       onFooterPress={() => navigation.navigate('SignUp')}
     />
   );

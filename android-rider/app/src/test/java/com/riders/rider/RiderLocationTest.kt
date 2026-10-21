@@ -12,6 +12,7 @@ import com.riders.rider.feature.availability.domain.isDispatchUsable
 import com.riders.rider.feature.availability.domain.locationIsFresh
 import com.riders.rider.feature.availability.domain.locationUpdatePolicy
 import com.riders.rider.feature.availability.domain.resumeLocationSharing
+import com.riders.rider.feature.availability.domain.shouldRequestAcceptFix
 import com.riders.rider.feature.availability.domain.shouldShareLocation
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -119,5 +120,14 @@ class RiderLocationTest {
         assertTrue(relay.handle(active = true, fix, ageMillis = 1_000L, accuracyMeters = 100f) { attempts += 1; uploads += 1; true })
         assertEquals(3, attempts)
         assertEquals(2, uploads)
+    }
+
+    @Test
+    fun aStaleAcceptAsksForOneFixOnlyWhileAvailable() {
+        assertTrue(shouldRequestAcceptFix("AVAILABLE", locationIsFresh = false))
+        assertFalse(shouldRequestAcceptFix("AVAILABLE", locationIsFresh = true))
+        assertFalse(shouldRequestAcceptFix("BUSY", locationIsFresh = false))
+        assertFalse(shouldRequestAcceptFix("OFFLINE", locationIsFresh = false))
+        assertFalse(shouldRequestAcceptFix(null, locationIsFresh = false))
     }
 }

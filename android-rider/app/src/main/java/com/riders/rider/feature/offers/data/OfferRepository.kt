@@ -12,11 +12,19 @@ import com.riders.rider.core.network.ReleaseRequest
 import com.riders.rider.core.network.RiderService
 import com.riders.rider.core.network.StatusRequest
 import com.riders.rider.core.network.apiCall
+import com.riders.rider.core.network.mapHttpFailure
 import com.riders.rider.feature.offers.domain.AcceptKeys
 import com.riders.rider.feature.offers.domain.AcceptedDelivery
 import com.riders.rider.feature.offers.domain.OfferAcceptance
+import com.riders.rider.feature.offers.domain.httpDateMillis
 import javax.inject.Inject
 import javax.inject.Singleton
+
+data class ListedOffers(
+    val offers: List<OfferResponse>,
+    val fromNetwork: Boolean,
+    val serverNowMillis: Long?,
+)
 
 @Singleton
 class OfferRepository @Inject constructor(
@@ -32,20 +40,33 @@ class OfferRepository @Inject constructor(
         }
     }
 
-    suspend fun list(): ApiResult<List<OfferResponse>> {
+    suspend fun list(): ApiResult<ListedOffers> {
         return when (val result = apiCall { riders.offers() }) {
             is ApiResult.Ok -> {
+                val response = result.value
+                if (!response.isSuccessful) {
+                    return ApiResult.Err(mapHttpFailure(response.code(), response.errorBody()?.string()))
+                }
+                val body = response.body()
+                    ?: return ApiResult.Err(ApiError.Unexpected("The request could not be completed."))
+                val received = body.offers
                 offers.clear()
-                offers.writeAll(result.value.offers.map { offer ->
+                offers.writeAll(received.map { offer ->
                     OfferEntity(offer.assignmentId, ApiJson.encodeToString(OfferResponse.serializer(), offer))
                 })
-                ApiResult.Ok(result.value.offers)
+                ApiResult.Ok(
+                    ListedOffers(
+                        offers = received,
+                        fromNetwork = true,
+                        serverNowMillis = httpDateMillis(response.headers()["Date"]),
+                    ),
+                )
             }
             is ApiResult.Err -> {
                 if (result.error is ApiError.Network) {
                     val cached = offers.readAll().map { ApiJson.decodeFromString(OfferResponse.serializer(), it.payloadJson) }
                     if (cached.isNotEmpty()) {
-                        ApiResult.Ok(cached)
+                        ApiResult.Ok(ListedOffers(cached, fromNetwork = false, serverNowMillis = null))
                     } else {
                         result
                     }

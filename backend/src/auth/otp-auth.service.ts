@@ -16,7 +16,7 @@ import {
   RiderVerificationStatus,
   UserRole,
 } from '../generated/prisma/client.js';
-import { readCustomerProfile, type CustomerProfileInput } from '../customer/customer-profile.js';
+import { readAddress, readCustomerProfile, type CustomerProfileInput } from '../customer/customer-profile.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
   OTP_CHALLENGE_TTL_MS,
@@ -37,6 +37,22 @@ import { TooManyRequestsException } from './too-many-requests.exception.js';
 import { TwilioVerifyClient } from './twilio-verify.client.js';
 
 const HOUR_MS = 60 * 60 * 1000;
+const SIGN_IN_INSTEAD = 'Sign in to your existing account';
+const identityInclude = {
+  riderProfile: { select: { id: true } },
+  customerAccount: { select: { id: true, address: true } },
+} satisfies Prisma.UserInclude;
+
+type AccountIdentity = {
+  id: string;
+  fullName: string;
+  phone: string;
+  role: UserRole;
+  accountStatus: AccountStatus;
+  phoneVerifiedAt: Date | null;
+  riderProfile: { id: string } | null;
+  customerAccount: { id: string; address: string } | null;
+};
 
 type ChallengeRecord = {
   id: string;
@@ -65,7 +81,7 @@ export class OtpAuthService {
 
   startRegistration(role: AuthSubjectRole, body: unknown, remoteAddress: string): Promise<{ status: 'pending' }> {
     const phone = readPhone(body);
-    if (role === AuthSubjectRole.CUSTOMER && isPhoneOnlyRegistration(body)) {
+    if ((role === AuthSubjectRole.CUSTOMER || role === AuthSubjectRole.RIDER) && isPhoneOnlyRegistration(body)) {
       return this.start({ role, purpose: AuthPurpose.REGISTRATION, phone, fullName: null, profile: null, remoteAddress });
     }
     const profile = role === AuthSubjectRole.CUSTOMER ? readCustomerProfile(body) : null;
@@ -93,7 +109,6 @@ export class OtpAuthService {
   async completeCustomerRegistration(body: unknown): Promise<AuthTokens> {
     const token = readRegistrationToken(body);
     const claims = readRegistrationProof(token, this.clock.now());
-    const profile = readCustomerProfile(body);
     const now = this.clock.now();
     try {
       return await this.prisma.$transaction(async (tx) => {
@@ -108,10 +123,11 @@ export class OtpAuthService {
         ) {
           throw new UnauthorizedException('Authentication failed');
         }
-        const existing = await tx.user.findUnique({ where: { phone: challenge.phone } });
+        const existing = await tx.user.findUnique({ where: { phone: challenge.phone }, include: identityInclude });
         if (existing) {
-          throw new ConflictException('Phone number is already registered');
+          return this.attachCustomerAccount(tx, challenge, existing, body, now);
         }
+        const profile = readCustomerProfile(body);
         const claimed = await tx.authChallenge.updateMany({
           where: {
             id: challenge.id,
@@ -159,6 +175,72 @@ export class OtpAuthService {
     }
   }
 
+  async completeRiderRegistration(body: unknown): Promise<AuthTokens> {
+    const token = readRegistrationToken(body);
+    const claims = readRegistrationProof(token, this.clock.now());
+    const now = this.clock.now();
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const challenge = await tx.authChallenge.findFirst({ where: { id: claims.challengeId } });
+        if (
+          !challenge
+          || challenge.status !== AuthChallengeStatus.VERIFIED
+          || challenge.purpose !== AuthPurpose.REGISTRATION
+          || challenge.subjectRole !== AuthSubjectRole.RIDER
+          || challenge.phone !== claims.phone
+          || challenge.fullName !== null
+        ) {
+          throw new UnauthorizedException('Authentication failed');
+        }
+        const existing = await tx.user.findUnique({ where: { phone: challenge.phone }, include: identityInclude });
+        if (existing) {
+          return this.attachRiderProfile(tx, challenge, existing, now);
+        }
+        const profile = readRiderAccount(body);
+        const claimed = await tx.authChallenge.updateMany({
+          where: {
+            id: challenge.id,
+            status: AuthChallengeStatus.VERIFIED,
+            fullName: null,
+          },
+          data: {
+            status: AuthChallengeStatus.SUPERSEDED,
+            fullName: profile.fullName,
+            address: profile.address,
+          },
+        });
+        if (claimed.count !== 1) {
+          throw new UnauthorizedException('Authentication failed');
+        }
+        const user = await tx.user.create({
+          data: {
+            fullName: profile.fullName,
+            phone: challenge.phone,
+            role: UserRole.RIDER,
+            accountStatus: AccountStatus.ACTIVE,
+            phoneVerifiedAt: now,
+            passwordHash: null,
+          },
+        });
+        const rider = await tx.riderProfile.create({
+          data: {
+            userId: user.id,
+            verificationStatus: RiderVerificationStatus.PENDING,
+            approvalStatus: RiderApprovalStatus.PENDING,
+            availability: RiderAvailability.OFFLINE,
+          },
+        });
+        await createEmptyWallet(tx, rider.id, now);
+        return this.sessions.issue(tx, user.id, user.role, now);
+      });
+    } catch (error) {
+      if (isUniquePhone(error)) {
+        throw new ConflictException('Phone number is already registered');
+      }
+      throw error;
+    }
+  }
+
   private async start(input: {
     role: AuthSubjectRole;
     purpose: AuthPurpose;
@@ -177,7 +259,7 @@ export class OtpAuthService {
     }
 
     if (input.purpose === AuthPurpose.LOGIN) {
-      const user = await this.prisma.user.findUnique({ where: { phone: input.phone } });
+      const user = await this.prisma.user.findUnique({ where: { phone: input.phone }, include: identityInclude });
       if (!canLogin(user, input.role)) {
         await this.recordProbe(input, ipHash, now);
         return this.conceal();
@@ -191,14 +273,20 @@ export class OtpAuthService {
       throw new TooManyRequestsException('Too many verification attempts. Try again later.');
     }
 
+    let challengeInput = input;
     if (input.purpose === AuthPurpose.REGISTRATION) {
-      const existing = await this.prisma.user.findUnique({ where: { phone: input.phone } });
+      const existing = await this.prisma.user.findUnique({ where: { phone: input.phone }, include: identityInclude });
+      if (existing && !eligibleAccount(existing)) {
+        await this.recordConcealedRegistration(input, ipHash, now);
+        return this.conceal();
+      }
       if (existing) {
-        throw new ConflictException('Phone number is already registered');
+        // An existing name must never be replaced by a client-supplied name, including the debug rider name.
+        challengeInput = { ...input, fullName: null, profile: null };
       }
     }
 
-    await this.sendChallenge(input, ipHash, now);
+    await this.sendChallenge(challengeInput, ipHash, now);
     return { status: 'pending' };
   }
 
@@ -243,19 +331,16 @@ export class OtpAuthService {
 
         if (
           purpose === AuthPurpose.REGISTRATION
-          && role === AuthSubjectRole.CUSTOMER
+          && (role === AuthSubjectRole.CUSTOMER || role === AuthSubjectRole.RIDER)
           && challenge.accountKind === null
           && challenge.fullName === null
         ) {
-          return {
-            status: 'verified',
-            registrationToken: signRegistrationProof(challenge.id, challenge.phone, now),
-          };
+          return this.finishPhoneOnlyVerification(tx, challenge, role, now);
         }
 
         const user = purpose === AuthPurpose.REGISTRATION
           ? await this.createRiderOrCustomer(tx, challenge, role, now)
-          : await tx.user.findUnique({ where: { phone } });
+          : await tx.user.findUnique({ where: { phone }, include: identityInclude });
         if (!user || !canLogin(user, role)) {
           throw new UnauthorizedException('Authentication failed');
         }
@@ -267,6 +352,186 @@ export class OtpAuthService {
       }
       throw error;
     }
+  }
+
+  private async finishPhoneOnlyVerification(
+    tx: Prisma.TransactionClient,
+    challenge: ChallengeRecord,
+    role: AuthSubjectRole,
+    now: Date,
+  ): Promise<RegistrationProof | AuthTokens> {
+    const existing = await tx.user.findUnique({ where: { phone: challenge.phone }, include: identityInclude });
+    if (!existing) {
+      return {
+        status: 'verified',
+        registrationToken: signRegistrationProof(challenge.id, challenge.phone, now),
+      };
+    }
+    if (!eligibleAccount(existing)) {
+      await this.closeVerifiedChallenge(tx, challenge.id);
+      throw new UnauthorizedException('Authentication failed');
+    }
+    if (hasAccess(existing, role)) {
+      await this.closeVerifiedChallenge(tx, challenge.id);
+      return this.sessions.issue(tx, existing.id, existing.role, now);
+    }
+    const address = await this.knownAddress(tx, existing);
+    const readOnly: RegistrationProof['readOnly'] = address
+      ? ['fullName', 'phone', 'address']
+      : ['fullName', 'phone'];
+    const missing: RegistrationProof['missing'] = role === AuthSubjectRole.CUSTOMER
+      ? (address ? ['accountKind'] : ['accountKind', 'address'])
+      : [];
+    return {
+      status: 'verified',
+      registrationToken: signRegistrationProof(challenge.id, challenge.phone, now),
+      fullName: existing.fullName,
+      phone: existing.phone,
+      address,
+      readOnly,
+      missing,
+    };
+  }
+
+  private async attachCustomerAccount(
+    tx: Prisma.TransactionClient,
+    challenge: ChallengeRecord,
+    existing: AccountIdentity,
+    body: unknown,
+    now: Date,
+  ): Promise<AuthTokens> {
+    if (!eligibleAccount(existing) || existing.customerAccount) {
+      throw new ConflictException(SIGN_IN_INSTEAD);
+    }
+    const storedAddress = await this.knownAddress(tx, existing);
+    const profile = readExistingCustomerProfile(body, existing.fullName, storedAddress);
+    const claimed = await tx.authChallenge.updateMany({
+      where: {
+        id: challenge.id,
+        status: AuthChallengeStatus.VERIFIED,
+        accountKind: null,
+      },
+      data: {
+        status: AuthChallengeStatus.SUPERSEDED,
+        accountKind: profile.kind,
+        address: profile.address,
+        fullName: existing.fullName,
+        businessName: profile.kind === CustomerAccountKind.BUSINESS ? profile.name : null,
+      },
+    });
+    if (claimed.count !== 1) {
+      throw new UnauthorizedException('Authentication failed');
+    }
+    try {
+      await tx.customerAccount.create({
+        data: {
+          userId: existing.id,
+          kind: profile.kind,
+          name: profile.name,
+          contactName: profile.contactName,
+          address: profile.address,
+          updatedAt: now,
+        },
+      });
+    } catch (error) {
+      if (isUniqueConstraint(error)) {
+        throw new ConflictException(SIGN_IN_INSTEAD);
+      }
+      throw error;
+    }
+    return this.sessions.issue(tx, existing.id, existing.role, now);
+  }
+
+  private async attachRiderProfile(
+    tx: Prisma.TransactionClient,
+    challenge: ChallengeRecord,
+    existing: AccountIdentity,
+    now: Date,
+  ): Promise<AuthTokens> {
+    if (!eligibleAccount(existing) || existing.riderProfile) {
+      throw new ConflictException(SIGN_IN_INSTEAD);
+    }
+    const address = existing.customerAccount?.address ?? null;
+    const claimed = await tx.authChallenge.updateMany({
+      where: {
+        id: challenge.id,
+        status: AuthChallengeStatus.VERIFIED,
+        fullName: null,
+      },
+      data: {
+        status: AuthChallengeStatus.SUPERSEDED,
+        fullName: existing.fullName,
+        address,
+      },
+    });
+    if (claimed.count !== 1) {
+      throw new UnauthorizedException('Authentication failed');
+    }
+    let rider: { id: string };
+    try {
+      rider = await tx.riderProfile.create({
+        data: {
+          userId: existing.id,
+          verificationStatus: RiderVerificationStatus.PENDING,
+          approvalStatus: RiderApprovalStatus.PENDING,
+          availability: RiderAvailability.OFFLINE,
+        },
+      });
+    } catch (error) {
+      if (isUniqueConstraint(error)) {
+        throw new ConflictException(SIGN_IN_INSTEAD);
+      }
+      throw error;
+    }
+    await createEmptyWallet(tx, rider.id, now);
+    return this.sessions.issue(tx, existing.id, existing.role, now);
+  }
+
+  private async knownAddress(tx: Prisma.TransactionClient, user: AccountIdentity): Promise<string | null> {
+    if (user.customerAccount?.address) {
+      return user.customerAccount.address;
+    }
+    const prior = await tx.authChallenge.findFirst({
+      where: {
+        phone: user.phone,
+        subjectRole: AuthSubjectRole.RIDER,
+        purpose: AuthPurpose.REGISTRATION,
+        status: AuthChallengeStatus.SUPERSEDED,
+        address: { not: null },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { address: true },
+    });
+    return prior?.address ?? null;
+  }
+
+  private async closeVerifiedChallenge(tx: Prisma.TransactionClient, challengeId: string): Promise<void> {
+    const closed = await tx.authChallenge.updateMany({
+      where: { id: challengeId, status: AuthChallengeStatus.VERIFIED },
+      data: { status: AuthChallengeStatus.SUPERSEDED },
+    });
+    if (closed.count !== 1) {
+      throw new UnauthorizedException('Authentication failed');
+    }
+  }
+
+  private async recordConcealedRegistration(
+    input: { role: AuthSubjectRole; phone: string },
+    ipHash: string,
+    now: Date,
+  ): Promise<void> {
+    await this.prisma.authChallenge.create({
+      data: {
+        phone: input.phone,
+        subjectRole: input.role,
+        purpose: AuthPurpose.REGISTRATION,
+        status: AuthChallengeStatus.SUPERSEDED,
+        sendCount: 0,
+        expiresAt: now,
+        ipHash,
+        createdAt: now,
+      },
+    });
   }
 
   private async createRiderOrCustomer(
@@ -288,6 +553,7 @@ export class OtpAuthService {
         passwordHash: null,
       },
     });
+    let riderProfileId: string | null = null;
     if (role === AuthSubjectRole.RIDER) {
       const profile = await tx.riderProfile.create({
         data: {
@@ -297,6 +563,7 @@ export class OtpAuthService {
           availability: RiderAvailability.OFFLINE,
         },
       });
+      riderProfileId = profile.id;
       await createEmptyWallet(tx, profile.id, now);
     }
     if (role === AuthSubjectRole.CUSTOMER) {
@@ -314,7 +581,7 @@ export class OtpAuthService {
         },
       });
     }
-    return user;
+    return { ...user, riderProfile: riderProfileId === null ? null : { id: riderProfileId }, customerAccount: null };
   }
 
   private async sendChallenge(
@@ -445,16 +712,36 @@ export class OtpAuthService {
 }
 
 function canLogin(
-  user: { role: UserRole; accountStatus: AccountStatus; phoneVerifiedAt: Date | null } | null,
+  user: {
+    role: UserRole;
+    accountStatus: AccountStatus;
+    phoneVerifiedAt: Date | null;
+    riderProfile?: { id: string } | null;
+  } | null,
   role: AuthSubjectRole,
 ): boolean {
-  if (!user || user.accountStatus !== AccountStatus.ACTIVE || user.phoneVerifiedAt === null) {
+  if (!eligibleAccount(user)) {
     return false;
   }
   if (role === AuthSubjectRole.CUSTOMER) {
-    return user.role === UserRole.CUSTOMER || user.role === UserRole.RIDER;
+    return true;
   }
-  return user.role === role;
+  return user.riderProfile != null;
+}
+
+function eligibleAccount<T extends {
+  role: UserRole;
+  accountStatus: AccountStatus;
+  phoneVerifiedAt: Date | null;
+}>(user: T | null): user is T & { phoneVerifiedAt: Date } {
+  return !!user
+    && (user.role === UserRole.CUSTOMER || user.role === UserRole.RIDER)
+    && user.accountStatus === AccountStatus.ACTIVE
+    && user.phoneVerifiedAt !== null;
+}
+
+function hasAccess(user: AccountIdentity, role: AuthSubjectRole): boolean {
+  return role === AuthSubjectRole.RIDER ? user.riderProfile !== null : user.customerAccount !== null;
 }
 
 function readPhone(body: unknown): string {
@@ -483,6 +770,28 @@ function readFullName(body: unknown): string {
     }
     throw error;
   }
+}
+
+function readRiderAccount(body: unknown): { fullName: string; address: string } {
+  if (!isRecord(body)) {
+    throw new BadRequestException('Full name is required');
+  }
+  if (body.accountKind === 'BUSINESS' || body.businessName !== undefined || body.contactName !== undefined) {
+    throw new BadRequestException('Rider accounts are individual');
+  }
+  if (typeof body.fullName !== 'string') {
+    throw new BadRequestException('Full name is required');
+  }
+  let fullName: string;
+  try {
+    fullName = normalizePersonName(body.fullName);
+  } catch (error) {
+    if (error instanceof InvalidPersonNameError) {
+      throw new BadRequestException('Full name is required');
+    }
+    throw error;
+  }
+  return { fullName, address: readAddress(body.address) };
 }
 
 function isPhoneOnlyRegistration(body: unknown): boolean {
@@ -514,6 +823,48 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function isUniquePhone(error: unknown): boolean {
+function isUniqueConstraint(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
+}
+
+function isUniquePhone(error: unknown): boolean {
+  return isUniqueConstraint(error);
+}
+
+function readExistingCustomerProfile(body: unknown, fullName: string, storedAddress: string | null): CustomerProfileInput {
+  if (!isRecord(body)) {
+    throw new BadRequestException('Choose an individual or business account');
+  }
+  const address = storedAddress ?? readAddress(body.address);
+  if (body.accountKind === 'BUSINESS') {
+    if (typeof body.businessName !== 'string') {
+      throw new BadRequestException('Enter the business name');
+    }
+    let businessName: string;
+    try {
+      businessName = normalizePersonName(body.businessName);
+    } catch (error) {
+      if (error instanceof InvalidPersonNameError) {
+        throw new BadRequestException('Enter the business name');
+      }
+      throw error;
+    }
+    return {
+      kind: CustomerAccountKind.BUSINESS,
+      name: businessName,
+      contactName: fullName,
+      address,
+      personName: fullName,
+    };
+  }
+  if (body.accountKind !== 'INDIVIDUAL') {
+    throw new BadRequestException('Choose an individual or business account');
+  }
+  return {
+    kind: CustomerAccountKind.INDIVIDUAL,
+    name: fullName,
+    contactName: null,
+    address,
+    personName: fullName,
+  };
 }

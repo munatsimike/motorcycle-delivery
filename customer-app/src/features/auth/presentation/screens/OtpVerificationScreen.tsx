@@ -50,7 +50,13 @@ export default function OtpVerificationScreen({ navigation, route }: OtpProps) {
       navigation.navigate('RegistrationForm', {
         registrationToken: result.proof.registrationToken,
         phone,
+        existing: result.proof.existing,
       });
+      setSubmitted(false);
+      return;
+    }
+    if (result.flow === 'sign_in') {
+      navigation.navigate('SignIn', { notice: 'Sign in to your existing account.' });
       setSubmitted(false);
       return;
     }

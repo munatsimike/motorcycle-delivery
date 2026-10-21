@@ -37,7 +37,7 @@ export class CustomerAuthController {
   @ApiOperation({ summary: 'Verify a customer registration code' })
   @ApiBody({ type: OtpVerifyBody })
   @ApiOkResponse({
-    description: 'A session when the profile was included in the request, or a registration proof when the account still has to be completed.',
+    description: 'A registration proof when the account still has to be completed. A session when the profile was included for a new phone, or when this phone already has a customer account.',
     schema: { oneOf: [{ $ref: getSchemaPath(SessionResponse) }, { $ref: getSchemaPath(RegistrationProofResponse) }] },
   })
   @ApiBadRequestResponse({ description: 'Verification code is invalid, or the phone number is invalid.' })

@@ -21,7 +21,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -29,9 +28,6 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.riders.rider.core.design.RiderTheme
 import com.riders.rider.core.design.RidersAvailability
@@ -46,8 +42,6 @@ import com.riders.rider.core.design.RidersSpacing
 import com.riders.rider.core.design.RidersStatusIndicator
 import com.riders.rider.core.design.RidersType
 import com.riders.rider.core.design.RidersWordmark
-import com.riders.rider.feature.auth.presentation.SessionViewModel
-import com.riders.rider.feature.auth.presentation.findFragmentActivity
 import com.riders.rider.feature.delivery.domain.ActiveDelivery
 import com.riders.rider.feature.delivery.domain.deliveryStatusLabel
 import com.riders.rider.feature.onboarding.domain.RiderOnboarding
@@ -60,28 +54,17 @@ fun HomeScreen(
     onOffers: () -> Unit,
     onDelivery: (String) -> Unit,
     onSetup: () -> Unit = {},
+    inShell: Boolean = false,
     model: HomeViewModel = hiltViewModel(),
 ) {
     val ui by model.ui.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    val activity = context.findFragmentActivity()
-        ?: error("Home requires the rider activity")
-    val session: SessionViewModel = hiltViewModel(activity)
-    val sessionUi by session.ui.collectAsStateWithLifecycle()
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
         if (granted[Manifest.permission.ACCESS_FINE_LOCATION] == true) {
             model.goOnline()
+        } else {
+            model.locationPermissionDenied()
         }
-    }
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
-    DisposableEffect(lifecycle) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                model.refresh()
-            }
-        }
-        lifecycle.addObserver(observer)
-        onDispose { lifecycle.removeObserver(observer) }
     }
     HomeDashboard(
         ui = ui,
@@ -98,11 +81,8 @@ fun HomeScreen(
         onOffers = onOffers,
         onDelivery = onDelivery,
         onRefresh = model::refresh,
-        onLogout = model::logout,
         onSetup = onSetup,
-        biometricAction = sessionUi.biometricAction,
-        biometricError = sessionUi.error,
-        onBiometric = { session.onHomeBiometric(activity) },
+        includeNavigationBars = !inShell,
     )
 }
 
@@ -115,11 +95,8 @@ fun HomeDashboard(
     onOffers: () -> Unit,
     onDelivery: (String) -> Unit,
     onRefresh: () -> Unit,
-    onLogout: () -> Unit,
     onSetup: () -> Unit = {},
-    biometricAction: String? = null,
-    biometricError: String? = null,
-    onBiometric: () -> Unit = {},
+    includeNavigationBars: Boolean = true,
 ) {
     BoxWithConstraints(Modifier.fillMaxSize().background(RidersColors.background)) {
         val horizontal = if (maxWidth < 360.dp) RidersSpacing.lg else RidersSpacing.xl
@@ -127,7 +104,7 @@ fun HomeDashboard(
             Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .navigationBarsPadding(),
+                .then(if (includeNavigationBars) Modifier.navigationBarsPadding() else Modifier),
         ) {
             Column(
                 Modifier
@@ -167,19 +144,6 @@ fun HomeDashboard(
                 if (ui.readiness != null && ui.error != null && ui.error != ui.shift.recoveryMessage) {
                     RidersErrorState(message = ui.error)
                 }
-                Spacer(Modifier.height(RidersSpacing.sm))
-                if (biometricAction != null) {
-                    if (biometricError != null) {
-                        RidersErrorState(message = biometricError)
-                    }
-                    RidersSecondaryButton(
-                        label = biometricAction,
-                        onClick = onBiometric,
-                        modifier = Modifier.fillMaxWidth(),
-                        soft = false,
-                    )
-                }
-                RidersSecondaryButton(label = "Log out", onClick = onLogout, modifier = Modifier.fillMaxWidth(), soft = false)
                 Spacer(Modifier.height(RidersSpacing.lg))
             }
         }
@@ -257,7 +221,7 @@ private fun StatusFact(label: String, value: String) {
 }
 
 @Composable
-private fun ActiveDeliverySection(
+internal fun ActiveDeliverySection(
     ui: HomeUi,
     onDelivery: (String) -> Unit,
     onRefresh: () -> Unit,
@@ -373,7 +337,7 @@ private fun locationPermissions(): Array<String> {
 @Composable
 private fun PreviewOfflineApproved() {
     RiderTheme {
-        HomeDashboard(previewUi(offlineReady()), "Good morning", {}, {}, {}, {}, {}, {})
+        HomeDashboard(previewUi(offlineReady()), "Good morning", {}, {}, {}, {}, {})
     }
 }
 
@@ -381,7 +345,7 @@ private fun PreviewOfflineApproved() {
 @Composable
 private fun PreviewAvailable() {
     RiderTheme {
-        HomeDashboard(previewUi(availableReady()), "Good afternoon", {}, {}, {}, {}, {}, {})
+        HomeDashboard(previewUi(availableReady()), "Good afternoon", {}, {}, {}, {}, {})
     }
 }
 
@@ -397,7 +361,6 @@ private fun PreviewBusy() {
             {},
             {},
             {},
-            {},
         )
     }
 }
@@ -406,7 +369,7 @@ private fun PreviewBusy() {
 @Composable
 private fun PreviewPending() {
     RiderTheme {
-        HomeDashboard(previewUi(pendingApproval()), "Good morning", {}, {}, {}, {}, {}, {})
+        HomeDashboard(previewUi(pendingApproval()), "Good morning", {}, {}, {}, {}, {})
     }
 }
 
@@ -414,7 +377,7 @@ private fun PreviewPending() {
 @Composable
 private fun PreviewRejectedLicence() {
     RiderTheme {
-        HomeDashboard(previewUi(rejectedLicence()), "Good morning", {}, {}, {}, {}, {}, {})
+        HomeDashboard(previewUi(rejectedLicence()), "Good morning", {}, {}, {}, {}, {})
     }
 }
 
@@ -422,7 +385,7 @@ private fun PreviewRejectedLicence() {
 @Composable
 private fun PreviewMotorcycle() {
     RiderTheme {
-        HomeDashboard(previewUi(unverifiedMotorcycle()), "Good morning", {}, {}, {}, {}, {}, {})
+        HomeDashboard(previewUi(unverifiedMotorcycle()), "Good morning", {}, {}, {}, {}, {})
     }
 }
 
@@ -430,7 +393,7 @@ private fun PreviewMotorcycle() {
 @Composable
 private fun PreviewLoading() {
     RiderTheme {
-        HomeDashboard(HomeUi(loading = true), "Good morning", {}, {}, {}, {}, {}, {})
+        HomeDashboard(HomeUi(loading = true), "Good morning", {}, {}, {}, {}, {})
     }
 }
 
@@ -444,7 +407,6 @@ private fun PreviewRecoveryFailed() {
                 shift = homeShift("BUSY", readiness.canAcceptDeliveries, null, recoveryFailed = true),
             ),
             "Good afternoon",
-            {},
             {},
             {},
             {},
@@ -467,7 +429,6 @@ private fun PreviewBusyWithoutDelivery() {
             {},
             {},
             {},
-            {},
         )
     }
 }
@@ -476,7 +437,7 @@ private fun PreviewBusyWithoutDelivery() {
 @Composable
 private fun PreviewSmallPhone() {
     RiderTheme {
-        HomeDashboard(previewUi(offlineReady()), "Good morning", {}, {}, {}, {}, {}, {})
+        HomeDashboard(previewUi(offlineReady()), "Good morning", {}, {}, {}, {}, {})
     }
 }
 

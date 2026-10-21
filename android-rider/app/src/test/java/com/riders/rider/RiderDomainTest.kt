@@ -11,6 +11,10 @@ import com.riders.rider.feature.auth.domain.AppEntry
 import com.riders.rider.feature.auth.domain.SessionGate
 import com.riders.rider.feature.auth.domain.biometricHomeAction
 import com.riders.rider.feature.auth.domain.initialBiometricState
+import com.riders.rider.feature.auth.domain.DEBUG_REGISTRATION_FULL_NAME
+import com.riders.rider.feature.auth.domain.normalizeRiderAddress
+import com.riders.rider.feature.auth.domain.normalizeRiderName
+import com.riders.rider.feature.auth.domain.registrationFullName
 import com.riders.rider.feature.auth.domain.normalizeRiderPhone
 import com.riders.rider.feature.auth.domain.reduceSession
 import com.riders.rider.feature.auth.domain.resolveAppEntry
@@ -25,6 +29,7 @@ import com.riders.rider.feature.onboarding.domain.riderReadiness
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -39,6 +44,25 @@ class RiderDomainTest {
         assertEquals("+263771234567", normalizeRiderPhone(riderPhoneEntry("77 123 4567")))
         assertEquals("+263771234567", normalizeRiderPhone(riderPhoneEntry("0771234567")))
         assertEquals("+263771234567", normalizeRiderPhone(riderPhoneEntry("+263 77 123 4567")))
+    }
+
+    @Test
+    fun riderAccountUsesAnIndividualNameAndAddress() {
+        assertEquals("Tendai Moyo", normalizeRiderName("  Tendai   Moyo  "))
+        assertEquals("12 Samora Machel Avenue", normalizeRiderAddress("  12   Samora Machel Avenue  "))
+        assertThrows(IllegalArgumentException::class.java) { normalizeRiderName(" ") }
+        assertThrows(IllegalArgumentException::class.java) { normalizeRiderAddress(" ") }
+    }
+
+    @Test
+    fun debugRegistrationUsesTheTemporaryName() {
+        assertEquals("Tonderai Moyo", registrationFullName(debugBuild = true))
+        assertEquals(DEBUG_REGISTRATION_FULL_NAME, registrationFullName(debugBuild = true))
+    }
+
+    @Test
+    fun releaseRegistrationDoesNotInventAName() {
+        assertNull(registrationFullName(debugBuild = false))
     }
 
     @Test

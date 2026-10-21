@@ -1,5 +1,6 @@
 package com.riders.rider.feature.auth.presentation
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -36,10 +38,14 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.autofill.ContentType
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.semantics.Role
@@ -63,27 +69,107 @@ import com.riders.rider.core.design.RidersSecondaryButton
 import com.riders.rider.core.design.RidersSpacing
 import com.riders.rider.core.design.RidersTextField
 import com.riders.rider.core.design.RidersType
-import com.riders.rider.core.design.RidersWordmark
+import com.riders.rider.R
+import com.riders.rider.core.design.RidersBrandLogo
+import com.riders.rider.core.design.RidersBrandMark
 import com.riders.rider.feature.auth.domain.riderPhoneEntry
 
 private const val OTP_LENGTH = 6
+private val WelcomeBackdrop = Color(0xFFF1F7F3)
 
 @Composable
 fun WelcomeScreen(onSignIn: () -> Unit, onRegister: () -> Unit) {
-    AuthScaffold {
-        RidersWordmark()
-        Spacer(Modifier.height(RidersSpacing.xxxl))
-        Text("Riders", style = RidersType.title, color = RidersColors.text)
-        Spacer(Modifier.height(RidersSpacing.md))
-        Text(
-            "Motorcycle deliveries for riders in Zimbabwe.",
-            style = RidersType.body,
-            color = RidersColors.textSecondary,
-        )
-        Spacer(Modifier.height(RidersSpacing.xxl))
-        RidersPrimaryButton(label = "Sign in", onClick = onSignIn, modifier = Modifier.fillMaxWidth())
-        Spacer(Modifier.height(RidersSpacing.md))
-        RidersSecondaryButton(label = "Create account", onClick = onRegister, modifier = Modifier.fillMaxWidth())
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(WelcomeBackdrop)
+            .statusBarsPadding(),
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .padding(top = RidersSpacing.xxl),
+            contentAlignment = Alignment.Center,
+        ) {
+            RidersBrandLogo()
+        }
+        Box(
+            Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            contentAlignment = Alignment.BottomCenter,
+        ) {
+            Image(
+                painter = painterResource(R.drawable.riders_motorcycle),
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Fit,
+                alignment = Alignment.BottomCenter,
+            )
+            Box(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.46f)
+                    .background(Brush.verticalGradient(listOf(Color.Transparent, WelcomeBackdrop))),
+            )
+            Box(
+                Modifier
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth(0.62f)
+                    .fillMaxHeight(0.58f)
+                    .background(
+                        Brush.linearGradient(
+                            colors = listOf(WelcomeBackdrop, Color.Transparent),
+                            start = Offset(0f, Offset.Infinite.y),
+                            end = Offset(Offset.Infinite.x, 0f),
+                        ),
+                    ),
+            )
+        }
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .background(RidersColors.background)
+                .navigationBarsPadding()
+                .padding(bottom = RidersSpacing.lg),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                "Fast, Safe, and Always\nOn Time",
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Brush.verticalGradient(listOf(WelcomeBackdrop, RidersColors.background)))
+                    .padding(horizontal = RidersSpacing.xl)
+                    .padding(top = RidersSpacing.xl, bottom = RidersSpacing.md),
+                style = RidersType.title,
+                color = RidersColors.text,
+                textAlign = TextAlign.Center,
+            )
+            Text(
+                "Trusted motorcycle deliveries for quick\nand secure parcel transport.",
+                modifier = Modifier.padding(horizontal = RidersSpacing.xl),
+                style = RidersType.caption,
+                color = RidersColors.textSecondary,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(RidersSpacing.xl))
+            RidersPrimaryButton(
+                label = "Sign in",
+                onClick = onSignIn,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = RidersSpacing.xl),
+            )
+            Spacer(Modifier.height(RidersSpacing.md))
+            RidersSecondaryButton(
+                label = "Create account",
+                onClick = onRegister,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = RidersSpacing.xl),
+            )
+        }
     }
 }
 
@@ -91,6 +177,7 @@ fun WelcomeScreen(onSignIn: () -> Unit, onRegister: () -> Unit) {
 fun SignInScreen(
     onCodeSent: (String) -> Unit,
     onCreateAccount: () -> Unit,
+    notice: String? = null,
     model: SignInViewModel = hiltViewModel(),
 ) {
     val ui by model.ui.collectAsStateWithLifecycle()
@@ -102,7 +189,7 @@ fun SignInScreen(
         phone = phone,
         onPhone = { phone = it },
         loading = ui.loading,
-        error = ui.error,
+        error = ui.error ?: notice,
         codeSent = ui.completedPhone != null,
         onSubmit = { model.submit(riderPhoneEntry(phone)) },
         onCreateAccount = onCreateAccount,
@@ -116,20 +203,17 @@ fun RegisterScreen(
     model: RegisterViewModel = hiltViewModel(),
 ) {
     val ui by model.ui.collectAsStateWithLifecycle()
-    var name by rememberSaveable { mutableStateOf("") }
     var phone by rememberSaveable { mutableStateOf("") }
     LaunchedEffect(ui.completedPhone) {
         ui.completedPhone?.let(onCodeSent)
     }
     RegisterContent(
-        name = name,
-        onName = { name = it },
         phone = phone,
         onPhone = { phone = it },
         loading = ui.loading,
         error = ui.error,
         codeSent = ui.completedPhone != null,
-        onSubmit = { model.submit(name, riderPhoneEntry(phone)) },
+        onSubmit = { model.submit(riderPhoneEntry(phone)) },
         onSignIn = onSignIn,
     )
 }
@@ -138,10 +222,21 @@ fun RegisterScreen(
 fun OtpScreen(
     flow: String,
     phone: String,
+    onRegistrationVerified: (String, String?, String?, Boolean) -> Unit = { _, _, _, _ -> },
+    onUseExistingLogin: () -> Unit = {},
     model: OtpViewModel = hiltViewModel(),
 ) {
     val ui by model.ui.collectAsStateWithLifecycle()
     var code by rememberSaveable { mutableStateOf("") }
+    LaunchedEffect(ui.registrationToken, ui.useExistingLogin) {
+        if (ui.useExistingLogin) {
+            onUseExistingLogin()
+        } else {
+            ui.registrationToken?.let { token ->
+                onRegistrationVerified(token, ui.prefillName, ui.prefillAddress, ui.lockDetails)
+            }
+        }
+    }
     OtpContent(
         phone = phone,
         code = code,
@@ -164,7 +259,7 @@ private fun SignInContent(
     onCreateAccount: () -> Unit,
 ) {
     AuthScaffold {
-        RidersWordmark()
+        RidersBrandMark()
         Spacer(Modifier.height(RidersSpacing.xxxl))
         Text("Welcome back", style = RidersType.title, color = RidersColors.text)
         Spacer(Modifier.height(RidersSpacing.md))
@@ -195,8 +290,6 @@ private fun SignInContent(
 
 @Composable
 private fun RegisterContent(
-    name: String,
-    onName: (String) -> Unit,
     phone: String,
     onPhone: (String) -> Unit,
     loading: Boolean,
@@ -206,27 +299,16 @@ private fun RegisterContent(
     onSignIn: () -> Unit,
 ) {
     AuthScaffold {
-        RidersWordmark()
+        RidersBrandMark()
         Spacer(Modifier.height(RidersSpacing.xxxl))
         Text("Create your account", style = RidersType.title, color = RidersColors.text)
         Spacer(Modifier.height(RidersSpacing.md))
         Text(
-            "Join Riders and enjoy fast, safe, and reliable motorcycle deliveries.",
+            "Enter your mobile number. We'll verify it before asking for your name and address.",
             style = RidersType.body,
             color = RidersColors.textSecondary,
         )
         Spacer(Modifier.height(RidersSpacing.xxl))
-        RidersTextField(
-            label = "Full name",
-            value = name,
-            onValueChange = onName,
-            placeholder = "Tendai Moyo",
-            enabled = !loading,
-            keyboardOptions = KeyboardOptions(
-                capitalization = KeyboardCapitalization.Words,
-                imeAction = ImeAction.Next,
-            ),
-        )
         ZimbabwePhoneField(value = phone, onValueChange = onPhone, enabled = !loading)
         Text(
             "Enter a Zimbabwe mobile number. We'll send a one-time SMS code.",
@@ -243,6 +325,99 @@ private fun RegisterContent(
             modifier = Modifier.fillMaxWidth(),
         )
         AuthFooter(prompt = "Already have an account?", action = "Sign in", enabled = !loading, onClick = onSignIn)
+    }
+}
+
+@Composable
+fun AccountScreen(model: AccountViewModel = hiltViewModel()) {
+    val ui by model.ui.collectAsStateWithLifecycle()
+    var name by rememberSaveable { mutableStateOf(model.initialName) }
+    var address by rememberSaveable { mutableStateOf(model.initialAddress) }
+    AccountContent(
+        phone = model.phone,
+        name = name,
+        onName = { name = it },
+        address = address,
+        onAddress = { address = it },
+        locked = model.lockDetails,
+        loading = ui.loading,
+        error = ui.error,
+        onSubmit = { model.submit(name, address) },
+    )
+}
+
+@Composable
+private fun AccountContent(
+    phone: String,
+    name: String,
+    onName: (String) -> Unit,
+    address: String,
+    onAddress: (String) -> Unit,
+    locked: Boolean,
+    loading: Boolean,
+    error: String?,
+    onSubmit: () -> Unit,
+) {
+    AuthScaffold {
+        RidersBrandMark()
+        Spacer(Modifier.height(RidersSpacing.xxxl))
+        Text(
+            if (locked) "Confirm your rider account" else "Finish your account",
+            style = RidersType.title,
+            color = RidersColors.text,
+        )
+        Spacer(Modifier.height(RidersSpacing.md))
+        Text(
+            if (locked) "These details come from your customer account and stay as they are."
+            else "This number is verified and stays with this account.",
+            style = RidersType.body,
+            color = RidersColors.textSecondary,
+        )
+        Spacer(Modifier.height(RidersSpacing.xl))
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .background(RidersColors.surface, RoundedCornerShape(RidersRadius.md))
+                .padding(RidersSpacing.lg),
+        ) {
+            Text("Verified mobile number", style = RidersType.caption, color = RidersColors.textSecondary)
+            Spacer(Modifier.height(RidersSpacing.xs))
+            Text(phone, style = RidersType.bodyStrong, color = RidersColors.text)
+        }
+        Spacer(Modifier.height(RidersSpacing.xl))
+        RidersTextField(
+            label = "Full name",
+            value = name,
+            onValueChange = onName,
+            placeholder = "Tendai Moyo",
+            enabled = !loading && !locked,
+            keyboardOptions = KeyboardOptions(
+                capitalization = KeyboardCapitalization.Words,
+                imeAction = ImeAction.Next,
+            ),
+        )
+        if (!locked || address.isNotBlank()) {
+            RidersTextField(
+                label = "Address",
+                value = address,
+                onValueChange = onAddress,
+                placeholder = "12 Samora Machel Avenue",
+                enabled = !loading && !locked,
+                keyboardOptions = KeyboardOptions(
+                    capitalization = KeyboardCapitalization.Words,
+                    imeAction = ImeAction.Done,
+                ),
+            )
+        }
+        Spacer(Modifier.height(RidersSpacing.sm))
+        AuthFeedback(error = error, success = null)
+        RidersPrimaryButton(
+            label = if (locked) "Confirm and continue" else "Create account",
+            onClick = onSubmit,
+            loading = loading,
+            loadingLabel = if (locked) "Confirming" else "Creating",
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 
@@ -498,7 +673,7 @@ private fun PreviewSignInLoading() {
 @Composable
 private fun PreviewRegister() {
     RiderTheme {
-        RegisterContent("Tendai Moyo", {}, "771234567", {}, false, null, false, {}, {})
+        RegisterContent("771234567", {}, false, null, false, {}, {})
     }
 }
 
@@ -507,8 +682,6 @@ private fun PreviewRegister() {
 private fun PreviewRegisterNetwork() {
     RiderTheme {
         RegisterContent(
-            "Tendai Moyo",
-            {},
             "771234567",
             {},
             false,

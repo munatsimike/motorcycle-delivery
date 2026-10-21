@@ -23,6 +23,7 @@ import okio.BufferedSink
 data class RiderIdentity(
     val fullName: String,
     val phone: String,
+    val address: String? = null,
 )
 
 @Singleton
@@ -31,7 +32,7 @@ class VerificationRepository @Inject constructor(
 ) {
     suspend fun profile(): ApiResult<RiderIdentity> {
         return when (val result = apiCall { riders.profile() }) {
-            is ApiResult.Ok -> ApiResult.Ok(RiderIdentity(result.value.fullName, result.value.phone))
+            is ApiResult.Ok -> ApiResult.Ok(RiderIdentity(result.value.fullName, result.value.phone, result.value.address))
             is ApiResult.Err -> result
         }
     }

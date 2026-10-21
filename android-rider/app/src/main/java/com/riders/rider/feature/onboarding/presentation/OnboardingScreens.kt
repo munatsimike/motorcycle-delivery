@@ -62,6 +62,7 @@ import java.io.InputStream
 @Composable
 fun OnboardingScreen(
     onFinished: () -> Unit,
+    focused: Boolean = false,
     model: OnboardingViewModel = hiltViewModel(),
 ) {
     val ui by model.ui.collectAsStateWithLifecycle()
@@ -90,7 +91,9 @@ fun OnboardingScreen(
             verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
         ) {
             RidersWordmark()
-            Text("Step ${ui.step.ordinal + 1} of 4", style = RidersType.caption, color = RidersColors.textSecondary)
+            if (!focused) {
+                Text("Step ${ui.step.ordinal + 1} of 4", style = RidersType.caption, color = RidersColors.textSecondary)
+            }
             when {
                 ui.loading && ui.onboarding == null -> RidersLoadingState("Loading your account")
                 ui.onboarding == null -> RidersErrorState(
@@ -117,16 +120,20 @@ fun OnboardingScreen(
                     if (ui.error != null) {
                         RidersErrorState(message = ui.error ?: "")
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm)) {
-                        if (ui.step != OnboardingStep.Profile && ui.step != OnboardingStep.Status) {
-                            RidersSecondaryButton(label = "Back", onClick = model::back, modifier = Modifier.weight(1f))
-                        }
-                        if (ui.step != OnboardingStep.Status) {
-                            RidersPrimaryButton(
-                                label = "Continue",
-                                onClick = model::continueStep,
-                                modifier = Modifier.weight(1f),
-                            )
+                    if (focused) {
+                        RidersSecondaryButton(label = "Back", onClick = onFinished, modifier = Modifier.fillMaxWidth())
+                    } else {
+                        Row(horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm)) {
+                            if (ui.step != OnboardingStep.Profile && ui.step != OnboardingStep.Status) {
+                                RidersSecondaryButton(label = "Back", onClick = model::back, modifier = Modifier.weight(1f))
+                            }
+                            if (ui.step != OnboardingStep.Status) {
+                                RidersPrimaryButton(
+                                    label = "Continue",
+                                    onClick = model::continueStep,
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
                         }
                     }
                 }

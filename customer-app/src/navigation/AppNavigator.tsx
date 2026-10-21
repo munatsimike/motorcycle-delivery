@@ -87,7 +87,7 @@ function WelcomeScreen({ navigation }: WelcomeProps) {
             onPress={() => navigation.navigate('SignIn')}
           />
           <SecondaryButton
-            label="Sign Up"
+            label="Create account"
             soft
             onPress={() => navigation.navigate('SignUp')}
           />
@@ -161,7 +161,7 @@ export default function AppNavigator() {
             <Stack.Screen
               name="SignUp"
               component={SignUpScreen}
-              options={{ title: 'Sign Up' }}
+              options={{ title: 'Create account' }}
             />
             <Stack.Screen
               name="OtpVerification"
@@ -194,6 +194,7 @@ const styles = StyleSheet.create({
   },
 
   logo: {
+    alignSelf: 'center',
     paddingTop: spacing.xxl,
   },
 

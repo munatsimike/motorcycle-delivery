@@ -29,6 +29,54 @@ fun applyDeliveryTransition(current: String, requested: String): String? {
     return requested.takeIf { nextDeliveryStatus(current) == requested }
 }
 
+fun deliveryActionLabel(status: String): String? = when (status) {
+    "ASSIGNED" -> "Arrived at pickup"
+    "ARRIVED_AT_PICKUP" -> "Confirm pickup"
+    "PICKED_UP" -> "Start the trip"
+    "IN_TRANSIT" -> "Arrived at drop-off"
+    "ARRIVED_AT_DROPOFF" -> "Confirm delivery"
+    else -> null
+}
+
+fun deliveryStepTitle(status: String): String = when (status) {
+    "ASSIGNED" -> "Go to pickup"
+    "ARRIVED_AT_PICKUP" -> "At pickup"
+    "PICKED_UP" -> "Parcel collected"
+    "IN_TRANSIT" -> "On the way to drop-off"
+    "ARRIVED_AT_DROPOFF" -> "At drop-off"
+    else -> deliveryStatusLabel(status)
+}
+
+data class ProgressDecision(val status: String, val finished: Boolean)
+
+fun progressDecision(currentStatus: String, confirmedStatus: String): ProgressDecision {
+    if (confirmedStatus == "DELIVERED" && nextDeliveryStatus(currentStatus) == "DELIVERED") {
+        return ProgressDecision(confirmedStatus, finished = true)
+    }
+    val accepted = applyDeliveryTransition(currentStatus, confirmedStatus)
+    return if (accepted == null) {
+        ProgressDecision(currentStatus, finished = false)
+    } else {
+        ProgressDecision(accepted, finished = false)
+    }
+}
+
+class DeliveryActionGate {
+    private var busy = false
+
+    fun tryStart(): Boolean {
+        if (busy) {
+            return false
+        }
+        busy = true
+        return true
+    }
+
+    fun finish() {
+        busy = false
+    }
+}
+
 fun deliveryStatusLabel(status: String): String = when (status) {
     "ASSIGNED" -> "Assigned"
     "ARRIVED_AT_PICKUP" -> "Arrived at pickup"

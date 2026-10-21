@@ -1,5 +1,6 @@
 package com.riders.rider.feature.onboarding.presentation
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.riders.rider.core.network.ApiResult
@@ -17,6 +18,7 @@ import com.riders.rider.feature.onboarding.domain.motorcycleIssue
 import com.riders.rider.feature.onboarding.domain.nextOnboardingStep
 import com.riders.rider.feature.onboarding.domain.previousOnboardingStep
 import com.riders.rider.feature.onboarding.domain.retainDraft
+import com.riders.rider.navigation.onboardingFocus
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,8 +46,9 @@ data class OnboardingUi(
 @HiltViewModel
 class OnboardingViewModel @Inject constructor(
     private val verification: VerificationRepository,
+    savedState: SavedStateHandle,
 ) : ViewModel() {
-    private val state = MutableStateFlow(OnboardingUi())
+    private val state = MutableStateFlow(OnboardingUi(step = onboardingFocus(savedState.get<String>("step")) ?: OnboardingStep.Profile))
     val ui: StateFlow<OnboardingUi> = state.asStateFlow()
 
     fun refresh() {

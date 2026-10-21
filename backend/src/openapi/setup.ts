@@ -2,6 +2,7 @@ import type { INestApplication } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import type { NextFunction, Request, Response } from 'express';
 import helmet from 'helmet';
+import { helmetResourcePolicy } from '../http/admin-cors.js';
 
 const DOCS_PATH = 'api/docs';
 const DOCS_JSON_PATH = 'api/docs-json';
@@ -51,7 +52,9 @@ export function configureSwagger(app: INestApplication): void {
  * documentation paths skip Helmet only while documentation is enabled.
  */
 export function configureHttpSecurity(app: INestApplication): void {
-  const protect = helmet();
+  const protect = helmet({
+    crossOriginResourcePolicy: { policy: helmetResourcePolicy(process.env) },
+  });
   const docsOpen = swaggerEnabled();
   app.use((request: Request, response: Response, next: NextFunction) => {
     if (docsOpen && isDocumentationPath(request.path)) {

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { customerAuthRepository } from '../../data/repositories/CustomerAuthApiRepository';
-import type { AuthFlow, AuthSession, RegistrationProof } from '../../domain/auth.types';
+import type { AuthFlow, AuthSession, RegistrationVerification } from '../../domain/auth.types';
 import { requestLoginCode } from '../../domain/usecases/requestLoginCode';
 import { requestRegistrationCode } from '../../domain/usecases/requestRegistrationCode';
 import { verifyLoginCode } from '../../domain/usecases/verifyLoginCode';
@@ -11,7 +11,9 @@ import { errorMessage } from '../errorMessage';
 const RESEND_COOLDOWN_MS = 60_000;
 
 export type OtpVerificationResult =
-  | { flow: 'registration'; proof: RegistrationProof }
+  | { flow: 'registration'; proof: Extract<RegistrationVerification, { status: 'verified' }> }
+  | { flow: 'sign_in' }
+  | { flow: 'session'; session: AuthSession }
   | { flow: 'login'; session: AuthSession };
 
 export function useOtpVerification(phone: string, flow: AuthFlow) {
@@ -43,8 +45,14 @@ export function useOtpVerification(phone: string, flow: AuthFlow) {
     setError(null);
     try {
       if (flow === 'registration') {
-        const proof = await verifyRegistrationCode(customerAuthRepository, phone, code);
-        return { flow: 'registration', proof };
+        const verification = await verifyRegistrationCode(customerAuthRepository, phone, code);
+        if ('accessToken' in verification) {
+          return { flow: 'session', session: verification };
+        }
+        if (verification.status === 'sign_in') {
+          return { flow: 'sign_in' };
+        }
+        return { flow: 'registration', proof: verification };
       }
       const session = await verifyLoginCode(customerAuthRepository, phone, code);
       return { flow: 'login', session };

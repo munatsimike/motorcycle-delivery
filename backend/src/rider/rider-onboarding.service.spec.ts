@@ -53,8 +53,20 @@ describe('rider onboarding', () => {
     await expect(ctx.service.profile(RIDER)).resolves.toEqual({
       fullName: 'Tendai Moyo',
       phone: '+263771234567',
+      address: null,
     });
     expect(ctx.userUpdates).toBe(0);
+  });
+
+  it('returns the customer address for a customer who also has a rider profile', async () => {
+    const ctx = context();
+    ctx.user.role = UserRole.CUSTOMER;
+    ctx.customerAddress = '1 First Street';
+    await expect(ctx.service.profile(RIDER)).resolves.toEqual({
+      fullName: 'Tendai Moyo',
+      phone: '+263771234567',
+      address: '1 First Street',
+    });
   });
 
   it('refuses a profile read when the account is not an active rider', async () => {
@@ -134,8 +146,19 @@ function context() {
     role: UserRole.RIDER,
     accountStatus: AccountStatus.ACTIVE,
   };
+  const state = { customerAddress: null as string | null };
   let userUpdates = 0;
   const db = {
+    authChallenge: {
+      async findFirst() {
+        return null;
+      },
+    },
+    customerAccount: {
+      async findUnique() {
+        return state.customerAddress === null ? null : { address: state.customerAddress };
+      },
+    },
     user: {
       async findUnique({ where }: { where: { id: string } }) {
         return user.id === where.id ? user : null;
@@ -146,8 +169,16 @@ function context() {
       },
     },
     riderProfile: {
-      async findUnique({ where }: { where: { id: string } }) {
-        return profiles.find((profile) => profile.id === where.id) ?? null;
+      async findUnique({ where }: { where: { id?: string; userId?: string } }) {
+        return profiles.find((profile) => {
+          if (where.id !== undefined) {
+            return profile.id === where.id;
+          }
+          if (where.userId !== undefined) {
+            return profile.userId === where.userId;
+          }
+          return false;
+        }) ?? null;
       },
     },
     riderLicenceReview: {
@@ -175,6 +206,12 @@ function context() {
       return profiles[0];
     },
     user,
+    get customerAddress() {
+      return state.customerAddress;
+    },
+    set customerAddress(value: string | null) {
+      state.customerAddress = value;
+    },
     get userUpdates() {
       return userUpdates;
     },

@@ -307,7 +307,7 @@ model User {
   @@map("users")
 }
 
-// Phone verification creates this row immediately. Licence verification,
+// Registration creates this row when the account is finished. Licence verification,
 // motorcycle verification, and rider approval stay separate. Zimbabwean
 // licences have no expiry date, so a missing expiry is never stored or
 // rejected. The migration check rider_profiles_licence_verification_chk

@@ -16,7 +16,22 @@ export type AuthSession = {
 export type RegistrationProof = {
   status: 'verified';
   registrationToken: string;
+  existing?: ExistingAccountDetails;
 };
+
+export type ExistingAccountDetails = {
+  fullName: string;
+  phone: string;
+  address: string | null;
+  readOnly: Array<'fullName' | 'phone' | 'address'>;
+  missing: Array<'accountKind' | 'address'>;
+};
+
+export type SignInRequired = {
+  status: 'sign_in';
+};
+
+export type RegistrationVerification = RegistrationProof | SignInRequired | AuthSession;
 
 export type IndividualProfile = {
   accountKind: 'INDIVIDUAL';

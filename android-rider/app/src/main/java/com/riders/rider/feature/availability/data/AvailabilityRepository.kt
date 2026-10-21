@@ -14,7 +14,9 @@ import com.riders.rider.feature.availability.RiderLocationService
 import com.riders.rider.feature.availability.domain.GpsFix
 import com.riders.rider.feature.availability.domain.LocationCommand
 import com.riders.rider.feature.availability.domain.LocationFreshness
+import com.riders.rider.feature.availability.domain.LocationRelay
 import com.riders.rider.feature.availability.domain.commandAfterUploadFailure
+import com.riders.rider.feature.availability.domain.shouldRequestAcceptFix
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -26,6 +28,7 @@ class AvailabilityRepository @Inject constructor(
     private val riders: RiderService,
     private val sharing: LocationSharingStore,
     private val freshness: LocationFreshness,
+    private val currentFix: FusedCurrentFix,
     @param:ApplicationContext private val context: Context,
 ) {
     suspend fun online(): ApiResult<AvailabilityUpdate> {
@@ -56,6 +59,23 @@ class AvailabilityRepository @Inject constructor(
             ContextCompat.startForegroundService(context, intent)
         } else {
             context.stopService(intent)
+        }
+    }
+
+    suspend fun refreshForAccept(): Boolean {
+        val now = System.currentTimeMillis()
+        val availability = if (sharing.isEnabled()) "AVAILABLE" else "OFFLINE"
+        if (!shouldRequestAcceptFix(availability, freshness.canAccept(now))) {
+            return freshness.canAccept(now)
+        }
+        val current = currentFix.read() ?: return false
+        return LocationRelay().handle(
+            active = true,
+            fix = current.fix,
+            ageMillis = current.ageMillis,
+            accuracyMeters = current.accuracyMeters,
+        ) { fix ->
+            upload(fix)
         }
     }
 

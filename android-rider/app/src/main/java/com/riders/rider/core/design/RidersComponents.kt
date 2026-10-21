@@ -1,5 +1,6 @@
 package com.riders.rider.core.design
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -31,12 +32,17 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.riders.rider.R
 
 enum class RidersButtonTone {
     Primary,
@@ -66,6 +72,56 @@ fun RidersWordmark(modifier: Modifier = Modifier) {
             Text("iders", style = RidersType.brandName, color = RidersColors.text)
             Text("DELIVERY", style = RidersType.brandCaption, color = RidersColors.textSecondary)
         }
+    }
+}
+
+@Composable
+fun RidersBrandLogo(modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier.semantics { contentDescription = "Riders Delivery" },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            "R",
+            color = RidersColors.primary,
+            fontSize = 66.sp,
+            fontWeight = FontWeight.Black,
+            lineHeight = 66.sp,
+        )
+        Column {
+            Text(
+                "iders",
+                color = RidersColors.text,
+                fontSize = 36.sp,
+                fontWeight = FontWeight.ExtraBold,
+                lineHeight = 40.sp,
+            )
+            Text(
+                "DELIVERY",
+                color = RidersColors.textSecondary,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Normal,
+                letterSpacing = 4.sp,
+                lineHeight = 16.sp,
+            )
+        }
+    }
+}
+
+@Composable
+fun RidersBrandMark(modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md),
+    ) {
+        Image(
+            painter = painterResource(R.drawable.rider_image),
+            contentDescription = null,
+            modifier = Modifier.size(width = 129.dp, height = 97.dp),
+            contentScale = ContentScale.Fit,
+        )
+        RidersBrandLogo()
     }
 }
 

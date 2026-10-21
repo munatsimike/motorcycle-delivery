@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.flow.first
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -14,6 +15,11 @@ private val Context.locationSharing by preferencesDataStore(name = "rider_locati
 class LocationSharingStore @Inject constructor(
     @param:ApplicationContext private val context: Context,
 ) {
+    suspend fun isEnabled(): Boolean {
+        val prefs = context.locationSharing.data.first()
+        return prefs[Enabled] == true
+    }
+
     suspend fun setEnabled(enabled: Boolean) {
         context.locationSharing.edit { prefs ->
             prefs[Enabled] = enabled

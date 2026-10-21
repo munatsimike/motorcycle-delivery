@@ -22,6 +22,12 @@ data class LocationUpdatePolicy(
 
 fun locationUpdatePolicy(): LocationUpdatePolicy = LocationUpdatePolicy()
 
+const val LOCATION_PERMISSION_REQUIRED = "Location permission is required to go online."
+
+fun shouldRequestAcceptFix(availability: String?, locationIsFresh: Boolean): Boolean {
+    return availability == "AVAILABLE" && !locationIsFresh
+}
+
 fun shouldShareLocation(availability: String?, hasSession: Boolean, permissionGranted: Boolean): Boolean {
     return hasSession && permissionGranted && availability == "AVAILABLE"
 }

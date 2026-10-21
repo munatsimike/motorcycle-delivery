@@ -17,7 +17,7 @@ export class RiderAccessService {
 
   async authenticate(authorization: string | undefined, now = new Date()): Promise<RiderContext> {
     const claims = this.accessTokens.verify(readBearerToken(authorization), now);
-    if (claims.role !== UserRole.RIDER) {
+    if (claims.role !== UserRole.RIDER && claims.role !== UserRole.CUSTOMER) {
       throw new ForbiddenException('Rider access is required');
     }
 
@@ -36,7 +36,14 @@ export class RiderAccessService {
       where: { id: claims.sub },
       include: { riderProfile: true },
     });
-    if (!user || user.role !== UserRole.RIDER || user.accountStatus !== AccountStatus.ACTIVE || user.phoneVerifiedAt === null || !user.riderProfile) {
+    if (
+      !user
+      || user.role !== claims.role
+      || (user.role !== UserRole.RIDER && user.role !== UserRole.CUSTOMER)
+      || user.accountStatus !== AccountStatus.ACTIVE
+      || user.phoneVerifiedAt === null
+      || !user.riderProfile
+    ) {
       throw new ForbiddenException('Rider access is required');
     }
 

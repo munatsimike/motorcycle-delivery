@@ -1,6 +1,9 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import {
   AccountStatus,
+  AuthChallengeStatus,
+  AuthPurpose,
+  AuthSubjectRole,
   LicenceReviewDecision,
   MotorcycleVerificationStatus,
   RiderApprovalStatus,
@@ -14,6 +17,7 @@ import type { RiderContext } from '../auth/rider-access.service.js';
 export type RiderProfileResponse = {
   fullName: string;
   phone: string;
+  address: string | null;
 };
 
 export type RiderOnboardingResponse = {
@@ -34,12 +38,30 @@ export class RiderOnboardingService {
   async profile(rider: RiderContext): Promise<RiderProfileResponse> {
     const user = await this.prisma.user.findUnique({
       where: { id: rider.userId },
-      select: { fullName: true, phone: true, role: true, accountStatus: true },
+      select: { id: true, fullName: true, phone: true, role: true, accountStatus: true },
     });
-    if (!user || user.role !== UserRole.RIDER || user.accountStatus !== AccountStatus.ACTIVE) {
+    if (
+      !user
+      || (user.role !== UserRole.RIDER && user.role !== UserRole.CUSTOMER)
+      || user.accountStatus !== AccountStatus.ACTIVE
+    ) {
       throw new ForbiddenException('Rider access is required');
     }
-    return { fullName: user.fullName, phone: user.phone };
+    const customer = await this.prisma.customerAccount.findUnique({
+      where: { userId: user.id },
+      select: { address: true },
+    });
+    const registration = await this.prisma.authChallenge.findFirst({
+      where: {
+        phone: user.phone,
+        subjectRole: AuthSubjectRole.RIDER,
+        purpose: AuthPurpose.REGISTRATION,
+        status: AuthChallengeStatus.SUPERSEDED,
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { address: true },
+    });
+    return { fullName: user.fullName, phone: user.phone, address: customer?.address ?? registration?.address ?? null };
   }
 
   async current(rider: RiderContext): Promise<RiderOnboardingResponse> {

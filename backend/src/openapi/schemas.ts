@@ -12,8 +12,22 @@ export class RiderRegistrationBody {
   @ApiProperty({ description: 'Zimbabwe mobile number. A national or +263 form is accepted and stored as E.164.' })
   phone!: string;
 
-  @ApiProperty({ maxLength: 200, description: 'Rider full name collected before the verification code is sent.' })
+  @ApiPropertyOptional({
+    maxLength: 200,
+    description: 'Optional. When omitted, the name and address are collected after the number is verified. Rider accounts are individual.',
+  })
+  fullName?: string;
+}
+
+export class RiderRegistrationCompleteBody {
+  @ApiProperty({ description: 'Registration proof returned after the rider phone is verified.' })
+  registrationToken!: string;
+
+  @ApiProperty({ maxLength: 200 })
   fullName!: string;
+
+  @ApiProperty({ minLength: 1, maxLength: 500 })
+  address!: string;
 }
 
 export class IndividualCustomerRegistrationBody {
@@ -92,8 +106,23 @@ export class RegistrationProofResponse {
   @ApiProperty({ enum: ['verified'] })
   status!: 'verified';
 
-  @ApiProperty({ description: 'Short-lived proof used to finish customer registration or search places before the account exists.' })
+  @ApiProperty({ description: 'Short-lived proof used to finish registration or search places before the account exists. Personal details are included only after the phone has been verified and only when they already belong to that phone.' })
   registrationToken!: string;
+
+  @ApiPropertyOptional({ maxLength: 200 })
+  fullName?: string;
+
+  @ApiPropertyOptional()
+  phone?: string;
+
+  @ApiPropertyOptional({ nullable: true, minLength: 1, maxLength: 500 })
+  address?: string | null;
+
+  @ApiPropertyOptional({ isArray: true, enum: ['fullName', 'phone', 'address'] })
+  readOnly?: Array<'fullName' | 'phone' | 'address'>;
+
+  @ApiPropertyOptional({ isArray: true, enum: ['accountKind', 'address'] })
+  missing?: Array<'accountKind' | 'address'>;
 }
 
 export class SessionResponse {

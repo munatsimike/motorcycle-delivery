@@ -26,11 +26,14 @@ import { useSession } from '../viewmodels/useSession';
 type RegistrationProps = NativeStackScreenProps<RootStackParamList, 'RegistrationForm'>;
 
 export default function RegistrationFormScreen({ route }: RegistrationProps) {
-  const { registrationToken, phone } = route.params;
+  const { registrationToken, phone, existing } = route.params;
   const { saveSession } = useSession();
-  const form = useRegistrationForm(registrationToken);
+  const form = useRegistrationForm(registrationToken, existing);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [addressStop, setAddressStop] = useState<StopDraft>(emptyStop);
+  const [addressStop, setAddressStop] = useState<StopDraft>(() => {
+    const stop = emptyStop();
+    return existing?.address ? { ...stop, address: existing.address } : stop;
+  });
   const placeBias = usePlaceBias();
   const keyboard = useKeyboardLift();
 
@@ -61,9 +64,11 @@ export default function RegistrationFormScreen({ route }: RegistrationProps) {
       }}
       scrollEventThrottle={16}
     >
-      <Text style={styles.title}>Finish your account</Text>
+      <Text style={styles.title}>{form.existing ? 'Confirm your account' : 'Finish your account'}</Text>
       <Text style={styles.subtitle}>
-        This number is verified and stays with this account.
+        {form.existing
+          ? 'Your saved details stay as they are. Add only what this account still needs.'
+          : 'This number is verified and stays with this account.'}
       </Text>
       <View style={styles.phoneRow}>
         <View style={styles.phoneIcon}>
@@ -99,7 +104,7 @@ export default function RegistrationFormScreen({ route }: RegistrationProps) {
           placeholder="Tendai Moyo"
           textContentType="name"
           autoComplete="off"
-          editable={!form.isLoading}
+          editable={!form.isLoading && !form.nameLocked}
           onFocus={keyboard.revealFocusedField}
         />
       ) : (
@@ -120,7 +125,7 @@ export default function RegistrationFormScreen({ route }: RegistrationProps) {
             placeholder="Tendai Moyo"
             textContentType="name"
             autoComplete="off"
-            editable={!form.isLoading}
+            editable={!form.isLoading && !form.nameLocked}
             onFocus={keyboard.revealFocusedField}
           />
         </>
@@ -128,7 +133,7 @@ export default function RegistrationFormScreen({ route }: RegistrationProps) {
 
       <AddressField
         stop={addressStop}
-        editable={!form.isLoading}
+        editable={!form.isLoading && !form.addressLocked}
         onFocus={keyboard.revealFocusedField}
         searchPlaces={(text, sessionToken) => customerDeliveryRepository.searchRegistrationPlaces(registrationToken, text, placeBias, sessionToken)}
         resolvePlace={(placeId, sessionToken) => customerDeliveryRepository.resolveRegistrationPlace(registrationToken, placeId, sessionToken)}
@@ -141,7 +146,7 @@ export default function RegistrationFormScreen({ route }: RegistrationProps) {
       />
       <ErrorMessage message={saveError ?? form.error} />
       <PrimaryButton
-        label="Create account"
+        label={form.existing ? 'Confirm and continue' : 'Create account'}
         trailingIcon="chevron-right"
         onPress={() => {
           void handleSubmit();

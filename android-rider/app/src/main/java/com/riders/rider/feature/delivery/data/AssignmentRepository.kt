@@ -5,6 +5,7 @@ import com.riders.rider.core.network.RiderService
 import com.riders.rider.core.network.apiCall
 import com.riders.rider.feature.delivery.domain.AssignmentLookup
 import com.riders.rider.feature.delivery.domain.toActiveDelivery
+import com.riders.rider.feature.delivery.domain.toContacts
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -16,7 +17,11 @@ class AssignmentRepository @Inject constructor(
         return when (val result = apiCall { riders.activeAssignment() }) {
             is ApiResult.Ok -> {
                 val assignment = result.value.assignment
-                if (assignment == null) AssignmentLookup.None else AssignmentLookup.Found(assignment.toActiveDelivery())
+                if (assignment == null) {
+                    AssignmentLookup.None
+                } else {
+                    AssignmentLookup.Found(assignment.toActiveDelivery(), assignment.toContacts())
+                }
             }
             is ApiResult.Err -> AssignmentLookup.Unavailable(result.error)
         }

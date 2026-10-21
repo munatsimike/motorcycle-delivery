@@ -3,9 +3,10 @@ import type {
   AuthSession,
   CompleteRegistrationRequest,
   PendingOtp,
-  RegistrationProof,
+  RegistrationVerification,
 } from '../../domain/auth.types';
 import type { CustomerAuthRepository } from '../../domain/repositories/CustomerAuthRepository';
+import { readRegistrationVerification } from '../../domain/registrationVerification';
 
 export class CustomerAuthApiRepository implements CustomerAuthRepository {
   requestRegistrationCode(phone: string): Promise<PendingOtp> {
@@ -16,8 +17,8 @@ export class CustomerAuthApiRepository implements CustomerAuthRepository {
     return apiPost<unknown>('/auth/customer/login', { phone }).then(readPending);
   }
 
-  verifyRegistrationCode(phone: string, code: string): Promise<RegistrationProof> {
-    return apiPost<unknown>('/auth/customer/register/verify', { phone, code }).then(readProof);
+  verifyRegistrationCode(phone: string, code: string): Promise<RegistrationVerification> {
+    return apiPost<unknown>('/auth/customer/register/verify', { phone, code }).then(readRegistrationVerification);
   }
 
   verifyLoginCode(phone: string, code: string): Promise<AuthSession> {
@@ -44,19 +45,6 @@ function readPending(value: unknown): PendingOtp {
     throw new Error('Verification could not be started.');
   }
   return { status: 'pending' };
-}
-
-function readProof(value: unknown): RegistrationProof {
-  if (
-    !isRecord(value)
-    || value.status !== 'verified'
-    || typeof value.registrationToken !== 'string'
-    || value.registrationToken.length < 20
-    || 'accessToken' in value
-  ) {
-    throw new Error('Verification failed.');
-  }
-  return { status: 'verified', registrationToken: value.registrationToken };
 }
 
 function readSession(value: unknown): AuthSession {

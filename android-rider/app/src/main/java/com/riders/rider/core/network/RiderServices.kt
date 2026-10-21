@@ -17,6 +17,7 @@ import retrofit2.http.POST
 import retrofit2.http.PUT
 import retrofit2.http.Part
 import retrofit2.http.Path
+import retrofit2.http.Query
 import java.util.concurrent.TimeUnit
 
 val ApiJson: Json = Json {
@@ -32,16 +33,22 @@ interface AuthService {
     suspend fun verifyLogin(@Body body: VerifyRequest): SessionResponse
 
     @POST("auth/rider/register/otp")
-    suspend fun requestRegistration(@Body body: RegisterRequest): PendingResponse
+    suspend fun requestRegistration(@Body body: RiderRegistrationRequest): PendingResponse
 
     @POST("auth/rider/register/verify")
-    suspend fun verifyRegistration(@Body body: VerifyRequest): SessionResponse
+    suspend fun verifyRegistration(@Body body: VerifyRequest): RegistrationVerifyResponse
+
+    @POST("auth/rider/register/complete")
+    suspend fun completeRegistration(@Body body: RiderAccountRequest): SessionResponse
 
     @POST("auth/session/refresh")
     suspend fun refresh(@Body body: RefreshRequest): SessionResponse
 
     @POST("auth/session/logout")
     suspend fun logout(): Response<ResponseBody>
+
+    @POST("auth/session/logout-all")
+    suspend fun logoutAll(): Response<ResponseBody>
 }
 
 interface RiderService {
@@ -83,7 +90,7 @@ interface RiderService {
     suspend fun location(@Body body: LocationRequest): LocationResponse
 
     @GET("riders/me/offers")
-    suspend fun offers(): OffersResponse
+    suspend fun offers(): Response<OffersResponse>
 
     @GET("riders/me/assignments/active")
     suspend fun activeAssignment(): ActiveAssignmentResponse
@@ -105,6 +112,15 @@ interface RiderService {
         @Path("deliveryId") deliveryId: String,
         @Body body: StatusRequest,
     ): ProgressResponse
+
+    @GET("riders/me/wallet")
+    suspend fun wallet(): WalletSummaryResponse
+
+    @GET("riders/me/wallet/transactions")
+    suspend fun walletTransactions(
+        @Query("limit") limit: Int,
+        @Query("cursor") cursor: String? = null,
+    ): WalletTransactionsResponse
 }
 
 fun apiBaseUrl(configured: String): String {

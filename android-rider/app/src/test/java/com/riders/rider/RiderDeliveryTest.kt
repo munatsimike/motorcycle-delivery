@@ -7,11 +7,20 @@ import com.riders.rider.core.network.ParcelResponse
 import com.riders.rider.core.network.StopResponse
 import com.riders.rider.feature.delivery.domain.ActiveDelivery
 import com.riders.rider.feature.delivery.domain.AssignmentLookup
+import com.riders.rider.feature.delivery.domain.DeliveryActionGate
+import com.riders.rider.feature.delivery.domain.DeliveryContacts
 import com.riders.rider.feature.delivery.domain.DeliveryRecoveryCoordinator
+import com.riders.rider.feature.delivery.domain.DeliverySyncKind
 import com.riders.rider.feature.delivery.domain.applyDeliveryTransition
+import com.riders.rider.feature.delivery.domain.deliveryActionLabel
 import com.riders.rider.feature.delivery.domain.loadedDelivery
+import com.riders.rider.feature.delivery.domain.MAPS_UNAVAILABLE
+import com.riders.rider.feature.delivery.domain.mapPointForStatus
+import com.riders.rider.feature.delivery.domain.navigationTarget
 import com.riders.rider.feature.delivery.domain.nextDeliveryStatus
+import com.riders.rider.feature.delivery.domain.progressDecision
 import com.riders.rider.feature.delivery.domain.releaseActionVisible
+import com.riders.rider.feature.delivery.domain.syncOpenDelivery
 import com.riders.rider.feature.delivery.domain.toActiveDelivery
 import com.riders.rider.feature.home.homeShift
 import com.riders.rider.feature.offers.domain.AcceptKeys
@@ -21,6 +30,7 @@ import com.riders.rider.feature.offers.domain.OfferAcceptance
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -238,6 +248,98 @@ class RiderDeliveryTest {
         assertNull(applyDeliveryTransition("ASSIGNED", "PICKED_UP"))
         assertNull(applyDeliveryTransition("ASSIGNED", "DELIVERED"))
         assertNull(applyDeliveryTransition("DELIVERED", "ASSIGNED"))
+    }
+
+    @Test
+    fun deliveryActionsFollowTheCurrentStatus() {
+        assertEquals("Arrived at pickup", deliveryActionLabel("ASSIGNED"))
+        assertEquals("Confirm pickup", deliveryActionLabel("ARRIVED_AT_PICKUP"))
+        assertEquals("Start the trip", deliveryActionLabel("PICKED_UP"))
+        assertEquals("Arrived at drop-off", deliveryActionLabel("IN_TRANSIT"))
+        assertEquals("Confirm delivery", deliveryActionLabel("ARRIVED_AT_DROPOFF"))
+        assertNull(deliveryActionLabel("DELIVERED"))
+        assertNull(deliveryActionLabel("FAILED"))
+    }
+
+    @Test
+    fun aSecondProgressTapIsIgnoredWhileTheFirstIsRunning() {
+        val gate = DeliveryActionGate()
+        assertTrue(gate.tryStart())
+        assertFalse(gate.tryStart())
+        gate.finish()
+        assertTrue(gate.tryStart())
+    }
+
+    @Test
+    fun aFailedProgressKeepsTheCurrentStatus() {
+        val skipped = progressDecision("ASSIGNED", "DELIVERED")
+        assertEquals("ASSIGNED", skipped.status)
+        assertFalse(skipped.finished)
+        val conflict = progressDecision("PICKED_UP", "PICKED_UP")
+        assertEquals("PICKED_UP", conflict.status)
+        assertFalse(conflict.finished)
+    }
+
+    @Test
+    fun completionClearsTheDeliveryOnlyAfterTheBackendConfirmsIt() {
+        val earlier = progressDecision("IN_TRANSIT", "ARRIVED_AT_DROPOFF")
+        assertEquals("ARRIVED_AT_DROPOFF", earlier.status)
+        assertFalse(earlier.finished)
+        val delivered = progressDecision("ARRIVED_AT_DROPOFF", "DELIVERED")
+        assertEquals("DELIVERED", delivered.status)
+        assertTrue(delivered.finished)
+    }
+
+    @Test
+    fun aServerRefreshReplacesAStaleLocalStatusWithoutStoringContacts() {
+        val stored = delivery(status = "ASSIGNED")
+        val server = stored.copy(status = "PICKED_UP", parcelSize = "SMALL")
+        val contacts = DeliveryContacts(
+            pickupName = "Nyasha",
+            pickupPhone = "+263771111111",
+            pickupLatitude = "-17.82",
+            pickupLongitude = "31.05",
+            dropoffName = "Tendai",
+            dropoffPhone = "+263772222222",
+            dropoffLatitude = "-17.80",
+            dropoffLongitude = "31.04",
+        )
+        val sync = syncOpenDelivery("delivery-1", stored, AssignmentLookup.Found(server, contacts))
+        assertEquals(DeliverySyncKind.Replace, sync.kind)
+        assertEquals("PICKED_UP", sync.snapshot?.status)
+        assertEquals("+263771111111", sync.contacts?.pickupPhone)
+        val saved = Json.encodeToString(ActiveDelivery.serializer(), sync.snapshot!!)
+        assertFalse(saved.contains("contactPhone"))
+        assertFalse(saved.contains("latitude"))
+        assertFalse(saved.contains("+263"))
+        val pickup = mapPointForStatus("ASSIGNED", contacts)
+        assertEquals("-17.82", pickup?.latitude)
+        assertNull(mapPointForStatus("IN_TRANSIT", contacts.copy(dropoffLatitude = null, dropoffLongitude = null)))
+        val missing = syncOpenDelivery("delivery-1", stored, AssignmentLookup.None)
+        assertEquals(DeliverySyncKind.Leave, missing.kind)
+        val lost = syncOpenDelivery("delivery-1", stored, AssignmentLookup.Unavailable(ApiError.Network))
+        assertEquals(DeliverySyncKind.Keep, lost.kind)
+        assertEquals("ASSIGNED", lost.snapshot?.status)
+        assertNull(lost.contacts)
+        assertEquals("Network request failed. Check your connection and try again.", lost.error)
+    }
+
+    @Test
+    fun navigationUsesCoordinatesThenTheAddress() {
+        val contacts = DeliveryContacts(
+            pickupName = "Nyasha",
+            pickupPhone = "+263771111111",
+            pickupLatitude = "-17.82",
+            pickupLongitude = "31.05",
+            dropoffName = "Tendai",
+            dropoffPhone = "+263772222222",
+        )
+        val coordinates = navigationTarget("ASSIGNED", contacts, "Sam Levy's Village", "Near the gate", "Avondale", null)
+        assertEquals("geo:-17.82,31.05?q=-17.82,31.05", coordinates?.uri)
+        val address = navigationTarget("IN_TRANSIT", contacts, "Sam Levy's Village", null, "Avondale Shopping Centre", "By the bank")
+        assertEquals("geo:0,0?q=Avondale%20Shopping%20Centre%2C%20By%20the%20bank", address?.uri)
+        assertNull(navigationTarget("IN_TRANSIT", null, "", null, "  ", null))
+        assertEquals("No maps application is available.", MAPS_UNAVAILABLE)
     }
 
     private fun coordinator(

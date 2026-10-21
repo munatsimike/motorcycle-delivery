@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module.js';
 import { loadBackendEnv } from './load-env.js';
+import { adminCorsOptions } from './http/admin-cors.js';
 import { configureHttpSecurity, configureSwagger } from './openapi/setup.js';
 
 loadBackendEnv();
@@ -11,6 +12,10 @@ startup.log(process.env.GOOGLE_MAPS_API_KEY?.trim() ? 'Google Maps API key is co
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  const cors = adminCorsOptions(process.env);
+  if (cors) {
+    app.enableCors(cors);
+  }
 
   configureHttpSecurity(app);
   configureSwagger(app);

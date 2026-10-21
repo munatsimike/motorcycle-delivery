@@ -7,6 +7,7 @@ import com.riders.rider.core.network.ApiResult
 import com.riders.rider.core.network.text
 import com.riders.rider.core.session.SessionStore
 import com.riders.rider.feature.auth.data.AuthRepository
+import com.riders.rider.feature.auth.data.VerifyOutcome
 import com.riders.rider.feature.auth.data.BiometricAuthResult
 import com.riders.rider.feature.auth.data.BiometricAuthenticator
 import com.riders.rider.feature.auth.data.BiometricCapability
@@ -16,10 +17,12 @@ import com.riders.rider.feature.auth.domain.BiometricPreference
 import com.riders.rider.feature.auth.domain.BiometricSessionState
 import com.riders.rider.feature.auth.domain.biometricHomeAction
 import com.riders.rider.feature.auth.domain.initialBiometricState
+import com.riders.rider.feature.auth.domain.normalizeRiderAddress
 import com.riders.rider.feature.auth.domain.normalizeRiderName
 import com.riders.rider.feature.auth.domain.normalizeRiderPhone
 import com.riders.rider.feature.auth.domain.reduceSession
 import com.riders.rider.feature.auth.domain.resolveAppEntry
+import androidx.lifecycle.SavedStateHandle
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -27,7 +30,16 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-data class FormState(val loading: Boolean = false, val error: String? = null, val completedPhone: String? = null)
+data class FormState(
+    val loading: Boolean = false,
+    val error: String? = null,
+    val completedPhone: String? = null,
+    val registrationToken: String? = null,
+    val prefillName: String? = null,
+    val prefillAddress: String? = null,
+    val lockDetails: Boolean = false,
+    val useExistingLogin: Boolean = false,
+)
 
 @HiltViewModel
 class SignInViewModel @Inject constructor(
@@ -60,13 +72,7 @@ class RegisterViewModel @Inject constructor(
     private val state = MutableStateFlow(FormState())
     val ui: StateFlow<FormState> = state.asStateFlow()
 
-    fun submit(name: String, phone: String) {
-        val normalizedName = try {
-            normalizeRiderName(name)
-        } catch (error: IllegalArgumentException) {
-            state.value = FormState(error = error.message)
-            return
-        }
+    fun submit(phone: String) {
         val normalizedPhone = try {
             normalizeRiderPhone(phone)
         } catch (error: IllegalArgumentException) {
@@ -75,8 +81,58 @@ class RegisterViewModel @Inject constructor(
         }
         viewModelScope.launch {
             state.value = FormState(loading = true)
-            state.value = when (val result = auth.requestRegistration(normalizedPhone, normalizedName)) {
+            state.value = when (val result = auth.requestRegistration(normalizedPhone)) {
                 is ApiResult.Ok -> FormState(completedPhone = normalizedPhone)
+                is ApiResult.Err -> FormState(error = result.error.text())
+            }
+        }
+    }
+}
+
+@HiltViewModel
+class AccountViewModel @Inject constructor(
+    private val auth: AuthRepository,
+    savedState: SavedStateHandle,
+) : ViewModel() {
+    val phone: String = savedState.get<String>("phone").orEmpty()
+    val initialName: String = savedState.get<String>("name").orEmpty()
+    val initialAddress: String = savedState.get<String>("address").orEmpty()
+    val lockDetails: Boolean = savedState.get<String>("locked") == "true"
+    private val token: String = savedState.get<String>("token").orEmpty()
+    private val state = MutableStateFlow(FormState())
+    val ui: StateFlow<FormState> = state.asStateFlow()
+
+    fun submit(name: String, address: String) {
+        if (token.isBlank()) {
+            state.value = FormState(error = "Verify your phone number again.")
+            return
+        }
+        if (lockDetails) {
+            viewModelScope.launch {
+                state.value = FormState(loading = true)
+                state.value = when (val result = auth.completeRegistration(token, initialName, initialAddress)) {
+                    is ApiResult.Ok -> FormState(completedPhone = phone)
+                    is ApiResult.Err -> FormState(error = result.error.text())
+                }
+            }
+            return
+        }
+        val normalizedName = try {
+            normalizeRiderName(name)
+        } catch (error: IllegalArgumentException) {
+            state.value = FormState(error = error.message)
+            return
+        }
+        val normalizedAddress = try {
+            normalizeRiderAddress(address)
+        } catch (error: IllegalArgumentException) {
+            state.value = FormState(error = error.message)
+            return
+        }
+        viewModelScope.launch {
+            state.value = FormState(loading = true)
+            state.value = when (val result = auth.completeRegistration(token, normalizedName, normalizedAddress)) {
+                is ApiResult.Ok -> FormState(completedPhone = phone)
                 is ApiResult.Err -> FormState(error = result.error.text())
             }
         }
@@ -98,7 +154,16 @@ class OtpViewModel @Inject constructor(
         viewModelScope.launch {
             state.value = FormState(loading = true)
             state.value = when (val result = auth.verify(flow, phone, code)) {
-                is ApiResult.Ok -> FormState(completedPhone = phone)
+                is ApiResult.Ok -> when (val outcome = result.value) {
+                    VerifyOutcome.SignedIn -> FormState(completedPhone = phone)
+                    VerifyOutcome.UseExistingLogin -> FormState(useExistingLogin = true)
+                    is VerifyOutcome.NeedsAccount -> FormState(
+                        registrationToken = outcome.registrationToken,
+                        prefillName = outcome.fullName,
+                        prefillAddress = outcome.address,
+                        lockDetails = outcome.lockDetails,
+                    )
+                }
                 is ApiResult.Err -> FormState(error = result.error.text())
             }
         }

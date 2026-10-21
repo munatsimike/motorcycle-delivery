@@ -1,16 +1,16 @@
 import { useRef, useState } from 'react';
 
 import { customerAuthRepository } from '../../data/repositories/CustomerAuthApiRepository';
-import type { AccountKind, AuthSession } from '../../domain/auth.types';
+import type { AccountKind, AuthSession, ExistingAccountDetails } from '../../domain/auth.types';
 import { completeRegistration } from '../../domain/usecases/completeRegistration';
 import { errorMessage } from '../errorMessage';
 
-export function useRegistrationForm(registrationToken: string) {
+export function useRegistrationForm(registrationToken: string, existing?: ExistingAccountDetails) {
   const [accountKind, setAccountKind] = useState<AccountKind>('INDIVIDUAL');
-  const [fullName, setFullName] = useState('');
+  const [fullName, setFullName] = useState(existing?.fullName ?? '');
   const [businessName, setBusinessName] = useState('');
-  const [contactName, setContactName] = useState('');
-  const [address, setAddress] = useState('');
+  const [contactName, setContactName] = useState(existing?.fullName ?? '');
+  const [address, setAddress] = useState(existing?.address ?? '');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inFlight = useRef(false);
@@ -53,5 +53,8 @@ export function useRegistrationForm(registrationToken: string) {
     isLoading,
     error,
     submit,
+    existing,
+    nameLocked: existing?.readOnly.includes('fullName') === true,
+    addressLocked: existing?.readOnly.includes('address') === true,
   };
 }

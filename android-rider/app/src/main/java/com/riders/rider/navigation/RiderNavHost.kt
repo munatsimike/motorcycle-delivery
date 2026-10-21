@@ -1,38 +1,20 @@
 package com.riders.rider.navigation
 
 import android.net.Uri
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.riders.rider.feature.auth.presentation.AccountScreen
 import com.riders.rider.feature.auth.presentation.OtpScreen
 import com.riders.rider.feature.auth.presentation.RegisterScreen
 import com.riders.rider.feature.auth.presentation.SignInScreen
 import com.riders.rider.feature.auth.presentation.WelcomeScreen
-import com.riders.rider.feature.delivery.presentation.DeliveryViewModel
-import com.riders.rider.feature.home.HomeScreen
+import com.riders.rider.feature.delivery.presentation.DeliveryScreen
 import com.riders.rider.feature.onboarding.presentation.OnboardingScreen
-import com.riders.rider.feature.offers.domain.ReleaseReasons
-import com.riders.rider.feature.offers.presentation.OffersScreen
 
 @Composable
 fun RiderNavHost(signedIn: Boolean) {
@@ -46,7 +28,7 @@ private fun RiderGraph(signedIn: Boolean) {
     val controller = rememberNavController()
     NavHost(
         navController = controller,
-        startDestination = if (signedIn) "home" else "welcome",
+        startDestination = if (signedIn) RIDER_SHELL else "welcome",
     ) {
         composable("welcome") {
             WelcomeScreen(
@@ -54,8 +36,17 @@ private fun RiderGraph(signedIn: Boolean) {
                 onRegister = { controller.navigate("register") },
             )
         }
-        composable("sign-in") {
+        composable(
+            route = "sign-in?notice={notice}",
+            arguments = listOf(
+                navArgument("notice") {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+            ),
+        ) { entry ->
             SignInScreen(
+                notice = entry.arguments?.getString("notice").orEmpty().ifBlank { null },
                 onCodeSent = { phone ->
                     controller.navigate("otp/login/${Uri.encode(phone)}")
                 },
@@ -77,25 +68,83 @@ private fun RiderGraph(signedIn: Boolean) {
                 navArgument("phone") { type = NavType.StringType },
             ),
         ) { entry ->
+            val phone = entry.arguments?.getString("phone").orEmpty()
             OtpScreen(
                 flow = entry.arguments?.getString("flow").orEmpty(),
-                phone = entry.arguments?.getString("phone").orEmpty(),
+                phone = phone,
+                onRegistrationVerified = { token, name, address, locked ->
+                    val route = "account?phone=${Uri.encode(phone)}&token=${Uri.encode(token)}" +
+                        "&name=${Uri.encode(name.orEmpty())}&address=${Uri.encode(address.orEmpty())}" +
+                        "&locked=$locked"
+                    controller.navigate(route) {
+                        popUpTo("welcome")
+                    }
+                },
+                onUseExistingLogin = {
+                    controller.navigate("sign-in?notice=${Uri.encode("Sign in to your existing account")}") {
+                        popUpTo("welcome")
+                    }
+                },
             )
         }
-        composable("home") {
-            HomeScreen(
-                onOffers = { controller.navigate("offers") },
+        composable(
+            route = "account?phone={phone}&token={token}&name={name}&address={address}&locked={locked}",
+            arguments = listOf(
+                navArgument("phone") {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+                navArgument("token") {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+                navArgument("name") {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+                navArgument("address") {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+                navArgument("locked") {
+                    type = NavType.StringType
+                    defaultValue = "false"
+                },
+            ),
+        ) {
+            AccountScreen()
+        }
+        composable(RIDER_SHELL) { entry ->
+            RiderShell(
+                entry = entry,
                 onDelivery = { deliveryId -> controller.navigate("delivery/$deliveryId") },
+                onAccepted = { deliveryId ->
+                    controller.navigate("delivery/$deliveryId") {
+                        popUpTo(RIDER_SHELL)
+                    }
+                },
                 onSetup = { controller.navigate("onboarding") },
+                onLicence = { controller.navigate(profileOnboardingRoute("licence")) },
+                onMotorcycles = { controller.navigate(profileOnboardingRoute("motorcycle")) },
             )
         }
-        composable("onboarding") {
-            OnboardingScreen(onFinished = { controller.popBackStack() })
-        }
-        composable("offers") {
-            OffersScreen(onAccepted = { deliveryId ->
-                controller.navigate("delivery/$deliveryId") { popUpTo("home") }
-            })
+        composable(
+            route = "onboarding?step={step}",
+            arguments = listOf(
+                navArgument("step") {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+            ),
+        ) { entry ->
+            val step = entry.arguments?.getString("step")
+            OnboardingScreen(
+                onFinished = {
+                    controller.previousBackStackEntry?.savedStateHandle?.set("refreshProfile", true)
+                    controller.popBackStack()
+                },
+                focused = !showsWizardChrome(step),
+            )
         }
         composable(
             route = "delivery/{deliveryId}",
@@ -103,42 +152,8 @@ private fun RiderGraph(signedIn: Boolean) {
         ) { entry ->
             DeliveryScreen(
                 deliveryId = entry.arguments?.getString("deliveryId").orEmpty(),
-                onFinished = { controller.popBackStack("home", inclusive = false) },
+                onFinished = { controller.popBackStack(RIDER_SHELL, inclusive = false) },
             )
         }
-    }
-}
-
-@Composable
-private fun DeliveryScreen(
-    deliveryId: String,
-    onFinished: () -> Unit,
-    model: DeliveryViewModel = hiltViewModel(),
-) {
-    val ui by model.ui.collectAsStateWithLifecycle()
-    LaunchedEffect(deliveryId) { model.load(deliveryId) }
-    LaunchedEffect(ui.finished) { if (ui.finished) onFinished() }
-    Column(
-        Modifier.fillMaxSize().padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        horizontalAlignment = Alignment.Start,
-    ) {
-        Text("Delivery", style = MaterialTheme.typography.headlineSmall)
-        Text(ui.statusLabel)
-        if (ui.pickupAddress.isNotEmpty()) {
-            Text("Pickup: ${ui.pickupAddress}")
-        }
-        if (ui.dropoffAddress.isNotEmpty()) {
-            Text("Drop-off: ${ui.dropoffAddress}")
-        }
-        ui.nextLabel?.let { label ->
-            Button(onClick = model::advance, modifier = Modifier.fillMaxWidth()) { Text(label) }
-        }
-        if (ui.canRelease) {
-            ReleaseReasons.forEach { (reason, label) ->
-                OutlinedButton(onClick = { model.release(reason) }, modifier = Modifier.fillMaxWidth()) { Text(label) }
-            }
-        }
-        ui.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
     }
 }

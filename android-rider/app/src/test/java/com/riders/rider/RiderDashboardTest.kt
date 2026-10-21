@@ -12,11 +12,28 @@ import com.riders.rider.feature.home.confirmAvailability
 import com.riders.rider.feature.home.failAvailability
 import com.riders.rider.feature.home.homeShift
 import com.riders.rider.feature.offers.domain.OfferBoard
+import com.riders.rider.feature.offers.domain.OFFER_CLOCK_INTERVAL_MS
+import com.riders.rider.feature.offers.domain.OFFER_REFRESH_INTERVAL_MS
+import com.riders.rider.feature.offers.domain.OFFER_UNAVAILABLE
+import com.riders.rider.feature.offers.domain.OfferRefreshGate
+import com.riders.rider.feature.offers.domain.OfferWatch
+import com.riders.rider.feature.offers.domain.adjustedNowMillis
+import com.riders.rider.feature.offers.domain.canAcceptOffer
+import com.riders.rider.feature.offers.domain.clockOffsetMillis
+import com.riders.rider.feature.offers.domain.httpDateMillis
 import com.riders.rider.feature.offers.domain.offerBoardAfterLoad
 import com.riders.rider.feature.offers.domain.offerExpiryLabel
 import com.riders.rider.feature.offers.domain.offerIsExpired
+import com.riders.rider.feature.offers.domain.offerPriceLabel
+import com.riders.rider.feature.offers.domain.offerUnavailableAfterRefresh
+import com.riders.rider.feature.offers.domain.shouldPollOffers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.launch
 import com.riders.rider.feature.onboarding.domain.RiderOnboarding
 import com.riders.rider.feature.onboarding.domain.riderReadiness
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -107,6 +124,104 @@ class RiderDashboardTest {
         assertTrue(offerIsExpired(expiresAt, after))
         assertEquals("This offer has expired", offerExpiryLabel(expiresAt, after))
         assertTrue(offerExpiryLabel(expiresAt, before).startsWith("Expires at "))
+        assertTrue(offerExpiryLabel(expiresAt, before).contains("s"))
+        assertTrue(canAcceptOffer(expiresAt, before, accepting = false, unavailable = false))
+        assertFalse(canAcceptOffer(expiresAt, after, accepting = false, unavailable = false))
+        assertFalse(canAcceptOffer(expiresAt, before, accepting = true, unavailable = false))
+        assertFalse(canAcceptOffer(expiresAt, before, accepting = false, unavailable = true))
+    }
+
+    @Test
+    fun offeredPriceShowsCurrencyWithoutCallingItEarnings() {
+        val label = offerPriceLabel("USD", "2.00")
+        assertEquals("USD 2.00", label)
+        assertFalse(label.contains("earning", ignoreCase = true))
+    }
+
+    @Test
+    fun aMissingOfferIsReportedOnlyAfterASuccessfulRefresh() {
+        assertTrue(offerUnavailableAfterRefresh(hadSelection = true, stillPresent = false, refreshSucceeded = true))
+        assertFalse(offerUnavailableAfterRefresh(hadSelection = true, stillPresent = false, refreshSucceeded = false))
+        assertFalse(offerUnavailableAfterRefresh(hadSelection = false, stillPresent = false, refreshSucceeded = true))
+        assertFalse(offerUnavailableAfterRefresh(hadSelection = true, stillPresent = true, refreshSucceeded = true))
+        assertEquals("This offer is no longer available.", OFFER_UNAVAILABLE)
+    }
+
+    @Test
+    fun theOfferClockUsesTheResponseDateWhenTheServerSendsOne() {
+        val server = java.time.Instant.parse("2026-10-20T12:00:00Z").toEpochMilli()
+        val device = java.time.Instant.parse("2026-10-20T12:00:05Z").toEpochMilli()
+        val offset = clockOffsetMillis(server, device)
+        assertEquals(-5_000L, offset)
+        assertEquals(server, adjustedNowMillis(device, offset))
+        assertEquals(0L, clockOffsetMillis(null, device))
+        assertEquals(server, httpDateMillis("Tue, 20 Oct 2026 12:00:00 GMT"))
+        assertNull(httpDateMillis("not-a-date"))
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun offersRefreshOnlyWhileTheScreenIsResumedAndStopWhenItLeaves() = runTest {
+        assertTrue(shouldPollOffers(true))
+        assertFalse(shouldPollOffers(false))
+        assertEquals(20_000L, OFFER_REFRESH_INTERVAL_MS)
+        assertEquals(1_000L, OFFER_CLOCK_INTERVAL_MS)
+        var refreshes = 0
+        var ticks = 0
+        val watch = OfferWatch(backgroundScope, refresh = { refreshes += 1 }, tick = { ticks += 1 })
+        watch.setResumed(true)
+        watch.setResumed(true)
+        runCurrent()
+        assertEquals(1, refreshes)
+        assertTrue(ticks >= 1)
+        advanceTimeBy(OFFER_REFRESH_INTERVAL_MS)
+        runCurrent()
+        assertEquals(2, refreshes)
+        val ticksWhileOpen = ticks
+        assertTrue(ticksWhileOpen > 1)
+        watch.setResumed(false)
+        runCurrent()
+        assertFalse(watch.running)
+        advanceTimeBy(OFFER_REFRESH_INTERVAL_MS)
+        runCurrent()
+        assertEquals(2, refreshes)
+        assertEquals(ticksWhileOpen, ticks)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun aRefreshAlreadyInFlightIsNotStartedAgain() = runTest {
+        val gate = OfferRefreshGate()
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        var running = 0
+        var peak = 0
+        val first = launch {
+            gate.run {
+                running += 1
+                peak = maxOf(peak, running)
+                started.complete(Unit)
+                release.await()
+                running -= 1
+            }
+        }
+        started.await()
+        var secondEntered = false
+        val second = launch {
+            gate.run {
+                secondEntered = true
+                running += 1
+                peak = maxOf(peak, running)
+                running -= 1
+            }
+        }
+        runCurrent()
+        assertFalse(secondEntered)
+        assertEquals(1, peak)
+        release.complete(Unit)
+        first.join()
+        second.join()
+        assertEquals(1, peak)
     }
 
     @Test
@@ -119,12 +234,13 @@ class RiderDashboardTest {
         try {
             val riders = retrofit(server.url("/").toString(), httpClient()).create(RiderService::class.java)
             val empty = riders.offers()
-            assertTrue(empty.offers.isEmpty())
+            assertTrue(empty.isSuccessful)
+            assertTrue(empty.body()!!.offers.isEmpty())
             val lost = runCatching { riders.offers() }
             assertTrue(lost.isFailure)
             val loaded = riders.offers()
-            assertEquals(1, loaded.offers.size)
-            assertEquals("Parcel for Avondale", loaded.offers.first().parcel.description)
+            assertEquals(1, loaded.body()!!.offers.size)
+            assertEquals("Parcel for Avondale", loaded.body()!!.offers.first().parcel.description)
             assertEquals("/riders/me/offers", server.takeRequest(2, java.util.concurrent.TimeUnit.SECONDS)?.path)
         } finally {
             server.shutdown()

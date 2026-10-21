@@ -1,5 +1,6 @@
 package com.riders.rider.feature.offers.presentation
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -31,45 +32,65 @@ import com.riders.rider.core.design.RidersSpacing
 import com.riders.rider.core.design.RidersType
 import com.riders.rider.core.design.RidersWordmark
 import com.riders.rider.core.network.OfferResponse
+import com.riders.rider.feature.offers.domain.canAcceptOffer
 import com.riders.rider.feature.offers.domain.offerExpiryLabel
 import com.riders.rider.feature.offers.domain.offerIsExpired
+import com.riders.rider.feature.offers.domain.offerPriceLabel
 
 @Composable
 fun OffersScreen(
     onAccepted: (String) -> Unit,
+    inShell: Boolean = false,
     model: OfferViewModel = hiltViewModel(),
 ) {
     val ui by model.ui.collectAsStateWithLifecycle()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                model.refresh()
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> model.setScreenResumed(true)
+                Lifecycle.Event.ON_PAUSE -> model.setScreenResumed(false)
+                else -> Unit
             }
         }
         lifecycle.addObserver(observer)
-        onDispose { lifecycle.removeObserver(observer) }
+        if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+            model.setScreenResumed(true)
+        }
+        onDispose {
+            lifecycle.removeObserver(observer)
+            model.setScreenResumed(false)
+        }
     }
     androidx.compose.runtime.LaunchedEffect(ui.accepted?.deliveryId) {
         ui.accepted?.let { onAccepted(it.deliveryId) }
     }
+    val selected = ui.selected
+    BackHandler(enabled = selected != null) { model.select(null) }
     Column(
         Modifier
             .fillMaxSize()
             .background(RidersColors.background)
             .statusBarsPadding()
-            .navigationBarsPadding()
+            .then(if (inShell) Modifier else Modifier.navigationBarsPadding())
             .verticalScroll(rememberScrollState())
             .padding(horizontal = RidersSpacing.xl, vertical = RidersSpacing.lg),
         verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
     ) {
         RidersWordmark()
         Text("Delivery requests", style = RidersType.title, color = RidersColors.text)
-        val selected = ui.selected
         if (selected == null) {
             OfferList(ui, onSelect = model::select, onRefresh = model::refresh)
         } else {
-            OfferDetail(selected, ui.accepting, ui.error, onAccept = { model.accept(selected) }, onBack = { model.select(null) })
+            OfferDetail(
+                offer = selected,
+                accepting = ui.accepting,
+                unavailable = ui.offerGone,
+                nowMillis = ui.nowMillis,
+                error = ui.error,
+                onAccept = { model.accept(selected) },
+                onBack = { model.select(null) },
+            )
         }
     }
 }
@@ -89,14 +110,16 @@ private fun OfferList(ui: OfferUi, onSelect: (OfferResponse) -> Unit, onRefresh:
             body = "New requests appear here while you stay available. Refresh when you are ready to check again.",
         )
         else -> ui.offers.forEach { offer ->
-            val expired = offerIsExpired(offer.expiresAt, System.currentTimeMillis())
+            val expired = offerIsExpired(offer.expiresAt, ui.nowMillis)
             RidersCard(onClick = { onSelect(offer) }, modifier = Modifier.fillMaxWidth()) {
                 Text(offer.parcel.description, style = RidersType.bodyStrong, color = RidersColors.text)
+                Text("Offered price", style = RidersType.caption, color = RidersColors.textSecondary)
+                Text(offerPriceLabel(offer.currency, offer.offeredPrice), style = RidersType.bodyStrong, color = RidersColors.text)
                 Text("Pickup", style = RidersType.caption, color = RidersColors.textSecondary)
                 Text(stopLine(offer.pickup.address, offer.pickup.landmark), style = RidersType.body, color = RidersColors.text)
                 Text("Drop-off", style = RidersType.caption, color = RidersColors.textSecondary)
                 Text(stopLine(offer.dropoff.address, offer.dropoff.landmark), style = RidersType.body, color = RidersColors.text)
-                Text(offerExpiryLabel(offer.expiresAt, System.currentTimeMillis()), style = RidersType.caption, color = if (expired) RidersColors.error else RidersColors.textSecondary)
+                Text(offerExpiryLabel(offer.expiresAt, ui.nowMillis), style = RidersType.caption, color = if (expired) RidersColors.error else RidersColors.textSecondary)
             }
         }
     }
@@ -112,11 +135,13 @@ private fun OfferList(ui: OfferUi, onSelect: (OfferResponse) -> Unit, onRefresh:
 private fun OfferDetail(
     offer: OfferResponse,
     accepting: Boolean,
+    unavailable: Boolean,
+    nowMillis: Long,
     error: String?,
     onAccept: () -> Unit,
     onBack: () -> Unit,
 ) {
-    val expired = offerIsExpired(offer.expiresAt, System.currentTimeMillis())
+    val expired = offerIsExpired(offer.expiresAt, nowMillis)
     RidersCard(modifier = Modifier.fillMaxWidth()) {
         Text(offer.parcel.description, style = RidersType.heading, color = RidersColors.text)
         Text("Size ${offer.parcel.size}", style = RidersType.body, color = RidersColors.text)
@@ -127,8 +152,9 @@ private fun OfferDetail(
         Text(stopLine(offer.pickup.address, offer.pickup.landmark), style = RidersType.body, color = RidersColors.text)
         Text("Drop-off", style = RidersType.caption, color = RidersColors.textSecondary)
         Text(stopLine(offer.dropoff.address, offer.dropoff.landmark), style = RidersType.body, color = RidersColors.text)
-        Text("${offer.currency} ${offer.offeredPrice}", style = RidersType.bodyStrong, color = RidersColors.text)
-        Text(offerExpiryLabel(offer.expiresAt, System.currentTimeMillis()), style = RidersType.caption, color = if (expired) RidersColors.error else RidersColors.textSecondary)
+        Text("Offered price", style = RidersType.caption, color = RidersColors.textSecondary)
+        Text(offerPriceLabel(offer.currency, offer.offeredPrice), style = RidersType.bodyStrong, color = RidersColors.text)
+        Text(offerExpiryLabel(offer.expiresAt, nowMillis), style = RidersType.caption, color = if (expired) RidersColors.error else RidersColors.textSecondary)
     }
     if (error != null) {
         RidersErrorState(message = error)
@@ -136,7 +162,7 @@ private fun OfferDetail(
     RidersPrimaryButton(
         label = "Accept",
         onClick = onAccept,
-        enabled = !accepting && !expired,
+        enabled = canAcceptOffer(offer.expiresAt, nowMillis, accepting, unavailable),
         loading = accepting,
         loadingLabel = "Accepting",
         modifier = Modifier.fillMaxWidth(),

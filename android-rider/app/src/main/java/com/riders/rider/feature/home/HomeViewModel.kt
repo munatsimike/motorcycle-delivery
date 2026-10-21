@@ -5,13 +5,12 @@ import androidx.lifecycle.viewModelScope
 import com.riders.rider.core.network.ApiError
 import com.riders.rider.core.network.ApiResult
 import com.riders.rider.core.network.text
-import com.riders.rider.feature.auth.data.AuthRepository
 import com.riders.rider.feature.availability.data.AvailabilityRepository
+import com.riders.rider.feature.availability.domain.LOCATION_PERMISSION_REQUIRED
 import com.riders.rider.feature.delivery.data.ActiveDeliveryStore
 import com.riders.rider.feature.delivery.data.AssignmentRepository
 import com.riders.rider.feature.delivery.domain.ActiveDelivery
 import com.riders.rider.feature.delivery.domain.DeliveryRecoveryCoordinator
-import com.riders.rider.feature.offers.data.DataStoreAcceptKeyStore
 import com.riders.rider.feature.onboarding.data.OnboardingRepository
 import com.riders.rider.feature.onboarding.domain.RiderOnboarding
 import com.riders.rider.feature.onboarding.domain.RiderReadiness
@@ -39,8 +38,6 @@ class HomeViewModel @Inject constructor(
     private val availability: AvailabilityRepository,
     private val deliveries: ActiveDeliveryStore,
     private val assignments: AssignmentRepository,
-    private val acceptKeys: DataStoreAcceptKeyStore,
-    private val auth: AuthRepository,
 ) : ViewModel() {
     private val state = MutableStateFlow(HomeUi())
     val ui: StateFlow<HomeUi> = state.asStateFlow()
@@ -62,6 +59,10 @@ class HomeViewModel @Inject constructor(
 
     fun goOnline() {
         changeAvailability(online = true)
+    }
+
+    fun locationPermissionDenied() {
+        state.value = state.value.copy(error = LOCATION_PERMISSION_REQUIRED)
     }
 
     fun goOffline() {
@@ -162,15 +163,6 @@ class HomeViewModel @Inject constructor(
                 else -> null
             },
         )
-    }
-
-    fun logout() {
-        viewModelScope.launch {
-            availability.applySharing("OFFLINE")
-            deliveries.clear()
-            acceptKeys.clearAll()
-            auth.logout()
-        }
     }
 }
 

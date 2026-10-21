@@ -125,6 +125,7 @@ class RiderOnboardingTest {
             val profile = repository.profile() as ApiResult.Ok
             assertEquals("Tendai Moyo", profile.value.fullName)
             assertEquals("+263771234567", profile.value.phone)
+            assertNull(profile.value.address)
             assertTrue(repository.onboarding() is ApiResult.Ok)
             val licence = repository.licence() as ApiResult.Ok
             assertNull(licence.value)

@@ -9,6 +9,11 @@ const STORED_PHONE = /^\+(?:2637\d{8}|316\d{8})$/;
 export type RegistrationProof = {
   status: 'verified';
   registrationToken: string;
+  fullName?: string;
+  phone?: string;
+  address?: string | null;
+  readOnly?: Array<'fullName' | 'phone' | 'address'>;
+  missing?: Array<'accountKind' | 'address'>;
 };
 
 export type RegistrationProofClaims = {

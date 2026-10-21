@@ -40,10 +40,28 @@ fun normalizeRiderPhone(input: String): String {
     return e164
 }
 
+// TODO: Remove this debug-only name once Railway runs this registration backend.
+// The deployed API still requires fullName for a new rider. This backend ignores
+// the value when the phone already belongs to a customer, so it cannot overwrite
+// that customer's name. Release builds must not register a rider under a fabricated name.
+const val DEBUG_REGISTRATION_FULL_NAME = "Tonderai Moyo"
+
+fun registrationFullName(debugBuild: Boolean): String? {
+    return if (debugBuild) DEBUG_REGISTRATION_FULL_NAME else null
+}
+
 fun normalizeRiderName(input: String): String {
     val name = input.trim().replace(Regex("\\s+"), " ")
     if (name.isEmpty() || name.length > 200 || name.any { it.code < 32 }) {
         throw IllegalArgumentException("Full name is required")
     }
     return name
+}
+
+fun normalizeRiderAddress(input: String): String {
+    val address = input.trim().replace(Regex("\\s+"), " ")
+    if (address.isEmpty() || address.length > 500 || address.any { it.code < 32 }) {
+        throw IllegalArgumentException("Address is required")
+    }
+    return address
 }

@@ -89,10 +89,42 @@ data class SessionResponse(
 data class PhoneRequest(val phone: String)
 
 @Serializable
-data class RegisterRequest(val phone: String, val fullName: String)
+data class RiderRegistrationRequest(
+    val phone: String,
+    val fullName: String? = null,
+)
 
 @Serializable
 data class VerifyRequest(val phone: String, val code: String)
+
+@Serializable
+data class RegistrationVerifyResponse(
+    val status: String? = null,
+    val registrationToken: String? = null,
+    val fullName: String? = null,
+    val phone: String? = null,
+    val address: String? = null,
+    val readOnly: List<String> = emptyList(),
+    val accessToken: String? = null,
+    val refreshToken: String? = null,
+    val accessTokenExpiresAt: String? = null,
+    val refreshTokenExpiresAt: String? = null,
+) {
+    fun sessionOrNull(): SessionResponse? {
+        val access = accessToken ?: return null
+        val refresh = refreshToken ?: return null
+        val accessExpiry = accessTokenExpiresAt ?: return null
+        val refreshExpiry = refreshTokenExpiresAt ?: return null
+        return SessionResponse(access, refresh, accessExpiry, refreshExpiry)
+    }
+}
+
+@Serializable
+data class RiderAccountRequest(
+    val registrationToken: String,
+    val fullName: String,
+    val address: String,
+)
 
 @Serializable
 data class RefreshRequest(val refreshToken: String)
@@ -101,6 +133,7 @@ data class RefreshRequest(val refreshToken: String)
 data class RiderProfileResponse(
     val fullName: String,
     val phone: String,
+    val address: String? = null,
 )
 
 @Serializable
@@ -231,4 +264,41 @@ data class ProgressResponse(
     val deliveryId: String,
     val status: String,
     val availability: String,
+)
+
+@Serializable
+data class WalletSummaryResponse(
+    val riderProfileId: String,
+    val balance: String,
+    val borrowingLimit: String,
+    val borrowingLimitSource: String,
+    val reservedFees: String,
+    val availableCapacity: String,
+    val currency: String,
+)
+
+@Serializable
+data class WalletPaymentResponse(
+    val method: String,
+    val internalReceiptId: String? = null,
+    val externalReceiptNumber: String? = null,
+    val ecocashReference: String? = null,
+)
+
+@Serializable
+data class WalletTransactionResponse(
+    val id: String,
+    val type: String,
+    val amount: String,
+    val balanceAfter: String,
+    val currency: String,
+    val createdAt: String,
+    val reason: String? = null,
+    val payment: WalletPaymentResponse? = null,
+)
+
+@Serializable
+data class WalletTransactionsResponse(
+    val transactions: List<WalletTransactionResponse>,
+    val nextCursor: String? = null,
 )

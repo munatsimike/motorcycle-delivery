@@ -2,6 +2,7 @@ package com.riders.rider.feature.offers.presentation
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.riders.rider.core.network.ApiError
 import com.riders.rider.core.network.ApiResult
 import com.riders.rider.core.network.OfferResponse
 import com.riders.rider.core.network.text
@@ -9,16 +10,24 @@ import com.riders.rider.feature.availability.data.AvailabilityRepository
 import com.riders.rider.feature.availability.domain.LocationFreshness
 import com.riders.rider.feature.delivery.data.ActiveDeliveryStore
 import com.riders.rider.feature.delivery.domain.toActiveDelivery
+import com.riders.rider.feature.offers.data.ListedOffers
 import com.riders.rider.feature.offers.data.OfferRepository
 import com.riders.rider.feature.offers.domain.AcceptedDelivery
+import com.riders.rider.feature.offers.domain.OFFER_UNAVAILABLE
 import com.riders.rider.feature.offers.domain.OfferBoard
+import com.riders.rider.feature.offers.domain.OfferRefreshGate
+import com.riders.rider.feature.offers.domain.OfferWatch
+import com.riders.rider.feature.offers.domain.adjustedNowMillis
+import com.riders.rider.feature.offers.domain.canAcceptOffer
+import com.riders.rider.feature.offers.domain.clockOffsetMillis
 import com.riders.rider.feature.offers.domain.offerBoardAfterLoad
-import com.riders.rider.feature.offers.domain.offerIsExpired
+import com.riders.rider.feature.offers.domain.offerUnavailableAfterRefresh
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class OfferUi(
@@ -26,6 +35,8 @@ data class OfferUi(
     val offers: List<OfferResponse> = emptyList(),
     val selected: OfferResponse? = null,
     val accepting: Boolean = false,
+    val offerGone: Boolean = false,
+    val nowMillis: Long = 0L,
     val error: String? = null,
     val accepted: AcceptedDelivery? = null,
 )
@@ -37,62 +48,52 @@ class OfferViewModel @Inject constructor(
     private val availability: AvailabilityRepository,
     private val freshness: LocationFreshness,
 ) : ViewModel() {
-    private val state = MutableStateFlow(OfferUi())
+    private val state = MutableStateFlow(OfferUi(nowMillis = System.currentTimeMillis()))
     val ui: StateFlow<OfferUi> = state.asStateFlow()
-    private var loadingRequest = false
+    private val refreshGate = OfferRefreshGate()
+    private var clockOffset = 0L
+    private val watch = OfferWatch(
+        scope = viewModelScope,
+        refresh = { refreshOffers() },
+        tick = { publishNow() },
+    )
+
+    fun setScreenResumed(resumed: Boolean) {
+        if (resumed) {
+            publishNow()
+        }
+        watch.setResumed(resumed)
+    }
 
     fun refresh() {
-        if (loadingRequest) {
-            return
-        }
-        loadingRequest = true
-        viewModelScope.launch {
-            try {
-                val previous = state.value
-                state.value = previous.copy(loading = true, error = null)
-                when (val result = offers.list()) {
-                    is ApiResult.Ok -> {
-                        val board = offerBoardAfterLoad(OfferBoard(previous.offers.size, loading = true), result.value.size, null)
-                        val stillVisible = previous.selected?.takeIf { selected ->
-                            result.value.any { it.assignmentId == selected.assignmentId }
-                        }
-                        state.value = previous.copy(
-                            loading = board.loading,
-                            offers = result.value,
-                            selected = stillVisible,
-                            error = board.error,
-                        )
-                    }
-                    is ApiResult.Err -> {
-                        val board = offerBoardAfterLoad(OfferBoard(previous.offers.size), null, result.error.text())
-                        state.value = previous.copy(loading = board.loading, error = board.error)
-                    }
-                }
-            } finally {
-                loadingRequest = false
-            }
-        }
+        viewModelScope.launch { refreshOffers() }
     }
 
     fun select(offer: OfferResponse?) {
-        state.value = state.value.copy(selected = offer, error = null)
+        state.update { it.copy(selected = offer, error = null, offerGone = false) }
     }
 
     fun accept(offer: OfferResponse) {
-        if (offerIsExpired(offer.expiresAt, System.currentTimeMillis())) {
-            state.value = state.value.copy(error = "This offer has expired")
+        val current = state.value
+        val now = adjustedNowMillis(System.currentTimeMillis(), clockOffset)
+        if (current.accepting) {
             return
         }
-        if (!freshness.canAccept(System.currentTimeMillis())) {
-            state.value = state.value.copy(error = "A fresh location is required")
+        if (current.offerGone) {
+            state.update { it.copy(error = OFFER_UNAVAILABLE, nowMillis = now) }
             return
         }
-        if (state.value.accepting) {
+        if (!canAcceptOffer(offer.expiresAt, now, accepting = false, unavailable = false)) {
+            state.update { it.copy(error = "This offer has expired", nowMillis = now) }
             return
         }
-        state.value = state.value.copy(accepting = true, error = null)
+        state.update { it.copy(accepting = true, error = null, nowMillis = now) }
         viewModelScope.launch {
             try {
+                if (!freshness.canAccept(System.currentTimeMillis()) && !availability.refreshForAccept()) {
+                    state.update { it.copy(error = "A fresh location is required") }
+                    return@launch
+                }
                 when (val result = offers.accept(offer.assignmentId)) {
                     null -> Unit
                     is ApiResult.Ok -> {
@@ -104,16 +105,73 @@ class OfferViewModel @Inject constructor(
                             false
                         }
                         if (!saved) {
-                            state.value = state.value.copy(error = "Your delivery could not be saved on this device.")
+                            state.update { it.copy(error = "Your delivery could not be saved on this device.") }
                             return@launch
                         }
-                        state.value = state.value.copy(accepted = result.value, error = null)
+                        state.update { it.copy(accepted = result.value, error = null) }
                     }
-                    is ApiResult.Err -> state.value = state.value.copy(error = result.error.text())
+                    is ApiResult.Err -> state.update { it.copy(error = result.error.text()) }
                 }
             } finally {
-                state.value = state.value.copy(accepting = false)
+                state.update { it.copy(accepting = false) }
             }
+        }
+    }
+
+    private fun publishNow() {
+        val now = adjustedNowMillis(System.currentTimeMillis(), clockOffset)
+        state.update { it.copy(nowMillis = now) }
+    }
+
+    private suspend fun refreshOffers() {
+        refreshGate.run {
+            try {
+                state.update { it.copy(loading = true) }
+                when (val result = offers.list()) {
+                    is ApiResult.Ok -> applyListed(result.value)
+                    is ApiResult.Err -> keepOffers(result.error.text())
+                }
+            } finally {
+                state.update { current ->
+                    if (current.loading) current.copy(loading = false) else current
+                }
+            }
+        }
+    }
+
+    private fun applyListed(listed: ListedOffers) {
+        if (!listed.fromNetwork) {
+            keepOffers(ApiError.Network.text())
+            return
+        }
+        if (listed.serverNowMillis != null) {
+            clockOffset = clockOffsetMillis(listed.serverNowMillis, System.currentTimeMillis())
+        }
+        val now = adjustedNowMillis(System.currentTimeMillis(), clockOffset)
+        state.update { current ->
+            val replacement = current.selected?.let { selected ->
+                listed.offers.find { it.assignmentId == selected.assignmentId }
+            }
+            val gone = offerUnavailableAfterRefresh(
+                hadSelection = current.selected != null,
+                stillPresent = replacement != null,
+                refreshSucceeded = true,
+            )
+            current.copy(
+                loading = false,
+                offers = listed.offers,
+                selected = if (gone) current.selected else replacement,
+                offerGone = gone,
+                nowMillis = now,
+                error = if (gone) OFFER_UNAVAILABLE else null,
+            )
+        }
+    }
+
+    private fun keepOffers(message: String) {
+        state.update { current ->
+            val board = offerBoardAfterLoad(OfferBoard(current.offers.size), null, message)
+            current.copy(loading = board.loading, error = if (current.offerGone) current.error else board.error)
         }
     }
 }
