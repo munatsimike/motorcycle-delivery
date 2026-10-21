@@ -17,6 +17,7 @@ import com.riders.rider.core.session.AuthSession
 import com.riders.rider.core.session.MemorySessionStore
 import com.riders.rider.core.session.SessionStore
 import com.riders.rider.feature.auth.data.AuthRepository
+import com.riders.rider.feature.auth.data.LoginStart
 import com.riders.rider.feature.auth.data.VerifyOutcome
 import com.riders.rider.feature.auth.domain.MemoryBiometricPreference
 import com.riders.rider.feature.offers.domain.AcceptKeys
@@ -51,13 +52,44 @@ class RiderSessionTest {
         try {
             val auth = server.auth()
             val result = AuthRepository(auth, MemorySessionStore()).requestLogin("+263771234567")
-            assertTrue(result is ApiResult.Ok)
+            assertEquals(ApiResult.Ok(LoginStart.CodeSent), result)
             val recorded = server.takeRequest()
             assertEquals("/auth/rider/login/otp", recorded.path)
             assertNull(recorded.getHeader("Authorization"))
             val body = recorded.body.readUtf8()
             assertTrue(body.contains("+263771234567"))
             assertTrue(!body.contains("code"))
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun unavailableLoginDoesNotOpenVerificationOrSaveASession() = runTest {
+        val server = MockWebServer()
+        server.enqueue(json("""{"status":"unavailable","fullName":"Rudo","address":"1 First Street"}"""))
+        server.start()
+        try {
+            val store = MemorySessionStore()
+            val result = AuthRepository(server.auth(), store).requestLogin("+263771234567")
+            assertEquals(ApiResult.Ok(LoginStart.AccountMissing), result)
+            assertNull(store.read())
+            val recorded = server.takeRequest()
+            assertEquals("/auth/rider/login/otp", recorded.path)
+            assertFalse(recorded.body.readUtf8().contains("code"))
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun unknownLoginStatusIsNotTreatedAsACode() = runTest {
+        val server = MockWebServer()
+        server.enqueue(json("""{"status":"sign_in"}"""))
+        server.start()
+        try {
+            val result = AuthRepository(server.auth(), MemorySessionStore()).requestLogin("+263771234567")
+            assertTrue(result is ApiResult.Err)
         } finally {
             server.shutdown()
         }

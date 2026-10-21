@@ -27,6 +27,11 @@ data class LogoutAllAttempt(
     val httpCode: Int?,
 )
 
+sealed class LoginStart {
+    data object CodeSent : LoginStart()
+    data object AccountMissing : LoginStart()
+}
+
 sealed class VerifyOutcome {
     data object SignedIn : VerifyOutcome()
 
@@ -46,8 +51,15 @@ class AuthRepository @Inject constructor(
     private val sessions: SessionStore,
     private val biometrics: BiometricPreference = MemoryBiometricPreference(),
 ) {
-    suspend fun requestLogin(phone: String): ApiResult<Unit> {
-        return apiCall(establishedSession = false) { auth.requestLogin(PhoneRequest(phone)) }.map { Unit }
+    suspend fun requestLogin(phone: String): ApiResult<LoginStart> {
+        return when (val result = apiCall(establishedSession = false) { auth.requestLogin(PhoneRequest(phone)) }) {
+            is ApiResult.Err -> result
+            is ApiResult.Ok -> when (result.value.status) {
+                "pending" -> ApiResult.Ok(LoginStart.CodeSent)
+                "unavailable" -> ApiResult.Ok(LoginStart.AccountMissing)
+                else -> ApiResult.Err(ApiError.Validation("Sign in could not be started."))
+            }
+        }
     }
 
     suspend fun requestRegistration(phone: String): ApiResult<Unit> {

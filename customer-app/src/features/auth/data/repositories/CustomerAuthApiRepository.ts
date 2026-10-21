@@ -2,10 +2,12 @@ import { apiPost } from '../../../../services/api/apiClient';
 import type {
   AuthSession,
   CompleteRegistrationRequest,
+  LoginStart,
   PendingOtp,
   RegistrationVerification,
 } from '../../domain/auth.types';
 import type { CustomerAuthRepository } from '../../domain/repositories/CustomerAuthRepository';
+import { readLoginStart } from '../../domain/loginStart';
 import { readRegistrationVerification } from '../../domain/registrationVerification';
 
 export class CustomerAuthApiRepository implements CustomerAuthRepository {
@@ -13,8 +15,8 @@ export class CustomerAuthApiRepository implements CustomerAuthRepository {
     return apiPost<unknown>('/auth/customer/register', { phone }).then(readPending);
   }
 
-  requestLoginCode(phone: string): Promise<PendingOtp> {
-    return apiPost<unknown>('/auth/customer/login', { phone }).then(readPending);
+  requestLoginCode(phone: string): Promise<LoginStart> {
+    return apiPost<unknown>('/auth/customer/login', { phone }).then(readLoginStart);
   }
 
   verifyRegistrationCode(phone: string, code: string): Promise<RegistrationVerification> {

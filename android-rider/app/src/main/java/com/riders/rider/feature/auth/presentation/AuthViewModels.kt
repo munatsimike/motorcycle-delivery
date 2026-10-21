@@ -7,6 +7,7 @@ import com.riders.rider.core.network.ApiResult
 import com.riders.rider.core.network.text
 import com.riders.rider.core.session.SessionStore
 import com.riders.rider.feature.auth.data.AuthRepository
+import com.riders.rider.feature.auth.data.LoginStart
 import com.riders.rider.feature.auth.data.VerifyOutcome
 import com.riders.rider.feature.auth.data.BiometricAuthResult
 import com.riders.rider.feature.auth.data.BiometricAuthenticator
@@ -39,6 +40,7 @@ data class FormState(
     val prefillAddress: String? = null,
     val lockDetails: Boolean = false,
     val useExistingLogin: Boolean = false,
+    val accountMissing: Boolean = false,
 )
 
 @HiltViewModel
@@ -47,6 +49,12 @@ class SignInViewModel @Inject constructor(
 ) : ViewModel() {
     private val state = MutableStateFlow(FormState())
     val ui: StateFlow<FormState> = state.asStateFlow()
+
+    fun clearAccountMissing() {
+        if (state.value.accountMissing) {
+            state.value = state.value.copy(accountMissing = false)
+        }
+    }
 
     fun submit(phone: String) {
         val normalized = try {
@@ -58,7 +66,10 @@ class SignInViewModel @Inject constructor(
         viewModelScope.launch {
             state.value = FormState(loading = true)
             state.value = when (val result = auth.requestLogin(normalized)) {
-                is ApiResult.Ok -> FormState(completedPhone = normalized)
+                is ApiResult.Ok -> when (result.value) {
+                    LoginStart.CodeSent -> FormState(completedPhone = normalized)
+                    LoginStart.AccountMissing -> FormState(accountMissing = true)
+                }
                 is ApiResult.Err -> FormState(error = result.error.text())
             }
         }

@@ -388,7 +388,7 @@ describe('OtpAuthService', () => {
     const ctx = context();
     ctx.users.push({ ...existingRider(), role: UserRole.ADMIN });
     await expect(ctx.otp.startLogin(AuthSubjectRole.CUSTOMER, { phone: PHONE }, '203.0.113.48'))
-      .resolves.toEqual({ status: 'pending' });
+      .resolves.toEqual({ status: 'unavailable' });
     await expect(ctx.otp.verifyLogin(AuthSubjectRole.CUSTOMER, { phone: PHONE, code: '123456' }))
       .rejects.toBeInstanceOf(UnauthorizedException);
     expect(ctx.twilio.startVerification).not.toHaveBeenCalled();
@@ -398,10 +398,26 @@ describe('OtpAuthService', () => {
     expect(ctx.users[0].role).toBe(UserRole.ADMIN);
   });
 
-  it('lets an existing rider log in through customer OTP without changing role', async () => {
+  it('does not send a customer login code to a rider who has no customer account', async () => {
     const ctx = context();
     const rider = existingRider();
     ctx.users.push(rider);
+    ctx.profiles.push(riderProfile(rider.id));
+    await expect(ctx.otp.startLogin(AuthSubjectRole.CUSTOMER, { phone: PHONE }, '203.0.113.42'))
+      .resolves.toEqual({ status: 'unavailable' });
+    expect(ctx.twilio.startVerification).not.toHaveBeenCalled();
+    expect(JSON.stringify(ctx.challenges)).not.toContain('Tendai');
+    expect(ctx.sessions).toHaveLength(0);
+    expect(ctx.accounts).toHaveLength(0);
+    expect(ctx.profiles).toHaveLength(1);
+  });
+
+  it('lets a rider with a customer account sign in through customer OTP without changing role', async () => {
+    const ctx = context();
+    const rider = existingRider();
+    ctx.users.push(rider);
+    ctx.profiles.push(riderProfile(rider.id));
+    ctx.accounts.push(customerAccount(rider.id));
     await ctx.otp.startLogin(AuthSubjectRole.CUSTOMER, { phone: PHONE }, '203.0.113.42');
     const issued = await ctx.otp.verifyLogin(AuthSubjectRole.CUSTOMER, { phone: PHONE, code: '123456' });
     expect(ctx.accessTokens.verify(issued.accessToken, ctx.clock.current)).toMatchObject({
@@ -409,8 +425,8 @@ describe('OtpAuthService', () => {
       role: UserRole.RIDER,
     });
     expect(ctx.users).toHaveLength(1);
-    expect(ctx.accounts).toHaveLength(0);
-    expect(ctx.profiles).toHaveLength(0);
+    expect(ctx.accounts).toHaveLength(1);
+    expect(ctx.profiles).toHaveLength(1);
   });
 
   it('signs in an existing rider after one registration code without another profile', async () => {
@@ -466,17 +482,57 @@ describe('OtpAuthService', () => {
     expect(ctx.twilio.startVerification).not.toHaveBeenCalled();
   });
 
-  it('returns the same pending response for an unknown or suspended login without sending SMS', async () => {
+  it('uses the same unavailable response for an unknown number and a number without this account', async () => {
     const unknown = context();
     await expect(unknown.otp.startLogin(AuthSubjectRole.RIDER, { phone: PHONE }, '203.0.113.15'))
-      .resolves.toEqual({ status: 'pending' });
+      .resolves.toEqual({ status: 'unavailable' });
     expect(unknown.twilio.startVerification).not.toHaveBeenCalled();
 
-    const suspended = context();
-    suspended.users.push({ ...existingRider(), accountStatus: AccountStatus.SUSPENDED });
-    await expect(suspended.otp.startLogin(AuthSubjectRole.RIDER, { phone: PHONE }, '203.0.113.16'))
+    const customerOnly = context();
+    const customer = existingCustomer();
+    customerOnly.users.push(customer);
+    customerOnly.accounts.push(customerAccount(customer.id));
+    const missingRider = await customerOnly.otp.startLogin(AuthSubjectRole.RIDER, { phone: PHONE }, '203.0.113.16');
+    expect(missingRider).toEqual({ status: 'unavailable' });
+    expect(JSON.stringify(missingRider)).not.toContain('Rudo');
+    expect(customerOnly.twilio.startVerification).not.toHaveBeenCalled();
+    expect(customerOnly.profiles).toHaveLength(0);
+    expect(customerOnly.sessions).toHaveLength(0);
+
+    const unknownCustomer = context();
+    await expect(unknownCustomer.otp.startLogin(AuthSubjectRole.CUSTOMER, { phone: PHONE }, '203.0.113.19'))
+      .resolves.toEqual({ status: 'unavailable' });
+    expect(unknownCustomer.twilio.startVerification).not.toHaveBeenCalled();
+
+    const customerLogin = context();
+    const accountHolder = existingCustomer();
+    customerLogin.users.push(accountHolder);
+    customerLogin.accounts.push(customerAccount(accountHolder.id));
+    await expect(customerLogin.otp.startLogin(AuthSubjectRole.CUSTOMER, { phone: PHONE }, '203.0.113.20'))
       .resolves.toEqual({ status: 'pending' });
-    expect(suspended.twilio.startVerification).not.toHaveBeenCalled();
+    expect(customerLogin.twilio.startVerification).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not send a login code when the existing account is suspended, deactivated, or unverified', async () => {
+    for (const accountStatus of [AccountStatus.SUSPENDED, AccountStatus.DEACTIVATED]) {
+      const ctx = context();
+      const rider = { ...existingRider(), accountStatus };
+      ctx.users.push(rider);
+      ctx.profiles.push(riderProfile(rider.id));
+      await expect(ctx.otp.startLogin(AuthSubjectRole.RIDER, { phone: PHONE }, '203.0.113.17'))
+        .resolves.toEqual({ status: 'pending' });
+      expect(ctx.twilio.startVerification).not.toHaveBeenCalled();
+      expect(ctx.sessions).toHaveLength(0);
+    }
+
+    const unverified = context();
+    const rider = { ...existingRider(), phoneVerifiedAt: null };
+    unverified.users.push(rider);
+    unverified.profiles.push(riderProfile(rider.id));
+    await expect(unverified.otp.startLogin(AuthSubjectRole.RIDER, { phone: PHONE }, '203.0.113.18'))
+      .resolves.toEqual({ status: 'pending' });
+    expect(unverified.twilio.startVerification).not.toHaveBeenCalled();
+    expect(unverified.sessions).toHaveLength(0);
   });
 
   it('logs an active rider in without creating a second account', async () => {
@@ -846,8 +902,8 @@ describe('OtpAuthService', () => {
       process.env.ALLOW_TEST_NL_PHONE_NUMBERS = 'true';
       const ctx = context();
       const body = { phone: dutch, fullName: 'Test Rider' };
-      expect(() => ctx.otp.startRegistration(AuthSubjectRole.RIDER, body, '203.0.113.32'))
-        .toThrow(BadRequestException);
+      await expect(ctx.otp.startRegistration(AuthSubjectRole.RIDER, body, '203.0.113.32'))
+        .rejects.toBeInstanceOf(BadRequestException);
       expect(() => ctx.otp.startLogin(AuthSubjectRole.RIDER, { phone: dutch }, '203.0.113.32'))
         .toThrow(BadRequestException);
       await expect(ctx.otp.verifyRegistration(AuthSubjectRole.RIDER, { phone: dutch, code: '123456' }))

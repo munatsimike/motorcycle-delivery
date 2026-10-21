@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 
 import { customerAuthRepository } from '../../data/repositories/CustomerAuthApiRepository';
-import { requestLoginCode } from '../../domain/usecases/requestLoginCode';
+import { requestLoginCode, type LoginCodeResult } from '../../domain/usecases/requestLoginCode';
 import { errorMessage } from '../errorMessage';
 
 export function useSignIn() {
@@ -9,7 +9,7 @@ export function useSignIn() {
   const [error, setError] = useState<string | null>(null);
   const inFlight = useRef(false);
 
-  async function requestCode(phone: string): Promise<string | null> {
+  async function requestCode(phone: string): Promise<LoginCodeResult | null> {
     if (inFlight.current) {
       return null;
     }

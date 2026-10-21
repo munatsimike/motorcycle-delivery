@@ -76,7 +76,11 @@ export function useOtpVerification(phone: string, flow: AuthFlow) {
       if (flow === 'registration') {
         await requestRegistrationCode(customerAuthRepository, phone);
       } else {
-        await requestLoginCode(customerAuthRepository, phone);
+        const started = await requestLoginCode(customerAuthRepository, phone);
+        if (started.status === 'unavailable') {
+          setError('A new code could not be sent.');
+          return;
+        }
       }
       setResendAvailableAt(Date.now() + RESEND_COOLDOWN_MS);
     } catch (caught) {

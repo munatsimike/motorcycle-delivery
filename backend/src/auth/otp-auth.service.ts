@@ -79,17 +79,19 @@ export class OtpAuthService {
     private readonly clock: Clock,
   ) {}
 
-  startRegistration(role: AuthSubjectRole, body: unknown, remoteAddress: string): Promise<{ status: 'pending' }> {
+  async startRegistration(role: AuthSubjectRole, body: unknown, remoteAddress: string): Promise<{ status: 'pending' }> {
     const phone = readPhone(body);
-    if ((role === AuthSubjectRole.CUSTOMER || role === AuthSubjectRole.RIDER) && isPhoneOnlyRegistration(body)) {
-      return this.start({ role, purpose: AuthPurpose.REGISTRATION, phone, fullName: null, profile: null, remoteAddress });
+    const phoneOnly = (role === AuthSubjectRole.CUSTOMER || role === AuthSubjectRole.RIDER) && isPhoneOnlyRegistration(body);
+    const profile = phoneOnly || role !== AuthSubjectRole.CUSTOMER ? null : readCustomerProfile(body);
+    const fullName = phoneOnly ? null : profile ? profile.personName : readFullName(body);
+    const result = await this.start({ role, purpose: AuthPurpose.REGISTRATION, phone, fullName, profile, remoteAddress });
+    if (result.status !== 'pending') {
+      throw new UnauthorizedException('Authentication failed');
     }
-    const profile = role === AuthSubjectRole.CUSTOMER ? readCustomerProfile(body) : null;
-    const fullName = profile ? profile.personName : readFullName(body);
-    return this.start({ role, purpose: AuthPurpose.REGISTRATION, phone, fullName, profile, remoteAddress });
+    return result;
   }
 
-  startLogin(role: AuthSubjectRole, body: unknown, remoteAddress: string): Promise<{ status: 'pending' }> {
+  startLogin(role: AuthSubjectRole, body: unknown, remoteAddress: string): Promise<LoginStart> {
     const phone = readPhone(body);
     return this.start({ role, purpose: AuthPurpose.LOGIN, phone, fullName: null, profile: null, remoteAddress });
   }
@@ -248,7 +250,7 @@ export class OtpAuthService {
     fullName: string | null;
     profile: CustomerProfileInput | null;
     remoteAddress: string;
-  }): Promise<{ status: 'pending' }> {
+  }): Promise<LoginStart> {
     const now = this.clock.now();
     const ipHash = hashSecret(input.remoteAddress);
     if (await this.ipLimited(ipHash, now)) {
@@ -262,7 +264,10 @@ export class OtpAuthService {
       const user = await this.prisma.user.findUnique({ where: { phone: input.phone }, include: identityInclude });
       if (!canLogin(user, input.role)) {
         await this.recordProbe(input, ipHash, now);
-        return this.conceal();
+        if (hasLoginCapability(user, input.role)) {
+          return this.conceal();
+        }
+        return this.unavailable();
       }
     }
 
@@ -554,6 +559,7 @@ export class OtpAuthService {
       },
     });
     let riderProfileId: string | null = null;
+    let customerAccount: { id: string; address: string } | null = null;
     if (role === AuthSubjectRole.RIDER) {
       const profile = await tx.riderProfile.create({
         data: {
@@ -570,7 +576,7 @@ export class OtpAuthService {
       if (!challenge.accountKind || !challenge.address || (challenge.accountKind === CustomerAccountKind.BUSINESS && !challenge.businessName)) {
         throw new UnauthorizedException('Verification code is invalid');
       }
-      await tx.customerAccount.create({
+      const account = await tx.customerAccount.create({
         data: {
           userId: user.id,
           kind: challenge.accountKind,
@@ -580,8 +586,9 @@ export class OtpAuthService {
           updatedAt: now,
         },
       });
+      customerAccount = { id: account.id, address: challenge.address };
     }
-    return { ...user, riderProfile: riderProfileId === null ? null : { id: riderProfileId }, customerAccount: null };
+    return { ...user, riderProfile: riderProfileId === null ? null : { id: riderProfileId }, customerAccount };
   }
 
   private async sendChallenge(
@@ -709,7 +716,14 @@ export class OtpAuthService {
     await this.clock.pause(this.clock.concealmentMs);
     return { status: 'pending' };
   }
+
+  private async unavailable(): Promise<{ status: 'unavailable' }> {
+    await this.clock.pause(this.clock.concealmentMs);
+    return { status: 'unavailable' };
+  }
 }
+
+type LoginStart = { status: 'pending' } | { status: 'unavailable' };
 
 function canLogin(
   user: {
@@ -717,16 +731,24 @@ function canLogin(
     accountStatus: AccountStatus;
     phoneVerifiedAt: Date | null;
     riderProfile?: { id: string } | null;
+    customerAccount?: { id: string } | null;
   } | null,
   role: AuthSubjectRole,
 ): boolean {
-  if (!eligibleAccount(user)) {
+  if (!eligibleAccount(user) || !hasLoginCapability(user, role)) {
     return false;
   }
-  if (role === AuthSubjectRole.CUSTOMER) {
-    return true;
+  return true;
+}
+
+function hasLoginCapability(
+  user: { riderProfile?: { id: string } | null; customerAccount?: { id: string } | null } | null,
+  role: AuthSubjectRole,
+): boolean {
+  if (!user) {
+    return false;
   }
-  return user.riderProfile != null;
+  return role === AuthSubjectRole.RIDER ? user.riderProfile != null : user.customerAccount != null;
 }
 
 function eligibleAccount<T extends {

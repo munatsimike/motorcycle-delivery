@@ -3,11 +3,11 @@ import { ApiBadRequestResponse, ApiBody, ApiConflictResponse, ApiExtraModels, Ap
 import type { Request } from 'express';
 import { AuthSubjectRole } from '../generated/prisma/client.js';
 import { rateLimitAddress } from '../http/client-address.js';
-import { BusinessCustomerRegistrationBody, CustomerRegistrationCompleteBody, IndividualCustomerRegistrationBody, OtpVerifyBody, PendingResponse, PhoneBody, RegistrationProofResponse, SessionResponse } from '../openapi/schemas.js';
+import { BusinessCustomerRegistrationBody, CustomerRegistrationCompleteBody, IndividualCustomerRegistrationBody, LoginUnavailableResponse, OtpVerifyBody, PendingResponse, PhoneBody, RegistrationProofResponse, SessionResponse } from '../openapi/schemas.js';
 import { OtpAuthService } from './otp-auth.service.js';
 
 @ApiTags('Customer authentication')
-@ApiExtraModels(IndividualCustomerRegistrationBody, BusinessCustomerRegistrationBody, RegistrationProofResponse, SessionResponse)
+@ApiExtraModels(IndividualCustomerRegistrationBody, BusinessCustomerRegistrationBody, RegistrationProofResponse, SessionResponse, LoginUnavailableResponse)
 @Controller('auth/customer')
 export class CustomerAuthController {
   constructor(private readonly otp: OtpAuthService) {}
@@ -64,7 +64,10 @@ export class CustomerAuthController {
   @HttpCode(200)
   @ApiOperation({ summary: 'Request a customer sign-in code' })
   @ApiBody({ type: PhoneBody })
-  @ApiOkResponse({ type: PendingResponse, description: 'The same pending response is returned when the number cannot sign in.' })
+  @ApiOkResponse({
+    description: 'Pending when a sign-in code is sent, or when an existing customer account cannot sign in. Unavailable when this number has no customer account. Unavailable contains no profile details.',
+    schema: { oneOf: [{ $ref: getSchemaPath(PendingResponse) }, { $ref: getSchemaPath(LoginUnavailableResponse) }] },
+  })
   @ApiBadRequestResponse({ description: 'Enter a valid Zimbabwe mobile number' })
   @ApiServiceUnavailableResponse({ description: 'SMS verification is unavailable.' })
   startLogin(@Body() body: unknown, @Req() request: Request) {

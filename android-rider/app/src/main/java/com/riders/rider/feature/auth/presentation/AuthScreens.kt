@@ -187,12 +187,16 @@ fun SignInScreen(
     }
     SignInContent(
         phone = phone,
-        onPhone = { phone = it },
+        onPhone = {
+            phone = it
+            model.clearAccountMissing()
+        },
         loading = ui.loading,
         error = ui.error ?: notice,
         codeSent = ui.completedPhone != null,
         onSubmit = { model.submit(riderPhoneEntry(phone)) },
         onCreateAccount = onCreateAccount,
+        accountMissing = ui.accountMissing,
     )
 }
 
@@ -257,29 +261,40 @@ private fun SignInContent(
     codeSent: Boolean,
     onSubmit: () -> Unit,
     onCreateAccount: () -> Unit,
+    accountMissing: Boolean = false,
 ) {
     AuthScaffold {
         RidersBrandMark()
         Spacer(Modifier.height(RidersSpacing.xxxl))
-        Text("Welcome back", style = RidersType.title, color = RidersColors.text)
+        Text(
+            if (accountMissing) "Rider account not found" else "Welcome back",
+            style = RidersType.title,
+            color = RidersColors.text,
+        )
         Spacer(Modifier.height(RidersSpacing.md))
         Text(
-            "Enter your mobile number and we'll send a one-time code.",
+            if (accountMissing) {
+                "You don't have a rider account for this phone number. If you already have a Riders customer account, you can use the same number to register as a rider."
+            } else {
+                "Enter your mobile number and we'll send a one-time code."
+            },
             style = RidersType.body,
             color = RidersColors.textSecondary,
         )
         Spacer(Modifier.height(RidersSpacing.xxl))
         ZimbabwePhoneField(value = phone, onValueChange = onPhone, enabled = !loading)
-        Text(
-            "Enter a Zimbabwe mobile number. We'll send a one-time SMS code.",
-            style = RidersType.small,
-            color = RidersColors.textSecondary,
-        )
+        if (!accountMissing) {
+            Text(
+                "Enter a Zimbabwe mobile number. We'll send a one-time SMS code.",
+                style = RidersType.small,
+                color = RidersColors.textSecondary,
+            )
+        }
         Spacer(Modifier.height(RidersSpacing.xl))
-        AuthFeedback(error = error, success = if (codeSent) "Code sent" else null)
+        AuthFeedback(error = if (accountMissing) null else error, success = if (codeSent) "Code sent" else null)
         RidersPrimaryButton(
-            label = "Continue",
-            onClick = onSubmit,
+            label = if (accountMissing) "Create Rider Account" else "Continue",
+            onClick = if (accountMissing) onCreateAccount else onSubmit,
             loading = loading,
             loadingLabel = "Sending",
             modifier = Modifier.fillMaxWidth(),

@@ -6,6 +6,10 @@ export type PendingOtp = {
   status: 'pending';
 };
 
+export type LoginStart = PendingOtp | {
+  status: 'unavailable';
+};
+
 export type AuthSession = {
   accessToken: string;
   refreshToken: string;

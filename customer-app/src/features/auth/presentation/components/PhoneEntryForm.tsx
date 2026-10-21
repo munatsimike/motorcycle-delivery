@@ -31,6 +31,7 @@ type PhoneEntryFormProps = {
   footerText: string;
   footerAction: string;
   onFooterPress: () => void;
+  helperText?: string | null;
 };
 
 export default function PhoneEntryForm({
@@ -46,6 +47,7 @@ export default function PhoneEntryForm({
   footerText,
   footerAction,
   onFooterPress,
+  helperText = 'Enter a Zimbabwe mobile number. We\'ll send a one-time SMS code.',
 }: PhoneEntryFormProps) {
   const headerHeight = useHeaderHeight();
 
@@ -68,10 +70,7 @@ export default function PhoneEntryForm({
             onChangeText={onChangePhone}
             editable={!isLoading}
           />
-          <Text style={styles.helperText}>
-            Enter a Zimbabwe mobile number.
-            We'll send a one-time SMS code.
-          </Text>
+          {helperText ? <Text style={styles.helperText}>{helperText}</Text> : null}
           <ErrorMessage message={error} />
           <PrimaryButton
             label={buttonLabel}

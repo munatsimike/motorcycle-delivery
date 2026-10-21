@@ -3,11 +3,11 @@ import { ApiBadRequestResponse, ApiBody, ApiConflictResponse, ApiExtraModels, Ap
 import type { Request } from 'express';
 import { AuthSubjectRole } from '../generated/prisma/client.js';
 import { rateLimitAddress } from '../http/client-address.js';
-import { OtpVerifyBody, PendingResponse, PhoneBody, RegistrationProofResponse, RiderRegistrationBody, RiderRegistrationCompleteBody, SessionResponse } from '../openapi/schemas.js';
+import { LoginUnavailableResponse, OtpVerifyBody, PendingResponse, PhoneBody, RegistrationProofResponse, RiderRegistrationBody, RiderRegistrationCompleteBody, SessionResponse } from '../openapi/schemas.js';
 import { OtpAuthService } from './otp-auth.service.js';
 
 @ApiTags('Rider authentication')
-@ApiExtraModels(RegistrationProofResponse, SessionResponse)
+@ApiExtraModels(RegistrationProofResponse, SessionResponse, LoginUnavailableResponse)
 @Controller('auth/rider')
 export class RiderAuthController {
   constructor(private readonly otp: OtpAuthService) {}
@@ -57,7 +57,10 @@ export class RiderAuthController {
   @HttpCode(200)
   @ApiOperation({ summary: 'Request a rider sign-in code' })
   @ApiBody({ type: PhoneBody })
-  @ApiOkResponse({ type: PendingResponse, description: 'The same pending response is returned when the number cannot sign in.' })
+  @ApiOkResponse({
+    description: 'Pending when a sign-in code is sent, or when an existing rider account cannot sign in. Unavailable when this number has no rider account. Unavailable contains no profile details.',
+    schema: { oneOf: [{ $ref: getSchemaPath(PendingResponse) }, { $ref: getSchemaPath(LoginUnavailableResponse) }] },
+  })
   @ApiBadRequestResponse({ description: 'Enter a valid Zimbabwe mobile number' })
   @ApiServiceUnavailableResponse({ description: 'SMS verification is unavailable.' })
   startLogin(@Body() body: unknown, @Req() request: Request) {

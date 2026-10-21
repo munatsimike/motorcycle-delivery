@@ -94,6 +94,14 @@ export class PendingResponse {
   status!: 'pending';
 }
 
+export class LoginUnavailableResponse {
+  @ApiProperty({
+    enum: ['unavailable'],
+    description: 'No sign-in code was sent. An unknown number and a number without this account type return the same response, with no profile details.',
+  })
+  status!: 'unavailable';
+}
+
 export class AdminPendingResponse {
   @ApiProperty({ enum: ['pending'] })
   status!: 'pending';
