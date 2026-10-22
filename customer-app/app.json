@@ -6,6 +6,8 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "scheme": "riders",
+    "owner": "munatsimike",
     "ios": {
       "bundleIdentifier": "com.riders.customer",
       "supportsTablet": false,
@@ -55,7 +57,6 @@
       "eas": {
         "projectId": "910fc8c7-5ba9-43bd-bcb9-7e1f92912405"
       }
-    },
-    "owner": "munatsimike"
+    }
   }
 }

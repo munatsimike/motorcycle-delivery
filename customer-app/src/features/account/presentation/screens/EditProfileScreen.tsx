@@ -4,6 +4,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import ErrorMessage from '../../../../components/ErrorMessage';
 import FormInput from '../../../../components/FormInput';
+import ZimbabwePhoneField from '../../../../components/ZimbabwePhoneField';
 import { useKeyboardLift } from '../../../../components/useKeyboardLift';
 import PrimaryButton from '../../../../components/PrimaryButton';
 import SecondaryButton from '../../../../components/SecondaryButton';
@@ -81,13 +82,12 @@ export default function EditProfileScreen({ route, navigation }: EditProfileProp
           }
         }}
       />
-      <FormInput
+      <ZimbabwePhoneField
         label="Mobile number"
-        value={form.phone}
+        value={form.phone.startsWith('+263') ? form.phone.slice(4) : form.phone.startsWith('+31') ? form.phone.slice(3) : form.phone}
         onChangeText={() => undefined}
         editable={false}
-        autoComplete="tel"
-        textContentType="telephoneNumber"
+        countryCode={form.phone.startsWith('+31') ? '+31' : '+263'}
       />
       <Text style={styles.note}>Your mobile number is used to sign in and cannot be changed here.</Text>
       <ErrorMessage message={form.error} />

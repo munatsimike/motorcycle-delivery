@@ -1,6 +1,5 @@
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
-import { createBottomTabNavigator, type BottomTabBarButtonProps } from '@react-navigation/bottom-tabs';
-import { PlatformPressable } from '@react-navigation/elements';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -12,18 +11,21 @@ import type { CustomerTabParamList } from './types';
 
 const Tab = createBottomTabNavigator<CustomerTabParamList>();
 
-function TabButton({ children, style, ...props }: BottomTabBarButtonProps) {
-  const selected = props['aria-selected'] === true;
-
+function TabIcon({
+  name,
+  color,
+  size,
+  focused,
+}: {
+  name: 'home-outline' | 'package-variant' | 'account-outline';
+  color: string;
+  size: number;
+  focused: boolean;
+}) {
   return (
-    <PlatformPressable {...props} style={style}>
-      <View
-        collapsable={false}
-        style={[styles.tabBox, selected && styles.tabBoxSelected]}
-      >
-        {children}
-      </View>
-    </PlatformPressable>
+    <View style={[styles.iconSlot, focused && styles.iconSlotSelected]}>
+      <MaterialDesignIcons name={name} color={color} size={size} />
+    </View>
   );
 }
 
@@ -37,7 +39,6 @@ export default function CustomerTabs() {
         headerShown: false,
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textSecondary,
-        tabBarButton: (props) => <TabButton {...props} />,
         tabBarStyle: {
           backgroundColor: colors.background,
           borderTopColor: colors.border,
@@ -52,8 +53,8 @@ export default function CustomerTabs() {
         name="Dashboard"
         component={CustomerHomeScreen}
         options={{
-          tabBarIcon: ({ color, size }) => (
-            <MaterialDesignIcons name="home-outline" color={color} size={size} />
+          tabBarIcon: ({ color, size, focused }) => (
+            <TabIcon name="home-outline" color={color} size={size} focused={focused} />
           ),
           tabBarLabel: 'Home',
         }}
@@ -62,8 +63,8 @@ export default function CustomerTabs() {
         name="Requests"
         component={RequestsScreen}
         options={{
-          tabBarIcon: ({ color, size }) => (
-            <MaterialDesignIcons name="package-variant" color={color} size={size} />
+          tabBarIcon: ({ color, size, focused }) => (
+            <TabIcon name="package-variant" color={color} size={size} focused={focused} />
           ),
           tabBarLabel: 'Deliveries',
         }}
@@ -72,8 +73,8 @@ export default function CustomerTabs() {
         name="Profile"
         component={ProfileScreen}
         options={{
-          tabBarIcon: ({ color, size }) => (
-            <MaterialDesignIcons name="account-outline" color={color} size={size} />
+          tabBarIcon: ({ color, size, focused }) => (
+            <TabIcon name="account-outline" color={color} size={size} focused={focused} />
           ),
           tabBarLabel: 'Profile',
         }}
@@ -83,17 +84,14 @@ export default function CustomerTabs() {
 }
 
 const styles = StyleSheet.create({
-  tabBox: {
+  iconSlot: {
+    width: 64,
+    height: 32,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.lg,
-    borderRadius: radius.lg,
-    overflow: 'hidden',
-    backgroundColor: 'transparent',
+    borderRadius: radius.pill,
   },
-  tabBoxSelected: {
+  iconSlotSelected: {
     backgroundColor: colors.primaryLight,
-    borderRadius: radius.lg,
   },
 });

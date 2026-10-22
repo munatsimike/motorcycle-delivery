@@ -31,11 +31,12 @@ import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.riders.rider.core.design.RiderTheme
 import com.riders.rider.core.design.RidersColors
-import com.riders.rider.core.design.RidersErrorState
+import com.riders.rider.core.design.RidersFailureNotice
 import com.riders.rider.core.design.RidersPrimaryButton
 import com.riders.rider.core.design.RidersSecondaryButton
 import com.riders.rider.core.design.RidersSpacing
 import com.riders.rider.core.design.RidersType
+import com.riders.rider.core.design.RidersBrandMark
 import com.riders.rider.core.design.RidersWordmark
 
 @Composable
@@ -79,7 +80,7 @@ private fun BiometricUnlockContent(
     onUsePhone: () -> Unit,
 ) {
     BiometricScaffold {
-        RidersWordmark()
+        RidersBrandMark()
         Spacer(Modifier.height(RidersSpacing.xxxl))
         Text(
             if (canUnlock) "Unlock Riders" else "Sign in again",
@@ -98,7 +99,7 @@ private fun BiometricUnlockContent(
         )
         Spacer(Modifier.height(RidersSpacing.xxl))
         if (error != null) {
-            RidersErrorState(message = error)
+            RidersFailureNotice(message = error, onRetry = onUnlock)
             Spacer(Modifier.height(RidersSpacing.lg))
         }
         if (canUnlock) {
@@ -140,7 +141,7 @@ private fun BiometricOfferContent(
         )
         Spacer(Modifier.height(RidersSpacing.xxl))
         if (error != null) {
-            RidersErrorState(message = error)
+            RidersFailureNotice(message = error, onRetry = onEnable)
             Spacer(Modifier.height(RidersSpacing.lg))
         }
         RidersPrimaryButton(

@@ -28,6 +28,7 @@ import kotlinx.coroutines.launch
 
 data class OnboardingUi(
     val loading: Boolean = true,
+    val refreshing: Boolean = false,
     val step: OnboardingStep = OnboardingStep.Profile,
     val fullName: String = "",
     val phone: String = "",
@@ -37,6 +38,7 @@ data class OnboardingUi(
     val motorcycles: List<MotorcycleDetails> = emptyList(),
     val draft: MotorcycleDraft = MotorcycleDraft(),
     val editingId: String? = null,
+    val addingMotorcycle: Boolean = false,
     val uploading: Boolean = false,
     val uploadPercent: Int? = null,
     val savingMotorcycle: Boolean = false,
@@ -54,7 +56,11 @@ class OnboardingViewModel @Inject constructor(
     fun refresh() {
         viewModelScope.launch {
             val previous = state.value
-            state.value = previous.copy(loading = previous.onboarding == null, error = null)
+            state.value = previous.copy(
+                loading = previous.onboarding == null,
+                refreshing = previous.onboarding != null,
+                error = null,
+            )
             val profile = verification.profile()
             val onboard = verification.onboarding()
             val licence = verification.licence()
@@ -63,6 +69,7 @@ class OnboardingViewModel @Inject constructor(
             val failure = firstFailure(profile, onboard, licence, motorcycles)
             state.value = previous.copy(
                 loading = false,
+                refreshing = false,
                 fullName = (profile as? ApiResult.Ok)?.value?.fullName ?: previous.fullName,
                 phone = (profile as? ApiResult.Ok)?.value?.phone ?: previous.phone,
                 onboarding = loadedOnboarding,
@@ -132,8 +139,18 @@ class OnboardingViewModel @Inject constructor(
         state.value = state.value.copy(draft = draft, error = null)
     }
 
+    fun beginAddMotorcycle() {
+        state.value = state.value.copy(
+            addingMotorcycle = true,
+            editingId = null,
+            draft = MotorcycleDraft(),
+            error = null,
+        )
+    }
+
     fun editMotorcycle(motorcycle: MotorcycleDetails) {
         state.value = state.value.copy(
+            addingMotorcycle = false,
             editingId = motorcycle.id,
             draft = MotorcycleDraft(
                 registrationNumber = motorcycle.registrationNumber,
@@ -143,6 +160,10 @@ class OnboardingViewModel @Inject constructor(
             ),
             error = null,
         )
+    }
+
+    fun cancelMotorcycleEdit() {
+        state.value = state.value.copy(addingMotorcycle = false, editingId = null, draft = MotorcycleDraft(), error = null)
     }
 
     fun saveMotorcycle() {
@@ -158,6 +179,7 @@ class OnboardingViewModel @Inject constructor(
                 is ApiResult.Ok -> {
                     state.value = state.value.copy(
                         savingMotorcycle = false,
+                        addingMotorcycle = false,
                         editingId = null,
                         draft = MotorcycleDraft(),
                     )

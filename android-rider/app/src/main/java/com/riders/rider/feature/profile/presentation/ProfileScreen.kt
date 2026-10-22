@@ -1,51 +1,79 @@
 package com.riders.rider.feature.profile.presentation
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.riders.rider.core.design.RidersCard
+import com.riders.rider.R
+import com.riders.rider.core.design.PhoneWithFlag
+import com.riders.rider.core.design.RidersButtonTone
 import com.riders.rider.core.design.RidersColors
-import com.riders.rider.core.design.RidersErrorState
+import com.riders.rider.core.design.RidersFailureNotice
+import com.riders.rider.core.design.RidersNetworkNotice
+import com.riders.rider.core.design.isConnectionFailure
 import com.riders.rider.core.design.RidersLoadingState
+import com.riders.rider.core.design.RidersPullRefresh
+import com.riders.rider.core.design.RidersRadius
 import com.riders.rider.core.design.RidersSecondaryButton
 import com.riders.rider.core.design.RidersSpacing
 import com.riders.rider.core.design.RidersType
-import com.riders.rider.core.design.RidersWordmark
 import com.riders.rider.feature.auth.presentation.SessionViewModel
 import com.riders.rider.feature.auth.presentation.findFragmentActivity
 import com.riders.rider.feature.onboarding.domain.MotorcycleDetails
 import com.riders.rider.feature.onboarding.domain.RiderOnboarding
 import com.riders.rider.feature.onboarding.domain.approvalStatusTitle
-import com.riders.rider.feature.onboarding.domain.canEditMotorcycle
-import com.riders.rider.feature.onboarding.domain.canReplaceLicence
-import com.riders.rider.feature.onboarding.domain.canSelectMotorcycle
 import com.riders.rider.feature.onboarding.domain.motorcycleStatusTitle
 import com.riders.rider.feature.onboarding.domain.riderReadiness
 
+private val ProfileGreen = Color(0xFFC9EFD9)
+private val ProfileMid = Color(0xFFE5F7EE)
+private val ProfileFade = Color(0xFFF7FCF9)
+private val PhoneBlue = Color(0xFF3B6FE8)
+private val PhoneFill = Color(0xFFE8F1FF)
+private val LicenceFill = Color(0xFFEEF2F6)
+private val LicenceTint = Color(0xFF3D5A80)
+private val BikeFill = Color(0xFFDDF3E8)
+
 @Composable
 fun ProfileScreen(
-    onLicence: () -> Unit,
     onMotorcycles: () -> Unit,
-    onWallet: () -> Unit,
     model: ProfileViewModel = hiltViewModel(),
 ) {
     val ui by model.ui.collectAsStateWithLifecycle()
@@ -54,223 +82,434 @@ fun ProfileScreen(
         ?: error("Profile requires the rider activity")
     val session: SessionViewModel = hiltViewModel(activity)
     val sessionUi by session.ui.collectAsStateWithLifecycle()
-    var confirmLogoutAll by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(Unit) { model.refresh(force = false) }
-    if (confirmLogoutAll) {
-        AlertDialog(
-            onDismissRequest = { confirmLogoutAll = false },
-            title = { Text("Log out of all devices?", style = RidersType.heading, color = RidersColors.text) },
-            text = {
-                Text(
-                    "This signs you out of Riders on every device, including this phone.",
-                    style = RidersType.body,
-                    color = RidersColors.textSecondary,
+    val board = ui.board
+    val hasProfile = board.fullName.isNotBlank() || board.onboarding != null
+    RidersPullRefresh(
+        refreshing = ui.refreshing,
+        onRefresh = { model.refresh(force = true) },
+        modifier = Modifier
+            .fillMaxSize()
+            .background(RidersColors.background),
+    ) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(bottom = RidersSpacing.xxl),
+        ) {
+            ProfileHeader(board.fullName, board.onboarding)
+            if (hasProfile) {
+                DetailsCard(
+                    phone = board.phone,
+                    address = board.address,
+                    onboarding = board.onboarding,
+                    hasLicence = board.hasLicence,
+                    motorcycles = board.motorcycles,
+                    onMotorcycles = onMotorcycles,
+                    modifier = Modifier
+                        .padding(horizontal = RidersSpacing.xl)
+                        .pullUp(RidersSpacing.xxxl),
                 )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmLogoutAll = false
-                    model.logoutAll()
-                }) { Text("Log out") }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmLogoutAll = false }) { Text("Cancel") }
-            },
+            }
+            Column(
+                Modifier
+                    .padding(horizontal = RidersSpacing.xl)
+                    .padding(top = if (hasProfile) RidersSpacing.lg else RidersSpacing.xl),
+                verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
+            ) {
+                when {
+                    !hasProfile && (ui.loading || !board.loaded) -> RidersLoadingState("Loading your profile")
+                    !hasProfile && board.error != null -> RidersFailureNotice(
+                        message = board.error.orEmpty(),
+                        title = "Profile unavailable",
+                        onRetry = { model.refresh(force = true) },
+                    )
+                    else -> {
+                        val pageConnection = isConnectionFailure(board.error)
+                        if (board.error != null) {
+                            RidersFailureNotice(
+                                message = board.error.orEmpty(),
+                                onRetry = { model.refresh(force = true) },
+                            )
+                        }
+                        if (sessionUi.biometricAction != null) {
+                            BiometricCard(
+                                enabled = sessionUi.biometricAction == "Turn off biometric unlock",
+                                busy = sessionUi.working || ui.signingOut,
+                                error = sessionUi.error?.takeUnless { pageConnection && isConnectionFailure(it) },
+                                onToggle = { session.onHomeBiometric(activity) },
+                            )
+                        }
+                        RidersSecondaryButton(
+                            label = "Log out",
+                            onClick = model::logout,
+                            enabled = !ui.signingOut,
+                            loading = ui.signingOut,
+                            tone = RidersButtonTone.Danger,
+                            icon = R.drawable.ic_logout,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProfileHeader(name: String, onboarding: RiderOnboarding?) {
+    val status = onboarding?.approvalStatus
+    val pill = if (status == null) "Rider" else approvalStatusTitle(status)
+    val pillColor = if (status == "REJECTED" || status == "SUSPENDED") RidersColors.error else RidersColors.primaryDark
+    Column(Modifier.fillMaxWidth()) {
+        Box(Modifier.fillMaxWidth().clipToBounds()) {
+            ProfileBackdrop(Modifier.matchParentSize())
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(horizontal = RidersSpacing.xl)
+                    .padding(top = RidersSpacing.lg, bottom = RidersSpacing.xl),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
+            ) {
+                ProfileAvatar(name)
+                Text(
+                    name.ifBlank { "Profile" },
+                    style = RidersType.title,
+                    color = RidersColors.text,
+                    textAlign = TextAlign.Center,
+                )
+                Text(
+                    pill,
+                    style = RidersType.captionStrong,
+                    color = pillColor,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(RidersRadius.pill))
+                        .background(RidersColors.background)
+                        .padding(horizontal = RidersSpacing.md, vertical = RidersSpacing.xs),
+                )
+            }
+        }
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(RidersSpacing.xxxl)
+                .background(Brush.verticalGradient(listOf(ProfileFade, RidersColors.background))),
         )
     }
-    ui.logoutNotice?.let { notice ->
-        AlertDialog(
-            onDismissRequest = model::acknowledgeLogoutNotice,
-            title = { Text("Signed out on this phone", style = RidersType.heading, color = RidersColors.text) },
-            text = { Text(notice, style = RidersType.body, color = RidersColors.textSecondary) },
-            confirmButton = {
-                TextButton(onClick = model::acknowledgeLogoutNotice) { Text("OK") }
-            },
+}
+
+@Composable
+private fun ProfileBackdrop(modifier: Modifier = Modifier) {
+    Box(modifier.clipToBounds()) {
+        Box(
+            Modifier
+                .matchParentSize()
+                .background(
+                    Brush.verticalGradient(
+                        0f to ProfileGreen,
+                        0.62f to ProfileMid,
+                        1f to ProfileFade,
+                    ),
+                ),
+        )
+        Box(
+            Modifier
+                .align(Alignment.TopEnd)
+                .offset(x = 50.dp, y = (-90).dp)
+                .size(220.dp)
+                .clip(CircleShape)
+                .background(Color.White.copy(alpha = 0.45f)),
+        )
+        Box(
+            Modifier
+                .align(Alignment.BottomStart)
+                .offset(x = (-120).dp, y = 560.dp)
+                .size(720.dp)
+                .clip(CircleShape)
+                .background(Color.White.copy(alpha = 0.55f)),
         )
     }
+}
+
+@Composable
+private fun ProfileAvatar(name: String) {
+    Box(
+        Modifier
+            .size(80.dp)
+            .clip(RoundedCornerShape(RidersRadius.lg))
+            .background(Color(0xFF3D5A80)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(profileInitials(name), style = RidersType.title, color = RidersColors.textInverse)
+    }
+}
+
+@Composable
+private fun DetailsCard(
+    phone: String,
+    address: String,
+    onboarding: RiderOnboarding?,
+    hasLicence: Boolean,
+    motorcycles: List<MotorcycleDetails>,
+    onMotorcycles: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val shape = RoundedCornerShape(RidersRadius.xl)
+    Column(
+        modifier
+            .fillMaxWidth()
+            .shadow(8.dp, shape, ambientColor = RidersColors.shadow, spotColor = RidersColors.shadow)
+            .clip(shape)
+            .background(RidersColors.background)
+            .padding(horizontal = RidersSpacing.lg, vertical = RidersSpacing.sm),
+    ) {
+        InfoRow(
+            icon = R.drawable.ic_phone,
+            label = "Mobile number",
+            iconTint = PhoneBlue,
+            iconFill = PhoneFill,
+        ) {
+            if (phone.isBlank()) {
+                Text("Verified phone", style = RidersType.bodyStrong, color = RidersColors.text)
+            } else {
+                PhoneWithFlag(phone, style = RidersType.bodyStrong, color = RidersColors.text)
+            }
+        }
+        Hairline()
+        InfoRow(
+            icon = R.drawable.ic_map_marker,
+            label = "Address",
+            value = address.ifBlank { "Not added" },
+            iconTint = RidersColors.primaryDark,
+            iconFill = RidersColors.primaryLight,
+        )
+        Hairline()
+        InfoRow(
+            icon = R.drawable.ic_card,
+            label = "Driving licence",
+            value = licenceSummary(onboarding, hasLicence),
+            badges = licenceBadges(onboarding),
+            iconTint = LicenceTint,
+            iconFill = LicenceFill,
+        )
+        onboarding?.rejectionReason?.takeIf { it.isNotBlank() }?.let { reason ->
+            Text(
+                reason,
+                style = RidersType.caption,
+                color = RidersColors.error,
+                modifier = Modifier.padding(start = 52.dp, bottom = RidersSpacing.sm),
+            )
+        }
+        Hairline()
+        InfoRow(
+            icon = R.drawable.ic_motorbike,
+            label = "Motorbike",
+            value = motorcycleSummary(motorcycles),
+            iconTint = RidersColors.primaryDark,
+            iconFill = BikeFill,
+            onClick = onMotorcycles,
+        )
+    }
+}
+
+@Composable
+private fun Hairline() {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .padding(start = 52.dp)
+            .height(1.dp)
+            .background(RidersColors.border),
+    )
+}
+
+@Composable
+private fun InfoRow(
+    icon: Int,
+    label: String,
+    value: String? = null,
+    caption: String? = null,
+    iconTint: Color = RidersColors.primaryDark,
+    iconFill: Color = RidersColors.background,
+    badges: List<String> = emptyList(),
+    onClick: (() -> Unit)? = null,
+    valueContent: (@Composable () -> Unit)? = null,
+) {
+        Row(
+        Modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier)
+            .padding(vertical = RidersSpacing.md),
+        horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconBadge(icon, iconTint, iconFill)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
+            ) {
+                Text(label, style = RidersType.caption, color = RidersColors.textSecondary, modifier = Modifier.weight(1f))
+                badges.forEach { StatusBadge(it) }
+            }
+            if (valueContent != null) {
+                valueContent()
+            } else {
+                Text(value.orEmpty(), style = RidersType.bodyStrong, color = RidersColors.text)
+            }
+            if (caption != null) {
+                Text(caption, style = RidersType.caption, color = RidersColors.textSecondary)
+            }
+        }
+        if (onClick != null) {
+            Icon(
+                painter = painterResource(R.drawable.ic_chevron_right),
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint = RidersColors.textSecondary,
+            )
+        }
+    }
+}
+
+@Composable
+private fun StatusBadge(label: String) {
+    Text(
+        label,
+        style = RidersType.captionStrong,
+        color = RidersColors.primaryDark,
+        modifier = Modifier
+            .clip(RoundedCornerShape(RidersRadius.pill))
+            .background(RidersColors.primaryLight)
+            .padding(horizontal = RidersSpacing.sm, vertical = RidersSpacing.xs),
+    )
+}
+
+@Composable
+private fun BiometricCard(
+    enabled: Boolean,
+    busy: Boolean,
+    error: String?,
+    onToggle: () -> Unit,
+) {
     Column(
         Modifier
-            .fillMaxSize()
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(RidersRadius.xl))
             .background(RidersColors.background)
-            .statusBarsPadding()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = RidersSpacing.xl, vertical = RidersSpacing.lg),
-        verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
+            .border(1.dp, RidersColors.border, RoundedCornerShape(RidersRadius.xl))
+            .padding(horizontal = RidersSpacing.lg, vertical = RidersSpacing.sm),
     ) {
-        RidersWordmark()
-        Text("Profile", style = RidersType.title, color = RidersColors.text)
-        when {
-            ui.loading && ui.board.onboarding == null && ui.board.fullName.isBlank() -> RidersLoadingState("Loading your profile")
-            ui.board.onboarding == null && ui.board.fullName.isBlank() && ui.board.error != null -> RidersErrorState(
-                title = "Profile unavailable",
-                message = ui.board.error.orEmpty(),
-                retryLabel = "Refresh",
-                onRetry = { model.refresh(force = true) },
-            )
-            else -> {
-                Header(ui.board.fullName, ui.board.phone, ui.board.onboarding)
-                if (ui.board.error != null) {
-                    RidersErrorState(message = ui.board.error.orEmpty(), retryLabel = "Refresh", onRetry = { model.refresh(force = true) })
-                }
-                PersonalSection(ui.board.fullName, ui.board.phone, ui.board.address)
-                LicenceSection(ui.board.onboarding, ui.board.hasLicence, onLicence)
-                MotorcycleSection(ui.board.motorcycles, onMotorcycles)
-                ui.board.onboarding?.let { VerificationSection(it) }
-                RidersCard(onClick = onWallet, modifier = Modifier.fillMaxWidth()) {
-                    Text("Wallet", style = RidersType.bodyStrong, color = RidersColors.text)
-                    Text("Open your wallet", style = RidersType.caption, color = RidersColors.textSecondary)
-                }
-                AccountSection(
-                    biometricAction = sessionUi.biometricAction,
-                    biometricError = sessionUi.error,
-                    signingOut = ui.signingOut,
-                    onBiometric = { session.onHomeBiometric(activity) },
-                    onLogout = model::logout,
-                    onLogoutAll = { confirmLogoutAll = true },
-                )
-                RidersSecondaryButton(
-                    label = "Refresh",
-                    onClick = { model.refresh(force = true) },
-                    enabled = !ui.loading && !ui.signingOut,
-                    modifier = Modifier.fillMaxWidth(),
-                    soft = false,
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(vertical = RidersSpacing.md),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md),
+        ) {
+            IconBadge(R.drawable.ic_fingerprint, RidersColors.primaryDark, RidersColors.primaryLight)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs)) {
+                Text("Unlock with biometrics", style = RidersType.bodyStrong, color = RidersColors.text)
+                Text(
+                    if (enabled) {
+                        "Fingerprint protection stays on for this saved session. Turning it off keeps you signed in."
+                    } else {
+                        "Use fingerprint or face unlock on this phone."
+                    },
+                    style = RidersType.caption,
+                    color = RidersColors.textSecondary,
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun Header(name: String, phone: String, onboarding: RiderOnboarding?) {
-    RidersCard(modifier = Modifier.fillMaxWidth()) {
-        Text(name.ifBlank { "Rider" }, style = RidersType.heading, color = RidersColors.text)
-        if (phone.isNotBlank()) {
-            Text(phone, style = RidersType.body, color = RidersColors.textSecondary)
-        }
-        if (onboarding != null) {
-            Text(approvalStatusTitle(onboarding.approvalStatus), style = RidersType.captionStrong, color = RidersColors.primaryDark)
-        }
-    }
-}
-
-@Composable
-private fun PersonalSection(name: String, phone: String, address: String) {
-    RidersCard(modifier = Modifier.fillMaxWidth()) {
-        Text("Personal information", style = RidersType.bodyStrong, color = RidersColors.text)
-        Text(name.ifBlank { "Name on your account" }, style = RidersType.body, color = RidersColors.text)
-        Text(phone.ifBlank { "Verified phone" }, style = RidersType.body, color = RidersColors.textSecondary)
-        if (address.isNotBlank()) {
-            Text(address, style = RidersType.body, color = RidersColors.textSecondary)
-        }
-        Text("This phone number is verified and cannot be edited here.", style = RidersType.caption, color = RidersColors.textSecondary)
-    }
-}
-
-@Composable
-private fun LicenceSection(onboarding: RiderOnboarding?, hasLicence: Boolean, onOpen: () -> Unit) {
-    RidersCard(modifier = Modifier.fillMaxWidth()) {
-        Text("Driving licence", style = RidersType.bodyStrong, color = RidersColors.text)
-        if (onboarding != null) {
-            val readiness = riderReadiness(onboarding)
-            Text(readiness.licenceLabel, style = RidersType.body, color = RidersColors.text)
-            onboarding.licenceNumber?.takeIf { it.isNotBlank() }?.let {
-                Text("Licence number $it", style = RidersType.caption, color = RidersColors.textSecondary)
-            }
-            onboarding.licenceClass?.takeIf { it.isNotBlank() }?.let {
-                Text("Class $it", style = RidersType.caption, color = RidersColors.textSecondary)
-            }
-            onboarding.rejectionReason?.takeIf { it.isNotBlank() }?.let {
-                Text(it, style = RidersType.caption, color = RidersColors.error)
-            }
-            if (!canReplaceLicence(onboarding.licenceVerificationStatus)) {
-                Text("A verified licence cannot be replaced yet.", style = RidersType.caption, color = RidersColors.textSecondary)
-            } else if (!hasLicence) {
-                Text("No licence image uploaded yet.", style = RidersType.caption, color = RidersColors.textSecondary)
-            }
-        }
-        RidersSecondaryButton(label = "Open licence", onClick = onOpen, modifier = Modifier.fillMaxWidth(), soft = false)
-    }
-}
-
-@Composable
-private fun MotorcycleSection(motorcycles: List<MotorcycleDetails>, onOpen: () -> Unit) {
-    RidersCard(modifier = Modifier.fillMaxWidth()) {
-        Text("My motorcycles", style = RidersType.bodyStrong, color = RidersColors.text)
-        if (motorcycles.isEmpty()) {
-            Text("No motorcycle yet", style = RidersType.body, color = RidersColors.textSecondary)
-        }
-        motorcycles.forEach { motorcycle ->
-            Text(motorcycle.registrationNumber, style = RidersType.bodyStrong, color = RidersColors.text)
-            Text("${motorcycle.make} ${motorcycle.model}", style = RidersType.body, color = RidersColors.text)
-            Text(motorcycle.colour, style = RidersType.caption, color = RidersColors.textSecondary)
-            Text(motorcycleStatusTitle(motorcycle.verificationStatus), style = RidersType.caption, color = RidersColors.text)
-            if (motorcycle.isActive) {
-                Text("Active motorcycle", style = RidersType.caption, color = RidersColors.primaryDark)
-            }
-            if (canEditMotorcycle(motorcycle.verificationStatus)) {
-                Text("This motorcycle can be updated.", style = RidersType.caption, color = RidersColors.textSecondary)
-            }
-            if (canSelectMotorcycle(motorcycle.verificationStatus, motorcycle.isActive)) {
-                Text("This verified motorcycle can be selected.", style = RidersType.caption, color = RidersColors.textSecondary)
-            }
-        }
-        RidersSecondaryButton(label = "Manage motorcycles", onClick = onOpen, modifier = Modifier.fillMaxWidth(), soft = false)
-    }
-}
-
-@Composable
-private fun VerificationSection(onboarding: RiderOnboarding) {
-    val readiness = riderReadiness(onboarding)
-    RidersCard(modifier = Modifier.fillMaxWidth()) {
-        Text("Account verification", style = RidersType.bodyStrong, color = RidersColors.text)
-        Text("Approval ${readiness.approvalLabel}", style = RidersType.body, color = RidersColors.text)
-        Text("Licence ${readiness.licenceLabel}", style = RidersType.body, color = RidersColors.text)
-        Text(
-            if (onboarding.activeVerifiedMotorcycle) "Motorcycle verified and active" else "Motorcycle ${if (onboarding.verifiedMotorcycleCount > 0) "verified, not active" else "not verified"}",
-            style = RidersType.body,
-            color = RidersColors.text,
-        )
-        Text(readiness.message, style = RidersType.caption, color = RidersColors.textSecondary)
-    }
-}
-
-@Composable
-private fun AccountSection(
-    biometricAction: String?,
-    biometricError: String?,
-    signingOut: Boolean,
-    onBiometric: () -> Unit,
-    onLogout: () -> Unit,
-    onLogoutAll: () -> Unit,
-) {
-    RidersCard(modifier = Modifier.fillMaxWidth()) {
-        Text("Account and security", style = RidersType.bodyStrong, color = RidersColors.text)
-        if (biometricError != null) {
-            RidersErrorState(message = biometricError)
-        }
-        if (biometricAction != null) {
-            RidersSecondaryButton(
-                label = biometricAction,
-                onClick = onBiometric,
-                enabled = !signingOut,
-                modifier = Modifier.fillMaxWidth(),
-                soft = false,
+            Switch(
+                checked = enabled,
+                onCheckedChange = { onToggle() },
+                enabled = !busy,
+                colors = SwitchDefaults.colors(
+                    checkedTrackColor = RidersColors.primary,
+                    uncheckedTrackColor = RidersColors.border,
+                    checkedThumbColor = RidersColors.background,
+                    uncheckedThumbColor = RidersColors.background,
+                ),
             )
         }
-        RidersSecondaryButton(
-            label = "Log out",
-            onClick = onLogout,
-            enabled = !signingOut,
-            loading = signingOut,
-            modifier = Modifier.fillMaxWidth(),
-            soft = false,
-        )
-        RidersSecondaryButton(
-            label = "Log out of all devices",
-            onClick = onLogoutAll,
-            enabled = !signingOut,
-            modifier = Modifier.fillMaxWidth(),
-            soft = false,
+        if (error != null) {
+            if (isConnectionFailure(error)) {
+                RidersNetworkNotice(onRetry = onToggle, modifier = Modifier.padding(bottom = RidersSpacing.sm))
+            } else {
+                Text(error, style = RidersType.caption, color = RidersColors.error, modifier = Modifier.padding(bottom = RidersSpacing.sm))
+            }
+        }
+    }
+}
+
+@Composable
+private fun IconBadge(icon: Int, tint: Color, fill: Color) {
+    Box(
+        Modifier
+            .size(40.dp)
+            .clip(RoundedCornerShape(RidersRadius.md))
+            .background(fill),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            painter = painterResource(icon),
+            contentDescription = null,
+            modifier = Modifier.size(18.dp),
+            tint = tint,
         )
     }
+}
+
+private fun Modifier.pullUp(overlap: Dp): Modifier = layout { measurable, constraints ->
+    val placeable = measurable.measure(constraints)
+    val shift = overlap.roundToPx()
+    layout(placeable.width, (placeable.height - shift).coerceAtLeast(0)) {
+        placeable.placeRelative(0, -shift)
+    }
+}
+
+private fun profileInitials(name: String): String {
+    val letters = name.trim().split(Regex("\\s+")).mapNotNull { word ->
+        word.firstOrNull { it.isLetter() }?.uppercaseChar()?.toString()
+    }
+    return when {
+        letters.isEmpty() -> "R"
+        letters.size == 1 -> letters.first()
+        else -> "${letters.first()}${letters.last()}"
+    }
+}
+
+private fun licenceSummary(onboarding: RiderOnboarding?, hasLicence: Boolean): String {
+    if (onboarding == null) {
+        return if (hasLicence) "Uploaded" else "Not uploaded"
+    }
+    val status = riderReadiness(onboarding).licenceLabel.takeUnless { it == "Verified" }
+    val parts = listOfNotNull(
+        onboarding.licenceNumber?.takeIf { it.isNotBlank() },
+        onboarding.licenceClass?.takeIf { it.isNotBlank() }?.let { "Class $it" },
+        status,
+    )
+    return parts.joinToString(" · ").ifBlank { "On file" }
+}
+
+private fun licenceBadges(onboarding: RiderOnboarding?): List<String> {
+    if (onboarding?.licenceVerificationStatus != "VERIFIED") {
+        return emptyList()
+    }
+    return listOf("Verified")
+}
+
+private fun motorcycleSummary(motorcycles: List<MotorcycleDetails>): String {
+    val chosen = motorcycles.firstOrNull { it.isActive } ?: motorcycles.firstOrNull() ?: return "No motorcycle yet"
+    val name = listOf(chosen.make, chosen.model).filter { it.isNotBlank() }.joinToString(" ")
+    val status = when {
+        chosen.isActive || chosen.verificationStatus == "VERIFIED" -> null
+        else -> motorcycleStatusTitle(chosen.verificationStatus)
+    }
+    return listOfNotNull(chosen.registrationNumber.takeIf { it.isNotBlank() }, name.takeIf { it.isNotBlank() }, status)
+        .joinToString(" · ")
+        .ifBlank { "Motorcycle" }
 }

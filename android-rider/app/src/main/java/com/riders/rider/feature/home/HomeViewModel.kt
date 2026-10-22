@@ -11,12 +11,17 @@ import com.riders.rider.feature.delivery.data.ActiveDeliveryStore
 import com.riders.rider.feature.delivery.data.AssignmentRepository
 import com.riders.rider.feature.delivery.domain.ActiveDelivery
 import com.riders.rider.feature.delivery.domain.DeliveryRecoveryCoordinator
+import com.riders.rider.feature.offers.data.OfferRepository
 import com.riders.rider.feature.onboarding.data.OnboardingRepository
+import com.riders.rider.feature.onboarding.data.VerificationRepository
 import com.riders.rider.feature.onboarding.domain.RiderOnboarding
 import com.riders.rider.feature.onboarding.domain.RiderReadiness
 import com.riders.rider.feature.onboarding.domain.riderReadiness
+import com.riders.rider.feature.wallet.data.WalletRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,12 +29,17 @@ import kotlinx.coroutines.launch
 
 data class HomeUi(
     val loading: Boolean = true,
+    val refreshing: Boolean = false,
     val changingAvailability: Boolean = false,
     val onboarding: RiderOnboarding? = null,
     val readiness: RiderReadiness? = null,
     val active: ActiveDelivery? = null,
     val shift: HomeShift = homeShift(null, false, null),
     val error: String? = null,
+    val fullName: String = "",
+    val walletBalance: String? = null,
+    val walletCurrency: String? = null,
+    val activeRequestCount: Int? = null,
 )
 
 @HiltViewModel
@@ -38,6 +48,9 @@ class HomeViewModel @Inject constructor(
     private val availability: AvailabilityRepository,
     private val deliveries: ActiveDeliveryStore,
     private val assignments: AssignmentRepository,
+    private val identity: VerificationRepository,
+    private val wallets: WalletRepository,
+    private val offers: OfferRepository,
 ) : ViewModel() {
     private val state = MutableStateFlow(HomeUi())
     val ui: StateFlow<HomeUi> = state.asStateFlow()
@@ -48,6 +61,8 @@ class HomeViewModel @Inject constructor(
             return
         }
         dashboardBusy = true
+        val showIndicator = state.value.readiness != null || state.value.error != null
+        state.value = state.value.copy(refreshing = showIndicator)
         viewModelScope.launch {
             try {
                 load(confirmedAvailability = null, notice = null)
@@ -120,6 +135,16 @@ class HomeViewModel @Inject constructor(
             ),
         )
         val onboard = onboarding.load()
+        val profileName = (identity.profile() as? ApiResult.Ok)?.value?.fullName?.trim()?.takeIf { it.isNotEmpty() }
+        val (wallet, requestCount) = coroutineScope {
+            val walletCall = async { wallets.summary() }
+            val offersCall = async { offers.list() }
+            val walletResult = walletCall.await()
+            val offerResult = offersCall.await()
+            val loadedWallet = (walletResult as? ApiResult.Ok)?.value
+            val loadedCount = (offerResult as? ApiResult.Ok)?.value?.offers?.size
+            loadedWallet to (loadedCount ?: previous.activeRequestCount)
+        }
         val recovery = DeliveryRecoveryCoordinator(
             read = deliveries::read,
             write = deliveries::write,
@@ -150,6 +175,7 @@ class HomeViewModel @Inject constructor(
         )
         state.value = HomeUi(
             loading = false,
+            refreshing = false,
             changingAvailability = false,
             onboarding = shown,
             readiness = readiness ?: previous.readiness,
@@ -162,6 +188,10 @@ class HomeViewModel @Inject constructor(
                 onboard is ApiResult.Err && shift.recoveryMessage == null -> onboard.error.text()
                 else -> null
             },
+            fullName = profileName ?: previous.fullName,
+            walletBalance = wallet?.balance ?: previous.walletBalance,
+            walletCurrency = wallet?.currency ?: previous.walletCurrency,
+            activeRequestCount = requestCount,
         )
     }
 }

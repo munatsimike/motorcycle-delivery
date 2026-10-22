@@ -55,6 +55,7 @@ data class DeliveryUi(
     val dropoffInstructions: String? = null,
     val contacts: DeliveryContacts? = null,
     val syncing: Boolean = false,
+    val refreshing: Boolean = false,
     val busy: DeliveryBusy = DeliveryBusy.None,
     val error: String? = null,
     val finished: Boolean = false,
@@ -72,7 +73,7 @@ class DeliveryViewModel @Inject constructor(
     private val actions = DeliveryActionGate()
     private var opening = false
 
-    fun load(deliveryId: String) {
+    fun load(deliveryId: String, fromUser: Boolean = false) {
         if (opening || state.value.busy != DeliveryBusy.None) {
             return
         }
@@ -81,9 +82,12 @@ class DeliveryViewModel @Inject constructor(
             try {
                 val stored = deliveries.read()?.takeIf { it.deliveryId == deliveryId }
                 if (stored != null) {
-                    state.update { present(stored, it.error, it.contacts, syncing = true, busy = DeliveryBusy.None) }
+                    state.update {
+                        present(stored, it.error, it.contacts, syncing = true, busy = DeliveryBusy.None)
+                            .copy(refreshing = fromUser)
+                    }
                 } else {
-                    state.update { DeliveryUi(deliveryId = deliveryId, syncing = true) }
+                    state.update { DeliveryUi(deliveryId = deliveryId, syncing = true, refreshing = fromUser) }
                 }
                 val sync = syncOpenDelivery(deliveryId, stored, assignments.lookup())
                 when (sync.kind) {
@@ -109,6 +113,7 @@ class DeliveryViewModel @Inject constructor(
                 }
             } finally {
                 opening = false
+                state.update { it.copy(refreshing = false) }
             }
         }
     }

@@ -7,7 +7,10 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -16,30 +19,41 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.riders.rider.R
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.riders.rider.core.design.PhoneWithFlag
 import com.riders.rider.core.design.RiderTheme
 import com.riders.rider.core.design.RidersCard
 import com.riders.rider.core.design.RidersColors
 import com.riders.rider.core.design.RidersEmptyState
-import com.riders.rider.core.design.RidersErrorState
+import com.riders.rider.core.design.RidersFailureNotice
 import com.riders.rider.core.design.RidersLoadingState
 import com.riders.rider.core.design.RidersPrimaryButton
+import com.riders.rider.core.design.RidersPullRefresh
 import com.riders.rider.core.design.RidersRadius
 import com.riders.rider.core.design.RidersSecondaryButton
 import com.riders.rider.core.design.RidersSpacing
@@ -80,26 +94,33 @@ fun OnboardingScreen(
     }
     LaunchedEffect(Unit) { model.refresh() }
     RiderTheme {
-        Column(
-            Modifier
+        RidersPullRefresh(
+            refreshing = ui.refreshing,
+            onRefresh = model::refresh,
+            modifier = Modifier
                 .fillMaxSize()
                 .background(RidersColors.background)
                 .statusBarsPadding()
-                .navigationBarsPadding()
+                .navigationBarsPadding(),
+        ) {
+        Column(
+            Modifier
+                .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = RidersSpacing.xl, vertical = RidersSpacing.lg),
             verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
         ) {
-            RidersWordmark()
+            if (ui.step != OnboardingStep.Motorcycle) {
+                RidersWordmark()
+            }
             if (!focused) {
                 Text("Step ${ui.step.ordinal + 1} of 4", style = RidersType.caption, color = RidersColors.textSecondary)
             }
             when {
                 ui.loading && ui.onboarding == null -> RidersLoadingState("Loading your account")
-                ui.onboarding == null -> RidersErrorState(
-                    title = "Account unavailable",
+                ui.onboarding == null -> RidersFailureNotice(
                     message = ui.error ?: "Your account could not be loaded. Check your connection and try again.",
-                    retryLabel = "Try again",
+                    title = "Account unavailable",
                     onRetry = model::refresh,
                 )
                 else -> {
@@ -110,21 +131,24 @@ fun OnboardingScreen(
                         }, onUpload = model::uploadLicence)
                         OnboardingStep.Motorcycle -> MotorcycleStep(
                             ui = ui,
+                            onBack = if (focused) onFinished else model::back,
                             onDraft = model::updateDraft,
+                            onAdd = model::beginAddMotorcycle,
                             onSave = model::saveMotorcycle,
+                            onCancel = model::cancelMotorcycleEdit,
                             onEdit = model::editMotorcycle,
                             onSelect = model::selectMotorcycle,
                         )
-                        OnboardingStep.Status -> StatusStep(ui, onRefresh = model::refresh, onHome = onFinished)
+                        OnboardingStep.Status -> StatusStep(ui, onHome = onFinished)
                     }
                     if (ui.error != null) {
-                        RidersErrorState(message = ui.error ?: "")
+                        RidersFailureNotice(message = ui.error ?: "", onRetry = model::refresh)
                     }
-                    if (focused) {
+                    if (focused && ui.step != OnboardingStep.Motorcycle) {
                         RidersSecondaryButton(label = "Back", onClick = onFinished, modifier = Modifier.fillMaxWidth())
-                    } else {
+                    } else if (!focused) {
                         Row(horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm)) {
-                            if (ui.step != OnboardingStep.Profile && ui.step != OnboardingStep.Status) {
+                            if (ui.step != OnboardingStep.Profile && ui.step != OnboardingStep.Status && ui.step != OnboardingStep.Motorcycle) {
                                 RidersSecondaryButton(label = "Back", onClick = model::back, modifier = Modifier.weight(1f))
                             }
                             if (ui.step != OnboardingStep.Status) {
@@ -139,6 +163,7 @@ fun OnboardingScreen(
                 }
             }
         }
+        }
     }
 }
 
@@ -149,7 +174,7 @@ private fun ProfileStep(ui: OnboardingUi) {
     RidersCard {
         Column(verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm)) {
             Text(ui.fullName.ifBlank { "Name on your account" }, style = RidersType.heading, color = RidersColors.text)
-            Text("Phone ${ui.phone}", style = RidersType.body, color = RidersColors.textSecondary)
+            PhoneWithFlag(ui.phone, style = RidersType.body, color = RidersColors.textSecondary)
             Text("This phone number is verified and cannot be edited here.", style = RidersType.caption, color = RidersColors.textSecondary)
             Text(
                 profileCompletion(onboarding, ui.licence != null, ui.motorcycles.size),
@@ -213,50 +238,202 @@ private fun LicenceStep(ui: OnboardingUi, onChoose: () -> Unit, onUpload: () -> 
 @Composable
 private fun MotorcycleStep(
     ui: OnboardingUi,
+    onBack: () -> Unit,
     onDraft: (com.riders.rider.feature.onboarding.domain.MotorcycleDraft) -> Unit,
+    onAdd: () -> Unit,
     onSave: () -> Unit,
+    onCancel: () -> Unit,
     onEdit: (MotorcycleDetails) -> Unit,
     onSelect: (String) -> Unit,
 ) {
-    Text("Motorcycle", style = RidersType.title, color = RidersColors.text)
-    if (ui.motorcycles.isEmpty()) {
-        RidersEmptyState(title = "No motorcycle yet", body = "Add the motorcycle you will use for deliveries.")
+    Column(verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs)) {
+        Text("Motorbike", style = RidersType.title, color = RidersColors.text)
+        Text(
+            "Choose the motorcycle you want to use for deliveries.",
+            style = RidersType.body,
+            color = RidersColors.textSecondary,
+        )
     }
     ui.motorcycles.forEach { motorcycle ->
-        RidersCard {
-            Column(verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs)) {
-                Text(motorcycle.registrationNumber, style = RidersType.heading, color = RidersColors.text)
-                Text("${motorcycle.make} ${motorcycle.model}", style = RidersType.body, color = RidersColors.text)
-                Text(motorcycle.colour, style = RidersType.caption, color = RidersColors.textSecondary)
-                Text(motorcycleStatusTitle(motorcycle.verificationStatus), style = RidersType.body, color = RidersColors.text)
-                if (motorcycle.isActive) {
-                    Text("Active motorcycle", style = RidersType.caption, color = RidersColors.primaryDark)
+        val selected = motorcycle.isActive
+        val selectable = canSelectMotorcycle(motorcycle.verificationStatus, motorcycle.isActive)
+        val editable = canEditMotorcycle(motorcycle.verificationStatus)
+        MotorcycleChoice(
+            motorcycle = motorcycle,
+            selected = selected,
+            enabled = !ui.savingMotorcycle && (selectable || editable),
+            onClick = {
+                when {
+                    selectable -> onSelect(motorcycle.id)
+                    editable -> onEdit(motorcycle)
                 }
-                if (canEditMotorcycle(motorcycle.verificationStatus)) {
-                    RidersSecondaryButton(label = "Edit", onClick = { onEdit(motorcycle) }, modifier = Modifier.fillMaxWidth())
-                }
-                if (canSelectMotorcycle(motorcycle.verificationStatus, motorcycle.isActive)) {
-                    RidersPrimaryButton(label = "Use this motorcycle", onClick = { onSelect(motorcycle.id) }, enabled = !ui.savingMotorcycle, modifier = Modifier.fillMaxWidth())
-                }
-            }
-        }
+            },
+        )
     }
-    Text(if (ui.editingId == null) "Add a motorcycle" else "Update motorcycle", style = RidersType.heading, color = RidersColors.text)
-    RidersTextField(label = "Registration number", value = ui.draft.registrationNumber, onValueChange = { onDraft(ui.draft.copy(registrationNumber = it)) })
-    RidersTextField(label = "Make", value = ui.draft.make, onValueChange = { onDraft(ui.draft.copy(make = it)) })
-    RidersTextField(label = "Model", value = ui.draft.model, onValueChange = { onDraft(ui.draft.copy(model = it)) })
-    RidersTextField(label = "Colour", value = ui.draft.colour, onValueChange = { onDraft(ui.draft.copy(colour = it)) })
-    RidersPrimaryButton(
-        label = if (ui.editingId == null) "Save motorcycle" else "Save changes",
-        onClick = onSave,
-        loading = ui.savingMotorcycle,
-        loadingLabel = "Saving",
-        modifier = Modifier.fillMaxWidth(),
-    )
+    val editing = ui.editingId != null
+    val showForm = editing || ui.addingMotorcycle
+    if (!showForm) {
+        RidersPrimaryButton(
+            label = "Add motorbike",
+            onClick = onAdd,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        RidersSecondaryButton(
+            label = "Back",
+            onClick = onBack,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    } else RidersCard(modifier = Modifier.fillMaxWidth()) {
+        Text(if (editing) "Update motorcycle" else "Add a motorcycle", style = RidersType.heading, color = RidersColors.text)
+        Text(
+            "Use the registration book. The number plate, make, model, and colour are all required.",
+            style = RidersType.caption,
+            color = RidersColors.textSecondary,
+        )
+        RidersTextField(
+            label = "Registration number",
+            value = ui.draft.registrationNumber,
+            onValueChange = { onDraft(ui.draft.copy(registrationNumber = it)) },
+            placeholder = "AEX 1234",
+            error = motorcycleFieldError(ui.error, "Enter a registration number"),
+            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md)) {
+            RidersTextField(
+                label = "Make",
+                value = ui.draft.make,
+                onValueChange = { onDraft(ui.draft.copy(make = it)) },
+                placeholder = "Honda",
+                error = motorcycleFieldError(ui.error, "Enter a make"),
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
+                modifier = Modifier.weight(1f),
+            )
+            RidersTextField(
+                label = "Model",
+                value = ui.draft.model,
+                onValueChange = { onDraft(ui.draft.copy(model = it)) },
+                placeholder = "Ace",
+                error = motorcycleFieldError(ui.error, "Enter a model"),
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
+                modifier = Modifier.weight(1f),
+            )
+        }
+        RidersTextField(
+            label = "Colour",
+            value = ui.draft.colour,
+            onValueChange = { onDraft(ui.draft.copy(colour = it)) },
+            placeholder = "Black",
+            error = motorcycleFieldError(ui.error, "Enter a colour"),
+            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
+        )
+        RidersSecondaryButton(
+            label = "Cancel",
+            onClick = onCancel,
+            enabled = !ui.savingMotorcycle,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        RidersPrimaryButton(
+            label = if (editing) "Save changes" else "Save motorcycle",
+            onClick = onSave,
+            enabled = !ui.savingMotorcycle,
+            loading = ui.savingMotorcycle,
+            loadingLabel = "Saving",
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
 }
 
 @Composable
-private fun StatusStep(ui: OnboardingUi, onRefresh: () -> Unit, onHome: () -> Unit) {
+private fun MotorcycleChoice(
+    motorcycle: MotorcycleDetails,
+    selected: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    val shape = RoundedCornerShape(RidersRadius.lg)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(if (selected) Color(0xFFE4F0FB) else Color(0xFFF4F5F6))
+            .border(1.dp, if (selected) Color(0xFFB7D0EA) else Color(0xFFE4E6E8), shape)
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(RidersSpacing.lg),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md),
+    ) {
+        Box(
+            Modifier
+                .size(40.dp)
+                .clip(RoundedCornerShape(RidersRadius.md))
+                .background(if (selected) Color(0xFFD4E6F6) else Color(0xFFE8EAEC)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                painter = painterResource(R.drawable.ic_mdi_motorbike),
+                contentDescription = null,
+                modifier = Modifier.size(24.dp),
+                tint = RidersColors.text,
+            )
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(motorcycle.registrationNumber, style = RidersType.heading, color = RidersColors.text)
+            Text(
+                listOf(motorcycle.make, motorcycle.model).filter { it.isNotBlank() }.joinToString(" "),
+                style = RidersType.body,
+                color = RidersColors.textSecondary,
+            )
+            if (!selected && !canSelectMotorcycle(motorcycle.verificationStatus, motorcycle.isActive)) {
+                Text(motorcycleStatusTitle(motorcycle.verificationStatus), style = RidersType.caption, color = RidersColors.textSecondary)
+            }
+        }
+        Column(
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
+        ) {
+            SelectionMark(selected)
+            if (selected) {
+                Text(
+                    "Active",
+                    style = RidersType.captionStrong,
+                    color = Color(0xFF3E6FB5),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(RidersRadius.pill))
+                        .background(Color(0xFFD0E4F8))
+                        .padding(horizontal = RidersSpacing.sm, vertical = 2.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SelectionMark(selected: Boolean) {
+    Box(
+        Modifier
+            .size(22.dp)
+            .clip(CircleShape)
+            .background(if (selected) Color(0xFF4F86C8) else Color.Transparent)
+            .border(2.dp, if (selected) Color(0xFF4F86C8) else RidersColors.border, CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (selected) {
+            Box(
+                Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(RidersColors.background),
+            )
+        }
+    }
+}
+
+private fun motorcycleFieldError(message: String?, expected: String): String? {
+    return message?.takeIf { it == expected }
+}
+
+@Composable
+private fun StatusStep(ui: OnboardingUi, onHome: () -> Unit) {
     val onboarding = ui.onboarding ?: return
     val readiness = riderReadiness(onboarding)
     Text("Approval status", style = RidersType.title, color = RidersColors.text)
@@ -273,7 +450,6 @@ private fun StatusStep(ui: OnboardingUi, onRefresh: () -> Unit, onHome: () -> Un
             Text("Availability stays offline until an approved account has a verified licence and an active verified motorcycle.", style = RidersType.caption, color = RidersColors.textSecondary)
         }
     }
-    RidersSecondaryButton(label = "Refresh status", onClick = onRefresh, modifier = Modifier.fillMaxWidth())
     RidersPrimaryButton(label = "Back to home", onClick = onHome, modifier = Modifier.fillMaxWidth())
     Spacer(Modifier.height(RidersSpacing.sm))
 }

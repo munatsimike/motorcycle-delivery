@@ -16,6 +16,7 @@ import BrandMark from '../../../../components/BrandMark';
 import ErrorMessage from '../../../../components/ErrorMessage';
 import PrimaryButton from '../../../../components/PrimaryButton';
 import ZimbabwePhoneField from '../../../../components/ZimbabwePhoneField';
+import { looksLikeDutchPhoneEntry } from '../../domain/normalizePhone';
 import { colors, spacing, typography } from '../../../../theme';
 
 type PhoneEntryFormProps = {
@@ -69,6 +70,7 @@ export default function PhoneEntryForm({
             value={phone}
             onChangeText={onChangePhone}
             editable={!isLoading}
+            countryCode={typeof __DEV__ === 'boolean' && __DEV__ && looksLikeDutchPhoneEntry(phone) ? '+31' : '+263'}
           />
           {helperText ? <Text style={styles.helperText}>{helperText}</Text> : null}
           <ErrorMessage message={error} />

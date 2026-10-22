@@ -32,6 +32,7 @@ import kotlinx.coroutines.launch
 
 data class OfferUi(
     val loading: Boolean = true,
+    val refreshing: Boolean = false,
     val offers: List<OfferResponse> = emptyList(),
     val selected: OfferResponse? = null,
     val accepting: Boolean = false,
@@ -51,6 +52,7 @@ class OfferViewModel @Inject constructor(
     private val state = MutableStateFlow(OfferUi(nowMillis = System.currentTimeMillis()))
     val ui: StateFlow<OfferUi> = state.asStateFlow()
     private val refreshGate = OfferRefreshGate()
+    private var presented = false
     private var clockOffset = 0L
     private val watch = OfferWatch(
         scope = viewModelScope,
@@ -67,6 +69,17 @@ class OfferViewModel @Inject constructor(
 
     fun refresh() {
         viewModelScope.launch { refreshOffers() }
+    }
+
+    fun pullRefresh() {
+        viewModelScope.launch {
+            state.update { it.copy(refreshing = true) }
+            try {
+                refreshOffers()
+            } finally {
+                state.update { it.copy(refreshing = false) }
+            }
+        }
     }
 
     fun select(offer: OfferResponse?) {
@@ -126,11 +139,14 @@ class OfferViewModel @Inject constructor(
     private suspend fun refreshOffers() {
         refreshGate.run {
             try {
-                state.update { it.copy(loading = true) }
+                if (!presented) {
+                    state.update { it.copy(loading = true) }
+                }
                 when (val result = offers.list()) {
                     is ApiResult.Ok -> applyListed(result.value)
                     is ApiResult.Err -> keepOffers(result.error.text())
                 }
+                presented = true
             } finally {
                 state.update { current ->
                     if (current.loading) current.copy(loading = false) else current

@@ -2,7 +2,6 @@ import { Image, StyleSheet, Text, View } from 'react-native';
 
 import ErrorMessage from '../../../../components/ErrorMessage';
 import LoadingIndicator from '../../../../components/LoadingIndicator';
-import SecondaryButton from '../../../../components/SecondaryButton';
 import { colors, radius, spacing, typography } from '../../../../theme';
 import type { CustomerDelivery } from '../../domain/deliveryStatus';
 import DeliveryCard from './DeliveryCard';
@@ -14,6 +13,8 @@ type DeliverySectionProps = {
   error: string | null;
   emptyTitle: string;
   emptyBody: string;
+  compact?: boolean;
+  refreshing?: boolean;
   offlineNote?: string | null;
   cached?: boolean;
   onOpenDetails?: (deliveryId: string) => void;
@@ -27,13 +28,15 @@ export default function DeliverySection({
   error,
   emptyTitle,
   emptyBody,
+  compact = false,
+  refreshing = false,
   offlineNote = null,
   cached = false,
   onOpenDetails,
   onRetry,
   onSearchAgain,
 }: DeliverySectionProps) {
-  if (isLoading && deliveries.length === 0) {
+  if (isLoading && !refreshing && deliveries.length === 0) {
     return <LoadingIndicator />;
   }
 
@@ -41,16 +44,15 @@ export default function DeliverySection({
     <View style={styles.list}>
       {offlineNote ? <OfflineDeliveriesNotice message={offlineNote} onRetry={onRetry} /> : null}
       {error ? <ErrorMessage message={error} /> : null}
-      {error && onRetry ? <SecondaryButton label="Try again" onPress={onRetry} /> : null}
       {!error && deliveries.length === 0 ? (
-        <View style={styles.empty}>
+        <View style={[styles.empty, compact && styles.emptyCompact]}>
           <Image
             source={require('../../../../../assets/parcel-box.png')}
-            style={styles.emptyImage}
+            style={[styles.emptyImage, compact && styles.emptyImageCompact]}
             resizeMode="contain"
             accessibilityIgnoresInvertColors
           />
-          <Text style={styles.emptyTitle}>{emptyTitle}</Text>
+          <Text style={[styles.emptyTitle, compact && styles.emptyTitleCompact]}>{emptyTitle}</Text>
           <Text style={styles.emptyBody}>{emptyBody}</Text>
         </View>
       ) : null}
@@ -74,10 +76,17 @@ const styles = StyleSheet.create({
     padding: spacing.xl,
     alignItems: 'center',
   },
+  emptyCompact: {
+    paddingVertical: spacing.xs,
+    paddingHorizontal: 0,
+  },
   emptyImage: {
-    width: 48,
-    height: 48,
+    width: 40,
+    height: 40,
     marginBottom: spacing.sm,
+  },
+  emptyImageCompact: {
+    marginBottom: spacing.xs,
   },
   emptyTitle: {
     fontSize: typography.heading,
@@ -85,6 +94,11 @@ const styles = StyleSheet.create({
     color: colors.text,
     marginBottom: spacing.sm,
     textAlign: 'center',
+  },
+  emptyTitleCompact: {
+    marginBottom: spacing.xs,
+    lineHeight: 24,
+    includeFontPadding: false,
   },
   emptyBody: {
     fontSize: typography.body,

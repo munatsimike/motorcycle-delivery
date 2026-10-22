@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Animated, Easing, Pressable, ScrollView, StyleSheet, Text, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
+import { Animated, Easing, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
 import { CompositeNavigationProp, useNavigation } from '@react-navigation/native';
@@ -30,7 +30,7 @@ const GROUPS: { id: DeliveryGroup; label: string }[] = [
 export default function RequestsScreen() {
   const navigation = useNavigation<DeliveriesNavigation>();
   const { accessToken, customerId } = useSession();
-  const { deliveries, isLoading, isLoadingMore, error, hasMore, reload, loadMore, showingSaved, savedAt } = useCustomerDeliveries(accessToken, customerId);
+  const { deliveries, isLoading, isLoadingMore, isRefreshing, error, hasMore, refresh, reload, loadMore, showingSaved, savedAt } = useCustomerDeliveries(accessToken, customerId);
   const offlineNote = showingSaved && savedAt ? savedDeliveryMessage(savedAt) : null;
   const [group, setGroup] = useState<DeliveryGroup>('active');
   const scrollOffset = useRef(0);
@@ -92,6 +92,14 @@ export default function RequestsScreen() {
         showsVerticalScrollIndicator={false}
         scrollEventThrottle={16}
         onScroll={onScroll}
+        refreshControl={(
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={refresh}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
+          />
+        )}
       >
         <Text style={styles.title}>Deliveries</Text>
         <View style={styles.switcher}>
@@ -116,6 +124,7 @@ export default function RequestsScreen() {
           deliveries={visible}
           isLoading={isLoading}
           error={error}
+          refreshing={isRefreshing}
           emptyTitle={group === 'active' ? 'No active deliveries' : 'No past deliveries'}
           emptyBody="All your deliveries will appear here once you book."
           offlineNote={offlineNote}

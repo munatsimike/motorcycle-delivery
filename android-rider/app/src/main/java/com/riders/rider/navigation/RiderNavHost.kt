@@ -124,7 +124,6 @@ private fun RiderGraph(signedIn: Boolean) {
                     }
                 },
                 onSetup = { controller.navigate("onboarding") },
-                onLicence = { controller.navigate(profileOnboardingRoute("licence")) },
                 onMotorcycles = { controller.navigate(profileOnboardingRoute("motorcycle")) },
             )
         }

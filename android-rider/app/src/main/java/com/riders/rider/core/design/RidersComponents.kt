@@ -22,7 +22,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -31,7 +35,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -126,6 +134,38 @@ fun RidersBrandMark(modifier: Modifier = Modifier) {
 }
 
 @Composable
+fun ZimbabweFlag(modifier: Modifier = Modifier) {
+    Image(
+        painter = painterResource(R.drawable.zimbabwe_flag),
+        contentDescription = "Zimbabwe",
+        modifier = modifier
+            .width(28.dp)
+            .height(22.dp)
+            .clip(RoundedCornerShape(2.dp)),
+        contentScale = ContentScale.Crop,
+    )
+}
+
+@Composable
+fun PhoneWithFlag(
+    phone: String,
+    style: TextStyle,
+    color: Color,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
+    ) {
+        if (phone.trimStart().startsWith("+263")) {
+            ZimbabweFlag()
+        }
+        Text(phone, style = style, color = color)
+    }
+}
+
+@Composable
 fun RidersPrimaryButton(
     label: String,
     onClick: () -> Unit,
@@ -133,6 +173,7 @@ fun RidersPrimaryButton(
     enabled: Boolean = true,
     loading: Boolean = false,
     loadingLabel: String? = null,
+    icon: Int? = null,
 ) {
     val inactive = !enabled || loading
     Box(
@@ -160,7 +201,7 @@ fun RidersPrimaryButton(
                 }
             }
         } else {
-            Text(label, style = RidersType.button, color = RidersColors.textInverse, textAlign = TextAlign.Center)
+            ButtonLabel(label, RidersColors.textInverse, icon)
         }
     }
 }
@@ -174,6 +215,7 @@ fun RidersSecondaryButton(
     loading: Boolean = false,
     tone: RidersButtonTone = RidersButtonTone.Primary,
     soft: Boolean = true,
+    icon: Int? = null,
 ) {
     val inactive = !enabled || loading
     val accent = if (tone == RidersButtonTone.Danger) RidersColors.error else RidersColors.primary
@@ -196,8 +238,28 @@ fun RidersSecondaryButton(
         if (loading) {
             CircularProgressIndicator(modifier = Modifier.size(22.dp), color = accent, strokeWidth = 2.dp)
         } else {
-            Text(label, style = RidersType.button, color = accent, textAlign = TextAlign.Center)
+            ButtonLabel(label, accent, icon)
         }
+    }
+}
+
+@Composable
+private fun ButtonLabel(label: String, color: Color, icon: Int?) {
+    if (icon == null) {
+        Text(label, style = RidersType.button, color = color, textAlign = TextAlign.Center)
+        return
+    }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
+    ) {
+        Icon(
+            painter = painterResource(icon),
+            contentDescription = null,
+            modifier = Modifier.size(22.dp),
+            tint = color,
+        )
+        Text(label, style = RidersType.button, color = color, textAlign = TextAlign.Center)
     }
 }
 
@@ -277,22 +339,132 @@ fun RidersLoadingState(
 }
 
 @Composable
+fun RidersPullRefresh(
+    refreshing: Boolean,
+    onRefresh: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    val state = rememberPullToRefreshState()
+    PullToRefreshBox(
+        isRefreshing = refreshing,
+        onRefresh = onRefresh,
+        modifier = modifier,
+        state = state,
+        indicator = {
+            PullToRefreshDefaults.Indicator(
+                state = state,
+                isRefreshing = refreshing,
+                modifier = Modifier.align(Alignment.TopCenter),
+                color = RidersColors.primary,
+                containerColor = RidersColors.background,
+            )
+        },
+    ) {
+        content()
+    }
+}
+
+@Composable
 fun RidersEmptyState(
     title: String,
     body: String,
     modifier: Modifier = Modifier,
+    image: Int? = null,
+    compactTop: Boolean = false,
 ) {
     Column(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(RidersRadius.lg))
             .background(RidersColors.background)
-            .padding(RidersSpacing.xl),
+            .padding(
+                start = RidersSpacing.xl,
+                top = if (compactTop) RidersSpacing.md else RidersSpacing.xl,
+                end = RidersSpacing.xl,
+                bottom = RidersSpacing.xl,
+            ),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
     ) {
+        if (image != null) {
+            Image(
+                painter = painterResource(image),
+                contentDescription = null,
+                modifier = Modifier.size(40.dp),
+                contentScale = ContentScale.Fit,
+            )
+        }
         Text(title, style = RidersType.heading, color = RidersColors.text, textAlign = TextAlign.Center)
         Text(body, style = RidersType.body, color = RidersColors.textSecondary, textAlign = TextAlign.Center)
+    }
+}
+
+fun isConnectionFailure(message: String?): Boolean {
+    if (message.isNullOrBlank()) {
+        return false
+    }
+    val text = message.lowercase()
+    return "network request failed" in text || "timed out" in text || "check your connection" in text
+}
+
+@Composable
+fun RidersNetworkNotice(
+    onRetry: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(RidersRadius.lg))
+            .background(RidersColors.dangerSurface)
+            .padding(RidersSpacing.lg),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md),
+    ) {
+        Box(
+            Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(Color(0xFFF8D7D4)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                painter = painterResource(R.drawable.ic_wifi_off),
+                contentDescription = null,
+                tint = RidersColors.error,
+                modifier = Modifier.size(22.dp),
+            )
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs)) {
+            Text("Network request failed", style = RidersType.bodyStrong, color = RidersColors.error)
+            Text("Check your connection and try again.", style = RidersType.caption, color = RidersColors.error)
+        }
+        if (onRetry != null) {
+            Icon(
+                painter = painterResource(R.drawable.ic_refresh),
+                contentDescription = "Try again",
+                tint = RidersColors.error,
+                modifier = Modifier
+                    .size(40.dp)
+                    .clickable(role = Role.Button, onClick = onRetry)
+                    .padding(RidersSpacing.sm),
+            )
+        }
+    }
+}
+
+@Composable
+fun RidersFailureNotice(
+    message: String,
+    modifier: Modifier = Modifier,
+    title: String? = null,
+    onRetry: (() -> Unit)? = null,
+) {
+    if (isConnectionFailure(message)) {
+        RidersNetworkNotice(onRetry = onRetry, modifier = modifier)
+    } else {
+        RidersErrorState(message = message, title = title, modifier = modifier)
     }
 }
 
@@ -341,7 +513,7 @@ fun RidersTextField(
     val borderWidth = if (focused || error != null) 2.dp else 1.dp
     Column(modifier) {
         Text(label, style = RidersType.captionStrong, color = RidersColors.text)
-        Spacer(Modifier.height(RidersSpacing.sm))
+        Spacer(Modifier.height(RidersSpacing.md))
         BasicTextField(
             value = value,
             onValueChange = onValueChange,
@@ -357,9 +529,9 @@ fun RidersTextField(
                 .clip(shape)
                 .background(if (enabled) RidersColors.background else RidersColors.surface)
                 .border(borderWidth, borderColor, shape)
-                .padding(horizontal = RidersSpacing.lg, vertical = RidersSpacing.md),
+                .padding(horizontal = RidersSpacing.lg, vertical = RidersSpacing.lg),
             enabled = enabled,
-            textStyle = RidersType.button.copy(color = if (enabled) RidersColors.text else RidersColors.textSecondary),
+            textStyle = ridersFieldTextStyle(if (enabled) RidersColors.text else RidersColors.textSecondary),
             keyboardOptions = keyboardOptions,
             visualTransformation = visualTransformation,
             singleLine = true,
@@ -368,7 +540,7 @@ fun RidersTextField(
             decorationBox = { inner ->
                 Box(contentAlignment = Alignment.CenterStart) {
                     if (value.isEmpty() && placeholder != null) {
-                        Text(placeholder, style = RidersType.button, color = RidersColors.textSecondary)
+                        Text(placeholder, style = ridersFieldTextStyle(RidersColors.textSecondary))
                     }
                     inner()
                 }
@@ -382,3 +554,11 @@ fun RidersTextField(
         }
     }
 }
+
+internal fun ridersFieldTextStyle(color: Color): TextStyle = TextStyle(
+    color = color,
+    fontSize = 17.sp,
+    fontWeight = FontWeight.Normal,
+    lineHeight = TextUnit.Unspecified,
+    platformStyle = PlatformTextStyle(includeFontPadding = false),
+)

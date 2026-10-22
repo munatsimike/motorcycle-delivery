@@ -46,9 +46,6 @@ interface AuthService {
 
     @POST("auth/session/logout")
     suspend fun logout(): Response<ResponseBody>
-
-    @POST("auth/session/logout-all")
-    suspend fun logoutAll(): Response<ResponseBody>
 }
 
 interface RiderService {

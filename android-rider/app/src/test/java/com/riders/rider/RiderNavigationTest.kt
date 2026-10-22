@@ -6,13 +6,9 @@ import com.riders.rider.feature.onboarding.domain.canEditMotorcycle
 import com.riders.rider.feature.onboarding.domain.canReplaceLicence
 import com.riders.rider.feature.onboarding.domain.canSelectMotorcycle
 import com.riders.rider.feature.onboarding.domain.riderReadiness
-import com.riders.rider.feature.profile.domain.LOGOUT_ALL_OTHER_DEVICES
 import com.riders.rider.feature.profile.domain.ProfileBoard
-import com.riders.rider.feature.profile.domain.acknowledgedLogoutNotice
 import com.riders.rider.feature.profile.domain.canEditProfileName
 import com.riders.rider.feature.profile.domain.canEditProfilePhone
-import com.riders.rider.feature.profile.domain.logoutAllFollowUp
-import com.riders.rider.feature.profile.domain.logoutAllReportsGlobalSuccess
 import com.riders.rider.feature.profile.domain.profileAfterRefresh
 import com.riders.rider.feature.profile.domain.shouldLoadProfile
 import com.riders.rider.feature.profile.domain.showsAccountDeactivation
@@ -143,24 +139,6 @@ class RiderNavigationTest {
         assertNull(onboardingFocus(""))
         assertFalse(showsWizardChrome("licence"))
         assertTrue(showsWizardChrome(""))
-    }
-
-    @Test
-    fun logoutAllConfirmsOnlyAfterTheServerAgrees() {
-        val confirmed = logoutAllFollowUp(confirmed = true, httpCode = 204)
-        assertTrue(confirmed.clearLocalSession)
-        assertNull(confirmed.notice)
-        assertTrue(logoutAllReportsGlobalSuccess(true))
-        val failed = logoutAllFollowUp(confirmed = false, httpCode = 500)
-        assertFalse(failed.clearLocalSession)
-        assertEquals(LOGOUT_ALL_OTHER_DEVICES, failed.notice)
-        assertFalse(logoutAllReportsGlobalSuccess(false))
-        val expired = logoutAllFollowUp(confirmed = false, httpCode = 401)
-        assertTrue(expired.notice!!.contains("Your session has ended. Sign in again."))
-        assertTrue(expired.notice.contains(LOGOUT_ALL_OTHER_DEVICES))
-        val acknowledged = acknowledgedLogoutNotice()
-        assertTrue(acknowledged.clearLocalSession)
-        assertNull(acknowledged.notice)
     }
 
     private fun account(approval: String) = RiderOnboarding(

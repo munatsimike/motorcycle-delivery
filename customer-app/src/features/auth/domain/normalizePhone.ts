@@ -1,3 +1,8 @@
+export function looksLikeDutchPhoneEntry(phone: string): boolean {
+  const cleaned = phone.replace(/[\s()-]/g, '');
+  return cleaned.startsWith('+31') || cleaned.startsWith('0031') || cleaned.startsWith('316') || /^0?6\d{0,8}$/.test(cleaned);
+}
+
 export function normalizePhone(phone: string): string {
   const cleaned = phone.replace(/[\s()-]/g, '');
 

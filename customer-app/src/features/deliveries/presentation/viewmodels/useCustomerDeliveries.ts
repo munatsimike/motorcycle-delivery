@@ -26,6 +26,7 @@ export function useCustomerDeliveries(accessToken: string | null, customerId: st
   const [page, setPage] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showingSaved, setShowingSaved] = useState(false);
@@ -163,6 +164,7 @@ export function useCustomerDeliveries(accessToken: string | null, customerId: st
         if (request.current === current) {
           setIsLoading(false);
           setIsLoadingMore(false);
+          setIsRefreshing(false);
         }
       }
     })();
@@ -185,15 +187,21 @@ export function useCustomerDeliveries(accessToken: string | null, customerId: st
   }, [load]);
 
   const hasMore = page > 0 && page < totalPages;
+  const refresh = useCallback(() => {
+    setIsRefreshing(true);
+    load(1);
+  }, [load]);
 
   return {
     deliveries,
     isLoading,
     isLoadingMore,
+    isRefreshing,
     error,
     showingSaved,
     savedAt,
     hasMore,
+    refresh,
     reload: () => load(1),
     loadMore: () => {
       if (!hasMore || isLoading || isLoadingMore) {

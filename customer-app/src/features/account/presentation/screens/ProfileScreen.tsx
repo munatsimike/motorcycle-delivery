@@ -4,7 +4,7 @@ import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { ComponentProps } from 'react';
 import { useState } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { Image, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import CustomerAvatar from '../../../../components/CustomerAvatar';
@@ -104,6 +104,7 @@ export default function ProfileScreen() {
                 icon="phone"
                 label="Mobile number"
                 value={account.phone}
+                flag={account.phone.startsWith('+263')}
                 iconColor="#3B6FE8"
                 backgroundColor="#E8F1FF"
               />
@@ -198,12 +199,14 @@ function InfoRow({
   icon,
   label,
   value,
+  flag = false,
   iconColor = colors.primaryDark,
   backgroundColor = colors.background,
 }: {
   icon: IconName;
   label: string;
   value: string;
+  flag?: boolean;
   iconColor?: string;
   backgroundColor?: string;
 }) {
@@ -214,7 +217,16 @@ function InfoRow({
       </View>
       <View style={styles.rowCopy}>
         <Text style={styles.rowLabel}>{label}</Text>
-        <Text style={styles.rowValue}>{value}</Text>
+        <View style={styles.rowValueLine}>
+          {flag ? (
+            <Image
+              source={require('../../../../../assets/zimbabwe-flag.png')}
+              style={styles.flag}
+              resizeMode="cover"
+            />
+          ) : null}
+          <Text style={styles.rowValue}>{value}</Text>
+        </View>
       </View>
     </View>
   );
@@ -330,7 +342,18 @@ const styles = StyleSheet.create({
     fontSize: typography.caption,
     color: colors.textSecondary,
   },
+  rowValueLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  flag: {
+    width: 28,
+    height: 22,
+    borderRadius: 2,
+  },
   rowValue: {
+    flex: 1,
     fontSize: typography.body,
     lineHeight: 22,
     fontWeight: '600',

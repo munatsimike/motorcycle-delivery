@@ -37,10 +37,11 @@ class WalletViewModel @Inject constructor(
     val ui: StateFlow<WalletUi> = state.asStateFlow()
     private val gate = WalletLoadGate()
 
-    fun refresh() {
+    fun refresh(fromUser: Boolean = false) {
         viewModelScope.launch {
             gate.run {
-                state.update { it.copy(refreshing = true, loading = it.board.summary == null) }
+                val hasSummary = state.value.board.summary != null
+                state.update { it.copy(refreshing = fromUser && hasSummary, loading = !hasSummary) }
                 try {
                     val summary = wallets.summary()
                     val page = wallets.transactions(cursor = null)

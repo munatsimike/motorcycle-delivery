@@ -22,11 +22,6 @@ import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-data class LogoutAllAttempt(
-    val confirmed: Boolean,
-    val httpCode: Int?,
-)
-
 sealed class LoginStart {
     data object CodeSent : LoginStart()
     data object AccountMissing : LoginStart()
@@ -98,15 +93,6 @@ class AuthRepository @Inject constructor(
         }
         sessions.clear()
         biometrics.clear()
-    }
-
-    suspend fun requestLogoutAll(): LogoutAllAttempt {
-        return try {
-            val response = auth.logoutAll()
-            LogoutAllAttempt(confirmed = response.isSuccessful, httpCode = response.code())
-        } catch (_: Exception) {
-            LogoutAllAttempt(confirmed = false, httpCode = null)
-        }
     }
 
     private suspend fun saveSession(session: SessionResponse): ApiResult<VerifyOutcome> {

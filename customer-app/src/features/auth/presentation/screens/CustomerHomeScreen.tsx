@@ -2,7 +2,7 @@ import { CompositeNavigationProp, useNavigation } from '@react-navigation/native
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
-import { Image, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import CustomerAvatar from '../../../../components/CustomerAvatar';
@@ -28,7 +28,7 @@ export default function CustomerHomeScreen() {
   const navigation = useNavigation<HomeNavigation>();
   const { accessToken, customerId } = useSession();
   const { account } = useCustomerAccount(accessToken);
-  const { deliveries, isLoading, error, reload, showingSaved, savedAt } = useCustomerDeliveries(accessToken, customerId);
+  const { deliveries, isLoading, isRefreshing, error, refresh, reload, showingSaved, savedAt } = useCustomerDeliveries(accessToken, customerId);
   const offlineNote = showingSaved && savedAt ? savedDeliveryMessage(savedAt) : null;
   const firstName = account ? customerFirstName(account) : null;
   const insets = useSafeAreaInsets();
@@ -41,16 +41,21 @@ export default function CustomerHomeScreen() {
       <ScrollView
         contentContainerStyle={[styles.content, { paddingHorizontal: horizontalPadding }]}
         showsVerticalScrollIndicator={false}
+        refreshControl={(
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={refresh}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
+          />
+        )}
       >
         <GreenSurface
-          style={[
-            styles.intro,
-            {
-              marginHorizontal: -horizontalPadding,
-              paddingHorizontal: horizontalPadding,
-              paddingTop: insets.top + spacing.lg,
-            },
-          ]}
+          style={{
+            marginHorizontal: -horizontalPadding,
+            paddingHorizontal: horizontalPadding,
+            paddingTop: insets.top + spacing.lg,
+          }}
           fadeStyle={[styles.introFade, { marginHorizontal: -horizontalPadding }]}
         >
           <View style={styles.topRow}>
@@ -119,6 +124,7 @@ export default function CustomerHomeScreen() {
           <Text style={styles.sectionTitle}>Recent deliveries</Text>
           <Pressable
             accessibilityRole="button"
+            hitSlop={8}
             onPress={() => navigation.navigate('Requests')}
             style={styles.viewAll}
           >
@@ -130,6 +136,8 @@ export default function CustomerHomeScreen() {
           deliveries={recentDeliveries}
           isLoading={isLoading}
           error={error}
+          compact
+          refreshing={isRefreshing}
           emptyTitle="No deliveries"
           emptyBody="Recent deliveries will appear here when you book."
           offlineNote={offlineNote}
@@ -160,12 +168,8 @@ const styles = StyleSheet.create({
   content: {
     paddingBottom: spacing.xxl,
   },
-  intro: {
-    boxShadow: '0 12px 24px rgba(23, 33, 29, 0.08)',
-  },
   introFade: {
-    height: 12,
-    marginBottom: spacing.xs,
+    height: spacing.lg,
   },
   topRow: {
     flexDirection: 'row',
@@ -194,7 +198,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     boxShadow: '0 8px 24px rgba(23, 33, 29, 0.08)',
-    marginBottom: spacing.sm,
     overflow: 'hidden',
   },
   deliveryIntro: {
@@ -268,17 +271,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.md,
-    marginBottom: spacing.md,
+    marginTop: spacing.xs,
+    marginBottom: spacing.xs,
   },
   sectionTitle: {
     fontSize: typography.heading,
+    lineHeight: 24,
     fontWeight: '700',
     color: colors.text,
+    includeFontPadding: false,
   },
   viewAll: {
     flexDirection: 'row',
     alignItems: 'center',
-    minHeight: 44,
     gap: 2,
   },
   viewAllText: {

@@ -3,6 +3,7 @@ package com.riders.rider.feature.auth.presentation
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.riders.rider.BuildConfig
 import com.riders.rider.core.network.ApiResult
 import com.riders.rider.core.network.text
 import com.riders.rider.core.session.SessionStore
@@ -58,7 +59,7 @@ class SignInViewModel @Inject constructor(
 
     fun submit(phone: String) {
         val normalized = try {
-            normalizeRiderPhone(phone)
+            normalizeRiderPhone(phone, allowDutchTestNumbers = BuildConfig.DEBUG)
         } catch (error: IllegalArgumentException) {
             state.value = FormState(error = error.message)
             return
@@ -85,7 +86,7 @@ class RegisterViewModel @Inject constructor(
 
     fun submit(phone: String) {
         val normalizedPhone = try {
-            normalizeRiderPhone(phone)
+            normalizeRiderPhone(phone, allowDutchTestNumbers = BuildConfig.DEBUG)
         } catch (error: IllegalArgumentException) {
             state.value = FormState(error = error.message)
             return

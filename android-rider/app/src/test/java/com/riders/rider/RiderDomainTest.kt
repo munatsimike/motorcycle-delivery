@@ -66,6 +66,19 @@ class RiderDomainTest {
     }
 
     @Test
+    fun debugBuildsAcceptNetherlandsNumbers() {
+        assertEquals("+31612345678", normalizeRiderPhone("0612345678", allowDutchTestNumbers = true))
+        assertEquals("+31612345678", normalizeRiderPhone("612345678", allowDutchTestNumbers = true))
+        assertEquals("+31612345678", normalizeRiderPhone("+31 6 12345678", allowDutchTestNumbers = true))
+        assertEquals("+31612345678", normalizeRiderPhone("0031612345678", allowDutchTestNumbers = true))
+        assertEquals(
+            "+31612345678",
+            normalizeRiderPhone(riderPhoneEntry("612345678", allowDutchTestNumbers = true), allowDutchTestNumbers = true),
+        )
+        assertInvalid("+31612345678")
+    }
+
+    @Test
     fun rejectsNumbersOutsideZimbabwe() {
         assertInvalid("+31612345678")
         assertInvalid("12345")

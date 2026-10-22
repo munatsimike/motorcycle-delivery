@@ -21,7 +21,6 @@ import com.riders.rider.feature.auth.data.LoginStart
 import com.riders.rider.feature.auth.data.VerifyOutcome
 import com.riders.rider.feature.auth.domain.MemoryBiometricPreference
 import com.riders.rider.feature.offers.domain.AcceptKeys
-import com.riders.rider.feature.profile.domain.logoutAllReportsGlobalSuccess
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -413,49 +412,6 @@ class RiderSessionTest {
             assertNull(store.read())
             assertFalse(biometric.isEnabled())
             assertFalse(biometric.isDeclined())
-        } finally {
-            server.shutdown()
-        }
-    }
-
-    @Test
-    fun logoutAllUsesTheExistingEndpointAndDoesNotClearUntilConfirmed() = runTest {
-        val server = MockWebServer()
-        server.enqueue(MockResponse().setResponseCode(204))
-        server.enqueue(MockResponse().setResponseCode(500))
-        server.start()
-        try {
-            val store = MemorySessionStore(AuthSession("access-1", "refresh-1", "soon", "later"))
-            val biometric = MemoryBiometricPreference()
-            biometric.enable()
-            val auth = AuthRepository(server.auth(), store, biometric)
-            val confirmed = auth.requestLogoutAll()
-            assertTrue(confirmed.confirmed)
-            assertEquals(204, confirmed.httpCode)
-            assertEquals("/auth/session/logout-all", server.takeRequest().path)
-            assertEquals("access-1", store.read()?.accessToken)
-            assertTrue(biometric.isEnabled())
-            val failed = auth.requestLogoutAll()
-            assertFalse(failed.confirmed)
-            assertEquals(500, failed.httpCode)
-            assertEquals("access-1", store.read()?.accessToken)
-        } finally {
-            server.shutdown()
-        }
-    }
-
-    @Test
-    fun logoutAllNetworkFailureDoesNotReportGlobalSuccess() = runTest {
-        val server = MockWebServer()
-        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START))
-        server.start()
-        try {
-            val store = MemorySessionStore(AuthSession("access-1", "refresh-1", "soon", "later"))
-            val attempt = AuthRepository(server.auth(), store).requestLogoutAll()
-            assertFalse(attempt.confirmed)
-            assertNull(attempt.httpCode)
-            assertEquals("access-1", store.read()?.accessToken)
-            assertFalse(logoutAllReportsGlobalSuccess(attempt.confirmed))
         } finally {
             server.shutdown()
         }

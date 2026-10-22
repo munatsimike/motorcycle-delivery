@@ -41,6 +41,14 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     ...config,
     name,
     slug: config.slug ?? 'customer-app',
+    scheme: 'riders',
+    owner: config.owner ?? 'munatsimike',
+    extra: {
+      ...config.extra,
+      eas: {
+        projectId: '910fc8c7-5ba9-43bd-bcb9-7e1f92912405',
+      },
+    },
     ios: {
       ...config.ios,
       bundleIdentifier: applicationId,

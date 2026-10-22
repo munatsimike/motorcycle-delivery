@@ -41,6 +41,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.autofill.ContentType
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -62,16 +63,21 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.riders.rider.core.design.RiderTheme
 import com.riders.rider.core.design.RidersColors
-import com.riders.rider.core.design.RidersErrorState
+import com.riders.rider.core.design.RidersFailureNotice
 import com.riders.rider.core.design.RidersPrimaryButton
 import com.riders.rider.core.design.RidersRadius
 import com.riders.rider.core.design.RidersSecondaryButton
 import com.riders.rider.core.design.RidersSpacing
 import com.riders.rider.core.design.RidersTextField
+import com.riders.rider.core.design.ridersFieldTextStyle
 import com.riders.rider.core.design.RidersType
+import com.riders.rider.BuildConfig
 import com.riders.rider.R
 import com.riders.rider.core.design.RidersBrandLogo
 import com.riders.rider.core.design.RidersBrandMark
+import com.riders.rider.core.design.PhoneWithFlag
+import com.riders.rider.core.design.ZimbabweFlag
+import com.riders.rider.feature.auth.domain.looksLikeDutchTestNumber
 import com.riders.rider.feature.auth.domain.riderPhoneEntry
 
 private const val OTP_LENGTH = 6
@@ -194,7 +200,7 @@ fun SignInScreen(
         loading = ui.loading,
         error = ui.error ?: notice,
         codeSent = ui.completedPhone != null,
-        onSubmit = { model.submit(riderPhoneEntry(phone)) },
+        onSubmit = { model.submit(riderPhoneEntry(phone, allowDutchTestNumbers = BuildConfig.DEBUG)) },
         onCreateAccount = onCreateAccount,
         accountMissing = ui.accountMissing,
     )
@@ -217,7 +223,7 @@ fun RegisterScreen(
         loading = ui.loading,
         error = ui.error,
         codeSent = ui.completedPhone != null,
-        onSubmit = { model.submit(riderPhoneEntry(phone)) },
+        onSubmit = { model.submit(riderPhoneEntry(phone, allowDutchTestNumbers = BuildConfig.DEBUG)) },
         onSignIn = onSignIn,
     )
 }
@@ -282,7 +288,12 @@ private fun SignInContent(
             color = RidersColors.textSecondary,
         )
         Spacer(Modifier.height(RidersSpacing.xxl))
-        ZimbabwePhoneField(value = phone, onValueChange = onPhone, enabled = !loading)
+        ZimbabwePhoneField(
+            value = phone,
+            onValueChange = onPhone,
+            enabled = !loading,
+            countryCode = if (BuildConfig.DEBUG && looksLikeDutchTestNumber(phone)) "+31" else "+263",
+        )
         if (!accountMissing) {
             Text(
                 "Enter a Zimbabwe mobile number. We'll send a one-time SMS code.",
@@ -291,7 +302,7 @@ private fun SignInContent(
             )
         }
         Spacer(Modifier.height(RidersSpacing.xl))
-        AuthFeedback(error = if (accountMissing) null else error, success = if (codeSent) "Code sent" else null)
+        AuthFeedback(error = if (accountMissing) null else error, success = if (codeSent) "Code sent" else null, onRetry = onSubmit)
         RidersPrimaryButton(
             label = if (accountMissing) "Create Rider Account" else "Continue",
             onClick = if (accountMissing) onCreateAccount else onSubmit,
@@ -324,14 +335,19 @@ private fun RegisterContent(
             color = RidersColors.textSecondary,
         )
         Spacer(Modifier.height(RidersSpacing.xxl))
-        ZimbabwePhoneField(value = phone, onValueChange = onPhone, enabled = !loading)
+        ZimbabwePhoneField(
+            value = phone,
+            onValueChange = onPhone,
+            enabled = !loading,
+            countryCode = if (BuildConfig.DEBUG && looksLikeDutchTestNumber(phone)) "+31" else "+263",
+        )
         Text(
             "Enter a Zimbabwe mobile number. We'll send a one-time SMS code.",
             style = RidersType.small,
             color = RidersColors.textSecondary,
         )
         Spacer(Modifier.height(RidersSpacing.xl))
-        AuthFeedback(error = error, success = if (codeSent) "Code sent" else null)
+        AuthFeedback(error = error, success = if (codeSent) "Code sent" else null, onRetry = onSubmit)
         RidersPrimaryButton(
             label = "Verify",
             onClick = onSubmit,
@@ -397,7 +413,7 @@ private fun AccountContent(
         ) {
             Text("Verified mobile number", style = RidersType.caption, color = RidersColors.textSecondary)
             Spacer(Modifier.height(RidersSpacing.xs))
-            Text(phone, style = RidersType.bodyStrong, color = RidersColors.text)
+            PhoneWithFlag(phone, style = RidersType.bodyStrong, color = RidersColors.text)
         }
         Spacer(Modifier.height(RidersSpacing.xl))
         RidersTextField(
@@ -425,7 +441,7 @@ private fun AccountContent(
             )
         }
         Spacer(Modifier.height(RidersSpacing.sm))
-        AuthFeedback(error = error, success = null)
+        AuthFeedback(error = error, success = null, onRetry = onSubmit)
         RidersPrimaryButton(
             label = if (locked) "Confirm and continue" else "Create account",
             onClick = onSubmit,
@@ -457,7 +473,7 @@ private fun OtpContent(
         Spacer(Modifier.height(RidersSpacing.xxl))
         OtpCodeField(value = code, onValueChange = onCode, enabled = !loading, error = error != null)
         Spacer(Modifier.height(RidersSpacing.lg))
-        AuthFeedback(error = error, success = if (signedIn) "Signed in" else null)
+        AuthFeedback(error = error, success = if (signedIn) "Signed in" else null, onRetry = onSubmit)
         RidersPrimaryButton(
             label = "Verify",
             onClick = onSubmit,
@@ -470,10 +486,10 @@ private fun OtpContent(
 }
 
 @Composable
-private fun AuthFeedback(error: String?, success: String?) {
+private fun AuthFeedback(error: String?, success: String?, onRetry: (() -> Unit)? = null) {
     when {
         error != null -> {
-            RidersErrorState(message = error)
+            RidersFailureNotice(message = error, onRetry = onRetry)
             Spacer(Modifier.height(RidersSpacing.lg))
         }
         success != null -> {
@@ -517,6 +533,7 @@ private fun ZimbabwePhoneField(
     value: String,
     onValueChange: (String) -> Unit,
     enabled: Boolean,
+    countryCode: String = "+263",
 ) {
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
@@ -524,11 +541,9 @@ private fun ZimbabwePhoneField(
     val borderColor = if (focused) RidersColors.primary else RidersColors.border
     Column(Modifier.fillMaxWidth().semantics { contentDescription = "Zimbabwe mobile number" }) {
         Text("Mobile number", style = RidersType.captionStrong, color = RidersColors.text)
-        Spacer(Modifier.height(RidersSpacing.sm))
-        BasicTextField(
-            value = value,
-            onValueChange = onValueChange,
-            modifier = Modifier
+        Spacer(Modifier.height(RidersSpacing.md))
+        Row(
+            Modifier
                 .fillMaxWidth()
                 .defaultMinSize(minHeight = 58.dp)
                 .shadow(
@@ -537,42 +552,54 @@ private fun ZimbabwePhoneField(
                     ambientColor = RidersColors.focusRing,
                     spotColor = RidersColors.focusRing,
                 )
-                .background(if (enabled) RidersColors.background else RidersColors.surface, shape)
+                .clip(shape)
+                .background(if (enabled) RidersColors.background else RidersColors.surface)
                 .border(if (focused) 2.dp else 1.dp, borderColor, shape)
-                .semantics { contentType = ContentType.PhoneNumber },
-            enabled = enabled,
-            textStyle = RidersType.button.copy(color = if (enabled) RidersColors.text else RidersColors.textSecondary),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone, imeAction = ImeAction.Done),
-            singleLine = true,
-            interactionSource = interaction,
-            cursorBrush = SolidColor(RidersColors.primary),
-            decorationBox = { inner ->
-                Row(
-                    Modifier.padding(horizontal = RidersSpacing.lg, vertical = RidersSpacing.md),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        "+263",
-                        style = RidersType.bodyStrong,
-                        color = RidersColors.text,
-                        modifier = Modifier.semantics { contentDescription = "Zimbabwe country code +263" },
-                    )
-                    Box(
-                        Modifier
-                            .padding(horizontal = RidersSpacing.md)
-                            .width(1.dp)
-                            .height(24.dp)
-                            .background(RidersColors.border),
-                    )
-                    Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                .padding(horizontal = RidersSpacing.lg, vertical = RidersSpacing.lg),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (countryCode == "+263") {
+                ZimbabweFlag()
+                Spacer(Modifier.width(RidersSpacing.sm))
+            }
+            Text(
+                countryCode,
+                style = RidersType.bodyStrong,
+                color = RidersColors.text,
+                modifier = Modifier.semantics { contentDescription = "Country code $countryCode" },
+            )
+            Box(
+                Modifier
+                    .padding(horizontal = RidersSpacing.md)
+                    .width(1.dp)
+                    .height(24.dp)
+                    .background(RidersColors.border),
+            )
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                modifier = Modifier
+                    .weight(1f)
+                    .semantics { contentType = ContentType.PhoneNumber },
+                enabled = enabled,
+                textStyle = ridersFieldTextStyle(if (enabled) RidersColors.text else RidersColors.textSecondary),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone, imeAction = ImeAction.Done),
+                singleLine = true,
+                interactionSource = interaction,
+                cursorBrush = SolidColor(RidersColors.primary),
+                decorationBox = { inner ->
+                    Box(contentAlignment = Alignment.CenterStart) {
                         if (value.isEmpty()) {
-                            Text("771234567", style = RidersType.button, color = RidersColors.textSecondary)
+                            Text(
+                                if (countryCode == "+31") "612345678" else "771234567",
+                                style = ridersFieldTextStyle(RidersColors.textSecondary),
+                            )
                         }
                         inner()
                     }
-                }
-            },
-        )
+                },
+            )
+        }
         Spacer(Modifier.height(RidersSpacing.md))
     }
 }
@@ -599,7 +626,7 @@ private fun OtpCodeField(
         enabled = enabled,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
         singleLine = true,
-        textStyle = RidersType.heading.copy(color = Color.Transparent),
+        textStyle = ridersFieldTextStyle(Color.Transparent),
         cursorBrush = SolidColor(Color.Transparent),
         decorationBox = { inner ->
             Box {
@@ -624,8 +651,7 @@ private fun OtpCodeField(
                         ) {
                             Text(
                                 value.getOrNull(index)?.toString().orEmpty(),
-                                style = RidersType.heading,
-                                color = RidersColors.text,
+                                style = ridersFieldTextStyle(RidersColors.text).copy(fontSize = RidersType.heading.fontSize),
                                 textAlign = TextAlign.Center,
                             )
                         }

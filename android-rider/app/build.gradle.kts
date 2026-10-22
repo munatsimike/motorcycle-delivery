@@ -16,18 +16,25 @@ val localProperties = Properties().apply {
 }
 
 val configuredApiBaseUrl = localProperties.getProperty("API_BASE_URL")?.trim().orEmpty().trimEnd('/')
+// Debug-only. Release reads API_BASE_URL and never this value.
+val debugApiBaseUrl = localProperties.getProperty("DEBUG_API_BASE_URL")?.trim().orEmpty().trimEnd('/')
 
 fun apiBaseUrl(release: Boolean): String {
     if (release) {
         return configuredApiBaseUrl
     }
-    return configuredApiBaseUrl.ifEmpty { "http://10.0.2.2:3000" }
+    return debugApiBaseUrl.ifEmpty {
+        configuredApiBaseUrl.ifEmpty { "http://10.0.2.2:3000" }
+    }
 }
 
 gradle.taskGraph.whenReady {
     val buildingRelease = allTasks.any { it.name.contains("Release", ignoreCase = false) }
     if (buildingRelease && !configuredApiBaseUrl.startsWith("https://")) {
         throw GradleException("The release build requires an https API_BASE_URL in local.properties.")
+    }
+    if (buildingRelease && debugApiBaseUrl.isNotEmpty() && apiBaseUrl(true) == debugApiBaseUrl) {
+        throw GradleException("The release build cannot use DEBUG_API_BASE_URL.")
     }
 }
 

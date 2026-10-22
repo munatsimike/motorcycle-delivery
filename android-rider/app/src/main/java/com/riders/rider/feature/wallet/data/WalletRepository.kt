@@ -33,6 +33,7 @@ class WalletRepository @Inject constructor(
                             currency = row.currency,
                             createdAt = row.createdAt,
                             reason = row.reason?.takeIf { it.isNotBlank() },
+                            method = row.payment?.method,
                             receipt = walletReceiptLabel(
                                 row.payment?.ecocashReference,
                                 row.payment?.externalReceiptNumber,

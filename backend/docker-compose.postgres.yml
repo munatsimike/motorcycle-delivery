@@ -1,0 +1,29 @@
+# Local PostGIS for development. This does not replace docker-compose.yml (MinIO).
+# The database listens on 127.0.0.1 only. The password comes from LOCAL_POSTGRES_PASSWORD
+# in the gitignored .env file and is not stored here.
+#
+# The existing container delivery-postgres and volume delivery_pgdata are reused.
+# Do not run this file against a Supabase or Railway database.
+
+services:
+  postgres:
+    image: postgis/postgis:17-3.5
+    container_name: delivery-postgres
+    environment:
+      POSTGRES_USER: delivery_user
+      POSTGRES_PASSWORD: ${LOCAL_POSTGRES_PASSWORD}
+      POSTGRES_DB: delivery_db
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - delivery_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U delivery_user -d delivery_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  delivery_pgdata:
+    external: true
+    name: delivery_pgdata

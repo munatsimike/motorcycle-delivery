@@ -1,4 +1,4 @@
-import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { colors, radius, spacing, typography } from '../theme';
 import { useInputFocus } from './useInputFocus';
@@ -20,7 +20,14 @@ export default function ZimbabwePhoneField({
     <>
       <Text style={styles.label}>Mobile number</Text>
       <View style={[styles.inputContainer, focus.style]}>
-        <Text style={styles.countryCodeText}>+263</Text>
+        <View style={styles.countryCode}>
+          <Image
+            source={require('../../assets/zimbabwe-flag.png')}
+            style={styles.flag}
+            resizeMode="cover"
+          />
+          <Text style={styles.countryCodeText}>+263</Text>
+        </View>
         <View style={styles.inputDivider} />
         <TextInput
           accessibilityLabel="Mobile number"
@@ -59,6 +66,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     backgroundColor: colors.background,
     marginBottom: spacing.md,
+  },
+  countryCode: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  flag: {
+    width: 28,
+    height: 22,
+    borderRadius: 2,
   },
   countryCodeText: {
     fontSize: typography.body,

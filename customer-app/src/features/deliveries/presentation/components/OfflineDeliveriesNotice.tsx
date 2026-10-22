@@ -1,6 +1,5 @@
 import { StyleSheet, Text, View } from 'react-native';
 
-import SecondaryButton from '../../../../components/SecondaryButton';
 import { colors, spacing, typography } from '../../../../theme';
 
 type OfflineDeliveriesNoticeProps = {
@@ -8,12 +7,11 @@ type OfflineDeliveriesNoticeProps = {
   onRetry?: () => void;
 };
 
-export default function OfflineDeliveriesNotice({ message, onRetry }: OfflineDeliveriesNoticeProps) {
+export default function OfflineDeliveriesNotice({ message }: OfflineDeliveriesNoticeProps) {
   return (
     <View style={styles.wrap}>
       <Text style={styles.title}>Connection unavailable</Text>
       <Text style={styles.body}>{message}</Text>
-      {onRetry ? <SecondaryButton label="Try again" onPress={onRetry} /> : null}
     </View>
   );
 }

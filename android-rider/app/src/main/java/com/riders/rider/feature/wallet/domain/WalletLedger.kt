@@ -23,7 +23,14 @@ data class WalletEntry(
     val createdAt: String,
     val reason: String? = null,
     val receipt: String? = null,
+    val method: String? = null,
 )
+
+fun walletPaymentMethodLabel(method: String?): String? = when (method) {
+    "CASH" -> "Cash"
+    "ECOCASH" -> "EcoCash"
+    else -> null
+}
 
 fun walletEntryLabel(type: String): String = when (type) {
     "PLATFORM_FEE" -> "Platform fee"
@@ -46,9 +53,15 @@ fun walletBorrowingSourceLabel(source: String): String = when (source) {
     else -> "Standard limit"
 }
 
-fun walletWhenLabel(createdAt: String): String {
+fun walletWhenLabel(createdAt: String): String = formatWalletInstant(createdAt, WHEN)
+
+fun walletDateLabel(createdAt: String): String = formatWalletInstant(createdAt, DATE)
+
+fun walletActivityLabel(createdAt: String): String = formatWalletInstant(createdAt, ACTIVITY)
+
+private fun formatWalletInstant(createdAt: String, formatter: DateTimeFormatter): String {
     return try {
-        Instant.parse(createdAt).atZone(ZoneId.systemDefault()).format(WHEN)
+        Instant.parse(createdAt).atZone(ZoneId.systemDefault()).format(formatter)
     } catch (_: Exception) {
         createdAt
     }
@@ -153,3 +166,5 @@ class WalletLoadGate {
 }
 
 private val WHEN: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm", Locale.US)
+private val DATE: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM yyyy", Locale.US)
+private val ACTIVITY: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM yyyy '·' HH:mm", Locale.US)

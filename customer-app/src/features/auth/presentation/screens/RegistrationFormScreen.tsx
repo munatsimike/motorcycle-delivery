@@ -2,6 +2,7 @@ import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-
 import type { ComponentProps } from 'react';
 import { useState } from 'react';
 import {
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -76,7 +77,16 @@ export default function RegistrationFormScreen({ route }: RegistrationProps) {
         </View>
         <View style={styles.phoneCopy}>
           <Text style={styles.phoneLabel}>Verified mobile number</Text>
-          <Text style={styles.phone}>{phone}</Text>
+          <View style={styles.phoneValue}>
+            {phone.startsWith('+263') ? (
+              <Image
+                source={require('../../../../../assets/zimbabwe-flag.png')}
+                style={styles.flag}
+                resizeMode="cover"
+              />
+            ) : null}
+            <Text style={styles.phone}>{phone}</Text>
+          </View>
         </View>
       </View>
 
@@ -239,6 +249,16 @@ const styles = StyleSheet.create({
   phoneCopy: {
     flex: 1,
     gap: spacing.xs,
+  },
+  phoneValue: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  flag: {
+    width: 28,
+    height: 22,
+    borderRadius: 2,
   },
   phoneLabel: {
     fontSize: typography.caption,

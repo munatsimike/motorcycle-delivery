@@ -21,16 +21,17 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.riders.rider.R
 import com.riders.rider.core.design.RidersCard
 import com.riders.rider.core.design.RidersColors
 import com.riders.rider.core.design.RidersEmptyState
-import com.riders.rider.core.design.RidersErrorState
+import com.riders.rider.core.design.RidersFailureNotice
 import com.riders.rider.core.design.RidersLoadingState
 import com.riders.rider.core.design.RidersPrimaryButton
+import com.riders.rider.core.design.RidersPullRefresh
 import com.riders.rider.core.design.RidersSecondaryButton
 import com.riders.rider.core.design.RidersSpacing
 import com.riders.rider.core.design.RidersType
-import com.riders.rider.core.design.RidersWordmark
 import com.riders.rider.core.network.OfferResponse
 import com.riders.rider.feature.offers.domain.canAcceptOffer
 import com.riders.rider.feature.offers.domain.offerExpiryLabel
@@ -41,6 +42,7 @@ import com.riders.rider.feature.offers.domain.offerPriceLabel
 fun OffersScreen(
     onAccepted: (String) -> Unit,
     inShell: Boolean = false,
+    modifier: Modifier = Modifier,
     model: OfferViewModel = hiltViewModel(),
 ) {
     val ui by model.ui.collectAsStateWithLifecycle()
@@ -67,20 +69,25 @@ fun OffersScreen(
     }
     val selected = ui.selected
     BackHandler(enabled = selected != null) { model.select(null) }
+    RidersPullRefresh(
+        refreshing = ui.refreshing,
+        onRefresh = model::pullRefresh,
+        modifier = modifier
+            .fillMaxSize()
+            .background(RidersColors.background)
+            .then(if (inShell) Modifier else Modifier.statusBarsPadding())
+            .then(if (inShell) Modifier else Modifier.navigationBarsPadding()),
+    ) {
     Column(
         Modifier
             .fillMaxSize()
-            .background(RidersColors.background)
-            .statusBarsPadding()
-            .then(if (inShell) Modifier else Modifier.navigationBarsPadding())
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = RidersSpacing.xl, vertical = RidersSpacing.lg),
+            .padding(horizontal = RidersSpacing.xl)
+            .padding(bottom = RidersSpacing.lg),
         verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
     ) {
-        RidersWordmark()
-        Text("Delivery requests", style = RidersType.title, color = RidersColors.text)
         if (selected == null) {
-            OfferList(ui, onSelect = model::select, onRefresh = model::refresh)
+            OfferList(ui, onSelect = model::select, onRetry = model::pullRefresh)
         } else {
             OfferDetail(
                 offer = selected,
@@ -89,25 +96,27 @@ fun OffersScreen(
                 nowMillis = ui.nowMillis,
                 error = ui.error,
                 onAccept = { model.accept(selected) },
+                onRetry = model::pullRefresh,
                 onBack = { model.select(null) },
             )
         }
     }
+    }
 }
 
 @Composable
-private fun OfferList(ui: OfferUi, onSelect: (OfferResponse) -> Unit, onRefresh: () -> Unit) {
+private fun OfferList(ui: OfferUi, onSelect: (OfferResponse) -> Unit, onRetry: () -> Unit) {
     when {
         ui.loading && ui.offers.isEmpty() -> RidersLoadingState("Looking for requests")
-        ui.offers.isEmpty() && ui.error != null -> RidersErrorState(
-            title = "Requests unavailable",
+        ui.offers.isEmpty() && ui.error != null -> RidersFailureNotice(
             message = ui.error,
-            retryLabel = "Refresh",
-            onRetry = onRefresh,
+            title = "Requests unavailable",
+            onRetry = onRetry,
         )
         ui.offers.isEmpty() -> RidersEmptyState(
             title = "No open requests",
-            body = "New requests appear here while you stay available. Refresh when you are ready to check again.",
+            body = "New requests appear here while you stay available.",
+            image = R.drawable.parcel_box,
         )
         else -> ui.offers.forEach { offer ->
             val expired = offerIsExpired(offer.expiresAt, ui.nowMillis)
@@ -124,10 +133,7 @@ private fun OfferList(ui: OfferUi, onSelect: (OfferResponse) -> Unit, onRefresh:
         }
     }
     if (ui.error != null && ui.offers.isNotEmpty()) {
-        RidersErrorState(message = ui.error, retryLabel = "Refresh", onRetry = onRefresh)
-    }
-    if (ui.offers.isNotEmpty() || ui.error == null) {
-        RidersSecondaryButton(label = "Refresh", onClick = onRefresh, enabled = !ui.loading, modifier = Modifier.fillMaxWidth(), soft = false)
+        RidersFailureNotice(message = ui.error, onRetry = onRetry)
     }
 }
 
@@ -139,6 +145,7 @@ private fun OfferDetail(
     nowMillis: Long,
     error: String?,
     onAccept: () -> Unit,
+    onRetry: () -> Unit,
     onBack: () -> Unit,
 ) {
     val expired = offerIsExpired(offer.expiresAt, nowMillis)
@@ -157,7 +164,7 @@ private fun OfferDetail(
         Text(offerExpiryLabel(offer.expiresAt, nowMillis), style = RidersType.caption, color = if (expired) RidersColors.error else RidersColors.textSecondary)
     }
     if (error != null) {
-        RidersErrorState(message = error)
+        RidersFailureNotice(message = error, onRetry = onRetry)
     }
     RidersPrimaryButton(
         label = "Accept",

@@ -1,12 +1,11 @@
 package com.riders.rider.navigation
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
@@ -19,13 +18,15 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavBackStackEntry
+import com.riders.rider.R
 import com.riders.rider.core.design.RidersColors
 import com.riders.rider.core.design.RidersType
 import com.riders.rider.feature.home.DeliveriesScreen
@@ -35,13 +36,20 @@ import com.riders.rider.feature.profile.presentation.ProfileScreen
 import com.riders.rider.feature.profile.presentation.ProfileViewModel
 import com.riders.rider.feature.wallet.presentation.WalletScreen
 
+private val RiderDestination.navIcon: Int
+    get() = when (this) {
+        RiderDestination.Home -> R.drawable.ic_nav_home
+        RiderDestination.Deliveries -> R.drawable.ic_nav_deliveries
+        RiderDestination.Wallet -> R.drawable.ic_nav_wallet
+        RiderDestination.Profile -> R.drawable.ic_nav_profile
+    }
+
 @Composable
 fun RiderShell(
     entry: NavBackStackEntry,
     onDelivery: (String) -> Unit,
     onAccepted: (String) -> Unit,
     onSetup: () -> Unit,
-    onLicence: () -> Unit,
     onMotorcycles: () -> Unit,
 ) {
     var tabName by rememberSaveable { mutableStateOf(RiderDestination.Home.name) }
@@ -74,21 +82,22 @@ fun RiderShell(
                         selected = selected,
                         onClick = { tabName = selectRiderTab(tab, destination).name },
                         icon = {
-                            Box(
-                                Modifier
-                                    .size(8.dp)
-                                    .clip(CircleShape)
-                                    .background(if (selected) RidersColors.primary else RidersColors.border),
+                            Icon(
+                                painter = painterResource(destination.navIcon),
+                                contentDescription = null,
+                                modifier = Modifier.size(24.dp),
                             )
                         },
                         label = {
                             Text(
                                 destination.label,
-                                style = if (selected) RidersType.captionStrong else RidersType.caption,
+                                style = RidersType.small.copy(fontWeight = FontWeight.Light),
                             )
                         },
                         colors = NavigationBarItemDefaults.colors(
-                            selectedTextColor = RidersColors.primaryDark,
+                            selectedIconColor = RidersColors.primary,
+                            unselectedIconColor = RidersColors.textSecondary,
+                            selectedTextColor = RidersColors.primary,
                             unselectedTextColor = RidersColors.textSecondary,
                             indicatorColor = RidersColors.primaryLight,
                         ),
@@ -101,6 +110,7 @@ fun RiderShell(
             when (tab) {
                 RiderDestination.Home -> HomeScreen(
                     onOffers = { tabName = RiderDestination.Deliveries.name },
+                    onWallet = { tabName = RiderDestination.Wallet.name },
                     onDelivery = onDelivery,
                     onSetup = onSetup,
                     inShell = true,
@@ -113,9 +123,7 @@ fun RiderShell(
                 )
                 RiderDestination.Wallet -> WalletScreen(showBack = false, inShell = true)
                 RiderDestination.Profile -> ProfileScreen(
-                    onLicence = onLicence,
                     onMotorcycles = onMotorcycles,
-                    onWallet = { tabName = RiderDestination.Wallet.name },
                     model = profile,
                 )
             }

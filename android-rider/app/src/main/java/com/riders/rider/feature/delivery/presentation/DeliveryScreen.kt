@@ -23,11 +23,13 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.riders.rider.core.design.PhoneWithFlag
 import com.riders.rider.core.design.RidersCard
 import com.riders.rider.core.design.RidersColors
-import com.riders.rider.core.design.RidersErrorState
+import com.riders.rider.core.design.RidersFailureNotice
 import com.riders.rider.core.design.RidersLoadingState
 import com.riders.rider.core.design.RidersPrimaryButton
+import com.riders.rider.core.design.RidersPullRefresh
 import com.riders.rider.core.design.RidersSecondaryButton
 import com.riders.rider.core.design.RidersSpacing
 import com.riders.rider.core.design.RidersType
@@ -59,12 +61,18 @@ fun DeliveryScreen(
         }
     }
     val blocked = ui.syncing || ui.busy != DeliveryBusy.None
-    Column(
-        Modifier
+    RidersPullRefresh(
+        refreshing = ui.refreshing,
+        onRefresh = { model.load(deliveryId, fromUser = true) },
+        modifier = Modifier
             .fillMaxSize()
             .background(RidersColors.background)
             .statusBarsPadding()
-            .navigationBarsPadding()
+            .navigationBarsPadding(),
+    ) {
+    Column(
+        Modifier
+            .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = RidersSpacing.xl, vertical = RidersSpacing.lg),
         verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
@@ -76,11 +84,10 @@ fun DeliveryScreen(
         }
         when {
             ui.syncing && ui.pickupAddress.isBlank() && ui.parcelDescription.isBlank() -> RidersLoadingState("Loading this delivery")
-            ui.pickupAddress.isBlank() && ui.parcelDescription.isBlank() && ui.error != null -> RidersErrorState(
-                title = "Delivery unavailable",
+            ui.pickupAddress.isBlank() && ui.parcelDescription.isBlank() && ui.error != null -> RidersFailureNotice(
                 message = ui.error.orEmpty(),
-                retryLabel = "Refresh",
-                onRetry = { model.load(deliveryId) },
+                title = "Delivery unavailable",
+                onRetry = { model.load(deliveryId, fromUser = true) },
             )
             else -> {
                 ParcelCard(ui)
@@ -125,7 +132,10 @@ fun DeliveryScreen(
                     )
                 }
                 if (ui.error != null) {
-                    RidersErrorState(message = ui.error.orEmpty(), retryLabel = "Refresh", onRetry = { model.load(deliveryId) })
+                    RidersFailureNotice(
+                        message = ui.error.orEmpty(),
+                        onRetry = { model.load(deliveryId, fromUser = true) },
+                    )
                 }
                 ui.nextLabel?.let { label ->
                     RidersPrimaryButton(
@@ -151,6 +161,7 @@ fun DeliveryScreen(
                 }
             }
         }
+    }
     }
 }
 
@@ -196,18 +207,11 @@ private fun StopCard(
         instructions?.takeIf { it.isNotBlank() }?.let {
             Text(it, style = RidersType.caption, color = RidersColors.textSecondary)
         }
-        contactLine(contactName, contactPhone)?.let {
+        contactName?.takeIf { it.isNotBlank() }?.let {
             Text(it, style = RidersType.caption, color = RidersColors.textSecondary)
         }
-    }
-}
-
-private fun contactLine(name: String?, phone: String?): String? {
-    val person = name?.takeIf { it.isNotBlank() }
-    val number = phone?.takeIf { it.isNotBlank() }
-    return when {
-        person != null && number != null -> "$person, $number"
-        person != null -> person
-        else -> number
+        contactPhone?.takeIf { it.isNotBlank() }?.let {
+            PhoneWithFlag(it, style = RidersType.caption, color = RidersColors.textSecondary)
+        }
     }
 }

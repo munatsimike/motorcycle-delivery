@@ -10,7 +10,6 @@ import com.riders.rider.feature.delivery.data.ActiveDeliveryStore
 import com.riders.rider.feature.offers.data.DataStoreAcceptKeyStore
 import com.riders.rider.feature.onboarding.data.VerificationRepository
 import com.riders.rider.feature.profile.domain.ProfileBoard
-import com.riders.rider.feature.profile.domain.logoutAllFollowUp
 import com.riders.rider.feature.profile.domain.profileAfterRefresh
 import com.riders.rider.feature.profile.domain.shouldLoadProfile
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -23,9 +22,9 @@ import kotlinx.coroutines.launch
 
 data class ProfileUi(
     val loading: Boolean = false,
+    val refreshing: Boolean = false,
     val signingOut: Boolean = false,
     val board: ProfileBoard = ProfileBoard(),
-    val logoutNotice: String? = null,
 )
 
 @HiltViewModel
@@ -45,7 +44,8 @@ class ProfileViewModel @Inject constructor(
             return
         }
         busy = true
-        state.update { it.copy(loading = it.board.onboarding == null, logoutNotice = null) }
+        val cold = state.value.board.onboarding == null && state.value.board.fullName.isBlank() && !state.value.board.loaded
+        state.update { it.copy(loading = cold, refreshing = !cold) }
         viewModelScope.launch {
             try {
                 val profile = verification.profile()
@@ -70,7 +70,7 @@ class ProfileViewModel @Inject constructor(
                 }
             } finally {
                 busy = false
-                state.update { it.copy(loading = false) }
+                state.update { it.copy(loading = false, refreshing = false) }
             }
         }
     }
@@ -80,30 +80,6 @@ class ProfileViewModel @Inject constructor(
             return
         }
         state.update { it.copy(signingOut = true) }
-        viewModelScope.launch { finishLocalSignOut() }
-    }
-
-    fun logoutAll() {
-        if (state.value.signingOut || state.value.logoutNotice != null) {
-            return
-        }
-        state.update { it.copy(signingOut = true) }
-        viewModelScope.launch {
-            val attempt = auth.requestLogoutAll()
-            val followUp = logoutAllFollowUp(attempt.confirmed, attempt.httpCode)
-            if (followUp.clearLocalSession) {
-                finishLocalSignOut()
-            } else {
-                state.update { it.copy(signingOut = false, logoutNotice = followUp.notice) }
-            }
-        }
-    }
-
-    fun acknowledgeLogoutNotice() {
-        if (state.value.logoutNotice == null || state.value.signingOut) {
-            return
-        }
-        state.update { it.copy(signingOut = true, logoutNotice = null) }
         viewModelScope.launch { finishLocalSignOut() }
     }
 

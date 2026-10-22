@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { normalizePhone } from './normalizePhone';
+import { looksLikeDutchPhoneEntry, normalizePhone } from './normalizePhone';
 
 describe('normalizePhone', () => {
   it('accepts Zimbabwe numbers in local and international form', () => {
@@ -8,6 +8,12 @@ describe('normalizePhone', () => {
     expect(normalizePhone('771234567')).toBe('+263771234567');
     expect(normalizePhone('263771234567')).toBe('+263771234567');
     expect(normalizePhone('+263 77 123 4567')).toBe('+263771234567');
+  });
+
+  it('recognizes a Netherlands entry while it is being typed', () => {
+    expect(looksLikeDutchPhoneEntry('6')).toBe(true);
+    expect(looksLikeDutchPhoneEntry('0612345678')).toBe(true);
+    expect(looksLikeDutchPhoneEntry('771234567')).toBe(false);
   });
 
   it('accepts Netherlands numbers in local and international form', () => {
