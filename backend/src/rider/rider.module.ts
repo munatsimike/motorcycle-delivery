@@ -4,6 +4,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { AuthModule } from '../auth/auth.module.js';
 import { DeliveryModule } from '../delivery/delivery.module.js';
 import { DispatchWorker } from '../delivery/dispatch.worker.js';
+import { RiderOfferNotificationWorker } from '../delivery/rider-offer-notification.worker.js';
 import { CoordinateRetentionWorker } from '../delivery/coordinate-retention.worker.js';
 import { RiderAvailabilityAlertWorker } from '../delivery/rider-availability-alert.worker.js';
 import { LicenceImageCleanup } from './licence-image.cleanup.js';
@@ -22,6 +23,8 @@ import { RiderAvailabilityService } from './rider-availability.service.js';
 import { RiderLocationController } from './rider-location.controller.js';
 import { RiderLocationService } from './rider-location.service.js';
 import { RiderOnboardingController } from './rider-onboarding.controller.js';
+import { RiderPushDeviceController } from './rider-push-device.controller.js';
+import { RiderPushDeviceService } from './rider-push-device.service.js';
 import { RiderOnboardingService } from './rider-onboarding.service.js';
 import { RiderWalletController } from './rider-wallet.controller.js';
 import { CommissionPolicyController } from './commission-policy.controller.js';
@@ -42,6 +45,7 @@ import { createS3Client, S3_CLIENT_FACTORY, S3ObjectStorage } from './s3-object-
     RiderAvailabilityController,
     RiderLocationController,
     RiderOnboardingController,
+    RiderPushDeviceController,
     RiderWalletController,
     CommissionPolicyController,
     WalletConfigController,
@@ -59,6 +63,8 @@ import { createS3Client, S3_CLIENT_FACTORY, S3ObjectStorage } from './s3-object-
     RiderLocationService,
     RiderOnboardingService,
     DispatchWorker,
+    RiderOfferNotificationWorker,
+    RiderPushDeviceService,
     CoordinateRetentionWorker,
     RiderAvailabilityAlertWorker,
     CommissionPolicyService,

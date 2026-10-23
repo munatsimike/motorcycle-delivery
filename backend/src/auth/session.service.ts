@@ -1,9 +1,10 @@
-import { randomUUID } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { AccountStatus, Prisma, UserRole } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { AccessTokenService } from './access-token.service.js';
 import { REFRESH_ABSOLUTE_MS, REFRESH_IDLE_MS } from './auth.constants.js';
+import { hasAccountCredential } from './account-credential.js';
 import { hashSecret, newRefreshToken } from './token-hash.js';
 
 export type AuthTokens = {
@@ -20,6 +21,7 @@ type AllowedUser = {
   role: UserRole;
   accountStatus: AccountStatus;
   phoneVerifiedAt: Date | null;
+  passwordHash?: string | null;
 };
 
 @Injectable()
@@ -90,6 +92,28 @@ export class SessionService {
     });
   }
 
+  async confirmCurrentRefreshToken(rawToken: string, sessionId: string, userId: string, now = new Date()): Promise<void> {
+    if (rawToken.length < 20 || rawToken.length > 200) {
+      throw new UnauthorizedException('Authentication failed');
+    }
+    const session = await this.prisma.refreshSession.findUnique({ where: { id: sessionId } });
+    if (
+      !session
+      || session.userId !== userId
+      || session.revokedAt
+      || session.replacedBySessionId
+      || session.expiresAt <= now
+      || session.familyExpiresAt <= now
+    ) {
+      throw new UnauthorizedException('Authentication failed');
+    }
+    const actual = Buffer.from(hashSecret(rawToken));
+    const expected = Buffer.from(session.tokenHash);
+    if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) {
+      throw new UnauthorizedException('Authentication failed');
+    }
+  }
+
   async revoke(sessionId: string, userId: string): Promise<void> {
     await this.prisma.refreshSession.updateMany({
       where: { id: sessionId, userId, revokedAt: null },
@@ -97,8 +121,8 @@ export class SessionService {
     });
   }
 
-  async revokeAll(userId: string): Promise<void> {
-    await this.prisma.refreshSession.updateMany({
+  async revokeAll(userId: string, writer: Pick<SessionWriter, 'refreshSession'> = this.prisma): Promise<void> {
+    await writer.refreshSession.updateMany({
       where: { userId, revokedAt: null },
       data: { revokedAt: new Date() },
     });
@@ -144,7 +168,7 @@ function sessionAllowed(user: AllowedUser): boolean {
     return false;
   }
   if (user.role === UserRole.RIDER || user.role === UserRole.CUSTOMER) {
-    return user.phoneVerifiedAt !== null;
+    return hasAccountCredential(user);
   }
   return true;
 }

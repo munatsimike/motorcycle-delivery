@@ -8,6 +8,8 @@ import { DeliveryPricingService } from './delivery-pricing.service.js';
 import { DeliveryService } from './delivery.service.js';
 import { CoordinateRetentionService } from './coordinate-retention.service.js';
 import { DispatchService } from './dispatch.service.js';
+import { FcmOfferSender, OfferPushSender } from './fcm-offer-sender.js';
+import { RiderOfferNotificationService } from './rider-offer-notification.service.js';
 import { ROAD_DISTANCE, geoapifyRoadDistance } from './geoapify.js';
 import { NearbyRidersController } from './nearby-riders.controller.js';
 import { NearbyRidersService } from './nearby-riders.service.js';
@@ -28,12 +30,15 @@ import { RiderOfferController } from './rider-offer.controller.js';
     DeliveryService,
     DeliveryPricingService,
     DispatchService,
+    RiderOfferNotificationService,
+    FcmOfferSender,
+    { provide: OfferPushSender, useExisting: FcmOfferSender },
     NearbyRidersService,
     PlacesService,
     RiderAvailabilityAlertService,
     CoordinateRetentionService,
     { provide: ROAD_DISTANCE, useFactory: () => geoapifyRoadDistance() },
   ],
-  exports: [DispatchService, RiderAvailabilityAlertService, CoordinateRetentionService],
+  exports: [DispatchService, RiderOfferNotificationService, RiderAvailabilityAlertService, CoordinateRetentionService],
 })
 export class DeliveryModule {}

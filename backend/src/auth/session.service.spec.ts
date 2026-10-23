@@ -14,6 +14,7 @@ type UserRow = {
   role: UserRole;
   accountStatus: AccountStatus;
   phoneVerifiedAt: Date | null;
+  passwordHash?: string | null;
 };
 
 type SessionRow = {
@@ -96,6 +97,90 @@ describe('SessionService', () => {
     await expect(service.refresh(issued.refreshToken)).rejects.toBeInstanceOf(UnauthorizedException);
     expect(store.sessions).toHaveLength(1);
     expect(store.sessions[0].revokedAt).toBeNull();
+  });
+
+  it('refreshes a password account that has not verified the phone by SMS', async () => {
+    const user = rider();
+    user.phoneVerifiedAt = null;
+    user.passwordHash = '$argon2id$stored';
+    const store = memoryStore(user);
+    const service = new SessionService(store.db as unknown as PrismaService, tokens);
+    const issued = await service.issue(store.db as unknown as Prisma.TransactionClient, user.id, UserRole.RIDER);
+
+    const refreshed = await service.refresh(issued.refreshToken);
+
+    expect(refreshed.accessToken).not.toBe(issued.accessToken);
+    expect(refreshed.refreshToken).not.toBe(issued.refreshToken);
+    expect(store.sessions).toHaveLength(2);
+    expect(store.sessions[1].revokedAt).toBeNull();
+  });
+
+  it('confirms the current refresh token without rotating or revoking the session', async () => {
+    const user = rider();
+    const store = memoryStore(user);
+    const service = new SessionService(store.db as unknown as PrismaService, tokens);
+    const issued = await service.issue(store.db as unknown as Prisma.TransactionClient, user.id, UserRole.RIDER);
+    const before = JSON.stringify(store.sessions);
+
+    await service.confirmCurrentRefreshToken(issued.refreshToken, store.sessions[0].id, user.id);
+
+    expect(JSON.stringify(store.sessions)).toBe(before);
+    expect(store.sessions[0].tokenHash).toBe(hashSecret(issued.refreshToken));
+    expect(JSON.stringify(store.sessions)).not.toContain(issued.refreshToken);
+  });
+
+  it('rejects a wrong, foreign, revoked, replaced, or expired refresh token without changing other sessions', async () => {
+    const user = rider();
+    const store = memoryStore(user);
+    const service = new SessionService(store.db as unknown as PrismaService, tokens);
+    const first = await service.issue(store.db as unknown as Prisma.TransactionClient, user.id, UserRole.RIDER);
+    const second = await service.issue(store.db as unknown as Prisma.TransactionClient, user.id, UserRole.RIDER);
+    const firstSession = store.sessions[0];
+    const secondSession = store.sessions[1];
+
+    await expect(service.confirmCurrentRefreshToken('wrong-refresh-token-value', firstSession.id, user.id))
+      .rejects.toBeInstanceOf(UnauthorizedException);
+    await expect(service.confirmCurrentRefreshToken(second.refreshToken, firstSession.id, user.id))
+      .rejects.toBeInstanceOf(UnauthorizedException);
+    expect(firstSession.revokedAt).toBeNull();
+    expect(secondSession.revokedAt).toBeNull();
+
+    firstSession.revokedAt = new Date('2026-10-23T00:00:00.000Z');
+    await expect(service.confirmCurrentRefreshToken(first.refreshToken, firstSession.id, user.id))
+      .rejects.toBeInstanceOf(UnauthorizedException);
+    expect(secondSession.revokedAt).toBeNull();
+
+    firstSession.revokedAt = null;
+    firstSession.replacedBySessionId = secondSession.id;
+    await expect(service.confirmCurrentRefreshToken(first.refreshToken, firstSession.id, user.id))
+      .rejects.toBeInstanceOf(UnauthorizedException);
+    expect(secondSession.revokedAt).toBeNull();
+
+    firstSession.replacedBySessionId = null;
+    firstSession.expiresAt = new Date('2020-01-01T00:00:00.000Z');
+    await expect(service.confirmCurrentRefreshToken(first.refreshToken, firstSession.id, user.id))
+      .rejects.toBeInstanceOf(UnauthorizedException);
+    expect(firstSession.revokedAt).toBeNull();
+    expect(secondSession.revokedAt).toBeNull();
+
+    firstSession.expiresAt = new Date('2099-01-01T00:00:00.000Z');
+    firstSession.familyExpiresAt = new Date('2020-01-01T00:00:00.000Z');
+    await expect(service.confirmCurrentRefreshToken(first.refreshToken, firstSession.id, user.id))
+      .rejects.toBeInstanceOf(UnauthorizedException);
+    expect(firstSession.revokedAt).toBeNull();
+    expect(secondSession.revokedAt).toBeNull();
+  });
+
+  it('rejects an expired or altered access token', () => {
+    const user = rider();
+    const signed = tokens.sign(
+      { sub: user.id, role: UserRole.RIDER, sid: randomUUID() },
+      new Date('2020-01-01T00:00:00.000Z'),
+    );
+    expect(() => tokens.verify(signed.token)).toThrow(UnauthorizedException);
+    const parts = signed.token.split('.');
+    parts[2] = `${parts[2]?.slice(0, -1)}${parts[2]?.endsWith('a') ? 'b' : 'a'}`;
+    expect(() => tokens.verify(parts.join('.'))).toThrow(UnauthorizedException);
   });
 
   it('logout revokes one session and logout-all revokes every session for the user', async () => {

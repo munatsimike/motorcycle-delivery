@@ -3,6 +3,68 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 const MONEY = '^\\d{1,10}\\.\\d{2}$';
 const moneyDescription = 'Dollars and cents as text, with one to ten whole digits and exactly two decimal digits. This is not a live tariff.';
 
+export class RiderWhatsAppRegistrationBody {
+  @ApiProperty({ description: 'Zimbabwe mobile number. A national or +263 form is accepted and stored as E.164.' })
+  phone!: string;
+
+  @ApiProperty({ minLength: 12, maxLength: 128 })
+  password!: string;
+
+  @ApiProperty({ maxLength: 200 })
+  fullName!: string;
+
+  @ApiProperty({ minLength: 1, maxLength: 500 })
+  address!: string;
+
+  @ApiProperty({ description: 'Must be true. The account consents to WhatsApp authentication messages.' })
+  whatsappConsent!: boolean;
+}
+
+export class CustomerWhatsAppRegistrationBody {
+  @ApiProperty({ description: 'Zimbabwe mobile number. A national or +263 form is accepted and stored as E.164.' })
+  phone!: string;
+
+  @ApiProperty({ minLength: 12, maxLength: 128 })
+  password!: string;
+
+  @ApiProperty({ enum: ['INDIVIDUAL', 'BUSINESS'] })
+  accountKind!: 'INDIVIDUAL' | 'BUSINESS';
+
+  @ApiPropertyOptional({ maxLength: 200 })
+  fullName?: string;
+
+  @ApiPropertyOptional({ maxLength: 200 })
+  businessName?: string;
+
+  @ApiPropertyOptional({ maxLength: 200 })
+  contactName?: string;
+
+  @ApiProperty({ minLength: 1, maxLength: 500 })
+  address!: string;
+
+  @ApiProperty({ description: 'Must be true. The account consents to WhatsApp authentication messages.' })
+  whatsappConsent!: boolean;
+}
+
+export class WhatsAppRecoveryBody {
+  @ApiProperty({ description: 'Zimbabwe mobile number. A national or +263 form is accepted and stored as E.164.' })
+  phone!: string;
+
+  @ApiProperty({ description: 'Must be true. Recovery codes are sent only with consent to WhatsApp authentication messages.' })
+  whatsappConsent!: boolean;
+}
+
+export class PasswordResetBody {
+  @ApiProperty({ description: 'Zimbabwe mobile number. A national or +263 form is accepted and stored as E.164.' })
+  phone!: string;
+
+  @ApiProperty({ description: 'WhatsApp verification code. The code is not returned or logged.' })
+  code!: string;
+
+  @ApiProperty({ minLength: 12, maxLength: 128 })
+  password!: string;
+}
+
 export class PhoneBody {
   @ApiProperty({ description: 'Zimbabwe mobile number. A national or +263 form is accepted and stored as E.164.' })
   phone!: string;
@@ -386,6 +448,16 @@ export class RiderOnboardingResponse {
 export class AvailabilityResponse {
   @ApiProperty({ enum: ['OFFLINE', 'AVAILABLE', 'BUSY'] })
   availability!: string;
+}
+
+export class PushDeviceBody {
+  @ApiProperty({ minLength: 1, maxLength: 512 })
+  fcmToken!: string;
+}
+
+export class PushDeviceResponse {
+  @ApiProperty()
+  registered!: true;
 }
 
 export class IndividualCustomerProfileBody {

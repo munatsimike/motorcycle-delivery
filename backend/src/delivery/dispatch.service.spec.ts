@@ -276,6 +276,7 @@ describe('progressive dispatch', () => {
 
     await drain(ctx.service, NOW);
     expect(offeredRiders(ctx, delivery.id)).toEqual([near.id]);
+    expect(ctx.notifications).toHaveLength(0);
     expect(offeredRiders(ctx, delivery.id)).not.toContain(stale.id);
     expect(offeredRiders(ctx, delivery.id)).not.toContain(ineligible.id);
 
@@ -1075,6 +1076,12 @@ function context() {
         },
         delivery: table(() => draft.deliveries, mark, () => sequence++),
         deliveryAssignment: assignmentTable(() => draft.assignments, mark, () => sequence++),
+        riderOfferNotification: {
+          ...table(() => draft.notifications, mark, () => sequence++),
+          async create() {
+            throw new Error('notification store unavailable');
+          },
+        },
         deliveryDispatchRound: roundTable(() => draft.rounds, mark, () => sequence++),
         deliveryStatusEvent: table(() => draft.events, mark, () => sequence++),
         riderProfile: table(() => draft.profiles, mark, () => sequence++),
@@ -1132,6 +1139,7 @@ function context() {
     lockLog,
     get deliveries() { return committed.deliveries; },
     get assignments() { return committed.assignments; },
+    get notifications() { return committed.notifications; },
     get rounds() { return committed.rounds; },
     get profiles() { return committed.profiles; },
     get wallets() { return committed.wallets; },
@@ -1297,6 +1305,7 @@ function longitudeFor(metres: number): string {
 type State = {
   deliveries: Row[];
   assignments: Row[];
+  notifications: Row[];
   rounds: Row[];
   locations: Row[];
   profiles: Row[];
@@ -1312,6 +1321,7 @@ type State = {
 const STATE_KEYS = [
   'deliveries',
   'assignments',
+  'notifications',
   'rounds',
   'locations',
   'profiles',
@@ -1328,6 +1338,7 @@ function emptyState(): State {
   return {
     deliveries: [],
     assignments: [],
+    notifications: [],
     rounds: [],
     locations: [],
     profiles: [],

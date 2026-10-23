@@ -22,9 +22,27 @@ describe('HttpTwilioVerifyClient', () => {
     delete process.env.TWILIO_ACCOUNT_SID;
     delete process.env.TWILIO_AUTH_TOKEN;
     delete process.env.TWILIO_VERIFY_SERVICE_SID;
+    delete process.env.WHATSAPP_VERIFICATION_SERVICE_SID;
+    delete process.env.WHATSAPP_VERIFICATION_SENDER;
     delete process.env.JWT_ACCESS_SECRET;
     warn.mockRestore();
     vi.unstubAllGlobals();
+  });
+
+  it('starts a WhatsApp verification on the configured service without logging the code or sender', async () => {
+    process.env.WHATSAPP_VERIFICATION_SERVICE_SID = `VA${'c'.repeat(32)}`;
+    process.env.WHATSAPP_VERIFICATION_SENDER = '+263771000000';
+    fetchMock.mockResolvedValue(jsonResponse(201, { sid: 'VE456', to: '+263771234567' }));
+    await expect(client.startVerification('+263771234567', {
+      channel: 'whatsapp',
+      serviceSid: process.env.WHATSAPP_VERIFICATION_SERVICE_SID,
+    })).resolves.toEqual({ sid: 'VE456' });
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain(process.env.WHATSAPP_VERIFICATION_SERVICE_SID);
+    expect(url).not.toContain(process.env.TWILIO_VERIFY_SERVICE_SID);
+    expect(String(init.body)).toContain('Channel=whatsapp');
+    expect(String(init.body)).not.toContain(process.env.WHATSAPP_VERIFICATION_SENDER);
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it('starts an SMS verification and returns only the verification sid', async () => {

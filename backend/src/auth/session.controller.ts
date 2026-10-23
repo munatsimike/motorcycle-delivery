@@ -1,7 +1,8 @@
 import { Body, Controller, Headers, HttpCode, Post, UnauthorizedException } from '@nestjs/common';
-import { ApiBearerAuth, ApiBody, ApiNoContentResponse, ApiOkResponse, ApiOperation, ApiTags, ApiUnauthorizedResponse } from '@nestjs/swagger';
+import { ApiBadRequestResponse, ApiBearerAuth, ApiBody, ApiNoContentResponse, ApiOkResponse, ApiOperation, ApiTags, ApiTooManyRequestsResponse, ApiUnauthorizedResponse } from '@nestjs/swagger';
 import { RefreshBody, SessionResponse } from '../openapi/schemas.js';
 import { AccessTokenService, readBearerToken } from './access-token.service.js';
+import { PasswordAuthService, takeRefreshProof } from './password-auth.service.js';
 import { SessionService } from './session.service.js';
 
 @ApiTags('Sessions')
@@ -10,6 +11,7 @@ export class SessionController {
   constructor(
     private readonly sessions: SessionService,
     private readonly accessTokens: AccessTokenService,
+    private readonly passwords: PasswordAuthService,
   ) {}
 
   @Post('refresh')
@@ -23,6 +25,23 @@ export class SessionController {
       throw new UnauthorizedException('Authentication failed');
     }
     return this.sessions.refresh(body.refreshToken);
+  }
+
+  @Post('password')
+  @HttpCode(204)
+  @ApiBearerAuth('bearer')
+  @ApiOperation({ summary: 'Set a password on the signed-in rider or customer account' })
+  @ApiNoContentResponse({ description: 'The password was saved. Existing sessions stay signed in.' })
+  @ApiBadRequestResponse({ description: 'Password must contain 12 to 128 characters' })
+  @ApiUnauthorizedResponse({ description: 'Authentication failed' })
+  @ApiTooManyRequestsResponse({ description: 'Too many login attempts. Try again later.' })
+  async setPassword(
+    @Headers('authorization') authorization: string | string[] | undefined,
+    @Body() body: unknown,
+  ) {
+    const refreshProof = takeRefreshProof(body);
+    const claims = this.accessTokens.verify(readBearerToken(singleHeader(authorization)), new Date());
+    await this.passwords.setPassword(claims.sub, claims.sid, claims.role, body, refreshProof);
   }
 
   @Post('logout')

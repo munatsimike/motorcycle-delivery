@@ -1,16 +1,22 @@
 import { Body, Controller, HttpCode, Post, Req } from '@nestjs/common';
-import { ApiBadRequestResponse, ApiBody, ApiConflictResponse, ApiExtraModels, ApiOkResponse, ApiOperation, ApiServiceUnavailableResponse, ApiTags, ApiTooManyRequestsResponse, ApiUnauthorizedResponse, getSchemaPath } from '@nestjs/swagger';
+import { ApiBadRequestResponse, ApiBody, ApiConflictResponse, ApiExtraModels, ApiForbiddenResponse, ApiOkResponse, ApiOperation, ApiServiceUnavailableResponse, ApiTags, ApiTooManyRequestsResponse, ApiUnauthorizedResponse, getSchemaPath } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { AuthSubjectRole } from '../generated/prisma/client.js';
 import { rateLimitAddress } from '../http/client-address.js';
-import { LoginUnavailableResponse, OtpVerifyBody, PendingResponse, PhoneBody, RegistrationProofResponse, RiderRegistrationBody, RiderRegistrationCompleteBody, SessionResponse } from '../openapi/schemas.js';
+import { LoginUnavailableResponse, OtpVerifyBody, PasswordResetBody, PendingResponse, PhoneBody, RegistrationProofResponse, RiderRegistrationBody, RiderRegistrationCompleteBody, RiderWhatsAppRegistrationBody, SessionResponse, WhatsAppRecoveryBody } from '../openapi/schemas.js';
 import { OtpAuthService } from './otp-auth.service.js';
+import { PASSWORD_REGISTRATION_CLOSED, PasswordAuthService } from './password-auth.service.js';
+import { WhatsAppAuthService } from './whatsapp-auth.service.js';
 
 @ApiTags('Rider authentication')
 @ApiExtraModels(RegistrationProofResponse, SessionResponse, LoginUnavailableResponse)
 @Controller('auth/rider')
 export class RiderAuthController {
-  constructor(private readonly otp: OtpAuthService) {}
+  constructor(
+    private readonly otp: OtpAuthService,
+    private readonly passwords: PasswordAuthService,
+    private readonly whatsapp: WhatsAppAuthService,
+  ) {}
 
   @Post('register/otp')
   @HttpCode(200)
@@ -77,6 +83,82 @@ export class RiderAuthController {
   @ApiTooManyRequestsResponse({ description: 'Too many verification attempts. Try again later.' })
   verifyLogin(@Body() body: unknown) {
     return this.otp.verifyLogin(AuthSubjectRole.RIDER, body);
+  }
+
+  @Post('register/password')
+  @ApiOperation({ summary: 'Password registration is closed. New rider accounts verify on WhatsApp.' })
+  @ApiForbiddenResponse({ description: PASSWORD_REGISTRATION_CLOSED })
+  registerWithPassword(@Body() body: unknown) {
+    return this.passwords.registerRider(body);
+  }
+
+  @Post('login/password')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Sign in a rider with a phone number and password' })
+  @ApiOkResponse({ type: SessionResponse })
+  @ApiBadRequestResponse({ description: 'Enter a valid Zimbabwe mobile number' })
+  @ApiUnauthorizedResponse({ description: 'Authentication failed' })
+  @ApiTooManyRequestsResponse({ description: 'Too many login attempts. Try again later.' })
+  loginWithPassword(@Body() body: unknown, @Req() request: Request) {
+    return this.passwords.login(AuthSubjectRole.RIDER, body, clientAddress(request));
+  }
+
+  @Post('register/whatsapp')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Start rider registration and send a WhatsApp verification code' })
+  @ApiBody({ type: RiderWhatsAppRegistrationBody })
+  @ApiOkResponse({ type: PendingResponse })
+  @ApiBadRequestResponse({ description: 'The phone, password, name, address, or WhatsApp consent is invalid.' })
+  @ApiConflictResponse({ description: 'Phone number is already registered' })
+  @ApiTooManyRequestsResponse({ description: 'Too many verification attempts. Try again later.' })
+  @ApiServiceUnavailableResponse({ description: 'WhatsApp verification is unavailable.' })
+  startWhatsAppRegistration(@Body() body: unknown, @Req() request: Request) {
+    return this.whatsapp.startRegistration(AuthSubjectRole.RIDER, body, clientAddress(request));
+  }
+
+  @Post('register/whatsapp/resend')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Resend the rider WhatsApp registration code' })
+  @ApiBody({ type: PhoneBody })
+  @ApiOkResponse({ type: PendingResponse })
+  @ApiTooManyRequestsResponse({ description: 'Too many verification attempts. Try again later.' })
+  @ApiServiceUnavailableResponse({ description: 'WhatsApp verification is unavailable.' })
+  resendWhatsAppRegistration(@Body() body: unknown, @Req() request: Request) {
+    return this.whatsapp.resendRegistration(AuthSubjectRole.RIDER, body, clientAddress(request));
+  }
+
+  @Post('register/whatsapp/verify')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Verify the rider WhatsApp code and create the session' })
+  @ApiBody({ type: OtpVerifyBody })
+  @ApiOkResponse({ type: SessionResponse })
+  @ApiUnauthorizedResponse({ description: 'Verification code is invalid' })
+  @ApiTooManyRequestsResponse({ description: 'Too many verification attempts. Try again later.' })
+  @ApiServiceUnavailableResponse({ description: 'WhatsApp verification is unavailable.' })
+  verifyWhatsAppRegistration(@Body() body: unknown) {
+    return this.whatsapp.verifyRegistration(AuthSubjectRole.RIDER, body);
+  }
+
+  @Post('password/forgot')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Send a rider password recovery code on WhatsApp when the number can be recovered' })
+  @ApiBody({ type: WhatsAppRecoveryBody })
+  @ApiOkResponse({ type: PendingResponse, description: 'The same response is returned whether or not an account exists.' })
+  @ApiBadRequestResponse({ description: 'Enter a valid Zimbabwe mobile number and consent to WhatsApp authentication messages.' })
+  @ApiServiceUnavailableResponse({ description: 'WhatsApp verification is unavailable.' })
+  forgotPassword(@Body() body: unknown, @Req() request: Request) {
+    return this.whatsapp.requestRecovery(AuthSubjectRole.RIDER, body, clientAddress(request));
+  }
+
+  @Post('password/reset')
+  @HttpCode(204)
+  @ApiOperation({ summary: 'Reset a rider password after WhatsApp verification. Existing sessions are revoked.' })
+  @ApiBody({ type: PasswordResetBody })
+  @ApiUnauthorizedResponse({ description: 'Authentication failed' })
+  @ApiTooManyRequestsResponse({ description: 'Too many verification attempts. Try again later.' })
+  @ApiServiceUnavailableResponse({ description: 'WhatsApp verification is unavailable.' })
+  resetPassword(@Body() body: unknown) {
+    return this.whatsapp.resetPassword(AuthSubjectRole.RIDER, body);
   }
 }
 

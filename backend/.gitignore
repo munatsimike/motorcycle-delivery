@@ -45,6 +45,9 @@ lerna-debug.log*
 .env.production.local
 .env.local
 
+# Local credential files. Never commit.
+/secrets/
+
 # temp directory
 .temp
 .tmp

@@ -13,7 +13,9 @@ import { AccessTokenService } from '../auth/access-token.service.js';
 import { CustomerAccessService } from '../auth/customer-access.service.js';
 import { CustomerAuthController } from '../auth/customer-auth.controller.js';
 import { OtpAuthService } from '../auth/otp-auth.service.js';
+import { PasswordAuthService } from '../auth/password-auth.service.js';
 import { RiderAccessService } from '../auth/rider-access.service.js';
+import { WhatsAppAuthService } from '../auth/whatsapp-auth.service.js';
 import { RiderAuthController } from '../auth/rider-auth.controller.js';
 import { SessionController } from '../auth/session.controller.js';
 import { SessionService } from '../auth/session.service.js';
@@ -36,6 +38,8 @@ import { RiderAvailabilityAlertController } from '../delivery/rider-availability
 import { RiderAvailabilityAlertService } from '../delivery/rider-availability-alert.service.js';
 import { RiderDeliveryController } from '../delivery/rider-delivery.controller.js';
 import { RiderOfferController } from '../delivery/rider-offer.controller.js';
+import { RiderPushDeviceController } from '../rider/rider-push-device.controller.js';
+import { RiderPushDeviceService } from '../rider/rider-push-device.service.js';
 import { CommissionPolicyController } from '../rider/commission-policy.controller.js';
 import { CommissionPolicyService } from '../rider/commission-policy.service.js';
 import { LicenceImageController } from '../rider/licence-image.controller.js';
@@ -83,6 +87,7 @@ describe('OpenAPI document', () => {
         AdminDeliveryController,
         DeliveryPricingController,
         RiderOfferController,
+        RiderPushDeviceController,
         RiderDeliveryController,
         RiderAssignmentController,
         RiderOnboardingController,
@@ -100,6 +105,8 @@ describe('OpenAPI document', () => {
       providers: [
         { provide: AppService, useValue: unused },
         { provide: OtpAuthService, useValue: unused },
+        { provide: PasswordAuthService, useValue: unused },
+        { provide: WhatsAppAuthService, useValue: unused },
         { provide: AdminLoginService, useValue: unused },
         { provide: AccessTokenService, useValue: unused },
         { provide: SessionService, useValue: unused },
@@ -116,6 +123,7 @@ describe('OpenAPI document', () => {
         { provide: DeliveryPricingService, useValue: unused },
         { provide: RiderOnboardingService, useValue: unused },
         { provide: RiderAvailabilityService, useValue: unused },
+        { provide: RiderPushDeviceService, useValue: unused },
         { provide: RiderLocationService, useValue: unused },
         { provide: MotorcycleService, useValue: unused },
         { provide: LicenceImageService, useValue: unused },
@@ -171,6 +179,14 @@ describe('OpenAPI document', () => {
     const operations = Object.values(document.paths ?? {}).flatMap((path) =>
       Object.keys(path ?? {}).filter((method) => ['get', 'post', 'put', 'patch', 'delete'].includes(method)),
     );
+    const push = document.paths?.['/riders/me/push-devices'];
+    expect(push?.put?.security).toEqual([{ bearer: [] }]);
+    expect(push?.put?.responses?.['200']).toBeTruthy();
+    expect(push?.delete?.responses?.['204']).toBeTruthy();
+    const pushSchema = schemaOf(document, push?.put?.requestBody);
+    expect(pushSchema.properties?.fcmToken).toBeTruthy();
+    expect(JSON.stringify(pushSchema)).not.toMatch(/fcm-token|device-token/);
+
     expect(operations.length).toBeGreaterThan(60);
     expect(JSON.stringify(document)).not.toMatch(/refresh-token-value|password-value|123456/);
   });

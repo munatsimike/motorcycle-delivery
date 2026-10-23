@@ -91,6 +91,16 @@ describe('RiderAccessService', () => {
     noProfile.profile = null;
     await expect(noProfile.service.authenticate(noProfile.token(), NOW)).rejects.toBeInstanceOf(ForbiddenException);
   });
+
+  it('allows a password account that has not verified the phone by SMS', async () => {
+    const ctx = context();
+    ctx.user.phoneVerifiedAt = null;
+    ctx.user.passwordHash = '$argon2id$stored';
+    await expect(ctx.service.authenticate(ctx.token(), NOW)).resolves.toEqual({
+      userId: 'user-1',
+      riderProfileId: 'profile-1',
+    });
+  });
 });
 
 type SessionRow = {
@@ -106,6 +116,7 @@ type UserRow = {
   role: UserRole;
   accountStatus: AccountStatus;
   phoneVerifiedAt: Date | null;
+  passwordHash: string | null;
 };
 
 type ProfileRow = { id: string; userId: string };
@@ -123,6 +134,7 @@ function context() {
     role: UserRole.RIDER,
     accountStatus: AccountStatus.ACTIVE,
     phoneVerifiedAt: NOW,
+    passwordHash: null,
   };
   const state: { profile: ProfileRow | null } = { profile: { id: 'profile-1', userId: 'user-1' } };
   const db = {

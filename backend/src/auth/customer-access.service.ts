@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { AccountStatus, UserRole } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { hasAccountCredential } from './account-credential.js';
 import { AccessTokenService, readBearerToken } from './access-token.service.js';
 
 export type CustomerSession = {
@@ -64,7 +65,7 @@ export class CustomerAccessService {
     if (
       (user.role !== UserRole.RIDER && user.role !== UserRole.CUSTOMER)
       || user.accountStatus !== AccountStatus.ACTIVE
-      || user.phoneVerifiedAt === null
+      || !hasAccountCredential(user)
     ) {
       throw new ForbiddenException('Customer access is required');
     }
