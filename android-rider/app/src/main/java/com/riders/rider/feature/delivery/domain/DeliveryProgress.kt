@@ -44,6 +44,10 @@ fun deliveryStepTitle(status: String): String = when (status) {
     "PICKED_UP" -> "Parcel collected"
     "IN_TRANSIT" -> "On the way to drop-off"
     "ARRIVED_AT_DROPOFF" -> "At drop-off"
+    "RIDER_ASSIGNED" -> "Rider assigned"
+    "COLLECTING" -> "Collecting"
+    "COLLECTED" -> "Collected"
+    "OUT_FOR_DELIVERY" -> "Out for delivery"
     else -> deliveryStatusLabel(status)
 }
 
@@ -77,6 +81,40 @@ class DeliveryActionGate {
     }
 }
 
+val V2DeliveryProgress = listOf(
+    "RIDER_ASSIGNED",
+    "COLLECTING",
+    "COLLECTED",
+    "OUT_FOR_DELIVERY",
+    "DELIVERED",
+)
+
+fun v2NextStatus(current: String): String? {
+    val index = V2DeliveryProgress.indexOf(current)
+    if (index < 0 || index == V2DeliveryProgress.lastIndex) {
+        return null
+    }
+    return V2DeliveryProgress[index + 1]
+}
+
+fun v2ActionLabel(targetStatus: String): String? = when (targetStatus) {
+    "COLLECTING" -> "Start Collecting"
+    "COLLECTED" -> "Confirm Collected"
+    "OUT_FOR_DELIVERY" -> "Out for Delivery"
+    "DELIVERED" -> "Confirm Delivered"
+    else -> null
+}
+
+fun v2CancellationVisible(status: String): Boolean {
+    return status == "RIDER_ASSIGNED" || status == "COLLECTING"
+}
+
+fun v2StatusReached(serverStatus: String, targetStatus: String): Boolean {
+    val server = V2DeliveryProgress.indexOf(serverStatus)
+    val target = V2DeliveryProgress.indexOf(targetStatus)
+    return server >= 0 && target >= 0 && server >= target
+}
+
 fun deliveryStatusLabel(status: String): String = when (status) {
     "ASSIGNED" -> "Assigned"
     "ARRIVED_AT_PICKUP" -> "Arrived at pickup"
@@ -84,5 +122,9 @@ fun deliveryStatusLabel(status: String): String = when (status) {
     "IN_TRANSIT" -> "In transit"
     "ARRIVED_AT_DROPOFF" -> "Arrived at drop-off"
     "DELIVERED" -> "Delivered"
+    "RIDER_ASSIGNED" -> "Rider assigned"
+    "COLLECTING" -> "Collecting"
+    "COLLECTED" -> "Collected"
+    "OUT_FOR_DELIVERY" -> "Out for delivery"
     else -> status
 }

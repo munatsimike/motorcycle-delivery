@@ -5,7 +5,8 @@
 // The initial migration also creates objects Prisma 7.1.0 cannot represent.
 // Do not drop them in a later migration:
 //   delivery_assignments_one_accepted_per_delivery_idx
-//   delivery_assignments_one_accepted_per_rider_idx
+//   delivery_assignments_one_live_express_per_rider_idx WHERE status = ACCEPTED AND service_class = EXPRESS
+//   delivery_assignments_one_accepted_v1_per_rider_idx WHERE status = ACCEPTED AND accepted_bid_amount IS NULL
 //   delivery_assignments_one_open_offer_per_rider_idx
 //   the named *_chk constraints
 //   refresh_sessions_one_active_per_family_idx
@@ -59,6 +60,27 @@
 //   deliveries_search_generation_chk
 //   delivery_assignments_accept_idempotency_chk
 //   delivery_assignments_accepted_fee_chk
+//   v2_commission_rates_one_active_idx
+//   v2_commission_rates_basis_points_chk
+//   v2_commission_rate_audits_basis_points_chk
+//   v2_commission_rate_audits_next_version_key
+//   delivery_assignments_v2_commission_snapshot_chk
+//   delivery_assignments_v2_commission_snapshot_immutable
+//   bids_one_open_per_rider_delivery_idx
+//   bids_one_accepted_per_delivery_idx WHERE status = ACCEPTED AND closed_at IS NULL
+//   v2_outbox_events_recipient_chk
+//   bids_idempotency_key_key
+//   bids_amount_nonnegative_chk
+//   bids_currency_usd_chk
+//   bids_idempotency_pair_chk
+//
+// Phase 4B dropped delivery_assignments_one_accepted_per_rider_idx. Do not
+// recreate that broad index. A rider may hold many Flexible ACCEPTED rows.
+// One live Express ACCEPTED row and one V1 ACCEPTED row are the partial
+// indexes above. Prisma cannot represent them.
+//
+// V1 accept sets BUSY. V2 acceptance leaves availability and
+// receiving_requests unchanged.
 //
 // Prisma 7.1.0 cannot represent the SQL-only composite foreign keys
 // delivery_assignments_motorcycle_owner_fkey and
@@ -199,6 +221,10 @@ enum DeliveryStatus {
   SEARCHING
   NO_RIDER_FOUND
   ASSIGNED
+  RIDER_ASSIGNED
+  COLLECTING
+  COLLECTED
+  OUT_FOR_DELIVERY
   ARRIVED_AT_PICKUP
   PICKED_UP
   IN_TRANSIT
@@ -240,6 +266,13 @@ enum AssignmentReleaseReason {
   ADMIN_REASSIGNED
   CUSTOMER_CANCELLED
   ADMIN_CANCELLED
+  PAYMENT_NOT_AGREED
+  PARCEL_NOT_AS_DESCRIBED
+  PARCEL_TOO_LARGE
+  SENDER_UNAVAILABLE
+  WRONG_ADDRESS
+  BREAKDOWN
+  OTHER
 
   @@map("assignment_release_reason")
 }
@@ -304,6 +337,8 @@ model User {
   adminLoginChallenges AdminLoginChallenge[] @relation("AdminLoginChallenges")
   licenceReviews        RiderLicenceReview[]  @relation("LicenceDecisionReviewer")
   pricingAudits         PricingConfigAudit[]  @relation("PricingAuditActor")
+  authoredV2CommissionRates V2CommissionRate[] @relation("V2CommissionRateAuthor")
+  v2CommissionRateAudits V2CommissionRateAudit[] @relation("V2CommissionRateAuditor")
 
   @@index([role, accountStatus])
   @@map("users")
@@ -341,6 +376,8 @@ model RiderProfile {
   pushDevices    RiderPushDevice[]
   offerNotifications RiderOfferNotification[]
   bids               Bid[]
+  v2OutboxEvents     V2OutboxEvent[]
+  progressCommands   DeliveryProgressCommand[]
 
   @@index([approvalStatus, availability])
   @@index([reviewerId])
@@ -444,13 +481,19 @@ model Delivery {
   parcelInstructions   String?        @map("parcel_instructions") @db.VarChar(500)
   recipientName        String         @map("recipient_name") @db.VarChar(200)
   recipientPhone       String         @map("recipient_phone") @db.VarChar(20)
-  price                Decimal        @db.Decimal(12, 2)
+  // Null on a V2 request until a bid is accepted. V1 create still writes a price.
+  price                Decimal?       @db.Decimal(12, 2)
   suggestedPrice       Decimal        @map("suggested_price") @db.Decimal(12, 2)
   distanceMeters       Int            @map("distance_meters")
   pricingVersion       Int            @map("pricing_version")
-  payer                DeliveryPayer
+  // Null on a V2 request. V1 create still writes both. V2 pricing does not read them.
+  payer                DeliveryPayer?
   currency             Currency       @default(USD)
-  paymentMethod        PaymentMethod  @map("payment_method")
+  paymentMethod        PaymentMethod? @map("payment_method")
+  // Pricing snapshot for a V2 request. Null on V1 rows.
+  pricingModel         PricingModel?  @map("pricing_model")
+  pricingBasisPoints   Int?           @map("pricing_basis_points")
+  pricingWindowId      String?        @map("pricing_window_id") @db.Uuid
   // Unused while V2 marketplace is disabled. Existing rows stay null.
   serviceClass      ServiceClass?  @map("service_class")
   deliverBy         DateTime?      @map("deliver_by") @db.Timestamptz(6)
@@ -465,11 +508,14 @@ model Delivery {
   updatedAt         DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   customer        CustomerAccount        @relation(fields: [customerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  pricingWindow   PricingWindow?         @relation(fields: [pricingWindowId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   assignments     DeliveryAssignment[]
   statusEvents    DeliveryStatusEvent[]
   bids            Bid[]
   feeReservations WalletFeeReservation[]
   dispatchRounds  DeliveryDispatchRound[]
+  v2OutboxEvents  V2OutboxEvent[]
+  progressCommands DeliveryProgressCommand[]
 
   @@index([customerId, createdAt])
   @@index([status, createdAt])
@@ -501,6 +547,11 @@ model DeliveryAssignment {
   respondedAt    DateTime?                @map("responded_at") @db.Timestamptz(6)
   releaseReason    AssignmentReleaseReason? @map("release_reason")
   releasedAt       DateTime?                @map("released_at") @db.Timestamptz(6)
+  // V2 pre-pickup cancellation. The rider on this row is the actor.
+  cancellationNote String? @map("cancellation_note") @db.VarChar(500)
+  cancellationStage DeliveryStatus? @map("cancellation_stage")
+  cancellationIdempotencyKey String? @unique @map("cancellation_idempotency_key") @db.VarChar(200)
+  cancellationPayloadHash String? @map("cancellation_payload_hash") @db.Char(64)
   // Set on offers so a later generation can exclude riders already contacted
   // in the current wave. Null on rows created before progressive dispatch.
   searchGeneration Int?                     @map("search_generation")
@@ -512,17 +563,55 @@ model DeliveryAssignment {
   acceptedFeeConfigVersion Int?     @map("accepted_fee_config_version")
   acceptedCommissionModel CommissionModel? @map("accepted_commission_model")
   acceptedCommissionPolicyVersion Int? @map("accepted_commission_policy_version")
+  // Copied from the delivery when a V2 bid is accepted. Null on V1 offers.
+  serviceClass ServiceClass? @map("service_class")
+  // Null until a V2 bid is accepted. The four values are written together and
+  // the SQL trigger delivery_assignments_v2_commission_snapshot_immutable
+  // rejects later changes. V1 fee columns above are a different snapshot.
+  acceptedBidAmount                 Decimal? @map("accepted_bid_amount") @db.Decimal(12, 2)
+  acceptedCommissionBasisPoints     Int?     @map("accepted_commission_basis_points")
+  acceptedV2CommissionRateVersion   Int?     @map("accepted_v2_commission_rate_version")
+  acceptedCommissionAmount          Decimal? @map("accepted_commission_amount") @db.Decimal(12, 2)
+  // The bid this acceptance committed. Replay reads this after closed_at is set.
+  acceptedBidId    String?                  @unique @map("accepted_bid_id") @db.Uuid
   createdAt        DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
 
   delivery     Delivery     @relation(fields: [deliveryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   riderProfile RiderProfile @relation(fields: [riderProfileId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  acceptedBid  Bid?         @relation(fields: [acceptedBidId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  v2OutboxEvents V2OutboxEvent[]
+  progressCommands DeliveryProgressCommand[]
   offerNotification RiderOfferNotification?
+  v2CommissionRate V2CommissionRate? @relation(fields: [acceptedV2CommissionRateVersion], references: [rateVersion], onDelete: Restrict, onUpdate: Restrict)
 
   @@index([deliveryId, status])
   @@index([riderProfileId, status])
   @@index([motorcycleId])
   @@index([offerExpiresAt])
   @@map("delivery_assignments")
+}
+
+// One row per V2 status command. The acceptance idempotency key stays on the
+// assignment and is not written here. A matching key and payload returns this
+// row and does not advance the delivery again.
+model DeliveryProgressCommand {
+  id              String            @id @default(uuid(7)) @db.Uuid
+  idempotencyKey  String            @unique @map("idempotency_key") @db.VarChar(200)
+  payloadHash     String            @map("payload_hash") @db.Char(64)
+  riderProfileId  String            @map("rider_profile_id") @db.Uuid
+  deliveryId      String            @map("delivery_id") @db.Uuid
+  assignmentId    String            @map("assignment_id") @db.Uuid
+  requestedStatus DeliveryStatus    @map("requested_status")
+  resultStatus    DeliveryStatus    @map("result_status")
+  availability    RiderAvailability
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  riderProfile RiderProfile       @relation(fields: [riderProfileId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  delivery     Delivery           @relation(fields: [deliveryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  assignment   DeliveryAssignment @relation(fields: [assignmentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([assignmentId])
+  @@map("delivery_progress_commands")
 }
 
 // One current point per rider. position geography(Point,4326) and its GiST
@@ -605,6 +694,8 @@ model CustomerAccount {
   user       User       @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   deliveries Delivery[]
   pushDevices CustomerPushDevice[]
+  fcmDevices CustomerFcmDevice[]
+  v2OutboxEvents V2OutboxEvent[]
   riderAvailabilityAlerts RiderAvailabilityAlert[]
 
   @@map("customer_accounts")
@@ -634,6 +725,24 @@ model CustomerPushDevice {
 
   @@index([customerAccountId])
   @@map("customer_push_devices")
+}
+
+// One FCM token per customer app install. This is separate from rider FCM
+// tokens and from the Expo tokens used by availability alerts. Registration
+// moves the token onto the signed-in customer. A delete must also match
+// customer_account_id so another customer cannot remove it.
+model CustomerFcmDevice {
+  id                String    @id @default(uuid(7)) @db.Uuid
+  customerAccountId String    @map("customer_account_id") @db.Uuid
+  fcmToken          String    @unique @map("fcm_token") @db.VarChar(512)
+  invalidatedAt     DateTime? @map("invalidated_at") @db.Timestamptz(6)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  customerAccount CustomerAccount @relation(fields: [customerAccountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([customerAccountId])
+  @@map("customer_fcm_devices")
 }
 
 // One open alert per customer. position geography(Point,4326) and its GiST index
@@ -1188,11 +1297,19 @@ model Bid {
   amount         Decimal   @db.Decimal(12, 2)
   currency       Currency  @default(USD)
   status         BidStatus
+  // Set when a pre-pickup cancellation ends this acceptance. The status stays
+  // ACCEPTED. The partial unique index ignores a closed row, so a later bid
+  // on the reopened delivery can be accepted.
+  closedAt       DateTime? @map("closed_at") @db.Timestamptz(6)
+  // Both null or both set. A replay of the key returns the first bid.
+  idempotencyKey String?   @unique @map("idempotency_key") @db.VarChar(200)
+  payloadHash    String?   @map("payload_hash") @db.Char(64)
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   delivery     Delivery     @relation(fields: [deliveryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   riderProfile RiderProfile @relation(fields: [riderProfileId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  acceptedAssignments DeliveryAssignment[]
 
   @@index([deliveryId, status])
   @@index([riderProfileId, status])
@@ -1211,6 +1328,7 @@ model PricingWindow {
   createdAt              DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
 
   pricingConfig DeliveryPricingConfig @relation(fields: [pricingConfigId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  deliveries    Delivery[]
 
   @@index([pricingConfigId])
   @@map("pricing_windows")
@@ -1264,6 +1382,7 @@ enum CommissionModel {
   @@map("commission_model")
 }
 
+// V1 offer timing. The V2 percentage is V2CommissionRate, not a column here.
 model CommissionPolicy {
   id            String          @id @default(uuid(7)) @db.Uuid
   policyVersion Int             @unique @map("policy_version")
@@ -1274,6 +1393,103 @@ model CommissionPolicy {
 
   @@index([createdById])
   @@map("commission_policies")
+}
+
+// One global percentage for Express and Flexible. Versions stay after a later publish.
+// v2_commission_rates_one_active_idx and v2_commission_rates_basis_points_chk are
+// SQL-only. Prisma 7.1.0 cannot represent them. Do not drop them in a later migration.
+// No percentage is seeded.
+model V2CommissionRate {
+  id           String   @id @default(uuid(7)) @db.Uuid
+  rateVersion  Int      @unique @map("rate_version")
+  basisPoints  Int      @map("basis_points")
+  isActive     Boolean  @default(false) @map("is_active")
+  createdById  String   @map("created_by_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  createdBy User @relation("V2CommissionRateAuthor", fields: [createdById], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  assignments DeliveryAssignment[]
+
+  @@index([createdById])
+  @@map("v2_commission_rates")
+}
+
+// One row per publication. Previous basis points are null only for the first version.
+// next_version is unique so history cannot contain two rows for one rate version.
+model V2CommissionRateAudit {
+  id                   String   @id @default(uuid(7)) @db.Uuid
+  actorId              String   @map("actor_id") @db.Uuid
+  previousVersion      Int?     @map("previous_version")
+  nextVersion          Int      @unique @map("next_version")
+  previousBasisPoints  Int?     @map("previous_basis_points")
+  nextBasisPoints      Int      @map("next_basis_points")
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  actor User @relation("V2CommissionRateAuditor", fields: [actorId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([actorId])
+  @@map("v2_commission_rate_audits")
+}
+
+enum V2OutboxEventType {
+  BID_ACCEPTED
+  REQUEST_REOPENED
+  COLLECTING
+  COLLECTED
+  OUT_FOR_DELIVERY
+  DELIVERED
+  DEADLINE_REMINDER
+
+  @@map("v2_outbox_event_type")
+}
+
+enum V2OutboxStatus {
+  PENDING
+  SENT
+  FAILED
+
+  @@map("v2_outbox_status")
+}
+
+// Durable V2 notices. One row per assignment and type.
+// BID_ACCEPTED is the rider notice. Every other type is a customer notice.
+// v2_outbox_events_recipient_chk is SQL-only. A worker claims due PENDING rows
+// with FOR UPDATE SKIP LOCKED, sets claimed_at and claim_token, and commits
+// before calling the push provider. The provider timeout stays inside the
+// claim lease. Success sets SENT and sent_at. A genuine send failure
+// increments attempt_count, records last_failure and last_attempt_at, and
+// sets next_attempt_at. After the configured number of genuine failures the
+// row becomes FAILED and failed_at is set. No device, and an unconfigured
+// provider, leave the row PENDING and do not increment attempt_count.
+// A provider acceptance followed by a crash before SENT is committed can be
+// sent again after the lease. Exactly-once push delivery is not guaranteed.
+// The worker does not change the delivery, assignment, bid, reservation, or wallet.
+model V2OutboxEvent {
+  id                String            @id @default(uuid(7)) @db.Uuid
+  eventType         V2OutboxEventType @map("event_type")
+  status            V2OutboxStatus    @default(PENDING)
+  deliveryId        String            @map("delivery_id") @db.Uuid
+  assignmentId      String            @map("assignment_id") @db.Uuid
+  riderProfileId    String?           @map("rider_profile_id") @db.Uuid
+  customerAccountId String?           @map("customer_account_id") @db.Uuid
+  attemptCount      Int               @default(0) @map("attempt_count")
+  claimedAt         DateTime?         @map("claimed_at") @db.Timestamptz(6)
+  claimToken        String?           @map("claim_token") @db.Uuid
+  nextAttemptAt     DateTime?         @map("next_attempt_at") @db.Timestamptz(6)
+  lastFailure       String?           @map("last_failure") @db.VarChar(40)
+  lastAttemptAt     DateTime?         @map("last_attempt_at") @db.Timestamptz(6)
+  failedAt          DateTime?         @map("failed_at") @db.Timestamptz(6)
+  sentAt            DateTime?         @map("sent_at") @db.Timestamptz(6)
+  createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  delivery        Delivery           @relation(fields: [deliveryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  assignment      DeliveryAssignment @relation(fields: [assignmentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  riderProfile    RiderProfile?      @relation(fields: [riderProfileId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  customerAccount CustomerAccount?   @relation(fields: [customerAccountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([assignmentId, eventType])
+  @@index([status, createdAt])
+  @@map("v2_outbox_events")
 }
 
 

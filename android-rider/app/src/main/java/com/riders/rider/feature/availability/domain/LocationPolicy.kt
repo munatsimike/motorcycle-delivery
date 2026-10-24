@@ -28,20 +28,88 @@ fun shouldRequestAcceptFix(availability: String?, locationIsFresh: Boolean): Boo
     return availability == "AVAILABLE" && !locationIsFresh
 }
 
-fun shouldShareLocation(availability: String?, hasSession: Boolean, permissionGranted: Boolean): Boolean {
-    return hasSession && permissionGranted && availability == "AVAILABLE"
+val COMMITTED_DELIVERY_STATUSES: Set<String> = setOf(
+    "RIDER_ASSIGNED",
+    "COLLECTING",
+    "COLLECTED",
+    "OUT_FOR_DELIVERY",
+    "ASSIGNED",
+    "ARRIVED_AT_PICKUP",
+    "PICKED_UP",
+    "IN_TRANSIT",
+    "ARRIVED_AT_DROPOFF",
+)
+
+fun hasCommittedAssignment(deliveryStatuses: Collection<String>): Boolean {
+    return deliveryStatuses.any { status -> status in COMMITTED_DELIVERY_STATUSES }
+}
+
+fun locationStatuses(fetchSucceeded: Boolean, fetched: List<String>, cached: List<String>): List<String> {
+    return if (fetchSucceeded) fetched else cached
+}
+
+fun locationSharingDecision(
+    hasSession: Boolean,
+    permissionGranted: Boolean,
+    onboardingReached: Boolean,
+    receivingRequests: Boolean?,
+    availability: String?,
+    assignmentFetchSucceeded: Boolean,
+    fetchedStatuses: List<String>,
+    confirmedStatuses: List<String>,
+    confirmedThisProcess: Boolean,
+    authoritativeStop: Boolean = false,
+): Boolean {
+    if (!hasSession || !permissionGranted || authoritativeStop) {
+        return false
+    }
+    val assignmentKnown = assignmentFetchSucceeded || confirmedThisProcess
+    if (!onboardingReached && !assignmentKnown) {
+        return false
+    }
+    val statuses = when {
+        assignmentFetchSucceeded -> fetchedStatuses
+        confirmedThisProcess -> confirmedStatuses
+        else -> emptyList()
+    }
+    return shouldShareLocation(
+        hasSession = true,
+        permissionGranted = true,
+        receivingRequests = receivingRequests,
+        deliveryStatuses = statuses,
+        availability = availability,
+    )
+}
+
+fun shouldShareLocation(
+    hasSession: Boolean,
+    permissionGranted: Boolean,
+    receivingRequests: Boolean?,
+    deliveryStatuses: Collection<String> = emptyList(),
+    availability: String? = null,
+): Boolean {
+    if (!hasSession || !permissionGranted) {
+        return false
+    }
+    if (receivingRequests == true || hasCommittedAssignment(deliveryStatuses)) {
+        return true
+    }
+    return receivingRequests == null && availability == "AVAILABLE"
 }
 
 fun resumeLocationSharing(
     hasSession: Boolean,
     permissionGranted: Boolean,
     serverAvailability: String?,
+    receivingRequests: Boolean?,
+    deliveryStatuses: Collection<String>,
     locallyEnabled: Boolean,
 ): Boolean {
-    if (locallyEnabled && serverAvailability == null) {
+    val serverKnown = serverAvailability != null || receivingRequests != null || deliveryStatuses.isNotEmpty()
+    if (locallyEnabled && !serverKnown) {
         return false
     }
-    return shouldShareLocation(serverAvailability, hasSession, permissionGranted)
+    return shouldShareLocation(hasSession, permissionGranted, receivingRequests, deliveryStatuses, serverAvailability)
 }
 
 enum class LocationCommand {

@@ -112,11 +112,11 @@ fun mapPointForStatus(status: String, contacts: DeliveryContacts?): MapPoint? {
     val latitude: String?
     val longitude: String?
     when (status) {
-        "ASSIGNED", "ARRIVED_AT_PICKUP" -> {
+        "ASSIGNED", "ARRIVED_AT_PICKUP", "RIDER_ASSIGNED", "COLLECTING" -> {
             latitude = contacts.pickupLatitude
             longitude = contacts.pickupLongitude
         }
-        "PICKED_UP", "IN_TRANSIT", "ARRIVED_AT_DROPOFF" -> {
+        "PICKED_UP", "IN_TRANSIT", "ARRIVED_AT_DROPOFF", "COLLECTED", "OUT_FOR_DELIVERY" -> {
             latitude = contacts.dropoffLatitude
             longitude = contacts.dropoffLongitude
         }
@@ -145,8 +145,8 @@ fun navigationTarget(
         return NavigationTarget("geo:${point.latitude},${point.longitude}?q=${point.latitude},${point.longitude}")
     }
     val query = when (status) {
-        "ASSIGNED", "ARRIVED_AT_PICKUP" -> navigationQuery(pickupAddress, pickupLandmark)
-        "PICKED_UP", "IN_TRANSIT", "ARRIVED_AT_DROPOFF" -> navigationQuery(dropoffAddress, dropoffLandmark)
+        "ASSIGNED", "ARRIVED_AT_PICKUP", "RIDER_ASSIGNED", "COLLECTING" -> navigationQuery(pickupAddress, pickupLandmark)
+        "PICKED_UP", "IN_TRANSIT", "ARRIVED_AT_DROPOFF", "COLLECTED", "OUT_FOR_DELIVERY" -> navigationQuery(dropoffAddress, dropoffLandmark)
         else -> null
     } ?: return null
     return NavigationTarget("geo:0,0?q=${encodeNavigationQuery(query)}")

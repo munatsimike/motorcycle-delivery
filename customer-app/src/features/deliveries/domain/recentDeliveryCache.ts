@@ -149,6 +149,11 @@ function limitDeliveries(deliveries: readonly CustomerDelivery[]): CustomerDeliv
       createdAt: delivery.createdAt,
       pickupAddress: delivery.pickupAddress,
       dropoffAddress: delivery.dropoffAddress,
+      serviceClass: delivery.serviceClass ?? null,
+      deliverBy: delivery.deliverBy ?? null,
+      currency: delivery.currency ?? null,
+      suggestedPrice: delivery.suggestedPrice ?? null,
+      offeredPrice: delivery.offeredPrice ?? null,
     });
     if (unique.length === RECENT_DELIVERY_CACHE_LIMIT) {
       break;
@@ -180,6 +185,11 @@ function readCachedDelivery(value: unknown): CustomerDelivery | null {
     createdAt: value.createdAt,
     pickupAddress: value.pickupAddress.trim(),
     dropoffAddress: value.dropoffAddress.trim(),
+    serviceClass: value.serviceClass === 'EXPRESS' || value.serviceClass === 'FLEXIBLE' ? value.serviceClass : null,
+    deliverBy: typeof value.deliverBy === 'string' && value.deliverBy.trim() ? value.deliverBy : null,
+    currency: value.currency === 'USD' ? 'USD' : null,
+    suggestedPrice: typeof value.suggestedPrice === 'string' && value.suggestedPrice.trim() ? value.suggestedPrice : null,
+    offeredPrice: typeof value.offeredPrice === 'string' && value.offeredPrice.trim() ? value.offeredPrice : null,
   };
 }
 

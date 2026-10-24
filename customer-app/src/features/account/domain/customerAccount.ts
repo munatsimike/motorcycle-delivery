@@ -7,7 +7,30 @@ export type CustomerAccount = {
   phone: string;
   email: string | null;
   photoUrl: string | null;
+  marketplaceEnabled: boolean;
 };
+
+export type MarketplaceSignal = boolean | null;
+
+export function bookingMode(signal: MarketplaceSignal): 'v1' | 'v2' | 'unknown' {
+  if (signal === true) {
+    return 'v2';
+  }
+  if (signal === false) {
+    return 'v1';
+  }
+  return 'unknown';
+}
+
+export function nextMarketplaceSignal(
+  known: MarketplaceSignal,
+  outcome: { type: 'loaded'; enabled: boolean } | { type: 'network' } | { type: 'authentication' },
+): MarketplaceSignal {
+  if (outcome.type === 'loaded') {
+    return outcome.enabled;
+  }
+  return known;
+}
 
 export function readCustomerAccount(value: unknown): CustomerAccount {
   if (!isRecord(value)) {
@@ -22,6 +45,9 @@ export function readCustomerAccount(value: unknown): CustomerAccount {
   if (!kind || !name || !address || !phone || contactName === undefined) {
     throw new Error('Account details are unavailable.');
   }
+  if (typeof value.marketplaceEnabled !== 'boolean') {
+    throw new Error('Account details are unavailable.');
+  }
   return {
     id: text(value.id),
     kind,
@@ -31,6 +57,7 @@ export function readCustomerAccount(value: unknown): CustomerAccount {
     phone,
     email,
     photoUrl: optionalPhoto(value.photoUrl),
+    marketplaceEnabled: value.marketplaceEnabled,
   };
 }
 

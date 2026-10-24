@@ -22,9 +22,6 @@ import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
 import com.riders.rider.R
-import com.riders.rider.core.network.ApiResult
-import com.riders.rider.core.network.RiderService
-import com.riders.rider.core.network.apiCall
 import com.riders.rider.core.session.SessionStore
 import com.riders.rider.feature.availability.data.AvailabilityRepository
 import com.riders.rider.feature.availability.domain.GpsFix
@@ -43,7 +40,6 @@ import kotlinx.coroutines.withContext
 @AndroidEntryPoint
 class RiderLocationService : Service() {
     @Inject lateinit var availability: AvailabilityRepository
-    @Inject lateinit var riders: RiderService
     @Inject lateinit var sessions: SessionStore
     @Inject lateinit var freshness: LocationFreshness
 
@@ -76,7 +72,7 @@ class RiderLocationService : Service() {
         }
         running = true
         scope.launch {
-            if (!authorized(intent?.action == ACTION_SHARE)) {
+            if (!authorized()) {
                 stopSharing()
                 return@launch
             }
@@ -100,17 +96,11 @@ class RiderLocationService : Service() {
         super.onDestroy()
     }
 
-    private suspend fun authorized(justConfirmedAvailable: Boolean): Boolean {
+    private suspend fun authorized(): Boolean {
         if (sessions.read() == null || !fineLocationGranted()) {
             return false
         }
-        if (justConfirmedAvailable) {
-            return true
-        }
-        return when (val result = apiCall { riders.onboarding() }) {
-            is ApiResult.Ok -> result.value.availability == "AVAILABLE" && sessions.read() != null
-            is ApiResult.Err -> false
-        }
+        return availability.shouldShareNow()
     }
 
     private fun beginUpdates(): Boolean {

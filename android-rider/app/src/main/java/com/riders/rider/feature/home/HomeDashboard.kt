@@ -27,8 +27,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,6 +42,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -70,6 +74,9 @@ import com.riders.rider.core.design.RidersStatusIndicator
 import com.riders.rider.core.design.RidersType
 import com.riders.rider.feature.delivery.domain.ActiveDelivery
 import com.riders.rider.feature.delivery.domain.deliveryStatusLabel
+import com.riders.rider.feature.offers.domain.shouldAskNotificationPermission
+import com.riders.rider.feature.offers.notification.markNotificationPermissionAsked
+import com.riders.rider.feature.offers.notification.notificationPermissionWasAsked
 import com.riders.rider.feature.onboarding.domain.RiderOnboarding
 import com.riders.rider.feature.onboarding.domain.RiderReadiness
 import com.riders.rider.feature.onboarding.domain.needsOnboarding
@@ -94,6 +101,14 @@ fun HomeScreen(
             model.locationPermissionDenied()
         }
     }
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    LaunchedEffect(Unit) {
+        val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        if (shouldAskNotificationPermission(Build.VERSION.SDK_INT, granted, notificationPermissionWasAsked(context))) {
+            markNotificationPermissionAsked(context)
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
     HomeDashboard(
         ui = ui,
         greeting = ridersGreeting(Calendar.getInstance().get(Calendar.HOUR_OF_DAY)),
@@ -106,6 +121,7 @@ fun HomeScreen(
             }
         },
         onGoOffline = model::goOffline,
+        onReceiving = model::setReceiving,
         onOffers = onOffers,
         onWallet = onWallet,
         onDelivery = onDelivery,
@@ -121,6 +137,7 @@ fun HomeDashboard(
     greeting: String,
     onGoOnline: () -> Unit,
     onGoOffline: () -> Unit,
+    onReceiving: (Boolean) -> Unit = {},
     onOffers: () -> Unit,
     onDelivery: (String) -> Unit = { _ -> },
     onRefresh: () -> Unit = {},
@@ -157,7 +174,10 @@ fun HomeDashboard(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         RiderInitialsAvatar(ui.fullName)
-                        Column(verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs)) {
+                        Column(
+                            Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs),
+                        ) {
                             Text(greeting, style = RidersType.caption, color = RidersColors.textSecondary)
                             riderFirstName(ui.fullName)?.let { firstName ->
                                 Text(
@@ -166,6 +186,21 @@ fun HomeDashboard(
                                     color = RidersColors.text,
                                 )
                             }
+                        }
+                        Box(
+                            Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(RidersRadius.lg))
+                                .background(RidersColors.background)
+                                .clickable(role = Role.Button, onClick = onOffers),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_bell),
+                                contentDescription = "Notifications",
+                                modifier = Modifier.size(22.dp),
+                                tint = RidersColors.text,
+                            )
                         }
                     }
                     when {
@@ -183,11 +218,18 @@ fun HomeDashboard(
                                 readiness = readiness,
                                 loading = ui.loading,
                                 changingAvailability = ui.changingAvailability,
+                                receiving = receivingControl(
+                                    receiving = ui.onboarding?.receiving,
+                                    canAcceptDeliveries = readiness.canAcceptDeliveries,
+                                    changing = ui.changingAvailability || ui.changingReceiving,
+                                ),
+                                changingReceiving = ui.changingReceiving,
                                 showFinishSetup = ui.onboarding != null && needsOnboarding(ui.onboarding) && !readiness.canGoOnline,
                                 showGoOnline = ui.shift.showGoOnline && readiness.canGoOnline,
                                 showGoOffline = ui.shift.showGoOffline,
                                 onGoOnline = onGoOnline,
                                 onGoOffline = onGoOffline,
+                                onReceiving = onReceiving,
                                 onSetup = onSetup,
                             )
                         }
@@ -210,9 +252,15 @@ fun HomeDashboard(
                         balance = ui.walletBalance,
                         currency = ui.walletCurrency,
                         activeRequestCount = ui.activeRequestCount,
+                        availableCapacity = ui.walletAvailableCapacity,
+                        reservedFees = ui.walletReservedFees,
+                        showWalletCapacity = ui.onboarding?.receiving != null,
                         onWallet = onWallet,
                         onRequests = onOffers,
                     )
+                    if (ui.onboarding?.receiving != null || ui.committedV2) {
+                        WorkloadCard(flexible = ui.flexibleCount, express = ui.expressCount)
+                    }
                     val recoveryText = if (ui.shift.recoveryFailed) {
                         ui.shift.recoveryMessage ?: "Your current delivery could not be loaded. Check your connection and try again."
                     } else {
@@ -227,7 +275,9 @@ fun HomeDashboard(
                     if (showActiveSection(ui) && !recoveryOnly) {
                         ActiveDeliverySection(ui, onDelivery, suppressConnection = pageConnection)
                     }
-                    RequestsSection(ui, onOffers)
+                    if (!ui.assignmentsUnknown) {
+                        RequestsSection(ui, onOffers)
+                    }
                     if (ui.error != null && ui.error != ui.shift.recoveryMessage && !isConnectionFailure(ui.error)) {
                         RidersErrorState(message = ui.error)
                     }
@@ -335,15 +385,22 @@ private fun HomeSummaries(
     balance: String?,
     currency: String?,
     activeRequestCount: Int?,
+    availableCapacity: String?,
+    reservedFees: String?,
+    showWalletCapacity: Boolean,
     onWallet: () -> Unit,
     onRequests: () -> Unit,
 ) {
-    Row(
+    Column(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(20.dp))
             .background(RidersColors.canvas)
             .padding(horizontal = RidersSpacing.md, vertical = RidersSpacing.md),
+        verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
+    ) {
+    Row(
+        Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         SummaryTile(
@@ -352,6 +409,7 @@ private fun HomeSummaries(
             value = if (balance != null && currency != null) walletMoneyLabel(currency, balance) else "—",
             iconBackground = Color(0xFFF6E3D0),
             accent = Color(0xFFE08A3C),
+            largeValue = true,
             onClick = onWallet,
             modifier = Modifier.weight(1f),
         )
@@ -372,6 +430,38 @@ private fun HomeSummaries(
             onClick = onRequests,
             modifier = Modifier.weight(1f),
         )
+    }
+        if (showWalletCapacity) {
+            Text(
+                capacityLine(currency, availableCapacity, reservedFees),
+                style = RidersType.caption,
+                color = RidersColors.textSecondary,
+            )
+        }
+    }
+}
+
+private fun capacityLine(currency: String?, availableCapacity: String?, reservedFees: String?): String {
+    val capacity = if (availableCapacity != null && currency != null) walletMoneyLabel(currency, availableCapacity) else "—"
+    val reserved = if (reservedFees != null && currency != null) walletMoneyLabel(currency, reservedFees) else "—"
+    return "Available capacity $capacity · Reserved fees $reserved"
+}
+
+@Composable
+private fun WorkloadCard(flexible: Int?, express: Int?) {
+    RidersCard(modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(RidersSpacing.lg)) {
+            WorkloadCount("Flexible", flexible, Modifier.weight(1f))
+            WorkloadCount("Express", express, Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun WorkloadCount(label: String, count: Int?, modifier: Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs)) {
+        Text(label, style = RidersType.caption, color = RidersColors.textSecondary)
+        Text(count?.toString() ?: "—", style = RidersType.heading, color = RidersColors.text)
     }
 }
 
@@ -451,11 +541,14 @@ private fun AvailabilityCard(
     readiness: RiderReadiness,
     loading: Boolean,
     changingAvailability: Boolean,
+    receiving: ReceivingControl,
+    changingReceiving: Boolean,
     showFinishSetup: Boolean,
     showGoOnline: Boolean,
     showGoOffline: Boolean,
     onGoOnline: () -> Unit,
     onGoOffline: () -> Unit,
+    onReceiving: (Boolean) -> Unit,
     onSetup: () -> Unit,
 ) {
     RidersCard(prominent = true, modifier = Modifier.fillMaxWidth()) {
@@ -489,7 +582,11 @@ private fun AvailabilityCard(
                         Text("You are online", style = RidersType.heading, color = RidersColors.text)
                     }
                     Text(
-                        "Stay online to receive delivery requests.",
+                        if (receiving.visible && !receiving.checked) {
+                            "You are online. New requests are paused."
+                        } else {
+                            "Stay online to receive delivery requests."
+                        },
                         style = RidersType.body,
                         color = RidersColors.textSecondary,
                     )
@@ -511,9 +608,30 @@ private fun AvailabilityCard(
                         style = RidersType.body,
                         color = RidersColors.textSecondary,
                     )
+                } else if (readiness.approvalLabel == "Pending") {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            Modifier
+                                .size(10.dp)
+                                .clip(CircleShape)
+                                .background(RidersColors.textSecondary),
+                        )
+                        Text("You are offline", style = RidersType.heading, color = RidersColors.text)
+                    }
+                    Text(
+                        "Your account is waiting for approval",
+                        style = RidersType.body,
+                        color = RidersColors.textSecondary,
+                    )
                 } else {
                     RidersStatusIndicator(availabilityFor(readiness))
                     Text(readiness.message, style = RidersType.body, color = RidersColors.text)
+                }
+                if (receiving.visible) {
+                    ReceivingSwitch(receiving, changingReceiving, onReceiving)
                 }
             }
         }
@@ -546,6 +664,36 @@ private fun AvailabilityCard(
                 modifier = Modifier.fillMaxWidth(),
             )
         }
+    }
+}
+
+@Composable
+private fun ReceivingSwitch(
+    receiving: ReceivingControl,
+    changingReceiving: Boolean,
+    onReceiving: (Boolean) -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs)) {
+            Text(
+                if (receiving.checked) "Receiving requests" else "Not receiving requests",
+                style = RidersType.body,
+                color = RidersColors.text,
+            )
+            if (changingReceiving) {
+                Text("Saving receiving preference", style = RidersType.caption, color = RidersColors.textSecondary)
+            }
+        }
+        Switch(
+            checked = receiving.checked,
+            onCheckedChange = onReceiving,
+            enabled = receiving.enabled,
+            modifier = Modifier.semantics { contentDescription = "Receiving requests" },
+        )
     }
 }
 
@@ -643,7 +791,7 @@ private fun RequestsSection(
 }
 
 private fun showActiveSection(ui: HomeUi): Boolean {
-    return ui.shift.showActiveDelivery || ui.shift.recovering || ui.shift.recoveryFailed || ui.shift.recoveryRequired
+    return showsV1ActiveDelivery(ui.onboarding?.receiving, ui.shift, ui.committedV2, ui.assignmentsUnknown)
 }
 
 private fun availabilityFor(readiness: RiderReadiness): RidersAvailability = when (readiness.availabilityLabel) {
@@ -659,14 +807,10 @@ internal fun ridersGreeting(hour: Int): String = when {
 }
 
 private fun locationPermissions(): Array<String> {
-    val permissions = mutableListOf(
+    return arrayOf(
         Manifest.permission.ACCESS_FINE_LOCATION,
         Manifest.permission.ACCESS_COARSE_LOCATION,
     )
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        permissions += Manifest.permission.POST_NOTIFICATIONS
-    }
-    return permissions.toTypedArray()
 }
 
 @Preview(name = "Offline approved", showBackground = true, widthDp = 360)

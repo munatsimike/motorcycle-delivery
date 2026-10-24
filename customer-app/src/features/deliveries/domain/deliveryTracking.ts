@@ -1,5 +1,8 @@
-import { deliveryGroup, type DeliveryStatus } from './deliveryStatus';
 import type { CustomerDeliveryDetail } from './customerDeliveryDetail';
+import { shouldPollDelivery } from './marketplaceTracking';
+import { deliveryGroup, type DeliveryStatus } from './deliveryStatus';
+
+export const TRACKING_POLL_MS = 8_000;
 
 export type TrackingClock = {
   schedule(callback: () => void, delayMs: number): void;
@@ -56,6 +59,12 @@ export function createDeliveryTracker(options: TrackerOptions) {
 
   function arm() {
     options.clock.clear();
+    if (!watching() || !shouldPollDelivery(delivery)) {
+      return;
+    }
+    options.clock.schedule(() => {
+      void refresh(false);
+    }, TRACKING_POLL_MS);
   }
 
   async function refresh(manual: boolean) {

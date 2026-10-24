@@ -26,11 +26,15 @@ npm-debug.*
 yarn-debug.*
 yarn-error.*
 
+# Local runtime logs. Never commit.
+*.log
+
 # macOS
 .DS_Store
 *.pem
 
 # local env files
+.env
 .env*.local
 
 # typescript
@@ -39,3 +43,7 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Firebase native config. Download from the Firebase console. Do not commit.
+google-services.json
+GoogleService-Info.plist

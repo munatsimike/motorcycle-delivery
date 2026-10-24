@@ -13,6 +13,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -25,12 +26,15 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavBackStackEntry
 import com.riders.rider.R
 import com.riders.rider.core.design.RidersColors
 import com.riders.rider.core.design.RidersType
 import com.riders.rider.feature.home.DeliveriesScreen
 import com.riders.rider.feature.home.HomeScreen
+import com.riders.rider.feature.offers.notification.rememberOfferInbox
+import com.riders.rider.feature.offers.notification.rememberOfferPush
 import com.riders.rider.feature.home.HomeViewModel
 import com.riders.rider.feature.profile.presentation.ProfileScreen
 import com.riders.rider.feature.profile.presentation.ProfileViewModel
@@ -54,6 +58,14 @@ fun RiderShell(
 ) {
     var tabName by rememberSaveable { mutableStateOf(RiderDestination.Home.name) }
     val tab = RiderDestination.valueOf(tabName)
+    val pending = rememberOfferInbox()
+    val offerPush = rememberOfferPush()
+    val offerTap by pending.taps.collectAsStateWithLifecycle()
+    LaunchedEffect(offerTap) {
+        if (offerTap != null) {
+            tabName = RiderDestination.Deliveries.name
+        }
+    }
     val home: HomeViewModel = hiltViewModel()
     val profile: ProfileViewModel = hiltViewModel()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -61,6 +73,7 @@ fun RiderShell(
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 home.refresh()
+                offerPush.onHome()
                 if (entry.savedStateHandle.remove<Boolean>("refreshProfile") == true) {
                     profile.refresh(force = true)
                 }

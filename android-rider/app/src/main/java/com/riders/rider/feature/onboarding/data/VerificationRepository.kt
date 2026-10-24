@@ -49,6 +49,7 @@ class VerificationRepository @Inject constructor(
                     rejectionReason = result.value.rejectionReason,
                     verifiedMotorcycleCount = result.value.verifiedMotorcycleCount,
                     activeVerifiedMotorcycle = result.value.activeVerifiedMotorcycle,
+                    receiving = result.value.receiving,
                 ),
             )
             is ApiResult.Err -> result

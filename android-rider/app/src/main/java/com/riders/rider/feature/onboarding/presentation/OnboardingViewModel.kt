@@ -43,6 +43,7 @@ data class OnboardingUi(
     val uploadPercent: Int? = null,
     val savingMotorcycle: Boolean = false,
     val error: String? = null,
+    val notice: String? = null,
 )
 
 @HiltViewModel
@@ -85,7 +86,7 @@ class OnboardingViewModel @Inject constructor(
     fun selectLicence(bytes: ByteArray) {
         val issue = licenceImageIssue(bytes)
         state.value = if (issue == null) {
-            state.value.copy(preview = bytes, error = null)
+            state.value.copy(preview = bytes, error = null, notice = null)
         } else {
             state.value.copy(error = issue)
         }
@@ -121,9 +122,11 @@ class OnboardingViewModel @Inject constructor(
                     state.value = state.value.copy(
                         uploading = false,
                         uploadPercent = null,
+                        preview = null,
                         licence = result.value,
                         onboarding = onboard,
                         error = null,
+                        notice = "Your licence has been saved.",
                     )
                 }
                 is ApiResult.Err -> state.value = state.value.copy(
@@ -145,6 +148,7 @@ class OnboardingViewModel @Inject constructor(
             editingId = null,
             draft = MotorcycleDraft(),
             error = null,
+            notice = null,
         )
     }
 
@@ -159,6 +163,7 @@ class OnboardingViewModel @Inject constructor(
                 colour = motorcycle.colour,
             ),
             error = null,
+            notice = null,
         )
     }
 
@@ -182,6 +187,8 @@ class OnboardingViewModel @Inject constructor(
                         addingMotorcycle = false,
                         editingId = null,
                         draft = MotorcycleDraft(),
+                        error = null,
+                        notice = "Your motorbike has been saved.",
                     )
                     refresh()
                 }
@@ -212,25 +219,48 @@ class OnboardingViewModel @Inject constructor(
 
     fun continueStep() {
         val current = state.value
+        val blocked = continueBlock(current)
+        if (blocked != null) {
+            state.value = current.copy(error = blocked)
+            return
+        }
         val licenceReady = current.onboarding?.licenceVerificationStatus == "VERIFIED" || current.licence != null
         val next = nextOnboardingStep(current.step, licenceReady, current.motorcycles.isNotEmpty())
         state.value = if (next == null) {
             current.copy(error = blockedStepMessage(current.step))
         } else {
-            current.copy(step = next, error = null)
+            current.copy(step = next, error = null, notice = null)
         }
     }
 
     fun back() {
         val previous = previousOnboardingStep(state.value.step) ?: return
-        state.value = state.value.copy(step = previous, error = null)
+        state.value = state.value.copy(step = previous, error = null, notice = null)
+    }
+
+    private fun continueBlock(current: OnboardingUi): String? = when (current.step) {
+        OnboardingStep.Licence -> when {
+            current.preview != null -> "Save your licence before continuing."
+            current.licence == null && current.onboarding?.licenceVerificationStatus != "VERIFIED" -> "Upload your driving licence to continue."
+            else -> null
+        }
+        OnboardingStep.Motorcycle -> when {
+            draftStarted(current.draft) -> "Save your motorbike before continuing."
+            current.motorcycles.isEmpty() -> "Add your motorbike to continue."
+            else -> null
+        }
+        else -> null
     }
 
     private fun blockedStepMessage(step: OnboardingStep): String? = when (step) {
         OnboardingStep.Licence -> "Upload your driving licence to continue."
-        OnboardingStep.Motorcycle -> "Add your motorcycle to continue."
+        OnboardingStep.Motorcycle -> "Add your motorbike to continue."
         else -> null
     }
+}
+
+private fun draftStarted(draft: MotorcycleDraft): Boolean {
+    return listOf(draft.registrationNumber, draft.make, draft.model, draft.colour).any { it.isNotBlank() }
 }
 
 private fun firstFailure(vararg results: ApiResult<*>) = results.firstNotNullOfOrNull { result ->

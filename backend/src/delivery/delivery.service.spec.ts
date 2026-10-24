@@ -483,14 +483,15 @@ describe('flagged service-class quotes', () => {
     expect(ctx.audits).toHaveLength(0);
   });
 
-  it('keeps customer creation on the V1 tariff when the flag is on and the client sends a snapshot', async () => {
+  it('opens a V2 request from the class tariff when the flag is on and ignores the client snapshot', async () => {
     process.env.V2_MARKETPLACE_ENABLED = 'true';
-    const ctx = context();
+    const ctx = context({ now: new Date('2026-10-24T08:00:00.000Z') });
     await ctx.pricing.replace(ADMIN, tariff('2.00', '1.00', 0, 100_000));
     ctx.configs.unshift(published('express', ServiceClass.EXPRESS, PricingModel.FIXED, '9.00'));
     const body = {
       ...deliveryBody('4.00'),
       serviceClass: 'EXPRESS',
+      deliverBy: '2026-10-24T18:00:00.000Z',
       pricingModel: 'FIXED',
       pricingVersion: 99,
       basisPoints: 5_000,
@@ -499,27 +500,30 @@ describe('flagged service-class quotes', () => {
       distanceMeters: 1_500,
     };
 
-    await expect(ctx.deliveries.create(CUSTOMER, { ...body, payer: undefined })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(ctx.deliveries.create(CUSTOMER, { ...body, deliverBy: undefined })).rejects.toBeInstanceOf(BadRequestException);
     expect(ctx.deliveryRows).toHaveLength(0);
 
-    const created = await ctx.deliveries.create(CUSTOMER, body);
+    const created = await ctx.deliveries.create(CUSTOMER, { ...body, payer: undefined, paymentMethod: undefined, offeredPrice: undefined });
     expect(created).toMatchObject({
       status: 'CREATED',
-      payer: 'RECIPIENT',
-      paymentMethod: 'CASH',
-      pricingVersion: 1,
-      suggestedPrice: '2.00',
-      offeredPrice: '4.00',
+      payer: null,
+      paymentMethod: null,
+      pricingVersion: 9,
+      pricingModel: 'FIXED',
+      basisPoints: 0,
+      serviceClass: 'EXPRESS',
+      deliverBy: '2026-10-24T18:00:00.000Z',
+      suggestedPrice: '9.00',
+      offeredPrice: null,
+      searchGeneration: 0,
     });
-    expect(created).not.toHaveProperty('serviceClass');
     expect(ctx.deliveryRows[0]).toMatchObject({
-      price: '4.00',
-      suggestedPrice: '2.00',
-      pricingVersion: 1,
-      payer: 'RECIPIENT',
-      paymentMethod: 'CASH',
+      price: null,
+      suggestedPrice: '9.00',
+      pricingVersion: 9,
+      serviceClass: 'EXPRESS',
+      searchGeneration: 0,
     });
-    expect(ctx.deliveryRows[0]).not.toHaveProperty('serviceClass');
     expect(ctx.assignments).toHaveLength(0);
     expect(ctx.audits).toHaveLength(1);
   });
@@ -544,6 +548,11 @@ describe('DeliveryService list', () => {
       reference: 'a-2',
       status: 'SEARCHING',
       createdAt: sameTime,
+      serviceClass: null,
+      deliverBy: null,
+      currency: null,
+      suggestedPrice: null,
+      offeredPrice: null,
       pickup: { address: 'High pickup' },
       dropoff: { address: 'High drop-off' },
     });
@@ -570,6 +579,28 @@ describe('DeliveryService list', () => {
     expect(active.data.map((delivery) => delivery.status)).toEqual(['SEARCHING', 'CREATED']);
     await expect(service.list(customer('account-a'), { page: '0' })).rejects.toBeInstanceOf(BadRequestException);
     await expect(service.list(customer('account-a'), { status: 'EN_ROUTE' })).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('returns the service class, deadline, and prices for a V2 request', async () => {
+    const deadline = new Date('2026-10-24T18:00:00.000Z');
+    const service = new DeliveryService(listPrisma([{
+      ...row('v2', 'account-a', 'CREATED', sameTime, 'Pickup road', 'Drop-off road'),
+      serviceClass: 'FLEXIBLE',
+      deliverBy: deadline,
+      currency: 'USD',
+      suggestedPrice: '8.00',
+      price: '9.50',
+    }]) as never);
+    const page = await service.list(customer('account-a'), {});
+    expect(page.data[0]).toMatchObject({
+      status: 'CREATED',
+      serviceClass: 'FLEXIBLE',
+      deliverBy: '2026-10-24T18:00:00.000Z',
+      currency: 'USD',
+      suggestedPrice: '8.00',
+      offeredPrice: '9.50',
+    });
+    expect(JSON.stringify(page)).not.toContain('+263');
   });
 });
 

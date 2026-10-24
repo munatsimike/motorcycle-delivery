@@ -23,6 +23,7 @@ export class InvalidResponseError extends Error {
 
 type RequestOptions = {
   accessToken?: string;
+  headers?: Record<string, string>;
 };
 
 export function apiGet<TResponse>(path: string, options?: RequestOptions): Promise<TResponse> {
@@ -75,13 +76,31 @@ export async function apiGetBytes(path: string, options?: RequestOptions): Promi
   }
 }
 
-export function apiDelete<TResponse>(path: string, options?: RequestOptions): Promise<TResponse> {
-  return apiRequest<TResponse>(path, { method: 'DELETE' }, options);
+export function apiPut<TResponse>(
+  path: string,
+  body: unknown,
+  options?: RequestOptions,
+): Promise<TResponse> {
+  return apiRequest<TResponse>(path, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  }, options);
+}
+
+export function apiDelete<TResponse>(
+  path: string,
+  body?: unknown,
+  options?: RequestOptions,
+): Promise<TResponse> {
+  return apiRequest<TResponse>(path, {
+    method: 'DELETE',
+    body: body === undefined ? undefined : JSON.stringify(body),
+  }, options);
 }
 
 async function apiRequest<TResponse>(
   path: string,
-  init: { method: 'GET' | 'POST' | 'PATCH' | 'DELETE'; body?: string },
+  init: { method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'; body?: string },
   options?: RequestOptions,
 ): Promise<TResponse> {
   const controller = new AbortController();
@@ -93,6 +112,9 @@ async function apiRequest<TResponse>(
     };
     if (init.body) {
       headers['Content-Type'] = 'application/json';
+    }
+    if (options?.headers) {
+      Object.assign(headers, options.headers);
     }
     if (options?.accessToken) {
       headers.Authorization = `Bearer ${options.accessToken}`;

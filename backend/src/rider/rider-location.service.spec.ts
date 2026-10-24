@@ -49,4 +49,27 @@ describe('rider location updates', () => {
     expect(calls[0]?.values[3]).toBeCloseTo(31.05);
     expect(calls[0]?.values[4]).toBeCloseTo(-17.8);
   });
+
+  it('stores a location while marketplace bidding is unavailable', async () => {
+    const previous = process.env.V2_MARKETPLACE_ENABLED;
+    process.env.V2_MARKETPLACE_ENABLED = 'false';
+    const calls: unknown[] = [];
+    const service = new RiderLocationService({
+      async $executeRaw() {
+        calls.push(true);
+        return 1;
+      },
+    } as unknown as PrismaService);
+    try {
+      await expect(service.update(RIDER, { latitude: -17.8292, longitude: 31.0522 }, NOW))
+        .resolves.toEqual({ updatedAt: NOW.toISOString() });
+      expect(calls).toHaveLength(1);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.V2_MARKETPLACE_ENABLED;
+      } else {
+        process.env.V2_MARKETPLACE_ENABLED = previous;
+      }
+    }
+  });
 });

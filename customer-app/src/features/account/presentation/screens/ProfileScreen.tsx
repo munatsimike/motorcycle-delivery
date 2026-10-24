@@ -9,12 +9,15 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import CustomerAvatar from '../../../../components/CustomerAvatar';
 import ErrorMessage from '../../../../components/ErrorMessage';
+import FormInput from '../../../../components/FormInput';
 import GreenSurface from '../../../../components/GreenSurface';
 import LoadingIndicator from '../../../../components/LoadingIndicator';
+import PrimaryButton from '../../../../components/PrimaryButton';
 import SecondaryButton from '../../../../components/SecondaryButton';
 import type { CustomerTabParamList, RootStackParamList } from '../../../../navigation/types';
 import { colors, radius, spacing, typography } from '../../../../theme';
 import { useSession } from '../../../auth/presentation/viewmodels/useSession';
+import { errorMessage } from '../../../auth/presentation/errorMessage';
 import { useCustomerAccount } from '../viewmodels/useCustomerAccount';
 
 type ProfileNavigation = CompositeNavigationProp<
@@ -28,6 +31,7 @@ export default function ProfileScreen() {
   const {
     accessToken,
     logout,
+    setPassword: saveSessionPassword,
     biometricEnabled,
     setBiometricEnabled,
   } = useSession();
@@ -35,9 +39,38 @@ export default function ProfileScreen() {
   const navigation = useNavigation<ProfileNavigation>();
   const insets = useSafeAreaInsets();
   const [signingOut, setSigningOut] = useState(false);
+  const [password, setPassword] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [savingPassword, setSavingPassword] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordSaved, setPasswordSaved] = useState(false);
   const [isUpdatingBiometric, setIsUpdatingBiometric] = useState(false);
   const [biometricError, setBiometricError] = useState<string | null>(null);
   const kindLabel = account?.kind === 'BUSINESS' ? 'Business' : 'Individual';
+
+  async function handlePassword() {
+    if (!accessToken || savingPassword) {
+      return;
+    }
+    if (password.length < 12 || password.length > 128) {
+      setPasswordSaved(false);
+      setPasswordError('Password must contain 12 to 128 characters');
+      return;
+    }
+    setSavingPassword(true);
+    setPasswordError(null);
+    setPasswordSaved(false);
+    try {
+      await saveSessionPassword(password, currentPassword || undefined);
+      setPasswordSaved(true);
+      setPassword('');
+      setCurrentPassword('');
+    } catch (caught) {
+      setPasswordError(errorMessage(caught, 'Authentication failed'));
+    } finally {
+      setSavingPassword(false);
+    }
+  }
 
   async function handleLogout() {
     if (signingOut) {
@@ -176,6 +209,41 @@ export default function ProfileScreen() {
         </View>
         ) : null}
         <ErrorMessage message={biometricError} />
+
+        <View style={styles.card}>
+          <Text style={styles.settingTitle}>Password</Text>
+          <Text style={styles.passwordHint}>
+            Add a password for when SMS is unavailable. Saving it keeps this sign-in and biometric unlock.
+          </Text>
+          <FormInput
+            label="New password"
+            value={password}
+            onChangeText={setPassword}
+            placeholder="12 or more characters"
+            autoCapitalize="none"
+            secureTextEntry
+            editable={!savingPassword}
+          />
+          <FormInput
+            label="Current password"
+            value={currentPassword}
+            onChangeText={setCurrentPassword}
+            placeholder="Only if you already have one"
+            autoCapitalize="none"
+            secureTextEntry
+            editable={!savingPassword}
+          />
+          <ErrorMessage message={passwordError} />
+          {passwordSaved ? <Text style={styles.saved}>Password saved. This phone stays signed in.</Text> : null}
+          <PrimaryButton
+            label="Save password"
+            onPress={() => {
+              void handlePassword();
+            }}
+            loading={savingPassword}
+            disabled={savingPassword}
+          />
+        </View>
 
         <View style={styles.edit}>
           <SecondaryButton
@@ -378,5 +446,18 @@ const styles = StyleSheet.create({
     fontSize: typography.caption,
     lineHeight: 20,
     color: colors.textSecondary,
+  },
+  passwordHint: {
+    fontSize: typography.caption,
+    lineHeight: 20,
+    color: colors.textSecondary,
+    marginTop: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  saved: {
+    fontSize: typography.caption,
+    lineHeight: 20,
+    color: colors.primaryDark,
+    marginBottom: spacing.md,
   },
 });

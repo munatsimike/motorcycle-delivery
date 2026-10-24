@@ -75,6 +75,30 @@ function fakeRepository(): CustomerAuthRepository & { completed: CompleteRegistr
       this.completed = request;
       return session;
     },
+    loginWithPassword(): Promise<AuthSession> {
+      throw new Error('not used');
+    },
+    setPassword(): Promise<void> {
+      throw new Error('not used');
+    },
+    registerWithPassword(): Promise<AuthSession> {
+      throw new Error('not used');
+    },
+    startWhatsAppRegistration(): Promise<PendingOtp> {
+      throw new Error('not used');
+    },
+    resendWhatsAppRegistration(): Promise<PendingOtp> {
+      throw new Error('not used');
+    },
+    verifyWhatsAppRegistration(): Promise<AuthSession> {
+      throw new Error('not used');
+    },
+    requestPasswordReset(): Promise<PendingOtp> {
+      throw new Error('not used');
+    },
+    resetPassword(): Promise<void> {
+      throw new Error('not used');
+    },
     refresh(): Promise<AuthSession> {
       throw new Error('not used');
     },

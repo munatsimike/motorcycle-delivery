@@ -12,6 +12,7 @@ const individual: CustomerAccount = {
   phone: '+263771234567',
   email: null,
   photoUrl: null,
+  marketplaceEnabled: false,
 };
 
 describe('profileEdit', () => {

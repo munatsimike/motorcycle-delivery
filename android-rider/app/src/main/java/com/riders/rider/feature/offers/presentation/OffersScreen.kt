@@ -15,6 +15,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -43,6 +44,7 @@ fun OffersScreen(
     onAccepted: (String) -> Unit,
     inShell: Boolean = false,
     modifier: Modifier = Modifier,
+    offerAssignmentId: String? = null,
     model: OfferViewModel = hiltViewModel(),
 ) {
     val ui by model.ui.collectAsStateWithLifecycle()
@@ -64,7 +66,11 @@ fun OffersScreen(
             model.setScreenResumed(false)
         }
     }
-    androidx.compose.runtime.LaunchedEffect(ui.accepted?.deliveryId) {
+    LaunchedEffect(offerAssignmentId) {
+        val assignmentId = offerAssignmentId ?: return@LaunchedEffect
+        model.openFromNotification(assignmentId)
+    }
+    LaunchedEffect(ui.accepted?.deliveryId) {
         ui.accepted?.let { onAccepted(it.deliveryId) }
     }
     val selected = ui.selected

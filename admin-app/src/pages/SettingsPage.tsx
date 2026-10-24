@@ -3,7 +3,8 @@ import { useState } from 'react';
 import { adminApi } from '../lib/client';
 import { label, when } from '../lib/labels';
 import { moneyValue, wholeMetres } from '../lib/money';
-import type { CommissionPolicy, DeliveryPricing, Page, PricingAudit, WalletConfig } from '../lib/types';
+import type { CommissionPolicy, DeliveryPricing, Page, PricingAudit, V2CommissionAudit, V2CommissionRate, WalletConfig } from '../lib/types';
+import { basisPointsFromCommissionPercentage } from '../lib/v2-commission';
 import { Dialog, Empty, ErrorNote, Loading, Pager, SuccessNote, textOf } from '../ui';
 import { ClassPricingPanel } from './ClassPricingPanel';
 
@@ -11,6 +12,7 @@ type Draft =
   | { kind: 'wallet'; welcomeBonus: string; defaultBorrowingLimit: string; platformFee: string }
   | { kind: 'pricing'; baseFee: string; pricePerKilometre: string; minimumTripMetres: number; maximumTripMetres: number }
   | { kind: 'commission'; model: CommissionPolicy['model'] }
+  | { kind: 'v2-commission'; percentage: string }
   | null;
 
 export function SettingsPage() {
@@ -18,6 +20,7 @@ export function SettingsPage() {
   const wallet = useQuery({ queryKey: ['wallet-config'], queryFn: () => adminApi.request<WalletConfig>('/admin/wallet-config') });
   const pricing = useQuery({ queryKey: ['pricing'], queryFn: () => adminApi.request<DeliveryPricing>('/admin/delivery-pricing') });
   const commission = useQuery({ queryKey: ['commission'], queryFn: () => adminApi.request<CommissionPolicy>('/admin/commission-policy') });
+  const v2Commission = useQuery({ queryKey: ['v2-commission'], queryFn: () => adminApi.request<V2CommissionRate>('/admin/v2-commission-rate') });
   const [draft, setDraft] = useState<Draft>(null);
   const [section, setSection] = useState<'v1' | 'express' | 'flexible'>('v1');
   const [error, setError] = useState<string | null>(null);
@@ -38,7 +41,10 @@ export function SettingsPage() {
       if (next.kind === 'pricing') {
         return adminApi.request('/admin/delivery-pricing', { method: 'PUT', body: { currency: 'USD', baseFee: next.baseFee, pricePerKilometre: next.pricePerKilometre, minimumTripMetres: next.minimumTripMetres, maximumTripMetres: next.maximumTripMetres } });
       }
-      return adminApi.request('/admin/commission-policy', { method: 'PUT', body: { model: next.model } });
+      if (next.kind === 'commission') {
+        return adminApi.request('/admin/commission-policy', { method: 'PUT', body: { model: next.model } });
+      }
+      return adminApi.request('/admin/v2-commission-rate', { method: 'POST', body: { percentage: next.percentage } });
     },
     onSuccess: async () => {
       setDraft(null);
@@ -46,6 +52,8 @@ export function SettingsPage() {
       await queryClient.invalidateQueries({ queryKey: ['wallet-config'] });
       await queryClient.invalidateQueries({ queryKey: ['pricing'] });
       await queryClient.invalidateQueries({ queryKey: ['commission'] });
+      await queryClient.invalidateQueries({ queryKey: ['v2-commission'] });
+      await queryClient.invalidateQueries({ queryKey: ['v2-commission-audits'] });
     },
   });
 
@@ -167,6 +175,35 @@ export function SettingsPage() {
           </form>
         ) : null}
       </section>
+      <section className="panel">
+        <h2>V2 commission percentage</h2>
+        <p className="muted">One percentage for every Express and Flexible delivery.</p>
+        {v2Commission.isLoading ? <Loading label="Loading V2 commission" /> : null}
+        {v2Commission.error ? <ErrorNote>{textOf(v2Commission.error)}</ErrorNote> : null}
+        {v2Commission.data ? (
+          <form key={v2Commission.data.configured ? v2Commission.data.rateVersion : 'unpublished'} className="stack" onSubmit={(event) => {
+            event.preventDefault();
+            setError(null);
+            const data = new FormData(event.currentTarget);
+            const percentage = String(data.get('percentage') ?? '');
+            const basisPoints = basisPointsFromCommissionPercentage(percentage);
+            if (basisPoints === null) {
+              setError('Enter a commission percentage from 0 to 100, with at most two decimal places.');
+              return;
+            }
+            setDraft({ kind: 'v2-commission', percentage: percentage.trim().replace(/%$/, '') });
+          }}>
+            {v2Commission.data.configured ? (
+              <p className="muted">{v2Commission.data.percentage}% · Version {v2Commission.data.rateVersion}</p>
+            ) : (
+              <p>No V2 commission percentage has been published.</p>
+            )}
+            <label>Percentage<input name="percentage" inputMode="decimal" defaultValue={v2Commission.data.configured ? v2Commission.data.percentage : ''} /></label>
+            <button className="button" type="submit">Review V2 commission</button>
+          </form>
+        ) : null}
+      </section>
+      <V2CommissionHistory />
       {draft ? (
         <Dialog title="Save settings" busy={save.isPending} confirmLabel="Save" onClose={() => { if (!save.isPending) setDraft(null); }} onConfirm={() => save.mutate(draft)}>
           <DraftSummary draft={draft} />
@@ -223,6 +260,52 @@ function PricingHistory() {
   );
 }
 
+function V2CommissionHistory() {
+  const [page, setPage] = useState(1);
+  const audits = useQuery({
+    queryKey: ['v2-commission-audits', page],
+    queryFn: () => adminApi.request<Page<V2CommissionAudit>>(`/admin/v2-commission-rate/audits?page=${page}&limit=20`),
+  });
+  return (
+    <section className="panel">
+      <h2>V2 commission history</h2>
+      <p className="muted">Each row shows who published the percentage, the previous version, and the next version.</p>
+      {audits.isLoading ? <Loading label="Loading V2 commission history" /> : null}
+      {audits.error ? (
+        <div className="stack">
+          <ErrorNote>{textOf(audits.error)}</ErrorNote>
+          <button className="button-secondary" type="button" onClick={() => { void audits.refetch(); }}>Try again</button>
+        </div>
+      ) : null}
+      {audits.data && audits.data.data.length === 0 ? <Empty>No V2 commission changes have been published.</Empty> : null}
+      {audits.data && audits.data.data.length > 0 ? (
+        <>
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr><th>When</th><th>Actor</th><th>Previous</th><th>Next</th></tr>
+              </thead>
+              <tbody>
+                {audits.data.data.map((audit) => (
+                  <tr key={audit.id}>
+                    <td>{when(audit.createdAt)}</td>
+                    <td>{audit.actorId}</td>
+                    <td>{audit.previousPercentage === null ? 'None' : `${audit.previousPercentage}% · version ${audit.previousVersion}`}</td>
+                    <td>{audit.nextPercentage}% · version {audit.nextVersion}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {audits.data.pagination.totalPages > 1 ? (
+            <Pager page={audits.data.pagination.page} totalPages={audits.data.pagination.totalPages} onPage={setPage} />
+          ) : null}
+        </>
+      ) : null}
+    </section>
+  );
+}
+
 function MoneyForm({ fields, version, onSubmit }: { fields: Array<[string, string, string]>; version: string; onSubmit: (values: Record<string, string>) => void }) {
   return (
     <form className="stack" onSubmit={(event) => {
@@ -246,5 +329,8 @@ function DraftSummary({ draft }: { draft: Exclude<Draft, null> }) {
   if (draft.kind === 'pricing') {
     return <p>Base fee USD {draft.baseFee}, USD {draft.pricePerKilometre} per kilometre, {draft.minimumTripMetres} to {draft.maximumTripMetres} metres.</p>;
   }
-  return <p>Commission model: {label(draft.model)}.</p>;
+  if (draft.kind === 'commission') {
+    return <p>Commission model: {label(draft.model)}.</p>;
+  }
+  return <p>V2 commission {draft.percentage}% for Express and Flexible deliveries.</p>;
 }

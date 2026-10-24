@@ -16,6 +16,7 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiConflictResponse, ApiCreatedResponse, ApiForbiddenResponse, ApiNotFoundResponse, ApiOkResponse, ApiOperation, ApiParam, ApiQuery, ApiTags, ApiUnauthorizedResponse } from '@nestjs/swagger';
 import { CustomerAccessGuard, type CustomerRequest } from '../auth/customer-access.guard.js';
+import { v2MarketplaceEnabled } from '../auth/v2-flags.js';
 import { CreateDeliveryBody, QuoteBody, QuoteResponse } from '../openapi/schemas.js';
 import { DeliveryService } from './delivery.service.js';
 import { DispatchService } from './dispatch.service.js';
@@ -55,6 +56,9 @@ export class DeliveryController {
   async create(@Req() request: CustomerRequest, @Body() body: unknown) {
     const customer = requiredCustomer(request);
     const created = await this.deliveries.create(customer, body);
+    if (v2MarketplaceEnabled()) {
+      return created;
+    }
     let started: { status: string; searchGeneration: number };
     try {
       started = await this.dispatch.search(customer, created.id);
@@ -113,7 +117,7 @@ export class DeliveryController {
   @Get(':deliveryId')
   @ApiOperation({ summary: 'Read one customer delivery' })
   @ApiParam({ name: 'deliveryId', format: 'uuid' })
-  @ApiOkResponse({ description: 'The delivery, including pickup, drop-off, and current status.' })
+  @ApiOkResponse({ description: 'The delivery, including pickup, drop-off, and current status. riderLocation is included only while this delivery is COLLECTING.' })
   @ApiNotFoundResponse({ description: 'Delivery not found' })
   getById(@Req() request: CustomerRequest, @Param('deliveryId') deliveryId: string) {
     return this.deliveries.getById(requiredCustomer(request), deliveryId);

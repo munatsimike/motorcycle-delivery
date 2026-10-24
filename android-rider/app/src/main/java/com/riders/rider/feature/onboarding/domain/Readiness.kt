@@ -9,6 +9,7 @@ data class RiderOnboarding(
     val rejectionReason: String?,
     val verifiedMotorcycleCount: Int,
     val activeVerifiedMotorcycle: Boolean,
+    val receiving: Boolean? = null,
 )
 
 data class RiderReadiness(

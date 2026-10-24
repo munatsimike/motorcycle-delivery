@@ -6,9 +6,11 @@ import { Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-nativ
 import ErrorMessage from '../../../../components/ErrorMessage';
 import { colors, radius, spacing, typography } from '../../../../theme';
 import { errorMessage } from '../../../auth/presentation/errorMessage';
+import { formatDeadline } from '../../domain/bookingDraft';
 import { deliveryCardAddress } from '../../domain/deliveryCard';
 import {
-  deliveryStatusLabel,
+  deliveryCanSearchAgain,
+  deliveryListLabel,
   deliveryUsesPackageIcon,
   type CustomerDelivery,
   type DeliveryStatus,
@@ -38,6 +40,10 @@ const STATUS_TONES: Record<DeliveryStatus, StatusTone> = {
   PICKED_UP: { icon: 'motorbike', background: '#E9F8EF', color: '#087A4A' },
   IN_TRANSIT: { icon: 'motorbike', background: '#E9F8EF', color: '#087A4A' },
   ARRIVED_AT_DROPOFF: { icon: 'motorbike', background: '#E9F8EF', color: '#087A4A' },
+  RIDER_ASSIGNED: { icon: 'motorbike', background: '#E9F8EF', color: '#087A4A' },
+  COLLECTING: { icon: 'motorbike', background: '#E9F8EF', color: '#087A4A' },
+  COLLECTED: { icon: 'package-variant', background: '#E9F8EF', color: '#087A4A' },
+  OUT_FOR_DELIVERY: { icon: 'motorbike', background: '#E9F8EF', color: '#087A4A' },
   DELIVERED: { icon: 'check', background: '#E9F8EF', color: '#087A4A' },
   CANCELLED: { icon: 'close', background: '#FDECEC', color: '#D92D20' },
   FAILED: { icon: 'alert-circle-outline', background: '#FDECEC', color: '#D92D20' },
@@ -57,7 +63,7 @@ export default function DeliveryCard({
   const [searchError, setSearchError] = useState<string | null>(null);
   const tone = STATUS_TONES[delivery.status];
   const packageIcon = deliveryUsesPackageIcon(delivery.status);
-  const canSearch = delivery.status === 'NO_RIDER_FOUND' && Boolean(onSearchAgain);
+  const canSearch = deliveryCanSearchAgain(delivery) && Boolean(onSearchAgain);
 
   async function searchAgain() {
     if (!onSearchAgain || searching) {
@@ -88,11 +94,20 @@ export default function DeliveryCard({
           status={(
             <StatusPill
               tone={tone}
-              label={deliveryStatusLabel(delivery.status)}
+              label={deliveryListLabel(delivery)}
               pulse={!cached && delivery.status === 'SEARCHING'}
             />
           )}
         />
+        {delivery.serviceClass ? (
+          <Text style={styles.marketplace}>
+            {[
+              delivery.serviceClass === 'EXPRESS' ? 'Express' : 'Flexible',
+              delivery.deliverBy ? formatDeadline(delivery.deliverBy) : null,
+              delivery.suggestedPrice ? `${delivery.currency ?? 'USD'} ${delivery.suggestedPrice}` : null,
+            ].filter((part) => part).join(' · ')}
+          </Text>
+        ) : null}
         {onOpenDetails ? (
           <View style={styles.actions}>
             <Pressable
@@ -327,6 +342,12 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     fontWeight: '700',
     color: colors.text,
+  },
+  marketplace: {
+    marginTop: spacing.sm,
+    fontSize: typography.caption,
+    fontWeight: '700',
+    color: colors.primaryDark,
   },
   actions: {
     flexDirection: 'row',

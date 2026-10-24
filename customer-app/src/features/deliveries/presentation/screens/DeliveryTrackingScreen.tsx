@@ -20,7 +20,9 @@ import { cancelCustomerDelivery } from '../../domain/usecases/cancelCustomerDeli
 import { deliveryHasMapCoordinates, type CustomerDeliveryDetail } from '../../domain/customerDeliveryDetail';
 import { deliveryCardAddress, deliveryWhenLabel, shortDeliveryReference } from '../../domain/deliveryCard';
 import { deliveryStatusLabel } from '../../domain/deliveryStatus';
+import { isMarketplaceDelivery } from '../../domain/marketplaceTracking';
 import { riderSearchView } from '../../domain/riderSearchView';
+import MarketplaceDelivery from '../components/MarketplaceDelivery';
 import RiderSearchAnimation from '../components/RiderSearchAnimation';
 import { useDeliveryTracking } from '../viewmodels/useDeliveryTracking';
 
@@ -52,8 +54,12 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
   });
 
   useLayoutEffect(() => {
+    if (isMarketplaceDelivery(delivery)) {
+      navigation.setOptions({ title: delivery?.status === 'CREATED' ? 'Rider bids' : deliveryStatusLabel(delivery?.status ?? 'CREATED') });
+      return;
+    }
     navigation.setOptions({ title: TITLES[view] });
-  }, [navigation, view]);
+  }, [navigation, view, delivery]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => {
@@ -145,7 +151,7 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
   }
 
   async function searchAgain() {
-    if (!accessToken || !delivery || searchingAgain) {
+    if (!accessToken || !delivery || searchingAgain || isMarketplaceDelivery(delivery)) {
       return;
     }
     setSearchingAgain(true);
@@ -158,6 +164,17 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
     } finally {
       setSearchingAgain(false);
     }
+  }
+
+  if (isMarketplaceDelivery(delivery) && delivery) {
+    return (
+      <MarketplaceDelivery
+        delivery={delivery}
+        accessToken={accessToken}
+        loadError={error}
+        onRefreshDelivery={reload}
+      />
+    );
   }
 
   return (
@@ -308,7 +325,7 @@ function Summary({ delivery }: { delivery: CustomerDeliveryDetail }) {
       <View style={styles.meta}>
         <View style={styles.metaItem}>
           <Text style={styles.metaLabel}>Price</Text>
-          <Text style={styles.price}>{delivery.currency} {delivery.offeredPrice}</Text>
+          <Text style={styles.price}>{delivery.currency} {delivery.offeredPrice ?? delivery.suggestedPrice}</Text>
         </View>
         {delivery.distanceMeters > 0 ? (
           <View style={styles.metaItem}>

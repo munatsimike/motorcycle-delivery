@@ -4,9 +4,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import ErrorMessage from '../../../../components/ErrorMessage';
+import LoadingIndicator from '../../../../components/LoadingIndicator';
 import { useKeyboardLift } from '../../../../components/useKeyboardLift';
 import PrimaryButton from '../../../../components/PrimaryButton';
 import SecondaryButton from '../../../../components/SecondaryButton';
+import { bookingMode } from '../../../account/domain/customerAccount';
 import { useCustomerAccount } from '../../../account/presentation/viewmodels/useCustomerAccount';
 import { useSession } from '../../../auth/presentation/viewmodels/useSession';
 import type { RootStackParamList } from '../../../../navigation/types';
@@ -18,14 +20,16 @@ import BookingProgress, { bookingStepTitle } from '../components/BookingProgress
 import BookingSummary from '../components/BookingSummary';
 import ParcelFields from '../components/ParcelFields';
 import StopFields from '../components/StopFields';
-import { useParcelBooking } from '../viewmodels/useParcelBooking';
+import { useParcelBooking, type BookingResult } from '../viewmodels/useParcelBooking';
 
 type ParcelRequestProps = NativeStackScreenProps<RootStackParamList, 'ParcelRequest'>;
 
 export default function ParcelRequestScreen({ navigation }: ParcelRequestProps) {
   const { accessToken } = useSession();
-  const { account } = useCustomerAccount(accessToken);
-  const booking = useParcelBooking(accessToken);
+  const { account, isLoading, error: accountError } = useCustomerAccount(accessToken);
+  const mode = bookingMode(account ? account.marketplaceEnabled : null);
+  const marketplace = mode === 'v2';
+  const booking = useParcelBooking(accessToken, marketplace);
   const keyboard = useKeyboardLift();
   const deviceBias = usePlaceBias();
   const allowLeave = useRef(false);
@@ -66,9 +70,23 @@ export default function ParcelRequestScreen({ navigation }: ParcelRequestProps) 
     });
   }, [account, booking]);
 
-  function finish(deliveryId: string) {
+  function finish(result: BookingResult) {
     allowLeave.current = true;
-    navigation.replace('DeliveryTracking', { deliveryId });
+    if (result.mode === 'v2') {
+      navigation.replace('DeliveryTracking', { deliveryId: result.request.id });
+      return;
+    }
+    navigation.replace('DeliveryTracking', { deliveryId: result.deliveryId });
+  }
+
+  if (mode === 'unknown') {
+    return (
+      <SafeAreaView style={styles.screen} edges={['bottom']}>
+        <View style={styles.content}>
+          {isLoading ? <LoadingIndicator /> : <ErrorMessage message={accountError ?? 'Account details are unavailable.'} />}
+        </View>
+      </SafeAreaView>
+    );
   }
 
   return (
@@ -113,7 +131,7 @@ export default function ParcelRequestScreen({ navigation }: ParcelRequestProps) 
           />
         ) : null}
         {booking.step === 'parcel' ? (
-          <ParcelFields draft={booking.draft} onChange={booking.updateDraft} />
+          <ParcelFields draft={booking.draft} onChange={booking.updateDraft} marketplace={marketplace} />
         ) : null}
         {booking.step === 'review' || booking.step === 'confirm' ? (
           <BookingSummary
@@ -124,6 +142,7 @@ export default function ParcelRequestScreen({ navigation }: ParcelRequestProps) 
             onOfferChange={booking.updateOffer}
             offerEditable={booking.busy === null}
             onOfferFocus={keyboard.revealFocusedField}
+            marketplace={marketplace}
           />
         ) : null}
         <ErrorMessage message={booking.error} />

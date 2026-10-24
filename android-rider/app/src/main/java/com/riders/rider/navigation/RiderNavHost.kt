@@ -2,17 +2,24 @@ package com.riders.rider.navigation
 
 import android.net.Uri
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.riders.rider.feature.offers.notification.rememberOfferInbox
 import com.riders.rider.feature.auth.presentation.AccountScreen
+import com.riders.rider.feature.auth.presentation.ForgotPasswordScreen
 import com.riders.rider.feature.auth.presentation.OtpScreen
 import com.riders.rider.feature.auth.presentation.RegisterScreen
+import com.riders.rider.feature.auth.presentation.ResetPasswordScreen
 import com.riders.rider.feature.auth.presentation.SignInScreen
 import com.riders.rider.feature.auth.presentation.WelcomeScreen
+import com.riders.rider.feature.delivery.domain.parcelRoute
 import com.riders.rider.feature.delivery.presentation.DeliveryScreen
 import com.riders.rider.feature.onboarding.presentation.OnboardingScreen
 
@@ -26,6 +33,21 @@ fun RiderNavHost(signedIn: Boolean) {
 @Composable
 private fun RiderGraph(signedIn: Boolean) {
     val controller = rememberNavController()
+    if (signedIn) {
+        val pending = rememberOfferInbox()
+        val offerTap by pending.taps.collectAsStateWithLifecycle()
+        val acceptedDelivery by pending.acceptedTaps.collectAsStateWithLifecycle()
+        LaunchedEffect(acceptedDelivery) {
+            val deliveryId = acceptedDelivery ?: return@LaunchedEffect
+            controller.navigate(parcelRoute(deliveryId))
+            pending.clearAccepted()
+        }
+        LaunchedEffect(offerTap) {
+            if (offerTap != null && controller.currentDestination?.route?.startsWith("delivery/") == true) {
+                controller.popBackStack(RIDER_SHELL, inclusive = false)
+            }
+        }
+    }
     NavHost(
         navController = controller,
         startDestination = if (signedIn) RIDER_SHELL else "welcome",
@@ -51,6 +73,7 @@ private fun RiderGraph(signedIn: Boolean) {
                     controller.navigate("otp/login/${Uri.encode(phone)}")
                 },
                 onCreateAccount = { controller.navigate("register") },
+                onForgotPassword = { controller.navigate("forgot") },
             )
         }
         composable("register") {
@@ -58,7 +81,31 @@ private fun RiderGraph(signedIn: Boolean) {
                 onCodeSent = { phone ->
                     controller.navigate("otp/registration/${Uri.encode(phone)}")
                 },
+                onWhatsAppCodeSent = { phone ->
+                    controller.navigate("otp/whatsapp/${Uri.encode(phone)}")
+                },
                 onSignIn = { controller.navigate("sign-in") },
+            )
+        }
+        composable("forgot") {
+            ForgotPasswordScreen(
+                onCodeSent = { phone ->
+                    controller.navigate("reset/${Uri.encode(phone)}")
+                },
+                onSignIn = { controller.navigate("sign-in") },
+            )
+        }
+        composable(
+            route = "reset/{phone}",
+            arguments = listOf(navArgument("phone") { type = NavType.StringType }),
+        ) { entry ->
+            ResetPasswordScreen(
+                phone = entry.arguments?.getString("phone").orEmpty(),
+                onDone = {
+                    controller.navigate("sign-in?notice=${Uri.encode("Password updated. Sign in with your new password.")}") {
+                        popUpTo("welcome")
+                    }
+                },
             )
         }
         composable(

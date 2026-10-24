@@ -53,6 +53,11 @@ describe('customer delivery list', () => {
           createdAt: '2026-10-16T12:00:00.000Z',
           pickupAddress: '12 Samora Machel Avenue',
           dropoffAddress: '4 Jason Moyo Avenue',
+          serviceClass: null,
+          deliverBy: null,
+          currency: null,
+          suggestedPrice: null,
+          offeredPrice: null,
         },
         {
           id: 'delivery-2',
@@ -60,6 +65,11 @@ describe('customer delivery list', () => {
           createdAt: '2026-10-01T00:00:00.000Z',
           pickupAddress: 'Old pickup',
           dropoffAddress: 'Old drop-off',
+          serviceClass: null,
+          deliverBy: null,
+          currency: null,
+          suggestedPrice: null,
+          offeredPrice: null,
         },
       ],
     });
@@ -117,5 +127,32 @@ describe('customer delivery list', () => {
       }],
       pagination: { page: 1, limit: 20, total: 1, totalPages: 1 },
     })).toThrow('Deliveries are unavailable.');
+  });
+
+  it('reads a V2 request without requiring a V1 price', () => {
+    const page = readCustomerDeliveryPage({
+      data: [{
+        id: 'delivery-v2',
+        reference: 'delivery-v2',
+        status: 'RIDER_ASSIGNED',
+        createdAt: '2026-10-24T09:00:00.000Z',
+        serviceClass: 'EXPRESS',
+        deliverBy: '2026-10-24T16:30:00.000Z',
+        currency: 'USD',
+        suggestedPrice: '8.00',
+        offeredPrice: '9.00',
+        pickup: { address: 'Pickup', contactPhone: '+263771234567' },
+        dropoff: { address: 'Drop-off' },
+      }],
+      pagination: { page: 1, limit: 20, total: 1, totalPages: 1 },
+    });
+    expect(page.deliveries[0]).toMatchObject({
+      status: 'RIDER_ASSIGNED',
+      serviceClass: 'EXPRESS',
+      suggestedPrice: '8.00',
+      offeredPrice: '9.00',
+    });
+    expect(JSON.stringify(page)).not.toContain('+263');
+    expect(deliveriesInGroup(page.deliveries, 'active').map((item) => item.id)).toEqual(['delivery-v2']);
   });
 });

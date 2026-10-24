@@ -25,6 +25,12 @@ fun deliveriesShowsOffers(availability: String?): Boolean = availability == "AVA
 
 fun deliveriesShowsActiveDelivery(availability: String?): Boolean = availability == "BUSY"
 
+fun deliveriesShowsAssignmentList(receiving: Boolean?, committedV2: Boolean = false): Boolean {
+    return receiving != null || committedV2
+}
+
+fun deliveriesShowsBidBoard(receiving: Boolean?): Boolean = receiving != null
+
 fun offersPollOnDeliveriesTab(
     tab: RiderDestination,
     resumed: Boolean,

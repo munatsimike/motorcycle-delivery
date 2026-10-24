@@ -1,4 +1,8 @@
 import type { ConfigContext, ExpoConfig } from 'expo/config';
+import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
+
+import { androidFirebaseReadiness, androidPackagesInGoogleServices } from './androidFirebaseReadiness.js';
 
 type AppVariant = 'development' | 'preview' | 'production';
 
@@ -31,7 +35,16 @@ export default ({ config }: ConfigContext): ExpoConfig => {
   if (variant !== 'development') {
     assertReleaseApiUrl(variant);
   }
-  const applicationId = variant === 'preview' ? 'com.riders.customer.staging' : 'com.riders.customer';
+  const servicesPath = path.join(__dirname, 'google-services.json');
+  const googleServicesPresent = existsSync(servicesPath);
+  const firebase = androidFirebaseReadiness({
+    variant,
+    googleServicesPresent,
+    registeredPackages: googleServicesPresent
+      ? androidPackagesInGoogleServices(readFileSync(servicesPath, 'utf8'))
+      : [],
+  });
+  const applicationId = firebase.packageName;
   const name = variant === 'preview'
     ? 'Riders Staging'
     : variant === 'production'
@@ -48,15 +61,22 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       eas: {
         projectId: '910fc8c7-5ba9-43bd-bcb9-7e1f92912405',
       },
+      androidFirebase: firebase,
     },
     ios: {
       ...config.ios,
       bundleIdentifier: applicationId,
       supportsTablet: false,
+      ...optionalFile('googleServicesFile', 'GoogleService-Info.plist'),
     },
     android: {
       ...config.android,
       package: applicationId,
+      ...optionalFile('googleServicesFile', 'google-services.json'),
     },
   };
 };
+
+function optionalFile(key: 'googleServicesFile', filename: string): { googleServicesFile?: string } {
+  return existsSync(path.join(__dirname, filename)) ? { [key]: `./${filename}` } : {};
+}

@@ -55,6 +55,14 @@ function repository(refresh: CustomerAuthRepository['refresh']): CustomerAuthRep
     verifyRegistrationCode: () => Promise.reject(new Error('unused')),
     verifyLoginCode: () => Promise.reject(new Error('unused')),
     completeRegistration: () => Promise.reject(new Error('unused')),
+    loginWithPassword: () => Promise.reject(new Error('unused')),
+    setPassword: () => Promise.reject(new Error('unused')),
+    registerWithPassword: () => Promise.reject(new Error('unused')),
+    startWhatsAppRegistration: () => Promise.reject(new Error('unused')),
+    resendWhatsAppRegistration: () => Promise.reject(new Error('unused')),
+    verifyWhatsAppRegistration: () => Promise.reject(new Error('unused')),
+    requestPasswordReset: () => Promise.reject(new Error('unused')),
+    resetPassword: () => Promise.reject(new Error('unused')),
     refresh,
     logout: () => Promise.resolve(),
   };
@@ -113,6 +121,19 @@ describe('restoreSession', () => {
     const restored = await restoreSession(repository(() => Promise.resolve(replacement)), store, now);
     expect(restored).toEqual({ status: 'ready', session: replacement });
     expect(await store.load()).toEqual(replacement);
+  });
+
+  it('does not restore a revoked session through biometric unlock while the access token is still fresh', async () => {
+    const store = memoryStore(session(10 * 60_000, 24 * 60 * 60_000));
+    const restored = await restoreSession(
+      repository(() => Promise.reject({ status: 401 })),
+      store,
+      now,
+      null,
+      { requireLiveSession: true },
+    );
+    expect(restored).toEqual({ status: 'signed-out' });
+    expect(await store.load()).toBeNull();
   });
 
   it('clears a revoked or rejected refresh token', async () => {

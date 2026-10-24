@@ -85,7 +85,9 @@ export default function OtpVerificationScreen({ navigation, route }: OtpProps) {
       >
         <Text style={styles.title}>Verify your number</Text>
         <Text style={styles.subtitle}>
-          Enter the verification code sent to {phone}.
+          {flow === 'whatsapp_registration'
+            ? `Enter the WhatsApp code sent to ${phone}. The account stays signed out until this code is accepted.`
+            : `Enter the verification code sent to ${phone}.`}
         </Text>
         <FormInput
           label="Verification code"

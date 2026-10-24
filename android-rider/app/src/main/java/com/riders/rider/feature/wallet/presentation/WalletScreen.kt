@@ -72,8 +72,10 @@ import com.riders.rider.feature.wallet.domain.walletPaymentMethodLabel
 private val HeaderGreen = Color(0xFFC9EFD9)
 private val HeaderMid = Color(0xFFE5F7EE)
 private val HeaderFade = Color(0xFFF7FCF9)
-private val CapacityFill = Color(0xFFE9F8EF)
-private val BorrowingFill = Color(0xFFDDF3E8)
+private val CapacityFill = Color(0xFFE7F2FC)
+private val CapacityTint = Color(0xFF3B78D8)
+private val BorrowingFill = Color(0xFFF3EEFB)
+private val BorrowingTint = Color(0xFF7B61B0)
 private val CashTint = Color(0xFFC56A2D)
 private val CashFill = Color(0xFFFFF1E6)
 private val EcoCashTint = Color(0xFF0077C8)
@@ -182,7 +184,12 @@ fun WalletScreen(
                     onSeeAll = model::loadMore,
                 )
                 if (board.entries.isEmpty()) {
-                    RidersEmptyState(title = "No wallet activity", body = "Platform fees and credits will appear here.")
+                    RidersEmptyState(
+                        title = "No wallet activity",
+                        body = "Platform fees and credits will appear here.",
+                        image = R.drawable.wallet_empty,
+                        imageSize = 64.dp,
+                    )
                 } else {
                     Column(Modifier.fillMaxWidth()) {
                         board.entries.forEachIndexed { index, entry ->
@@ -317,6 +324,7 @@ private fun BalanceCard(summary: WalletSummary, onTopUp: () -> Unit) {
                 label = "Available capacity",
                 value = walletMoneyLabel(summary.currency, summary.availableCapacity),
                 fill = CapacityFill,
+                tint = CapacityTint,
                 modifier = Modifier.weight(1f),
             )
             BalanceOption(
@@ -324,6 +332,7 @@ private fun BalanceCard(summary: WalletSummary, onTopUp: () -> Unit) {
                 label = "Borrowing limit",
                 value = walletMoneyLabel(summary.currency, summary.borrowingLimit),
                 fill = BorrowingFill,
+                tint = BorrowingTint,
                 modifier = Modifier.weight(1f),
             )
         }
@@ -336,6 +345,7 @@ private fun BalanceOption(
     label: String,
     value: String,
     fill: Color,
+    tint: Color,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -354,7 +364,7 @@ private fun BalanceOption(
                 painter = painterResource(icon),
                 contentDescription = null,
                 modifier = Modifier.size(18.dp),
-                tint = RidersColors.primaryDark,
+                tint = tint,
             )
         }
         Text(label, style = RidersType.caption, color = RidersColors.textSecondary, textAlign = TextAlign.Center, maxLines = 2)

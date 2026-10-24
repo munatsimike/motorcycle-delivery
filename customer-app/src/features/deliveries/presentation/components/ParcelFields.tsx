@@ -8,11 +8,14 @@ import type {
   DeliveryPayer,
   ParcelSize,
   PaymentMethod,
+  ServiceClass,
 } from '../../domain/bookingDraft';
+import DeadlineField from './DeadlineField';
 
 type ParcelFieldsProps = {
   draft: BookingDraft;
   onChange: (patch: Partial<BookingDraft>) => void;
+  marketplace?: boolean;
 };
 
 type IconName = ComponentProps<typeof MaterialDesignIcons>['name'];
@@ -56,7 +59,12 @@ const SIZE_LABELS: Record<ParcelSize, string> = {
   LARGE: 'Large',
 };
 
-export default function ParcelFields({ draft, onChange }: ParcelFieldsProps) {
+const CLASSES: { value: ServiceClass; label: string }[] = [
+  { value: 'EXPRESS', label: 'Express' },
+  { value: 'FLEXIBLE', label: 'Flexible' },
+];
+
+export default function ParcelFields({ draft, onChange, marketplace = false }: ParcelFieldsProps) {
   const selectedDescription = CONTENTS.some((content) => content.description === draft.description)
     ? draft.description
     : 'Parcel';
@@ -69,16 +77,16 @@ export default function ParcelFields({ draft, onChange }: ParcelFieldsProps) {
     if (!draft.size) {
       patch.size = 'SMALL';
     }
-    if (!draft.payer) {
+    if (!marketplace && !draft.payer) {
       patch.payer = 'SENDER';
     }
-    if (!draft.paymentMethod) {
+    if (!marketplace && !draft.paymentMethod) {
       patch.paymentMethod = 'CASH';
     }
     if (Object.keys(patch).length > 0) {
       onChange(patch);
     }
-  }, [draft.description, draft.payer, draft.paymentMethod, draft.size, onChange, selectedDescription]);
+  }, [draft.description, draft.payer, draft.paymentMethod, draft.size, marketplace, onChange, selectedDescription]);
 
   return (
     <View style={styles.fields}>
@@ -137,6 +145,36 @@ export default function ParcelFields({ draft, onChange }: ParcelFieldsProps) {
         </View>
       </View>
 
+      {marketplace ? (
+        <>
+          <View style={styles.block}>
+            <Text style={styles.title}>Service</Text>
+            <View style={styles.radioRow}>
+              {CLASSES.map((option) => {
+                const selected = draft.serviceClass === option.value;
+                return (
+                  <Pressable
+                    key={option.value}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected }}
+                    onPress={() => onChange({ serviceClass: option.value })}
+                    style={styles.radioOption}
+                  >
+                    <View style={[styles.radio, selected && styles.radioSelected]}>
+                      {selected ? <View style={styles.radioDot} /> : null}
+                    </View>
+                    <Text style={styles.radioLabel}>{option.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+          <DeadlineField value={draft.deliverBy} onChange={(deliverBy) => onChange({ deliverBy })} />
+        </>
+      ) : null}
+
+      {marketplace ? null : (
+      <>
       <View style={styles.block}>
         <Text style={styles.title}>Who will pay?</Text>
         <View style={styles.radioRow}>
@@ -196,6 +234,8 @@ export default function ParcelFields({ draft, onChange }: ParcelFieldsProps) {
           </Text>
         </View>
       </View>
+      </>
+      )}
     </View>
   );
 }

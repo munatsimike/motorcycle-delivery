@@ -14,6 +14,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import BrandLogo from '../components/BrandLogo';
+import ErrorMessage from '../components/ErrorMessage';
 import LoadingIndicator from '../components/LoadingIndicator';
 import PrimaryButton from '../components/PrimaryButton';
 import SecondaryButton from '../components/SecondaryButton';
@@ -21,13 +22,18 @@ import SignUpScreen from '../features/auth/SignupScreen';
 import CustomerTabs from './CustomerTabs';
 import EditProfileScreen from '../features/account/presentation/screens/EditProfileScreen';
 import ParcelRequestScreen from '../features/deliveries/presentation/screens/ParcelRequestScreen';
+import RequestOpenScreen from '../features/deliveries/presentation/screens/RequestOpenScreen';
 import DeliveryTrackingScreen from '../features/deliveries/presentation/screens/DeliveryTrackingScreen';
 import OtpVerificationScreen from '../features/auth/presentation/screens/OtpVerificationScreen';
 import RegistrationFormScreen from '../features/auth/presentation/screens/RegistrationFormScreen';
+import ForgotPasswordScreen from '../features/auth/presentation/screens/ForgotPasswordScreen';
+import ResetPasswordScreen from '../features/auth/presentation/screens/ResetPasswordScreen';
 import SignInScreen from '../features/auth/presentation/screens/SignInScreen';
 import UnlockScreen from '../features/auth/presentation/screens/UnlockScreen';
 import BiometricOfferScreen from '../features/auth/presentation/screens/BiometricOfferScreen';
 import { useSession } from '../features/auth/presentation/viewmodels/useSession';
+import { publishCustomerPush, useCustomerPush } from '../features/notifications/presentation/useCustomerPush';
+import { navigationRef } from './navigationRef';
 import type { RootStackParamList } from './types';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -42,6 +48,7 @@ type WelcomeProps = NativeStackScreenProps<
 
 function WelcomeScreen({ navigation }: WelcomeProps) {
   const insets = useSafeAreaInsets();
+  const { logoutNotice } = useSession();
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
@@ -75,6 +82,7 @@ function WelcomeScreen({ navigation }: WelcomeProps) {
           <Text style={styles.heading}>
             Fast, Safe, and Always{'\n'}On Time
           </Text>
+          <ErrorMessage message={logoutNotice} />
         </LinearGradient>
         <Text style={styles.description}>
           Trusted motorcycle deliveries for quick
@@ -98,7 +106,9 @@ function WelcomeScreen({ navigation }: WelcomeProps) {
 }
 
 export default function AppNavigator() {
-  const { status } = useSession();
+  const { status, accessToken, customerId } = useSession();
+  const signedIn = status === 'signedIn';
+  useCustomerPush(signedIn, signedIn ? accessToken : null, signedIn ? customerId : null);
 
   if (status === 'loading') {
     return (
@@ -109,7 +119,7 @@ export default function AppNavigator() {
   }
 
   return (
-    <NavigationContainer>
+    <NavigationContainer ref={navigationRef} onReady={publishCustomerPush}>
       <Stack.Navigator>
         {status === 'signedIn' ? (
           <>
@@ -122,6 +132,11 @@ export default function AppNavigator() {
               name="ParcelRequest"
               component={ParcelRequestScreen}
               options={{ title: 'Send a Parcel' }}
+            />
+            <Stack.Screen
+              name="RequestOpen"
+              component={RequestOpenScreen}
+              options={{ title: 'Open for rider bids' }}
             />
             <Stack.Screen
               name="DeliveryTracking"
@@ -162,6 +177,16 @@ export default function AppNavigator() {
               name="SignUp"
               component={SignUpScreen}
               options={{ title: 'Create account' }}
+            />
+            <Stack.Screen
+              name="ForgotPassword"
+              component={ForgotPasswordScreen}
+              options={{ title: 'Forgot password' }}
+            />
+            <Stack.Screen
+              name="ResetPassword"
+              component={ResetPasswordScreen}
+              options={{ title: 'Reset password' }}
             />
             <Stack.Screen
               name="OtpVerification"

@@ -1,4 +1,4 @@
-import type { CoordinateSource, Currency, DeliveryPayer, DeliveryStatus, ParcelSize, PaymentMethod } from '../generated/prisma/client.js';
+import { DeliveryStatus, type CoordinateSource, type Currency, type DeliveryPayer, type ParcelSize, type PaymentMethod, type PricingModel, type ServiceClass } from '../generated/prisma/client.js';
 import { shouldWithholdCoordinates } from './coordinate-retention.js';
 import { centsFromDecimal, formatCents } from './money.js';
 
@@ -9,11 +9,15 @@ export type StoredDelivery = {
   autoRetryCount?: number;
   nextRetryAt?: Date | null;
   currency: Currency;
-  payer: DeliveryPayer;
-  paymentMethod: PaymentMethod;
+  payer: DeliveryPayer | null;
+  paymentMethod: PaymentMethod | null;
   distanceMeters: number;
   pricingVersion: number;
-  price: string | { toFixed(digits: number): string };
+  pricingModel?: PricingModel | null;
+  pricingBasisPoints?: number | null;
+  serviceClass?: ServiceClass | null;
+  deliverBy?: Date | null;
+  price: string | { toFixed(digits: number): string } | null;
   suggestedPrice: string | { toFixed(digits: number): string };
   pickupLatitude: string | { toFixed(digits: number): string } | null;
   pickupLongitude: string | { toFixed(digits: number): string } | null;
@@ -49,16 +53,31 @@ export function toCustomerDeliverySummary(delivery: {
   createdAt: Date;
   pickupAddress: string;
   dropoffAddress: string;
+  serviceClass?: ServiceClass | null;
+  deliverBy?: Date | null;
+  currency?: Currency | null;
+  suggestedPrice?: string | { toFixed(digits: number): string } | null;
+  price?: string | { toFixed(digits: number): string } | null;
 }) {
   return {
     id: delivery.id,
     reference: delivery.id,
     status: delivery.status,
     createdAt: delivery.createdAt,
+    serviceClass: delivery.serviceClass ?? null,
+    deliverBy: delivery.deliverBy instanceof Date ? delivery.deliverBy.toISOString() : null,
+    currency: delivery.currency ?? null,
+    suggestedPrice: moneyOrNull(delivery.suggestedPrice),
+    offeredPrice: moneyOrNull(delivery.price),
     pickup: { address: delivery.pickupAddress },
     dropoff: { address: delivery.dropoffAddress },
   };
 }
+
+export type RiderPoint = {
+  latitude: string;
+  longitude: string;
+};
 
 export function toCustomerDelivery(delivery: StoredDelivery) {
   return {
@@ -72,8 +91,12 @@ export function toCustomerDelivery(delivery: StoredDelivery) {
     paymentMethod: delivery.paymentMethod,
     distanceMeters: delivery.distanceMeters,
     pricingVersion: delivery.pricingVersion,
+    pricingModel: delivery.pricingModel ?? null,
+    basisPoints: delivery.pricingBasisPoints ?? null,
+    serviceClass: delivery.serviceClass ?? null,
+    deliverBy: delivery.deliverBy instanceof Date ? delivery.deliverBy.toISOString() : null,
     suggestedPrice: formatCents(centsFromDecimal(delivery.suggestedPrice)),
-    offeredPrice: formatCents(centsFromDecimal(delivery.price)),
+    offeredPrice: delivery.price == null ? null : formatCents(centsFromDecimal(delivery.price)),
     pickup: stop(
       withheldCoordinate(delivery, 'pickup', delivery.pickupLatitude),
       withheldCoordinate(delivery, 'pickup', delivery.pickupLongitude),
@@ -99,6 +122,31 @@ export function toCustomerDelivery(delivery: StoredDelivery) {
     },
     createdAt: createdAtText(delivery.createdAt),
   };
+}
+
+// The current rider point is part of this delivery's response only while the
+// parcel is COLLECTING. Every other status omits the field.
+export function withCollectingRiderLocation<T extends { status: DeliveryStatus }>(
+  view: T,
+  point: RiderPoint | null,
+): T | (T & { riderLocation: RiderPoint }) {
+  if (view.status !== DeliveryStatus.COLLECTING || point == null) {
+    return view;
+  }
+  return {
+    ...view,
+    riderLocation: {
+      latitude: point.latitude,
+      longitude: point.longitude,
+    },
+  };
+}
+
+function moneyOrNull(value: string | { toFixed(digits: number): string } | null | undefined): string | null {
+  if (value == null) {
+    return null;
+  }
+  return formatCents(centsFromDecimal(value));
 }
 
 function withheldCoordinate(

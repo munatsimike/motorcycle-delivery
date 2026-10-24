@@ -71,6 +71,22 @@ describe('active rider assignment', () => {
     expect(JSON.stringify(result)).not.toContain('customer-1');
   });
 
+  it('returns the stored V2 status for a live assignment', async () => {
+    const service = serviceFor([
+      row('v2', 'profile-1', AssignmentStatus.ACCEPTED, DeliveryStatus.RIDER_ASSIGNED, '12 Samora Machel Avenue'),
+      row('collecting', 'profile-1', AssignmentStatus.ACCEPTED, DeliveryStatus.COLLECTING, 'Collecting road'),
+    ]);
+
+    const result = await service.activeAssignment(rider('profile-1'), NOW);
+
+    expect(result.assignment?.status).toBe(DeliveryStatus.RIDER_ASSIGNED);
+    const listed = await service.liveAssignments(rider('profile-1'), NOW);
+    expect(listed.assignments.map((assignment) => assignment.status)).toEqual([
+      DeliveryStatus.RIDER_ASSIGNED,
+      DeliveryStatus.COLLECTING,
+    ]);
+  });
+
   it('returns assignment null when nothing is resumable', async () => {
     const service = serviceFor([
       row('delivered', 'profile-1', AssignmentStatus.ACCEPTED, DeliveryStatus.DELIVERED, 'Finished road'),
@@ -95,6 +111,39 @@ describe('active rider assignment', () => {
     expect(result.assignment?.dropoff.longitude).toBeNull();
     expect(JSON.stringify(result)).not.toContain('-17.8252000');
     expect(JSON.stringify(result)).not.toContain('31.0335000');
+  });
+
+  it('returns the accepted bid, service class, and deadline without the suggested price', async () => {
+    const deliverBy = new Date('2026-10-25T16:00:00.000Z');
+    const service = serviceFor([
+      row('flexible', 'profile-1', AssignmentStatus.ACCEPTED, DeliveryStatus.RIDER_ASSIGNED, 'Flexible road', FRESH, {
+        serviceClass: 'FLEXIBLE',
+        deliverBy,
+        acceptedBidAmount: '12.50',
+        price: '9.99',
+      }),
+      row('express', 'profile-1', AssignmentStatus.ACCEPTED, DeliveryStatus.COLLECTING, 'Express road', FRESH, {
+        serviceClass: 'EXPRESS',
+        deliverBy,
+        acceptedBidAmount: { toFixed: () => '8.00' },
+        price: '20.00',
+      }),
+      row('legacy', 'profile-1', AssignmentStatus.ACCEPTED, DeliveryStatus.ASSIGNED, 'Legacy road'),
+    ]);
+
+    const listed = await service.liveAssignments(rider('profile-1'), NOW);
+
+    expect(listed.assignments.map((assignment) => assignment.serviceClass)).toEqual(['FLEXIBLE', 'EXPRESS', null]);
+    expect(listed.assignments[0]).toMatchObject({
+      deliverBy: '2026-10-25T16:00:00.000Z',
+      agreedPrice: '12.50',
+    });
+    expect(listed.assignments[1]?.agreedPrice).toBe('8.00');
+    expect(listed.assignments[2]).toMatchObject({ deliverBy: null, agreedPrice: null, serviceClass: null });
+    const encoded = JSON.stringify(listed);
+    expect(encoded).not.toContain('9.99');
+    expect(encoded).not.toContain('20.00');
+    expect(encoded).not.toContain('suggestedPrice');
   });
 });
 
@@ -124,6 +173,12 @@ function row(
   deliveryStatus: DeliveryStatus,
   pickupAddress: string,
   retrievedAt = FRESH,
+  read: {
+    serviceClass?: 'FLEXIBLE' | 'EXPRESS' | null;
+    deliverBy?: Date | null;
+    acceptedBidAmount?: string | { toFixed(digits: number): string } | null;
+    price?: string;
+  } = {},
 ) {
   return {
     id,
@@ -131,11 +186,11 @@ function row(
     status,
     idempotencyKey: `key-${id}`,
     acceptedPlatformFee: '0.50',
+    acceptedBidAmount: read.acceptedBidAmount ?? null,
     delivery: {
       id: `delivery-${id}`,
       customerId: 'customer-1',
       status: deliveryStatus,
-      price: '3.00',
       currency: Currency.USD,
       payer: 'SENDER',
       paymentMethod: 'CASH',
@@ -157,6 +212,9 @@ function row(
       recipientName: 'Recipient Person',
       recipientPhone: '+263772222222',
       createdAt: retrievedAt,
+      price: read.price ?? '3.00',
+      serviceClass: read.serviceClass ?? null,
+      deliverBy: read.deliverBy ?? null,
       pickupCoordinateSource: CoordinateSource.GOOGLE_PLACES,
       pickupPlaceId: 'ChIJpickup',
       pickupCoordinateRetrievedAt: retrievedAt,

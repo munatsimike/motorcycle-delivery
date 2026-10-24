@@ -17,6 +17,28 @@ export type QuoteRequest = QuotePins & {
   serviceClassRejected: boolean;
 };
 
+export type V2DeliveryDraft = QuotePins & {
+  pickupAddress: string;
+  pickupPlaceId: string | null;
+  pickupCoordinateSource: CoordinateSource;
+  pickupLandmark: string | null;
+  pickupInstructions: string | null;
+  pickupContactName: string;
+  pickupContactPhone: string;
+  dropoffAddress: string;
+  dropoffPlaceId: string | null;
+  dropoffCoordinateSource: CoordinateSource;
+  dropoffLandmark: string | null;
+  dropoffInstructions: string | null;
+  dropoffContactName: string;
+  dropoffContactPhone: string;
+  parcelDescription: string;
+  parcelSize: ParcelSize;
+  parcelInstructions: string | null;
+  serviceClass: ServiceClass;
+  deliverBy: Date;
+};
+
 export type DeliveryDraft = QuotePins & {
   pickupAddress: string;
   pickupPlaceId: string | null;
@@ -76,6 +98,59 @@ export function readQuoteRequest(body: unknown): QuoteRequest {
     return { ...pins, serviceClass, serviceClassRejected: false };
   }
   return { ...pins, serviceClass: null, serviceClassRejected: true };
+}
+
+export function readV2DeliveryDraft(body: unknown, now: Date): V2DeliveryDraft {
+  const record = recordOf(body, 'Enter the delivery');
+  const pickup = readStop(record.pickup, 'pickup');
+  const dropoff = readStop(record.dropoff, 'drop-off');
+  const parcel = recordOf(record.parcel, 'Enter the parcel');
+  if (record.currency !== undefined && record.currency !== Currency.USD) {
+    throw new BadRequestException('USD is the only supported currency');
+  }
+  return {
+    pickupLatitude: pickup.latitude,
+    pickupLongitude: pickup.longitude,
+    pickupAddress: pickup.address,
+    pickupPlaceId: pickup.placeId,
+    pickupCoordinateSource: pickup.coordinateSource,
+    pickupLandmark: pickup.landmark,
+    pickupInstructions: pickup.instructions,
+    pickupContactName: pickup.contactName,
+    pickupContactPhone: pickup.contactPhone,
+    dropoffLatitude: dropoff.latitude,
+    dropoffLongitude: dropoff.longitude,
+    dropoffAddress: dropoff.address,
+    dropoffPlaceId: dropoff.placeId,
+    dropoffCoordinateSource: dropoff.coordinateSource,
+    dropoffLandmark: dropoff.landmark,
+    dropoffInstructions: dropoff.instructions,
+    dropoffContactName: dropoff.contactName,
+    dropoffContactPhone: dropoff.contactPhone,
+    parcelDescription: readRequiredText(parcel.description, 500, 'Enter the parcel description'),
+    parcelSize: readSize(parcel.size),
+    parcelInstructions: readOptionalText(parcel.instructions, 500, 'Enter parcel instructions'),
+    serviceClass: readRequiredServiceClass(record.serviceClass),
+    deliverBy: readDeliverBy(record.deliverBy, now),
+  };
+}
+
+function readRequiredServiceClass(value: unknown): ServiceClass {
+  if (value === ServiceClass.EXPRESS || value === ServiceClass.FLEXIBLE) {
+    return value;
+  }
+  throw new BadRequestException('Choose Express or Flexible');
+}
+
+function readDeliverBy(value: unknown, now: Date): Date {
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new BadRequestException('Enter the delivery deadline');
+  }
+  const deadline = new Date(value);
+  if (Number.isNaN(deadline.getTime()) || deadline.getTime() <= now.getTime()) {
+    throw new BadRequestException('Enter a deadline in the future');
+  }
+  return deadline;
 }
 
 export function readDeliveryDraft(body: unknown): DeliveryDraft {

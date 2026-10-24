@@ -16,6 +16,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -26,14 +29,18 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.riders.rider.core.design.PhoneWithFlag
 import com.riders.rider.core.design.RidersCard
 import com.riders.rider.core.design.RidersColors
+import com.riders.rider.core.design.RidersEmptyState
 import com.riders.rider.core.design.RidersFailureNotice
 import com.riders.rider.core.design.RidersLoadingState
+import com.riders.rider.R
 import com.riders.rider.core.design.RidersPrimaryButton
 import com.riders.rider.core.design.RidersPullRefresh
 import com.riders.rider.core.design.RidersSecondaryButton
 import com.riders.rider.core.design.RidersSpacing
+import com.riders.rider.core.design.RidersTextField
 import com.riders.rider.core.design.RidersType
 import com.riders.rider.core.design.RidersWordmark
+import com.riders.rider.feature.delivery.domain.V2CancellationReasons
 import com.riders.rider.feature.delivery.domain.navigationTarget
 import com.riders.rider.feature.offers.domain.ReleaseReasons
 
@@ -61,6 +68,9 @@ fun DeliveryScreen(
         }
     }
     val blocked = ui.syncing || ui.busy != DeliveryBusy.None
+    var choosingCancel by remember(ui.deliveryId) { mutableStateOf(false) }
+    var cancelReason by remember(ui.deliveryId) { mutableStateOf<String?>(null) }
+    var cancelNote by remember(ui.deliveryId) { mutableStateOf("") }
     RidersPullRefresh(
         refreshing = ui.refreshing,
         onRefresh = { model.load(deliveryId, fromUser = true) },
@@ -79,10 +89,26 @@ fun DeliveryScreen(
     ) {
         RidersWordmark()
         Text(ui.title, style = RidersType.title, color = RidersColors.text)
+        val serviceClass = ui.serviceClassLabel
+        if (serviceClass != null) {
+            Text(serviceClass, style = RidersType.captionStrong, color = RidersColors.primaryDark)
+        }
         if (ui.statusLabel.isNotBlank()) {
             Text(ui.statusLabel, style = RidersType.captionStrong, color = RidersColors.primaryDark)
         }
+        ui.deadlineLabel?.let { label ->
+            Text(label, style = RidersType.body, color = RidersColors.textSecondary)
+        }
+        ui.agreedPriceLabel?.let { label ->
+            Text(label, style = RidersType.body, color = RidersColors.text)
+        }
         when {
+            ui.missing -> RidersEmptyState(
+                title = "This delivery is no longer active",
+                body = "It has been completed or is no longer assigned to you.",
+                image = R.drawable.parcel_box,
+                modifier = Modifier.fillMaxWidth(),
+            )
             ui.syncing && ui.pickupAddress.isBlank() && ui.parcelDescription.isBlank() -> RidersLoadingState("Loading this delivery")
             ui.pickupAddress.isBlank() && ui.parcelDescription.isBlank() && ui.error != null -> RidersFailureNotice(
                 message = ui.error.orEmpty(),
@@ -137,7 +163,23 @@ fun DeliveryScreen(
                         onRetry = { model.load(deliveryId, fromUser = true) },
                     )
                 }
-                ui.nextLabel?.let { label ->
+                ui.completionMessage?.let { message ->
+                    Text(message, style = RidersType.bodyStrong, color = RidersColors.text)
+                    RidersPrimaryButton(
+                        label = "Back to deliveries",
+                        onClick = onFinished,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                ui.cancellationMessage?.let { message ->
+                    Text(message, style = RidersType.bodyStrong, color = RidersColors.text)
+                    RidersPrimaryButton(
+                        label = "Back to deliveries",
+                        onClick = onFinished,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                if (ui.completionMessage == null && ui.cancellationMessage == null && !ui.readOnly) ui.nextLabel?.let { label ->
                     RidersPrimaryButton(
                         label = label,
                         onClick = model::advance,
@@ -147,7 +189,27 @@ fun DeliveryScreen(
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
-                if (ui.canRelease) {
+                if (ui.marketplaceParcel && ui.cancelVisible && ui.completionMessage == null && ui.cancellationMessage == null) {
+                    CancellationSection(
+                        pendingReason = ui.pendingCancelReason,
+                        pendingNote = ui.pendingCancelNote,
+                        choosing = choosingCancel || ui.pendingCancelReason != null,
+                        reason = cancelReason,
+                        note = cancelNote,
+                        blocked = blocked,
+                        cancelling = ui.busy == DeliveryBusy.Release,
+                        onChoose = { choosingCancel = true },
+                        onReason = { cancelReason = it },
+                        onNote = { cancelNote = it },
+                        onConfirm = {
+                            model.confirmCancellation(
+                                ui.pendingCancelReason ?: cancelReason.orEmpty(),
+                                ui.pendingCancelNote ?: cancelNote,
+                            )
+                        },
+                    )
+                }
+                if (!ui.marketplaceParcel && !ui.readOnly && ui.canRelease) {
                     ReleaseReasons.forEach { (reason, label) ->
                         RidersSecondaryButton(
                             label = label,
@@ -163,6 +225,68 @@ fun DeliveryScreen(
         }
     }
     }
+}
+
+@Composable
+private fun CancellationSection(
+    pendingReason: String?,
+    pendingNote: String?,
+    choosing: Boolean,
+    reason: String?,
+    note: String,
+    blocked: Boolean,
+    cancelling: Boolean,
+    onChoose: () -> Unit,
+    onReason: (String) -> Unit,
+    onNote: (String) -> Unit,
+    onConfirm: () -> Unit,
+) {
+    if (!choosing) {
+        RidersSecondaryButton(
+            label = "Cancel delivery",
+            onClick = onChoose,
+            enabled = !blocked,
+            modifier = Modifier.fillMaxWidth(),
+            soft = false,
+        )
+        return
+    }
+    val locked = pendingReason != null
+    Text("Cancel this delivery?", style = RidersType.bodyStrong, color = RidersColors.text)
+    if (locked) {
+        val label = V2CancellationReasons.firstOrNull { it.first == pendingReason }?.second ?: pendingReason
+        Text(label, style = RidersType.body, color = RidersColors.text)
+        pendingNote?.takeIf { it.isNotBlank() }?.let {
+            Text(it, style = RidersType.caption, color = RidersColors.textSecondary)
+        }
+    } else {
+        V2CancellationReasons.forEach { (value, label) ->
+            RidersSecondaryButton(
+                label = label,
+                onClick = { onReason(value) },
+                enabled = !blocked,
+                modifier = Modifier.fillMaxWidth(),
+                soft = reason != value,
+            )
+        }
+        if (reason == "OTHER") {
+            RidersTextField(
+                label = "Cancellation note",
+                value = note,
+                onValueChange = onNote,
+                enabled = !blocked,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+    RidersPrimaryButton(
+        label = "Confirm cancellation",
+        onClick = onConfirm,
+        enabled = !blocked && (locked || reason != null),
+        loading = cancelling,
+        loadingLabel = "Cancelling delivery",
+        modifier = Modifier.fillMaxWidth(),
+    )
 }
 
 @Composable

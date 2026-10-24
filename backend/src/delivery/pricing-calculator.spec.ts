@@ -285,11 +285,12 @@ describe('pricing calculator', () => {
   it('keeps V1 quote and delivery creation on the existing formula', () => {
     const source = readFileSync('src/delivery/delivery.service.ts', 'utf8');
     const v1Quote = source.slice(source.indexOf('async quote('), source.indexOf('async create('));
-    const create = source.slice(source.indexOf('async create('), source.indexOf('private async quoteServiceClass'));
+    const create = source.slice(source.indexOf('async create('), source.indexOf('private async createV2Request'));
     expect(v1Quote).toContain('priceMetres');
     expect(v1Quote).not.toContain('calculateTariffPrice');
     expect(create).toContain('priceMetres');
     expect(create).not.toContain('calculateTariffPrice');
+    expect(source.slice(source.indexOf('private async createV2Request'))).toContain('calculateTariffPrice');
     expect(source).toContain('suggestedCents');
   });
 });

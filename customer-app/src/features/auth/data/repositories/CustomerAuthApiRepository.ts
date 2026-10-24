@@ -2,6 +2,7 @@ import { apiPost } from '../../../../services/api/apiClient';
 import type {
   AuthSession,
   CompleteRegistrationRequest,
+  CustomerProfile,
   LoginStart,
   PendingOtp,
   RegistrationVerification,
@@ -29,6 +30,47 @@ export class CustomerAuthApiRepository implements CustomerAuthRepository {
 
   completeRegistration(request: CompleteRegistrationRequest): Promise<AuthSession> {
     return apiPost<unknown>('/auth/customer/register/complete', request).then(readSession);
+  }
+
+  loginWithPassword(phone: string, password: string): Promise<AuthSession> {
+    return apiPost<unknown>('/auth/customer/login/password', { phone, password }).then(readSession);
+  }
+
+  async setPassword(
+    accessToken: string,
+    password: string,
+    refreshToken: string,
+    currentPassword?: string,
+  ): Promise<void> {
+    await apiPost<unknown>('/auth/session/password', {
+      password,
+      refreshToken,
+      ...(currentPassword ? { currentPassword } : {}),
+    }, { accessToken });
+  }
+
+  registerWithPassword(request: CustomerProfile & { phone: string; password: string }): Promise<AuthSession> {
+    return apiPost<unknown>('/auth/customer/register/password', request).then(readSession);
+  }
+
+  startWhatsAppRegistration(request: CustomerProfile & { phone: string; password: string; whatsappConsent: true }): Promise<PendingOtp> {
+    return apiPost<unknown>('/auth/customer/register/whatsapp', request).then(readPending);
+  }
+
+  resendWhatsAppRegistration(phone: string): Promise<PendingOtp> {
+    return apiPost<unknown>('/auth/customer/register/whatsapp/resend', { phone }).then(readPending);
+  }
+
+  verifyWhatsAppRegistration(phone: string, code: string): Promise<AuthSession> {
+    return apiPost<unknown>('/auth/customer/register/whatsapp/verify', { phone, code }).then(readSession);
+  }
+
+  requestPasswordReset(phone: string): Promise<PendingOtp> {
+    return apiPost<unknown>('/auth/customer/password/forgot', { phone, whatsappConsent: true }).then(readPending);
+  }
+
+  async resetPassword(phone: string, code: string, password: string): Promise<void> {
+    await apiPost<unknown>('/auth/customer/password/reset', { phone, code, password });
   }
 
   refresh(refreshToken: string): Promise<AuthSession> {

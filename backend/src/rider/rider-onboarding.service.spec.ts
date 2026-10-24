@@ -107,6 +107,22 @@ describe('rider onboarding', () => {
       activeVerifiedMotorcycle: true,
     });
   });
+
+  it('includes receiving only while the marketplace flag is on', async () => {
+    const previous = process.env.V2_MARKETPLACE_ENABLED;
+    const ctx = context();
+    ctx.profile.receivingRequests = true;
+    process.env.V2_MARKETPLACE_ENABLED = 'true';
+    try {
+      await expect(ctx.service.current(RIDER)).resolves.toMatchObject({ receiving: true, availability: RiderAvailability.OFFLINE });
+      ctx.profile.receivingRequests = false;
+      await expect(ctx.service.current(RIDER)).resolves.toMatchObject({ receiving: false });
+    } finally {
+      if (previous === undefined) delete process.env.V2_MARKETPLACE_ENABLED;
+      else process.env.V2_MARKETPLACE_ENABLED = previous;
+    }
+    await expect(ctx.service.current(RIDER)).resolves.not.toHaveProperty('receiving');
+  });
 });
 
 type ProfileRow = {
@@ -115,6 +131,7 @@ type ProfileRow = {
   verificationStatus: RiderVerificationStatus;
   approvalStatus: RiderApprovalStatus;
   availability: RiderAvailability;
+  receivingRequests?: boolean | null;
   licenceNumber: string | null;
   licenceClass: string | null;
 };

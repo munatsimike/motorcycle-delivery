@@ -2,6 +2,7 @@ import { ConflictException, ForbiddenException, Injectable } from '@nestjs/commo
 import { CustomerAccountKind, Prisma, UserRole } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { CustomerSession } from '../auth/customer-access.service.js';
+import { v2MarketplaceEnabled } from '../auth/v2-flags.js';
 import { readCustomerProfile } from './customer-profile.js';
 import { readCustomerProfileUpdate } from './customer-profile-update.js';
 
@@ -13,6 +14,7 @@ export type CustomerAccountResponse = {
   address: string;
   phone: string;
   email: string | null;
+  marketplaceEnabled: boolean;
 };
 
 type AccountRow = {
@@ -123,5 +125,6 @@ function toResponse(account: AccountRow, phone: string, email: string | null): C
     address: account.address,
     phone,
     email,
+    marketplaceEnabled: v2MarketplaceEnabled(),
   };
 }

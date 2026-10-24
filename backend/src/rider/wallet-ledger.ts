@@ -245,6 +245,71 @@ export async function openPlatformFeeReservation(
   };
 }
 
+export type V2CommissionReservationResult = {
+  reserved: boolean;
+  amount: string;
+  rateVersion: number;
+};
+
+// Reserves a commission amount already calculated from the accepted bid.
+// A zero amount writes nothing. The balance and the ledger stay unchanged.
+// config_version stores the V2 commission rate version. This does not read
+// WalletConfig.platformFee. Callers lock the delivery, the rider profile,
+// and the bid before this, which then locks the wallet.
+export async function openV2CommissionReservation(
+  tx: Prisma.TransactionClient,
+  riderProfileId: string,
+  deliveryId: string,
+  assignmentId: string,
+  amountCents: number,
+  rateVersion: number,
+  now: Date,
+): Promise<V2CommissionReservationResult> {
+  const wallet = await assertV2CommissionCapacity(tx, riderProfileId, amountCents);
+  if (amountCents === 0 || !wallet) {
+    return { reserved: false, amount: formatSignedCents(0), rateVersion };
+  }
+  await tx.walletFeeReservation.create({
+    data: {
+      riderWalletId: wallet.id,
+      deliveryId,
+      assignmentId,
+      amount: formatSignedCents(amountCents),
+      currency: Currency.USD,
+      configVersion: rateVersion,
+      status: WalletFeeReservationStatus.OPEN,
+      createdAt: now,
+      releasedAt: null,
+      capturedAt: null,
+    },
+  });
+  return { reserved: true, amount: formatSignedCents(amountCents), rateVersion };
+}
+
+export async function assertV2CommissionCapacity(
+  tx: Prisma.TransactionClient,
+  riderProfileId: string,
+  amountCents: number,
+): Promise<{ id: string } | null> {
+  if (!Number.isSafeInteger(amountCents) || amountCents < 0) {
+    throw new ConflictException('Wallet capacity is not enough for this bid');
+  }
+  if (amountCents === 0) {
+    return null;
+  }
+  await lockWalletOwner(tx, riderProfileId);
+  const wallet = await tx.riderWallet.findUnique({ where: { riderProfileId } });
+  if (!wallet) {
+    throw new ConflictException('Wallet capacity is not enough for this bid');
+  }
+  await lockRiderWallet(tx, wallet.id);
+  const summary = await readWalletSummary(tx, riderProfileId);
+  if (signedCentsFromDecimal(summary.availableCapacity) < amountCents) {
+    throw new ConflictException('Wallet capacity is not enough for this bid');
+  }
+  return wallet;
+}
+
 // Marks the OPEN reservation RELEASED. It does not post a ledger entry and
 // does not change the wallet balance.
 export async function releasePlatformFeeReservation(
@@ -423,6 +488,167 @@ export async function capturePlatformFeeReservation(
     balance: formatSignedCents(balance),
     currency: Currency.USD,
     configVersion: captured.configVersion,
+    entryId: entry.id,
+  };
+}
+
+// Captures the V2 commission snapshotted at bid acceptance. The amount is the
+// assignment's accepted_commission_amount. This does not read the active
+// percentage or the suggested price. The caller already holds the delivery,
+// the rider profile, and the assignment. This then locks the wallet. A zero
+// snapshot writes no reservation and no ledger entry. A positive snapshot
+// requires the matching OPEN reservation and posts one negative PLATFORM_FEE.
+export async function captureV2CommissionReservation(
+  tx: Prisma.TransactionClient,
+  deliveryId: string,
+  riderProfileId: string,
+  assignmentId: string,
+  now: Date,
+): Promise<PlatformFeeCapture> {
+  const assignment = await tx.deliveryAssignment.findFirst({
+    where: { id: assignmentId, deliveryId, riderProfileId },
+  });
+  if (
+    !assignment
+    || assignment.acceptedBidAmount == null
+    || assignment.acceptedCommissionAmount == null
+    || assignment.acceptedCommissionBasisPoints == null
+    || assignment.acceptedV2CommissionRateVersion == null
+  ) {
+    throw new ConflictException('This commission snapshot is missing');
+  }
+  const commissionCents = signedCentsFromDecimal(assignment.acceptedCommissionAmount);
+  if (commissionCents < 0 || assignment.acceptedV2CommissionRateVersion < 1) {
+    throw new ConflictException('This commission snapshot is missing');
+  }
+  const idempotencyKey = assignmentPlatformFeeIdempotencyKey(assignmentId);
+  if (commissionCents === 0) {
+    const reservation = await tx.walletFeeReservation.findFirst({ where: { assignmentId } });
+    const existing = await tx.riderWalletEntry.findUnique({ where: { idempotencyKey } });
+    if (reservation || existing) {
+      throw new ConflictException('This commission reservation does not match the accepted bid');
+    }
+    return {
+      captured: false,
+      replayed: false,
+      deliveryId,
+      riderProfileId,
+      amount: formatSignedCents(0),
+      balance: formatSignedCents(0),
+      currency: 'USD',
+      configVersion: assignment.acceptedV2CommissionRateVersion,
+      entryId: null,
+    };
+  }
+  await lockWalletOwner(tx, riderProfileId);
+  const owned = await tx.riderWallet.findUnique({ where: { riderProfileId } });
+  if (!owned) {
+    throw new ConflictException('This commission reservation was not found');
+  }
+  await lockRiderWallet(tx, owned.id);
+  const wallet = await tx.riderWallet.findUnique({ where: { id: owned.id } });
+  if (!wallet || wallet.riderProfileId !== riderProfileId) {
+    throw new ConflictException('This commission reservation was not found');
+  }
+  const reservation = await tx.walletFeeReservation.findFirst({ where: { assignmentId } });
+  if (!reservation) {
+    throw new ConflictException('This commission reservation was not found');
+  }
+  if (
+    reservation.deliveryId !== deliveryId
+    || reservation.riderWalletId !== wallet.id
+    || reservation.currency !== Currency.USD
+  ) {
+    throw new ConflictException('This commission reservation does not match the accepted bid');
+  }
+  const reservedCents = signedCentsFromDecimal(reservation.amount);
+  if (reservedCents !== commissionCents || reservation.configVersion !== assignment.acceptedV2CommissionRateVersion) {
+    throw new ConflictException('This commission reservation does not match the accepted bid');
+  }
+  if (reservation.status === WalletFeeReservationStatus.RELEASED) {
+    throw new ConflictException('This commission reservation was released');
+  }
+  const amountCents = -commissionCents;
+  const hash = walletPayloadHash({
+    riderProfileId,
+    entryType: WalletEntryType.PLATFORM_FEE,
+    amountCents,
+    idempotencyKey,
+    reason: null,
+    walletPaymentId: null,
+    actorType: WalletActorType.SYSTEM,
+    actorId: null,
+    now,
+  });
+  const existing = await tx.riderWalletEntry.findUnique({ where: { idempotencyKey } });
+  if (reservation.status === WalletFeeReservationStatus.CAPTURED) {
+    const posted = await postedCents(tx, wallet.id);
+    return replayCapturedFee(existing, wallet, riderProfileId, deliveryId, amountCents, reservation.configVersion, hash, posted);
+  }
+  if (reservation.status !== WalletFeeReservationStatus.OPEN) {
+    throw new ConflictException('This commission reservation does not match the accepted bid');
+  }
+  const posted = await postedCents(tx, wallet.id);
+  const cached = signedCentsFromDecimal(wallet.balance);
+  if (posted !== cached) {
+    throw new ConflictException(LEDGER_MISMATCH);
+  }
+  if (existing) {
+    if (
+      existing.payloadHash !== hash
+      || existing.riderWalletId !== wallet.id
+      || signedCentsFromDecimal(existing.amount) !== amountCents
+      || existing.configVersion !== reservation.configVersion
+    ) {
+      throw new ConflictException('This idempotency key was already used');
+    }
+  } else {
+    const next = cached + amountCents;
+    assertNextBalance(next);
+    await tx.riderWalletEntry.create({
+      data: {
+        riderWalletId: wallet.id,
+        entryType: WalletEntryType.PLATFORM_FEE,
+        amount: formatSignedCents(amountCents),
+        balanceAfter: formatSignedCents(next),
+        currency: Currency.USD,
+        configVersion: reservation.configVersion,
+        idempotencyKey,
+        payloadHash: hash,
+        walletPaymentId: null,
+        reason: null,
+        actorType: WalletActorType.SYSTEM,
+        actorId: null,
+        createdAt: now,
+      },
+    });
+    await tx.riderWallet.update({
+      where: { id: wallet.id },
+      data: { balance: formatSignedCents(next) },
+    });
+    const confirmed = await postedCents(tx, wallet.id);
+    if (confirmed !== next) {
+      throw new ConflictException(LEDGER_MISMATCH);
+    }
+  }
+  await tx.walletFeeReservation.update({
+    where: { id: reservation.id },
+    data: { status: WalletFeeReservationStatus.CAPTURED, capturedAt: now },
+  });
+  const entry = existing ?? await tx.riderWalletEntry.findUnique({ where: { idempotencyKey } });
+  const stored = await tx.riderWallet.findUnique({ where: { id: wallet.id } });
+  if (!entry || !stored || signedCentsFromDecimal(stored.balance) !== await postedCents(tx, wallet.id)) {
+    throw new ConflictException(LEDGER_MISMATCH);
+  }
+  return {
+    captured: true,
+    replayed: false,
+    deliveryId,
+    riderProfileId,
+    amount: formatSignedCents(amountCents),
+    balance: formatSignedCents(signedCentsFromDecimal(stored.balance)),
+    currency: 'USD',
+    configVersion: reservation.configVersion,
     entryId: entry.id,
   };
 }

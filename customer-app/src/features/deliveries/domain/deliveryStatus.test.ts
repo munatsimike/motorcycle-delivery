@@ -6,6 +6,8 @@ import {
   HISTORY_DELIVERY_STATUSES,
   deliveriesInGroup,
   deliveryGroup,
+  deliveryListLabel,
+  deliveryCanSearchAgain,
   deliveryStatusLabel,
   deliveryUsesPackageIcon,
   type CustomerDelivery,
@@ -21,6 +23,10 @@ describe('deliveryGroup', () => {
     expect(deliveryGroup('PICKED_UP')).toBe('active');
     expect(deliveryGroup('IN_TRANSIT')).toBe('active');
     expect(deliveryGroup('ARRIVED_AT_DROPOFF')).toBe('active');
+    expect(deliveryGroup('RIDER_ASSIGNED')).toBe('active');
+    expect(deliveryGroup('COLLECTING')).toBe('active');
+    expect(deliveryGroup('COLLECTED')).toBe('active');
+    expect(deliveryGroup('OUT_FOR_DELIVERY')).toBe('active');
   });
 
   it('keeps completed, cancelled, and failed deliveries in history', () => {
@@ -64,6 +70,10 @@ describe('deliveryStatusLabel', () => {
     expect(deliveryStatusLabel('PICKED_UP')).toBe('Parcel picked up');
     expect(deliveryStatusLabel('DELIVERED')).toBe('Delivered');
     expect(deliveryStatusLabel('FAILED')).toBe('Failed');
+    expect(deliveryStatusLabel('RIDER_ASSIGNED')).toBe('Rider assigned');
+    expect(deliveryStatusLabel('COLLECTING')).toBe('Collecting');
+    expect(deliveryStatusLabel('COLLECTED')).toBe('Collected');
+    expect(deliveryStatusLabel('OUT_FOR_DELIVERY')).toBe('Out for delivery');
   });
 });
 
@@ -74,5 +84,16 @@ describe('deliveryUsesPackageIcon', () => {
     expect(deliveryUsesPackageIcon('FAILED')).toBe(true);
     expect(deliveryUsesPackageIcon('SEARCHING')).toBe(false);
     expect(deliveryUsesPackageIcon('IN_TRANSIT')).toBe(false);
+  });
+});
+
+describe('marketplace list labels', () => {
+  it('waits for bids on an open V2 request and keeps V1 search on the V1 path', () => {
+    expect(deliveryListLabel({ status: 'CREATED', serviceClass: 'FLEXIBLE' })).toBe('Waiting for bids');
+    expect(deliveryListLabel({ status: 'CREATED', serviceClass: null })).toBe('Pending');
+    expect(deliveryListLabel({ status: 'SEARCHING', serviceClass: null })).toBe('Finding a rider');
+    expect(deliveryCanSearchAgain({ status: 'NO_RIDER_FOUND', serviceClass: null })).toBe(true);
+    expect(deliveryCanSearchAgain({ status: 'NO_RIDER_FOUND', serviceClass: 'EXPRESS' })).toBe(false);
+    expect(deliveryCanSearchAgain({ status: 'CREATED', serviceClass: 'FLEXIBLE' })).toBe(false);
   });
 });

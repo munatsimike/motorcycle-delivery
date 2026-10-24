@@ -89,6 +89,46 @@ data class SessionResponse(
 data class PhoneRequest(val phone: String)
 
 @Serializable
+data class PasswordLoginRequest(val phone: String, val password: String)
+
+@Serializable
+data class SetPasswordRequest(
+    val password: String,
+    val currentPassword: String? = null,
+    val refreshToken: String? = null,
+)
+
+@Serializable
+data class RiderPasswordRegistrationRequest(
+    val phone: String,
+    val password: String,
+    val fullName: String,
+    val address: String,
+)
+
+@Serializable
+data class RiderWhatsAppRegistrationRequest(
+    val phone: String,
+    val password: String,
+    val fullName: String,
+    val address: String,
+    val whatsappConsent: Boolean,
+)
+
+@Serializable
+data class WhatsAppRecoveryRequest(
+    val phone: String,
+    val whatsappConsent: Boolean,
+)
+
+@Serializable
+data class PasswordResetRequest(
+    val phone: String,
+    val code: String,
+    val password: String,
+)
+
+@Serializable
 data class RiderRegistrationRequest(
     val phone: String,
     val fullName: String? = null,
@@ -174,6 +214,7 @@ data class OnboardingResponse(
     val rejectionReason: String? = null,
     val verifiedMotorcycleCount: Int,
     val activeVerifiedMotorcycle: Boolean,
+    val receiving: Boolean? = null,
 )
 
 @Serializable
@@ -194,8 +235,19 @@ data class LocationResponse(val updatedAt: String)
 data class OffersResponse(val offers: List<OfferResponse>)
 
 @Serializable
+data class PushDeviceRequest(val fcmToken: String)
+
+@Serializable
+data class PushDeviceResponse(val registered: Boolean = false)
+
+@Serializable
 data class ActiveAssignmentResponse(
     val assignment: ActiveAssignmentBody? = null,
+)
+
+@Serializable
+data class LiveAssignmentsResponse(
+    val assignments: List<ActiveAssignmentBody> = emptyList(),
 )
 
 @Serializable
@@ -206,6 +258,18 @@ data class ActiveAssignmentBody(
     val parcel: ParcelResponse,
     val pickup: StopResponse,
     val dropoff: StopResponse,
+    val serviceClass: String? = null,
+    val deliverBy: String? = null,
+    val agreedPrice: String? = null,
+)
+
+@Serializable
+data class ReceivingRequest(val receiving: Boolean)
+
+@Serializable
+data class ReceivingResponse(
+    val availability: String,
+    val receiving: Boolean,
 )
 
 @Serializable
@@ -258,6 +322,71 @@ data class ReleaseRequest(val reason: String)
 
 @Serializable
 data class StatusRequest(val status: String)
+
+@Serializable
+data class CancellationRequest(val reason: String, val note: String? = null)
+
+@Serializable
+data class BidRequestBody(
+    val id: String,
+    val serviceClass: String? = null,
+    val deliverBy: String? = null,
+    val currency: String? = null,
+    val suggestedPrice: String? = null,
+    val distanceMeters: Int? = null,
+    val pickupAddress: String = "",
+    val dropoffAddress: String = "",
+    val parcelDescription: String = "",
+    val parcelSize: String = "",
+)
+
+@Serializable
+data class BidSubmissionRequest(
+    val deliveryId: String,
+    val amountCents: Int,
+)
+
+@Serializable
+data class SubmittedBidResponse(
+    val id: String,
+    val deliveryId: String,
+    val amount: String,
+    val currency: String,
+    val status: String,
+    val createdAt: String,
+)
+
+@Serializable
+data class OwnBidBody(
+    val bidId: String,
+    val deliveryId: String,
+    val amount: String,
+    val currency: String,
+    val status: String,
+    val createdAt: String,
+    val updatedAt: String? = null,
+    val serviceClass: String? = null,
+    val pickupAddress: String = "",
+    val dropoffAddress: String = "",
+    val deliverBy: String? = null,
+)
+
+@Serializable
+data class OwnBidsResponse(
+    val bids: List<OwnBidBody> = emptyList(),
+    val nextCursor: String? = null,
+)
+
+@Serializable
+data class CancellationResponse(
+    val assignmentId: String,
+    val deliveryId: String,
+    val status: String,
+    val reopened: Boolean,
+    val released: Boolean = false,
+    val availability: String,
+    val replayed: Boolean = false,
+)
 
 @Serializable
 data class ProgressResponse(

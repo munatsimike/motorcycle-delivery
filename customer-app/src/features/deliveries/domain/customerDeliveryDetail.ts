@@ -1,11 +1,20 @@
 import { isKnownDeliveryStatus, type DeliveryStatus } from './deliveryStatus';
 
+export type ServiceClass = 'EXPRESS' | 'FLEXIBLE';
+
+export type RiderPoint = {
+  latitude: number;
+  longitude: number;
+};
+
 export type CustomerDeliveryDetail = {
   id: string;
   status: DeliveryStatus;
   currency: string;
-  offeredPrice: string;
+  offeredPrice: string | null;
   suggestedPrice: string;
+  serviceClass: ServiceClass | null;
+  deliverBy: string | null;
   distanceMeters: number;
   pickupAddress: string;
   pickupLatitude: number | null;
@@ -15,6 +24,7 @@ export type CustomerDeliveryDetail = {
   dropoffLongitude: number | null;
   parcelDescription: string;
   createdAt: string | null;
+  riderLocation: RiderPoint | null;
 };
 
 export function readCustomerDeliveryDetail(value: unknown): CustomerDeliveryDetail {
@@ -32,16 +42,20 @@ export function readCustomerDeliveryDetail(value: unknown): CustomerDeliveryDeta
   const dropoffAddress = text(value.dropoff.address);
   const dropoffPoint = coordinatePair(value.dropoff.latitude, value.dropoff.longitude);
   const parcelDescription = text(value.parcel.description);
-  const offeredPrice = text(value.offeredPrice);
+  const offeredPrice = moneyOrNull(value.offeredPrice);
   const suggestedPrice = text(value.suggestedPrice);
   const currency = text(value.currency);
+  const serviceClass = readServiceClass(value.serviceClass);
+  const deliverBy = readDeadline(value.deliverBy);
   if (
     !pickupAddress
     || !dropoffAddress
     || !parcelDescription
-    || !offeredPrice
+    || offeredPrice === undefined
     || !suggestedPrice
     || !currency
+    || serviceClass === undefined
+    || deliverBy === undefined
     || typeof value.distanceMeters !== 'number'
     || !Number.isFinite(value.distanceMeters)
   ) {
@@ -53,6 +67,8 @@ export function readCustomerDeliveryDetail(value: unknown): CustomerDeliveryDeta
     currency,
     offeredPrice,
     suggestedPrice,
+    serviceClass,
+    deliverBy,
     distanceMeters: value.distanceMeters,
     pickupAddress,
     pickupLatitude: pickupPoint.latitude,
@@ -62,7 +78,47 @@ export function readCustomerDeliveryDetail(value: unknown): CustomerDeliveryDeta
     dropoffLongitude: dropoffPoint.longitude,
     parcelDescription,
     createdAt: typeof value.createdAt === 'string' && value.createdAt.trim() ? value.createdAt : null,
+    riderLocation: value.status === 'COLLECTING' ? readRiderPoint(value.riderLocation) : null,
   };
+}
+
+function readServiceClass(value: unknown): ServiceClass | null | undefined {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+  if (value === 'EXPRESS' || value === 'FLEXIBLE') {
+    return value;
+  }
+  return undefined;
+}
+
+function readDeadline(value: unknown): string | null | undefined {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+  if (typeof value !== 'string' || Number.isNaN(new Date(value).getTime())) {
+    return undefined;
+  }
+  return value;
+}
+
+function moneyOrNull(value: unknown): string | null | undefined {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+  return text(value);
+}
+
+function readRiderPoint(value: unknown): RiderPoint | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const latitude = coordinate(value.latitude, 90);
+  const longitude = coordinate(value.longitude, 180);
+  if (latitude === null || longitude === null) {
+    return null;
+  }
+  return { latitude, longitude };
 }
 
 function coordinatePair(latitude: unknown, longitude: unknown): { latitude: number | null; longitude: number | null } {

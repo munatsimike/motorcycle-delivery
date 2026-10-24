@@ -1,5 +1,7 @@
 import { apiGet, apiGetBytes, apiPost } from '../../../services/api/apiClient';
-import { createBody, quoteBody, type PreparedBooking } from '../domain/bookingDraft';
+import { createBody, quoteBody, v2CreateBody, type PreparedBooking } from '../domain/bookingDraft';
+import { readBidAcceptance, readCustomerBids, type BidAcceptance, type CustomerBid } from '../domain/customerBids';
+import { readOpenBidRequest, type OpenBidRequest } from '../domain/openBidRequest';
 import { readCustomerDeliveryDetail, type CustomerDeliveryDetail } from '../domain/customerDeliveryDetail';
 import { readCustomerDeliveryPage, type CustomerDeliveryPage } from '../domain/customerDeliveryList';
 import { readDeliveryQuote, type DeliveryQuote } from '../domain/deliveryQuote';
@@ -53,6 +55,11 @@ export class CustomerDeliveryApiRepository implements CustomerDeliveryRepository
   async create(accessToken: string, booking: PreparedBooking, offeredPrice: string): Promise<CustomerDeliveryDetail> {
     const body = await apiPost<unknown>('/customers/me/deliveries', createBody(booking, offeredPrice), { accessToken });
     return readCustomerDeliveryDetail(body);
+  }
+
+  async createOpenRequest(accessToken: string, booking: PreparedBooking): Promise<OpenBidRequest> {
+    const body = await apiPost<unknown>('/customers/me/deliveries', v2CreateBody(booking), { accessToken });
+    return readOpenBidRequest(body);
   }
 
   async getById(accessToken: string, deliveryId: string): Promise<CustomerDeliveryDetail> {
@@ -118,6 +125,23 @@ export class CustomerDeliveryApiRepository implements CustomerDeliveryRepository
       }
     }
     return suggestions;
+  }
+
+  async listBids(accessToken: string, deliveryId: string): Promise<CustomerBid[]> {
+    const body = await apiGet<unknown>(
+      `/customers/me/deliveries/${encodeURIComponent(deliveryId)}/bids`,
+      { accessToken },
+    );
+    return readCustomerBids(body);
+  }
+
+  async acceptBid(accessToken: string, deliveryId: string, bidId: string, idempotencyKey: string): Promise<BidAcceptance> {
+    const body = await apiPost<unknown>(
+      `/customers/me/deliveries/${encodeURIComponent(deliveryId)}/bids/${encodeURIComponent(bidId)}/acceptance`,
+      {},
+      { accessToken, headers: { 'Idempotency-Key': idempotencyKey } },
+    );
+    return readBidAcceptance(body);
   }
 
   async search(accessToken: string, deliveryId: string): Promise<void> {

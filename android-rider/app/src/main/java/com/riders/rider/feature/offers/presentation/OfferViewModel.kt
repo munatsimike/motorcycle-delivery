@@ -9,11 +9,15 @@ import com.riders.rider.core.network.text
 import com.riders.rider.feature.availability.data.AvailabilityRepository
 import com.riders.rider.feature.availability.domain.LocationFreshness
 import com.riders.rider.feature.delivery.data.ActiveDeliveryStore
+import com.riders.rider.feature.delivery.data.AssignmentRepository
 import com.riders.rider.feature.delivery.domain.toActiveDelivery
 import com.riders.rider.feature.offers.data.ListedOffers
 import com.riders.rider.feature.offers.data.OfferRepository
 import com.riders.rider.feature.offers.domain.AcceptedDelivery
 import com.riders.rider.feature.offers.domain.OFFER_UNAVAILABLE
+import com.riders.rider.feature.offers.domain.REQUEST_UNAVAILABLE
+import com.riders.rider.feature.offers.domain.notificationTapCanOpen
+import com.riders.rider.feature.offers.notification.PendingOffer
 import com.riders.rider.feature.offers.domain.OfferBoard
 import com.riders.rider.feature.offers.domain.OfferRefreshGate
 import com.riders.rider.feature.offers.domain.OfferWatch
@@ -46,8 +50,10 @@ data class OfferUi(
 class OfferViewModel @Inject constructor(
     private val offers: OfferRepository,
     private val deliveries: ActiveDeliveryStore,
+    private val assignments: AssignmentRepository,
     private val availability: AvailabilityRepository,
     private val freshness: LocationFreshness,
+    private val pending: PendingOffer,
 ) : ViewModel() {
     private val state = MutableStateFlow(OfferUi(nowMillis = System.currentTimeMillis()))
     val ui: StateFlow<OfferUi> = state.asStateFlow()
@@ -59,12 +65,47 @@ class OfferViewModel @Inject constructor(
         refresh = { refreshOffers() },
         tick = { publishNow() },
     )
+    private var screenResumed = false
+
+    init {
+        viewModelScope.launch {
+            pending.arrived.collect {
+                if (screenResumed) {
+                    refreshOffers()
+                }
+            }
+        }
+    }
 
     fun setScreenResumed(resumed: Boolean) {
+        screenResumed = resumed
         if (resumed) {
             publishNow()
         }
         watch.setResumed(resumed)
+    }
+
+    fun openFromNotification(assignmentId: String) {
+        viewModelScope.launch {
+            val now = adjustedNowMillis(System.currentTimeMillis(), clockOffset)
+            when (val result = offers.list()) {
+                is ApiResult.Ok if result.value.fromNetwork -> {
+                    applyListed(result.value)
+                    val match = result.value.offers.find { it.assignmentId == assignmentId }
+                    val canOpen = notificationTapCanOpen(match != null, match?.expiresAt, adjustedNowMillis(System.currentTimeMillis(), clockOffset))
+                    state.update {
+                        it.copy(
+                            selected = if (canOpen) match else null,
+                            offerGone = false,
+                            error = if (canOpen) null else REQUEST_UNAVAILABLE,
+                            nowMillis = now,
+                        )
+                    }
+                }
+                else -> state.update { it.copy(selected = null, offerGone = false, error = REQUEST_UNAVAILABLE, nowMillis = now) }
+            }
+            pending.clear()
+        }
     }
 
     fun refresh() {
@@ -110,7 +151,8 @@ class OfferViewModel @Inject constructor(
                 when (val result = offers.accept(offer.assignmentId)) {
                     null -> Unit
                     is ApiResult.Ok -> {
-                        availability.applySharing(result.value.availability)
+                        availability.applySharing()
+                        assignments.refreshList()
                         val saved = try {
                             deliveries.write(offer.toActiveDelivery(result.value.deliveryId, result.value.assignmentId, result.value.status))
                             true

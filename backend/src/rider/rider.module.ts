@@ -5,6 +5,7 @@ import { AuthModule } from '../auth/auth.module.js';
 import { DeliveryModule } from '../delivery/delivery.module.js';
 import { DispatchWorker } from '../delivery/dispatch.worker.js';
 import { RiderOfferNotificationWorker } from '../delivery/rider-offer-notification.worker.js';
+import { V2NoticeWorker } from '../delivery/v2-notice.worker.js';
 import { CoordinateRetentionWorker } from '../delivery/coordinate-retention.worker.js';
 import { RiderAvailabilityAlertWorker } from '../delivery/rider-availability-alert.worker.js';
 import { LicenceImageCleanup } from './licence-image.cleanup.js';
@@ -19,6 +20,7 @@ import { MotorcycleService } from './motorcycle.service.js';
 import { RiderAdminController } from './rider-admin.controller.js';
 import { RiderApprovalService } from './rider-approval.service.js';
 import { RiderAvailabilityController } from './rider-availability.controller.js';
+import { RiderReceivingController } from './rider-receiving.controller.js';
 import { RiderAvailabilityService } from './rider-availability.service.js';
 import { RiderLocationController } from './rider-location.controller.js';
 import { RiderLocationService } from './rider-location.service.js';
@@ -29,6 +31,8 @@ import { RiderOnboardingService } from './rider-onboarding.service.js';
 import { RiderWalletController } from './rider-wallet.controller.js';
 import { CommissionPolicyController } from './commission-policy.controller.js';
 import { CommissionPolicyService } from './commission-policy.service.js';
+import { V2CommissionRateController } from './v2-commission-rate.controller.js';
+import { V2CommissionRateService } from './v2-commission-rate.service.js';
 import { WalletConfigController } from './wallet-config.controller.js';
 import { WalletConfigService } from './wallet-config.service.js';
 import { WalletService } from './wallet.service.js';
@@ -43,11 +47,13 @@ import { createS3Client, S3_CLIENT_FACTORY, S3ObjectStorage } from './s3-object-
     MotorcycleReviewController,
     RiderAdminController,
     RiderAvailabilityController,
+    RiderReceivingController,
     RiderLocationController,
     RiderOnboardingController,
     RiderPushDeviceController,
     RiderWalletController,
     CommissionPolicyController,
+    V2CommissionRateController,
     WalletConfigController,
   ],
   providers: [
@@ -64,10 +70,12 @@ import { createS3Client, S3_CLIENT_FACTORY, S3ObjectStorage } from './s3-object-
     RiderOnboardingService,
     DispatchWorker,
     RiderOfferNotificationWorker,
+    V2NoticeWorker,
     RiderPushDeviceService,
     CoordinateRetentionWorker,
     RiderAvailabilityAlertWorker,
     CommissionPolicyService,
+    V2CommissionRateService,
     WalletConfigService,
     WalletService,
     { provide: S3_CLIENT_FACTORY, useValue: createS3Client },

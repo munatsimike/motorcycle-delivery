@@ -11,6 +11,7 @@ import {
   RiderVerificationStatus,
   UserRole,
 } from '../generated/prisma/client.js';
+import { v2MarketplaceEnabled } from '../auth/v2-flags.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { RiderContext } from '../auth/rider-access.service.js';
 
@@ -29,6 +30,7 @@ export type RiderOnboardingResponse = {
   rejectionReason: string | null;
   verifiedMotorcycleCount: number;
   activeVerifiedMotorcycle: boolean;
+  receiving?: boolean;
 };
 
 @Injectable()
@@ -101,6 +103,7 @@ export class RiderOnboardingService {
       rejectionReason: latest?.decision === LicenceReviewDecision.REJECT ? latest.rejectionReason : null,
       verifiedMotorcycleCount,
       activeVerifiedMotorcycle: activeVerifiedMotorcycle === 1,
+      ...(v2MarketplaceEnabled() ? { receiving: profile.receivingRequests === true } : {}),
     };
   }
 }

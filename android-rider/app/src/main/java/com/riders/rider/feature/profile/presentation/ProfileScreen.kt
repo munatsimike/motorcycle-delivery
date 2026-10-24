@@ -22,9 +22,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -35,6 +39,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -51,7 +58,9 @@ import com.riders.rider.core.design.isConnectionFailure
 import com.riders.rider.core.design.RidersLoadingState
 import com.riders.rider.core.design.RidersPullRefresh
 import com.riders.rider.core.design.RidersRadius
+import com.riders.rider.core.design.RidersPrimaryButton
 import com.riders.rider.core.design.RidersSecondaryButton
+import com.riders.rider.core.design.RidersTextField
 import com.riders.rider.core.design.RidersSpacing
 import com.riders.rider.core.design.RidersType
 import com.riders.rider.feature.auth.presentation.SessionViewModel
@@ -70,6 +79,50 @@ private val PhoneFill = Color(0xFFE8F1FF)
 private val LicenceFill = Color(0xFFEEF2F6)
 private val LicenceTint = Color(0xFF3D5A80)
 private val BikeFill = Color(0xFFDDF3E8)
+
+@Composable
+private fun PasswordCard(
+    saving: Boolean,
+    error: String?,
+    saved: Boolean,
+    onSave: (String, String) -> Unit,
+) {
+    var password by rememberSaveable { mutableStateOf("") }
+    var currentPassword by rememberSaveable { mutableStateOf("") }
+    Column(verticalArrangement = Arrangement.spacedBy(RidersSpacing.md)) {
+        RidersTextField(
+            label = "New password",
+            value = password,
+            onValueChange = { password = it },
+            placeholder = "12 or more characters",
+            enabled = !saving,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Next),
+            visualTransformation = PasswordVisualTransformation(),
+        )
+        RidersTextField(
+            label = "Current password",
+            value = currentPassword,
+            onValueChange = { currentPassword = it },
+            placeholder = "Only if you already have one",
+            enabled = !saving,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+            visualTransformation = PasswordVisualTransformation(),
+        )
+        if (error != null) {
+            RidersFailureNotice(message = error)
+        }
+        if (saved) {
+            Text("Password saved. This phone stays signed in.", style = RidersType.caption, color = RidersColors.primaryDark)
+        }
+        RidersPrimaryButton(
+            label = "Save password",
+            onClick = { onSave(password, currentPassword) },
+            loading = saving,
+            enabled = !saving,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
 
 @Composable
 fun ProfileScreen(
@@ -141,6 +194,12 @@ fun ProfileScreen(
                                 onToggle = { session.onHomeBiometric(activity) },
                             )
                         }
+                        PasswordCard(
+                            saving = ui.savingPassword,
+                            error = ui.passwordError,
+                            saved = ui.passwordSaved,
+                            onSave = model::setPassword,
+                        )
                         RidersSecondaryButton(
                             label = "Log out",
                             onClick = model::logout,
@@ -414,11 +473,7 @@ private fun BiometricCard(
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs)) {
                 Text("Unlock with biometrics", style = RidersType.bodyStrong, color = RidersColors.text)
                 Text(
-                    if (enabled) {
-                        "Fingerprint protection stays on for this saved session. Turning it off keeps you signed in."
-                    } else {
-                        "Use fingerprint or face unlock on this phone."
-                    },
+                    "Use your fingerprint to unlock the app without signing in again.",
                     style = RidersType.caption,
                     color = RidersColors.textSecondary,
                 )

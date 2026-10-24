@@ -16,6 +16,7 @@ export async function restoreSession(
   store: CustomerSessionStore,
   now = Date.now(),
   preloaded: AuthSession | null = null,
+  options: { requireLiveSession?: boolean } = {},
 ): Promise<SessionRestore> {
   const stored = preloaded ?? await store.load();
   if (!stored) {
@@ -30,7 +31,7 @@ export async function restoreSession(
 
   const accessExpiresAt = Date.parse(stored.accessTokenExpiresAt);
   const accessStillValid = Number.isFinite(accessExpiresAt) && accessExpiresAt - now > REFRESH_WINDOW_MS;
-  if (accessStillValid) {
+  if (accessStillValid && !options.requireLiveSession) {
     return { status: 'ready', session: stored };
   }
 

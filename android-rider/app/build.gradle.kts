@@ -8,6 +8,10 @@ plugins {
     alias(libs.plugins.hilt)
 }
 
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 val localProperties = Properties().apply {
     val file = rootProject.file("local.properties")
     if (file.exists()) {
@@ -112,6 +116,8 @@ dependencies {
     implementation(libs.biometric)
     implementation(libs.coroutines)
     implementation(libs.play.location)
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.messaging)
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.ui.test.manifest)
     testImplementation(libs.junit)

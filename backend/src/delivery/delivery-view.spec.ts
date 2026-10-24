@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Currency, DeliveryPayer, DeliveryStatus, ParcelSize, PaymentMethod, CoordinateSource } from '../generated/prisma/client.js';
-import { toCustomerDelivery, toRiderDelivery, type StoredDelivery } from './delivery-view.js';
+import { toCustomerDelivery, toRiderDelivery, withCollectingRiderLocation, type StoredDelivery } from './delivery-view.js';
 
 describe('rider delivery view', () => {
   it('omits the suggested price', () => {
@@ -44,6 +44,33 @@ describe('rider delivery view', () => {
     expect(restored.dropoff.address).toBe('4 Jason Moyo Avenue');
     expect(restored.offeredPrice).toBe('4.00');
     expect(restored.status).toBe(DeliveryStatus.CREATED);
+  });
+
+  it('adds the rider point only while the delivery is collecting', () => {
+    const point = { latitude: '-17.8010000', longitude: '31.1090000' };
+    for (const status of [
+      DeliveryStatus.RIDER_ASSIGNED,
+      DeliveryStatus.COLLECTED,
+      DeliveryStatus.OUT_FOR_DELIVERY,
+      DeliveryStatus.DELIVERED,
+      DeliveryStatus.CANCELLED,
+      DeliveryStatus.ASSIGNED,
+      DeliveryStatus.IN_TRANSIT,
+    ]) {
+      const hidden = withCollectingRiderLocation(toCustomerDelivery({ ...stored(), status }), point);
+      expect(hidden).not.toHaveProperty('riderLocation');
+      expect(JSON.stringify(hidden)).not.toContain('-17.8010000');
+    }
+    const visible = withCollectingRiderLocation(
+      toCustomerDelivery({ ...stored(), status: DeliveryStatus.COLLECTING }),
+      point,
+    );
+    expect(visible).toMatchObject({ status: 'COLLECTING', riderLocation: point });
+    expect(withCollectingRiderLocation(
+      toCustomerDelivery({ ...stored(), status: DeliveryStatus.COLLECTING }),
+      null,
+    )).not.toHaveProperty('riderLocation');
+    expect(toRiderDelivery({ ...stored(), status: DeliveryStatus.COLLECTING })).not.toHaveProperty('riderLocation');
   });
 });
 

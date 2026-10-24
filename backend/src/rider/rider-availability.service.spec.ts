@@ -1,5 +1,6 @@
-import { ConflictException } from '@nestjs/common';
-import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   AccountStatus,
   AssignmentStatus,
@@ -21,6 +22,14 @@ const NOW = new Date('2026-10-13T12:00:00.000Z');
 const RIDER: RiderContext = { userId: 'user-1', riderProfileId: 'profile-1' };
 
 describe('rider availability', () => {
+  beforeEach(() => {
+    delete process.env.V2_MARKETPLACE_ENABLED;
+  });
+
+  afterEach(() => {
+    delete process.env.V2_MARKETPLACE_ENABLED;
+  });
+
   it('goes online only when every operational requirement passes', async () => {
     const inactive = context();
     inactive.user.accountStatus = AccountStatus.SUSPENDED;
@@ -54,12 +63,14 @@ describe('rider availability', () => {
     const ctx = context();
     await expect(ctx.service.online(RIDER, NOW)).resolves.toEqual({ availability: RiderAvailability.AVAILABLE });
     expect(ctx.profile.availability).toBe(RiderAvailability.AVAILABLE);
+    expect(ctx.profile.receivingRequests).toBeNull();
     expect(ctx.writes).toEqual([RiderAvailability.AVAILABLE]);
     expect(ctx.assignments).toEqual([]);
     expect(ctx.locks).toEqual(['profile', 'motorcycles']);
 
     await expect(ctx.service.offline(RIDER, NOW)).resolves.toEqual({ availability: RiderAvailability.OFFLINE });
     expect(ctx.profile.availability).toBe(RiderAvailability.OFFLINE);
+    expect(ctx.profile.receivingRequests).toBeNull();
     expect(ctx.writes).toEqual([RiderAvailability.AVAILABLE, RiderAvailability.OFFLINE]);
   });
 
@@ -82,6 +93,7 @@ describe('rider availability', () => {
   it('commits offline when an available rider loses eligibility and has no accepted delivery', async () => {
     const ctx = context();
     ctx.profile.availability = RiderAvailability.AVAILABLE;
+    ctx.profile.receivingRequests = true;
     ctx.user.accountStatus = AccountStatus.DEACTIVATED;
 
     const response = await ctx.service.online(RIDER, NOW);
@@ -93,6 +105,7 @@ describe('rider availability', () => {
     });
     expect(ctx.profile.availability).toBe(RiderAvailability.OFFLINE);
     expect(ctx.writes).toEqual([RiderAvailability.OFFLINE]);
+    expect(ctx.profile.receivingRequests).toBe(true);
     const json = JSON.stringify(response);
     expect(json).not.toContain(ctx.user.phone);
     expect(json).not.toContain('reviewerId');
@@ -152,6 +165,177 @@ describe('rider availability', () => {
     expect(ctx.motorcycles.find((row) => row.id === 'bike-2')?.isActive).toBe(false);
     expect(ctx.profile.availability).toBe(RiderAvailability.AVAILABLE);
   });
+
+  it('enables receiving when an eligible rider goes online and disables it when they go offline', async () => {
+    process.env.V2_MARKETPLACE_ENABLED = 'true';
+    const ctx = context();
+
+    await expect(ctx.service.online(RIDER, NOW)).resolves.toEqual({
+      availability: RiderAvailability.AVAILABLE,
+      receiving: true,
+    });
+    expect(ctx.profile.receivingRequests).toBe(true);
+    expect(ctx.assignments).toEqual([]);
+
+    await ctx.service.setReceiving(RIDER, { receiving: false }, NOW);
+    expect(ctx.profile.availability).toBe(RiderAvailability.AVAILABLE);
+    expect(ctx.profile.receivingRequests).toBe(false);
+
+    await expect(ctx.service.online(RIDER, NOW)).resolves.toEqual({
+      availability: RiderAvailability.AVAILABLE,
+      receiving: true,
+    });
+    expect(ctx.profile.receivingRequests).toBe(true);
+    expect(ctx.writes).toEqual([RiderAvailability.AVAILABLE]);
+
+    await expect(ctx.service.offline(RIDER, NOW)).resolves.toEqual({
+      availability: RiderAvailability.OFFLINE,
+      receiving: false,
+    });
+    expect(ctx.profile.receivingRequests).toBe(false);
+  });
+
+  it('pauses and resumes receiving while online without changing availability', async () => {
+    process.env.V2_MARKETPLACE_ENABLED = 'true';
+    const ctx = context();
+    ctx.profile.availability = RiderAvailability.AVAILABLE;
+    ctx.profile.receivingRequests = true;
+
+    await expect(ctx.service.setReceiving(RIDER, { receiving: false }, NOW)).resolves.toEqual({
+      availability: RiderAvailability.AVAILABLE,
+      receiving: false,
+    });
+    await expect(ctx.service.setReceiving(RIDER, { receiving: true }, NOW)).resolves.toEqual({
+      availability: RiderAvailability.AVAILABLE,
+      receiving: true,
+    });
+    expect(ctx.profile.availability).toBe(RiderAvailability.AVAILABLE);
+    expect(ctx.writes).toEqual([]);
+  });
+
+  it('refuses a receiving change while offline, busy, or ineligible', async () => {
+    process.env.V2_MARKETPLACE_ENABLED = 'true';
+    const offline = context();
+    await expect(offline.service.setReceiving(RIDER, { receiving: true }, NOW)).rejects.toThrow(
+      'Receiving requests can be changed while you are online',
+    );
+    expect(offline.profile.availability).toBe(RiderAvailability.OFFLINE);
+    expect(offline.profile.receivingRequests).toBeNull();
+
+    const busy = context();
+    busy.profile.availability = RiderAvailability.BUSY;
+    busy.profile.receivingRequests = true;
+    await expect(busy.service.setReceiving(RIDER, { receiving: false }, NOW)).rejects.toThrow(
+      'Availability cannot be changed while busy',
+    );
+    expect(busy.profile.receivingRequests).toBe(true);
+
+    const ineligible = context();
+    ineligible.profile.availability = RiderAvailability.AVAILABLE;
+    ineligible.profile.receivingRequests = true;
+    ineligible.user.phoneVerifiedAt = null;
+    await expect(ineligible.service.setReceiving(RIDER, { receiving: false }, NOW)).rejects.toThrow(
+      'An active verified account is required',
+    );
+    expect(ineligible.profile.availability).toBe(RiderAvailability.AVAILABLE);
+    expect(ineligible.profile.receivingRequests).toBe(true);
+    await expect(ineligible.service.setReceiving(RIDER, { receiving: 'yes' }, NOW)).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('goes offline with a V2 assignment and leaves that assignment accepted', async () => {
+    process.env.V2_MARKETPLACE_ENABLED = 'true';
+    const ctx = context();
+    ctx.profile.availability = RiderAvailability.AVAILABLE;
+    ctx.profile.receivingRequests = true;
+    ctx.assignments.push({
+      id: 'assignment-1',
+      riderProfileId: 'profile-1',
+      status: AssignmentStatus.ACCEPTED,
+      acceptedBidAmount: '4.50',
+    });
+
+    await expect(ctx.service.offline(RIDER, NOW)).resolves.toEqual({
+      availability: RiderAvailability.OFFLINE,
+      receiving: false,
+    });
+    expect(ctx.assignments[0]).toMatchObject({ status: AssignmentStatus.ACCEPTED, acceptedBidAmount: '4.50' });
+    expect(ctx.profile.receivingRequests).toBe(false);
+  });
+
+  it('still refuses offline for a V1 accepted assignment when the marketplace flag is on', async () => {
+    process.env.V2_MARKETPLACE_ENABLED = 'true';
+    const ctx = context();
+    ctx.profile.availability = RiderAvailability.AVAILABLE;
+    ctx.profile.receivingRequests = true;
+    ctx.assignments.push({ id: 'offer-1', riderProfileId: 'profile-1', status: AssignmentStatus.ACCEPTED, acceptedBidAmount: null });
+
+    await expect(ctx.service.offline(RIDER, NOW)).rejects.toThrow('You cannot go offline during a delivery');
+    expect(ctx.profile.availability).toBe(RiderAvailability.AVAILABLE);
+    expect(ctx.profile.receivingRequests).toBe(true);
+    expect(ctx.assignments[0].status).toBe(AssignmentStatus.ACCEPTED);
+  });
+
+  it('keeps a V1 accepted assignment from blocking offline only while the flag is off', async () => {
+    const ctx = context();
+    ctx.profile.availability = RiderAvailability.AVAILABLE;
+    ctx.assignments.push({
+      id: 'assignment-1',
+      riderProfileId: 'profile-1',
+      status: AssignmentStatus.ACCEPTED,
+      acceptedBidAmount: '4.50',
+    });
+
+    await expect(ctx.service.offline(RIDER, NOW)).rejects.toThrow('You cannot go offline during a delivery');
+    expect(ctx.profile.receivingRequests).toBeNull();
+    expect(ctx.assignments[0].status).toBe(AssignmentStatus.ACCEPTED);
+  });
+
+  it('disables receiving when an online rider loses eligibility and keeps the V2 assignment', async () => {
+    process.env.V2_MARKETPLACE_ENABLED = 'true';
+    const ctx = context();
+    ctx.profile.availability = RiderAvailability.AVAILABLE;
+    ctx.profile.receivingRequests = true;
+    ctx.user.accountStatus = AccountStatus.DEACTIVATED;
+    ctx.assignments.push({
+      id: 'assignment-1',
+      riderProfileId: 'profile-1',
+      status: AssignmentStatus.ACCEPTED,
+      acceptedBidAmount: '4.50',
+    });
+
+    await expect(ctx.service.online(RIDER, NOW)).resolves.toMatchObject({
+      availability: RiderAvailability.OFFLINE,
+      receiving: false,
+      eligible: false,
+    });
+    expect(ctx.assignments[0].status).toBe(AssignmentStatus.ACCEPTED);
+    expect(ctx.profile.receivingRequests).toBe(false);
+  });
+
+  it('hides the receiving endpoint and leaves the column unchanged when the marketplace flag is off', async () => {
+    const ctx = context();
+    ctx.profile.availability = RiderAvailability.AVAILABLE;
+    ctx.profile.receivingRequests = true;
+
+    await expect(ctx.service.setReceiving(RIDER, { receiving: false }, NOW)).rejects.toBeInstanceOf(NotFoundException);
+    expect(ctx.profile.availability).toBe(RiderAvailability.AVAILABLE);
+    expect(ctx.profile.receivingRequests).toBe(true);
+  });
+
+  it('does not write receiving requests during acceptance, completion, or cancellation', () => {
+    const acceptance = readFileSync(new URL('../delivery/bid-acceptance.service.ts', import.meta.url), 'utf8');
+    expect(acceptance).not.toContain('riderProfile.update');
+    expect(acceptance).not.toContain('receivingRequests:');
+    const dispatch = readFileSync(new URL('../delivery/dispatch.service.ts', import.meta.url), 'utf8');
+    const updates = [...dispatch.matchAll(/riderProfile\.update\(\{[\s\S]*?\}\);/g)].map((match) => match[0]);
+    expect(updates.length).toBeGreaterThan(0);
+    for (const update of updates) {
+      expect(update).not.toContain('receiving');
+    }
+    const bids = readFileSync(new URL('../delivery/bid.service.ts', import.meta.url), 'utf8');
+    expect(bids).not.toContain('riderProfile.update');
+    expect(bids).not.toContain('receivingRequests');
+  });
 });
 
 type ProfileRow = {
@@ -160,6 +344,7 @@ type ProfileRow = {
   verificationStatus: RiderVerificationStatus;
   approvalStatus: RiderApprovalStatus;
   availability: RiderAvailability;
+  receivingRequests: boolean | null;
   updatedAt: Date;
 };
 
@@ -187,6 +372,7 @@ type AssignmentRow = {
   id: string;
   riderProfileId: string;
   status: AssignmentStatus;
+  acceptedBidAmount?: string | null;
 };
 
 function context() {
@@ -196,6 +382,7 @@ function context() {
     verificationStatus: RiderVerificationStatus.VERIFIED,
     approvalStatus: RiderApprovalStatus.APPROVED,
     availability: RiderAvailability.OFFLINE,
+    receivingRequests: null,
     updatedAt: NOW,
   }];
   const users: UserRow[] = [{
@@ -270,8 +457,12 @@ function context() {
       },
     },
     deliveryAssignment: {
-      async findFirst({ where }: { where: { riderProfileId: string; status: AssignmentStatus } }) {
-        return assignments.find((row) => row.riderProfileId === where.riderProfileId && row.status === where.status) ?? null;
+      async findFirst({ where }: { where: { riderProfileId: string; status: AssignmentStatus; acceptedBidAmount?: null } }) {
+        return assignments.find((row) => {
+          if (row.riderProfileId !== where.riderProfileId || row.status !== where.status) return false;
+          if ('acceptedBidAmount' in where) return row.acceptedBidAmount == null;
+          return true;
+        }) ?? null;
       },
     },
     async $queryRaw(strings: TemplateStringsArray, ...values: unknown[]) {

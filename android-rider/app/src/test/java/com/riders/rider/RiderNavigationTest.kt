@@ -15,6 +15,7 @@ import com.riders.rider.feature.profile.domain.showsAccountDeactivation
 import com.riders.rider.navigation.RiderDestination
 import com.riders.rider.navigation.RIDER_SHELL
 import com.riders.rider.navigation.deliveriesShowsActiveDelivery
+import com.riders.rider.navigation.deliveriesShowsAssignmentList
 import com.riders.rider.navigation.deliveriesShowsOffers
 import com.riders.rider.navigation.offersPollOnDeliveriesTab
 import com.riders.rider.navigation.onboardingFocus
@@ -78,6 +79,12 @@ class RiderNavigationTest {
         assertFalse(offersPollOnDeliveriesTab(RiderDestination.Deliveries, resumed = false, availability = "AVAILABLE"))
         assertFalse(offersPollOnDeliveriesTab(RiderDestination.Home, resumed = true, availability = "AVAILABLE"))
         assertFalse(offersPollOnDeliveriesTab(RiderDestination.Deliveries, resumed = true, availability = "BUSY"))
+        assertFalse(deliveriesShowsAssignmentList(null))
+        assertTrue(deliveriesShowsAssignmentList(true))
+        assertTrue(deliveriesShowsAssignmentList(false))
+        assertTrue(deliveriesShowsAssignmentList(null, committedV2 = true))
+        assertFalse(com.riders.rider.navigation.deliveriesShowsBidBoard(null))
+        assertTrue(com.riders.rider.navigation.deliveriesShowsBidBoard(false))
     }
 
     @Test

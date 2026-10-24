@@ -1,7 +1,10 @@
 package com.riders.rider
 
 import com.riders.rider.core.network.ApiError
+import com.riders.rider.core.network.LiveAssignmentsResponse
+import com.riders.rider.core.network.ReceivingRequest
 import com.riders.rider.core.network.RiderService
+import com.riders.rider.core.network.ApiJson
 import com.riders.rider.core.network.httpClient
 import com.riders.rider.core.network.mapHttpFailure
 import com.riders.rider.core.network.retrofit
@@ -10,7 +13,14 @@ import com.riders.rider.feature.home.AvailabilityChange
 import com.riders.rider.feature.home.beginAvailabilityChange
 import com.riders.rider.feature.home.confirmAvailability
 import com.riders.rider.feature.home.failAvailability
+import com.riders.rider.feature.home.DashboardFailure
+import com.riders.rider.feature.home.dashboardFailure
 import com.riders.rider.feature.home.homeShift
+import com.riders.rider.feature.home.receivingAfterRefresh
+import com.riders.rider.feature.home.receivingControl
+import com.riders.rider.feature.home.showsV1ActiveDelivery
+import com.riders.rider.feature.home.walletFigures
+import com.riders.rider.feature.home.workloadCounts
 import com.riders.rider.feature.offers.domain.OfferBoard
 import com.riders.rider.feature.offers.domain.OFFER_CLOCK_INTERVAL_MS
 import com.riders.rider.feature.offers.domain.OFFER_REFRESH_INTERVAL_MS
@@ -242,6 +252,143 @@ class RiderDashboardTest {
             assertEquals(1, loaded.body()!!.offers.size)
             assertEquals("Parcel for Avondale", loaded.body()!!.offers.first().parcel.description)
             assertEquals("/riders/me/offers", server.takeRequest(2, java.util.concurrent.TimeUnit.SECONDS)?.path)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun onlineReceivingWithNoAssignmentsKeepsTheSwitchOn() {
+        val control = receivingControl(receiving = true, canAcceptDeliveries = true, changing = false)
+        assertTrue(control.visible)
+        assertTrue(control.checked)
+        assertTrue(control.enabled)
+        assertEquals(0, workloadCounts(emptyList()).flexible)
+        assertEquals(0, workloadCounts(emptyList()).express)
+    }
+
+    @Test
+    fun onlinePausedWithNoAssignmentsKeepsTheSwitchOff() {
+        val control = receivingControl(receiving = false, canAcceptDeliveries = true, changing = false)
+        assertTrue(control.visible)
+        assertFalse(control.checked)
+        assertTrue(control.enabled)
+    }
+
+    @Test
+    fun manualPauseAndResumeStayOnTheReceivingPreference() {
+        val online = receivingControl(receiving = true, canAcceptDeliveries = true, changing = false)
+        assertTrue(online.enabled)
+        val saving = receivingControl(receiving = true, canAcceptDeliveries = true, changing = true)
+        assertTrue(saving.checked)
+        assertFalse(saving.enabled)
+        val paused = receivingControl(receiving = false, canAcceptDeliveries = true, changing = false)
+        assertFalse(paused.checked)
+        assertTrue(paused.enabled)
+        val resumed = receivingControl(receiving = true, canAcceptDeliveries = true, changing = false)
+        assertTrue(resumed.checked)
+    }
+
+    @Test
+    fun offlineHidesTheSwitchActionAndKeepsSavedReceiving() {
+        val control = receivingControl(receiving = false, canAcceptDeliveries = false, changing = false)
+        assertTrue(control.visible)
+        assertFalse(control.checked)
+        assertFalse(control.enabled)
+    }
+
+    @Test
+    fun offlineWithAssignmentsStillCountsWorkload() {
+        val counts = workloadCounts(listOf("FLEXIBLE", "FLEXIBLE", "EXPRESS"))
+        val control = receivingControl(receiving = false, canAcceptDeliveries = false, changing = false)
+        assertEquals(2, counts.flexible)
+        assertEquals(1, counts.express)
+        assertFalse(control.enabled)
+    }
+
+    @Test
+    fun expressAlongsideFlexibleDoesNotResetReceiving() {
+        val counts = workloadCounts(listOf("FLEXIBLE", "EXPRESS", "FLEXIBLE"))
+        val control = receivingControl(receiving = true, canAcceptDeliveries = true, changing = false)
+        assertEquals(2, counts.flexible)
+        assertEquals(1, counts.express)
+        assertTrue(control.checked)
+    }
+
+    @Test
+    fun walletCapacityAndReservedFeesStayWithTheMarketplaceDashboard() {
+        assertEquals("20.00" to "1.50", walletFigures(marketplace = true, availableCapacity = "20.00", reservedFees = "1.50"))
+        assertEquals(null to null, walletFigures(marketplace = false, availableCapacity = "20.00", reservedFees = "1.50"))
+    }
+
+    @Test
+    fun marketplaceFlagOffKeepsTheSingleDeliveryDashboard() {
+        val active = com.riders.rider.feature.delivery.domain.ActiveDelivery(
+            deliveryId = "delivery-1",
+            assignmentId = "assignment-1",
+            status = "ASSIGNED",
+        )
+        val shift = homeShift("AVAILABLE", true, active)
+        assertTrue(showsV1ActiveDelivery(receiving = null, shift = shift))
+        assertFalse(showsV1ActiveDelivery(receiving = true, shift = shift))
+        assertFalse(showsV1ActiveDelivery(receiving = null, shift = shift, committedV2 = true))
+        assertFalse(showsV1ActiveDelivery(receiving = null, shift = shift, assignmentsUnknown = true))
+        assertFalse(receivingControl(receiving = null, canAcceptDeliveries = true, changing = false).visible)
+        assertTrue(shift.showOffers)
+        assertTrue(shift.showActiveDelivery)
+    }
+
+    @Test
+    fun availableWithAssignmentsIsStillAWorkload() {
+        val counts = workloadCounts(listOf("FLEXIBLE", "FLEXIBLE"))
+        val shift = homeShift("AVAILABLE", true, null)
+        assertEquals(2, counts.flexible)
+        assertFalse(shift.showActiveDelivery)
+        assertTrue(receivingControl(receiving = true, canAcceptDeliveries = true, changing = false).checked)
+    }
+
+    @Test
+    fun sessionFailureStaysSeparateFromADisabledMarketplaceAndANetworkLoss() {
+        assertEquals(DashboardFailure.Authentication, dashboardFailure(ApiError.SessionEnded))
+        assertEquals(DashboardFailure.Authentication, dashboardFailure(ApiError.Forbidden))
+        assertEquals(DashboardFailure.MarketplaceDisabled, dashboardFailure(ApiError.Unexpected("Bidding is not available")))
+        assertEquals(DashboardFailure.Network, dashboardFailure(ApiError.Network))
+        assertEquals(true, receivingAfterRefresh(previous = true, loaded = null, loadedFromServer = false))
+        assertEquals(null, receivingAfterRefresh(previous = true, loaded = null, loadedFromServer = true))
+    }
+
+    @Test
+    fun assignmentReadKeepsTheAcceptedBidAndOlderPayloadsStillParse() = runTest {
+        val server = MockWebServer()
+        val body = """
+            {"assignments":[
+              {"assignmentId":"flex","deliveryId":"delivery-flex","status":"RIDER_ASSIGNED","serviceClass":"FLEXIBLE","deliverBy":"2026-10-25T16:00:00.000Z","agreedPrice":"12.50","parcel":{"description":"Documents","size":"SMALL"},"pickup":{"address":"Pickup","contactName":"A","contactPhone":"+263771111111"},"dropoff":{"address":"Dropoff","contactName":"B","contactPhone":"+263772222222"}},
+              {"assignmentId":"express","deliveryId":"delivery-express","status":"COLLECTING","serviceClass":"EXPRESS","deliverBy":"2026-10-25T16:00:00.000Z","agreedPrice":"8.00","parcel":{"description":"Box","size":"MEDIUM"},"pickup":{"address":"Pickup","contactName":"A","contactPhone":"+263771111111"},"dropoff":{"address":"Dropoff","contactName":"B","contactPhone":"+263772222222"}},
+              {"assignmentId":"legacy","deliveryId":"delivery-legacy","status":"ASSIGNED","parcel":{"description":"Letter","size":"SMALL"},"pickup":{"address":"Pickup","contactName":"A","contactPhone":"+263771111111"},"dropoff":{"address":"Dropoff","contactName":"B","contactPhone":"+263772222222"}}
+            ]}
+        """.trimIndent()
+        server.enqueue(json(body))
+        server.enqueue(json("""{"availability":"AVAILABLE","receiving":false}"""))
+        server.start()
+        try {
+            val riders = retrofit(server.url("/").toString(), httpClient()).create(RiderService::class.java)
+            val listed = riders.assignments()
+            assertEquals(listOf("FLEXIBLE", "EXPRESS", null), listed.assignments.map { it.serviceClass })
+            assertEquals("12.50", listed.assignments[0].agreedPrice)
+            assertEquals("8.00", listed.assignments[1].agreedPrice)
+            assertNull(listed.assignments[2].agreedPrice)
+            assertNull(listed.assignments[2].deliverBy)
+            val parsed = ApiJson.decodeFromString(LiveAssignmentsResponse.serializer(), body)
+            assertEquals(1, workloadCounts(parsed.assignments.map { it.serviceClass }).flexible)
+            assertEquals(1, workloadCounts(parsed.assignments.map { it.serviceClass }).express)
+            val saved = riders.receiving(ReceivingRequest(receiving = false))
+            assertFalse(saved.receiving)
+            assertEquals("AVAILABLE", saved.availability)
+            val listedRequest = server.takeRequest(2, java.util.concurrent.TimeUnit.SECONDS)
+            val receivingRequest = server.takeRequest(2, java.util.concurrent.TimeUnit.SECONDS)
+            assertEquals("/riders/me/assignments", listedRequest?.path)
+            assertEquals("PUT", receivingRequest?.method)
+            assertEquals("/riders/me/receiving", receivingRequest?.path)
         } finally {
             server.shutdown()
         }

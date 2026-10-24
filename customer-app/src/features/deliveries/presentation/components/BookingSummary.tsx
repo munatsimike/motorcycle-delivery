@@ -4,7 +4,7 @@ import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-
 
 import LoadingIndicator from '../../../../components/LoadingIndicator';
 import { colors, radius, spacing, typography } from '../../../../theme';
-import { deliveryContactPhone, type BookingDraft, type StopDraft } from '../../domain/bookingDraft';
+import { deliveryContactPhone, formatDeadline, type BookingDraft, type StopDraft } from '../../domain/bookingDraft';
 import { deliveryCardAddress } from '../../domain/deliveryCard';
 import type { DeliveryQuote } from '../../domain/deliveryQuote';
 import { parcelSizeLabel, payerLabel, paymentMethodLabel } from './ParcelFields';
@@ -17,6 +17,7 @@ type BookingSummaryProps = {
   onOfferChange: (value: string) => void;
   offerEditable?: boolean;
   onOfferFocus?: () => void;
+  marketplace?: boolean;
 };
 
 export default function BookingSummary({
@@ -27,7 +28,9 @@ export default function BookingSummary({
   onOfferChange,
   offerEditable = true,
   onOfferFocus,
+  marketplace = false,
 }: BookingSummaryProps) {
+  const deadline = draft.deliverBy ? formatDeadline(draft.deliverBy) : null;
   return (
     <View style={styles.wrap}>
       <View style={styles.route}>
@@ -43,20 +46,40 @@ export default function BookingSummary({
           iconColor={colors.primary}
           backgroundColor={colors.primaryLight}
         />
-        <Fact
-          icon="account-group"
-          label="Pays"
-          value={draft.payer ? payerLabel(draft.payer) : ''}
-          iconColor="#3B6FE8"
-          backgroundColor="#E8F1FF"
-        />
-        <Fact
-          icon="wallet"
-          label="Method"
-          value={draft.paymentMethod ? paymentMethodLabel(draft.paymentMethod) : ''}
-          iconColor="#E07A2F"
-          backgroundColor="#FFF1E0"
-        />
+        {marketplace ? (
+          <Fact
+            icon="clock-outline"
+            label="Deliver by"
+            value={deadline ?? ''}
+            iconColor="#3B6FE8"
+            backgroundColor="#E8F1FF"
+          />
+        ) : (
+          <Fact
+            icon="account-group"
+            label="Pays"
+            value={draft.payer ? payerLabel(draft.payer) : ''}
+            iconColor="#3B6FE8"
+            backgroundColor="#E8F1FF"
+          />
+        )}
+        {marketplace ? (
+          <Fact
+            icon="motorbike"
+            label="Service"
+            value={draft.serviceClass === 'EXPRESS' ? 'Express' : draft.serviceClass === 'FLEXIBLE' ? 'Flexible' : ''}
+            iconColor="#E07A2F"
+            backgroundColor="#FFF1E0"
+          />
+        ) : (
+          <Fact
+            icon="wallet"
+            label="Method"
+            value={draft.paymentMethod ? paymentMethodLabel(draft.paymentMethod) : ''}
+            iconColor="#E07A2F"
+            backgroundColor="#FFF1E0"
+          />
+        )}
       </View>
 
       <View style={styles.priceCard}>
@@ -73,22 +96,28 @@ export default function BookingSummary({
                 <Text style={styles.distance}>{formatDistance(quote.distanceMeters)}</Text>
               </View>
             </View>
-            <Text style={styles.offerLabel}>Your offer</Text>
-            <View style={styles.offerField}>
-              <Text style={styles.offerCurrency}>{quote.currency}</Text>
-              <TextInput
-                style={styles.offerInput}
-                value={offerText}
-                onChangeText={onOfferChange}
-                keyboardType="decimal-pad"
-                inputMode="decimal"
-                placeholder="0.00"
-                placeholderTextColor={colors.textSecondary}
-                maxLength={7}
-                editable={offerEditable}
-                onFocus={onOfferFocus}
-              />
-            </View>
+            {marketplace ? (
+              <Text style={styles.offerLabel}>Riders bid their own price. This suggestion is not a final price.</Text>
+            ) : (
+              <>
+                <Text style={styles.offerLabel}>Your offer</Text>
+                <View style={styles.offerField}>
+                  <Text style={styles.offerCurrency}>{quote.currency}</Text>
+                  <TextInput
+                    style={styles.offerInput}
+                    value={offerText}
+                    onChangeText={onOfferChange}
+                    keyboardType="decimal-pad"
+                    inputMode="decimal"
+                    placeholder="0.00"
+                    placeholderTextColor={colors.textSecondary}
+                    maxLength={7}
+                    editable={offerEditable}
+                    onFocus={onOfferFocus}
+                  />
+                </View>
+              </>
+            )}
           </View>
         ) : null}
       </View>
@@ -161,7 +190,7 @@ function Fact({
   iconColor,
   backgroundColor,
 }: {
-  icon: 'package-variant' | 'account-group' | 'wallet';
+  icon: 'package-variant' | 'account-group' | 'wallet' | 'clock-outline' | 'motorbike';
   label: string;
   value: string;
   iconColor: string;

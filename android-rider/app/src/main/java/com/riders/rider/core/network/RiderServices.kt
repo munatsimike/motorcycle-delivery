@@ -10,6 +10,7 @@ import retrofit2.Retrofit
 import okhttp3.MultipartBody
 import retrofit2.http.Body
 import retrofit2.http.GET
+import retrofit2.http.HTTP
 import retrofit2.http.Header
 import retrofit2.http.Multipart
 import retrofit2.http.PATCH
@@ -41,11 +42,35 @@ interface AuthService {
     @POST("auth/rider/register/complete")
     suspend fun completeRegistration(@Body body: RiderAccountRequest): SessionResponse
 
+    @POST("auth/rider/login/password")
+    suspend fun loginWithPassword(@Body body: PasswordLoginRequest): SessionResponse
+
+    @POST("auth/rider/register/password")
+    suspend fun registerWithPassword(@Body body: RiderPasswordRegistrationRequest): SessionResponse
+
+    @POST("auth/rider/register/whatsapp")
+    suspend fun startWhatsAppRegistration(@Body body: RiderWhatsAppRegistrationRequest): PendingResponse
+
+    @POST("auth/rider/register/whatsapp/resend")
+    suspend fun resendWhatsAppRegistration(@Body body: PhoneRequest): PendingResponse
+
+    @POST("auth/rider/register/whatsapp/verify")
+    suspend fun verifyWhatsAppRegistration(@Body body: VerifyRequest): SessionResponse
+
+    @POST("auth/rider/password/forgot")
+    suspend fun forgotPassword(@Body body: WhatsAppRecoveryRequest): PendingResponse
+
+    @POST("auth/rider/password/reset")
+    suspend fun resetPassword(@Body body: PasswordResetRequest): Response<ResponseBody>
+
     @POST("auth/session/refresh")
     suspend fun refresh(@Body body: RefreshRequest): SessionResponse
 
     @POST("auth/session/logout")
     suspend fun logout(): Response<ResponseBody>
+
+    @POST("auth/session/password")
+    suspend fun setPassword(@Body body: SetPasswordRequest): Response<ResponseBody>
 }
 
 interface RiderService {
@@ -83,11 +108,23 @@ interface RiderService {
     @POST("riders/me/availability/offline")
     suspend fun offline(): AvailabilityResponse
 
+    @PUT("riders/me/receiving")
+    suspend fun receiving(@Body body: ReceivingRequest): ReceivingResponse
+
     @PUT("riders/me/location")
     suspend fun location(@Body body: LocationRequest): LocationResponse
 
     @GET("riders/me/offers")
     suspend fun offers(): Response<OffersResponse>
+
+    @PUT("riders/me/push-devices")
+    suspend fun registerPushDevice(@Body body: PushDeviceRequest): PushDeviceResponse
+
+    @HTTP(method = "DELETE", path = "riders/me/push-devices", hasBody = true)
+    suspend fun removePushDevice(@Body body: PushDeviceRequest): Response<ResponseBody>
+
+    @GET("riders/me/assignments")
+    suspend fun assignments(): LiveAssignmentsResponse
 
     @GET("riders/me/assignments/active")
     suspend fun activeAssignment(): ActiveAssignmentResponse
@@ -109,6 +146,38 @@ interface RiderService {
         @Path("deliveryId") deliveryId: String,
         @Body body: StatusRequest,
     ): ProgressResponse
+
+    @POST("riders/me/deliveries/{deliveryId}/status")
+    suspend fun progressWithKey(
+        @Path("deliveryId") deliveryId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body body: StatusRequest,
+    ): ProgressResponse
+
+    @POST("riders/me/assignments/{assignmentId}/cancellation")
+    suspend fun cancelAssignment(
+        @Path("assignmentId") assignmentId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body body: CancellationRequest,
+    ): CancellationResponse
+
+    @GET("riders/me/bid-requests")
+    suspend fun bidRequests(): List<BidRequestBody>
+
+    @GET("riders/me/bids")
+    suspend fun ownBids(
+        @Query("limit") limit: Int,
+        @Query("cursor") cursor: String? = null,
+    ): OwnBidsResponse
+
+    @POST("riders/me/bids")
+    suspend fun submitBid(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body body: BidSubmissionRequest,
+    ): SubmittedBidResponse
+
+    @POST("riders/me/bids/{bidId}/withdrawal")
+    suspend fun withdrawBid(@Path("bidId") bidId: String): SubmittedBidResponse
 
     @GET("riders/me/wallet")
     suspend fun wallet(): WalletSummaryResponse

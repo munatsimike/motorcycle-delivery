@@ -18,6 +18,7 @@ import com.riders.rider.feature.auth.domain.AppEntry
 import com.riders.rider.feature.auth.domain.BiometricPreference
 import com.riders.rider.feature.auth.domain.BiometricSessionState
 import com.riders.rider.feature.auth.domain.biometricHomeAction
+import com.riders.rider.feature.auth.domain.isVerificationCode
 import com.riders.rider.feature.auth.domain.initialBiometricState
 import com.riders.rider.feature.auth.domain.normalizeRiderAddress
 import com.riders.rider.feature.auth.domain.normalizeRiderName
@@ -42,6 +43,7 @@ data class FormState(
     val lockDetails: Boolean = false,
     val useExistingLogin: Boolean = false,
     val accountMissing: Boolean = false,
+    val whatsapp: Boolean = false,
 )
 
 @HiltViewModel
@@ -75,6 +77,26 @@ class SignInViewModel @Inject constructor(
             }
         }
     }
+
+    fun loginWithPassword(phone: String, password: String) {
+        val normalized = try {
+            normalizeRiderPhone(phone, allowDutchTestNumbers = BuildConfig.DEBUG)
+        } catch (error: IllegalArgumentException) {
+            state.value = FormState(error = error.message)
+            return
+        }
+        if (password.length !in 12..128) {
+            state.value = FormState(error = "Password must contain 12 to 128 characters")
+            return
+        }
+        viewModelScope.launch {
+            state.value = FormState(loading = true)
+            state.value = when (val result = auth.loginWithPassword(normalized, password)) {
+                is ApiResult.Ok -> FormState()
+                is ApiResult.Err -> FormState(error = result.error.text())
+            }
+        }
+    }
 }
 
 @HiltViewModel
@@ -95,6 +117,42 @@ class RegisterViewModel @Inject constructor(
             state.value = FormState(loading = true)
             state.value = when (val result = auth.requestRegistration(normalizedPhone)) {
                 is ApiResult.Ok -> FormState(completedPhone = normalizedPhone)
+                is ApiResult.Err -> FormState(error = result.error.text())
+            }
+        }
+    }
+
+    fun registerWithPassword(phone: String, password: String, fullName: String, address: String, consent: Boolean) {
+        if (!consent) {
+            state.value = FormState(error = "Consent to WhatsApp authentication messages is required")
+            return
+        }
+        val normalizedPhone = try {
+            normalizeRiderPhone(phone, allowDutchTestNumbers = BuildConfig.DEBUG)
+        } catch (error: IllegalArgumentException) {
+            state.value = FormState(error = error.message)
+            return
+        }
+        val normalizedName = try {
+            normalizeRiderName(fullName)
+        } catch (error: IllegalArgumentException) {
+            state.value = FormState(error = error.message)
+            return
+        }
+        val normalizedAddress = try {
+            normalizeRiderAddress(address)
+        } catch (error: IllegalArgumentException) {
+            state.value = FormState(error = error.message)
+            return
+        }
+        if (password.length !in 12..128) {
+            state.value = FormState(error = "Password must contain 12 to 128 characters")
+            return
+        }
+        viewModelScope.launch {
+            state.value = FormState(loading = true)
+            state.value = when (val result = auth.registerWithPassword(normalizedPhone, password, normalizedName, normalizedAddress)) {
+                is ApiResult.Ok -> FormState(completedPhone = normalizedPhone, whatsapp = true)
                 is ApiResult.Err -> FormState(error = result.error.text())
             }
         }
@@ -159,7 +217,7 @@ class OtpViewModel @Inject constructor(
     val ui: StateFlow<FormState> = state.asStateFlow()
 
     fun submit(flow: String, phone: String, code: String) {
-        if (!Regex("^\\d{4,10}$").matches(code)) {
+        if (!isVerificationCode(code)) {
             state.value = FormState(error = "Verification code is invalid")
             return
         }
@@ -176,6 +234,65 @@ class OtpViewModel @Inject constructor(
                         lockDetails = outcome.lockDetails,
                     )
                 }
+                is ApiResult.Err -> FormState(error = result.error.text())
+            }
+        }
+    }
+
+    fun resend(flow: String, phone: String) {
+        if (flow != "whatsapp") {
+            return
+        }
+        viewModelScope.launch {
+            state.value = FormState(loading = true)
+            state.value = when (val result = auth.resendWhatsAppRegistration(phone)) {
+                is ApiResult.Ok -> FormState()
+                is ApiResult.Err -> FormState(error = result.error.text())
+            }
+        }
+    }
+}
+
+@HiltViewModel
+class RecoveryViewModel @Inject constructor(
+    private val auth: AuthRepository,
+) : ViewModel() {
+    private val state = MutableStateFlow(FormState())
+    val ui: StateFlow<FormState> = state.asStateFlow()
+
+    fun request(phone: String, consent: Boolean) {
+        if (!consent) {
+            state.value = FormState(error = "Consent to WhatsApp authentication messages is required")
+            return
+        }
+        val normalizedPhone = try {
+            normalizeRiderPhone(phone, allowDutchTestNumbers = BuildConfig.DEBUG)
+        } catch (error: IllegalArgumentException) {
+            state.value = FormState(error = error.message)
+            return
+        }
+        viewModelScope.launch {
+            state.value = FormState(loading = true)
+            state.value = when (val result = auth.requestPasswordReset(normalizedPhone)) {
+                is ApiResult.Ok -> FormState(completedPhone = normalizedPhone)
+                is ApiResult.Err -> FormState(error = result.error.text())
+            }
+        }
+    }
+
+    fun reset(phone: String, code: String, password: String) {
+        if (!isVerificationCode(code)) {
+            state.value = FormState(error = "Authentication failed")
+            return
+        }
+        if (password.length !in 12..128) {
+            state.value = FormState(error = "Password must contain 12 to 128 characters")
+            return
+        }
+        viewModelScope.launch {
+            state.value = FormState(loading = true)
+            state.value = when (val result = auth.resetPassword(phone, code, password)) {
+                is ApiResult.Ok -> FormState(completedPhone = phone)
                 is ApiResult.Err -> FormState(error = result.error.text())
             }
         }
@@ -217,9 +334,20 @@ class SessionViewModel @Inject constructor(
         authenticate(activity, UNLOCK) { result ->
             when (result) {
                 BiometricAuthResult.Success -> {
-                    process = process.copy(unlocked = true)
-                    state.value = state.value.copy(error = null)
-                    publish()
+                    state.value = state.value.copy(working = true, error = null)
+                    viewModelScope.launch {
+                        when (val confirmed = auth.confirmStoredSession()) {
+                            is ApiResult.Ok -> {
+                                process = process.copy(unlocked = true)
+                                state.value = state.value.copy(working = false, error = null)
+                            }
+                            is ApiResult.Err -> {
+                                process = process.copy(unlocked = false)
+                                state.value = state.value.copy(working = false, error = confirmed.error.text())
+                            }
+                        }
+                        publish()
+                    }
                 }
                 BiometricAuthResult.Cancelled -> show("Biometric unlock was cancelled.")
                 is BiometricAuthResult.Unavailable -> show(result.message)

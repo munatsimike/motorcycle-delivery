@@ -1,15 +1,21 @@
 import { describe, expect, it } from 'vitest';
 
 import type { CustomerDeliveryDetail } from './customerDeliveryDetail';
-import { createDeliveryTracker, type TrackingClock } from './deliveryTracking';
+import { createDeliveryTracker, TRACKING_POLL_MS, type TrackingClock } from './deliveryTracking';
 
-function delivery(status: CustomerDeliveryDetail['status'], id = 'delivery-1'): CustomerDeliveryDetail {
+function delivery(
+  status: CustomerDeliveryDetail['status'],
+  id = 'delivery-1',
+  extra: Partial<CustomerDeliveryDetail> = {},
+): CustomerDeliveryDetail {
   return {
     id,
     status,
     currency: 'USD',
     offeredPrice: '4.50',
     suggestedPrice: '4.50',
+    serviceClass: null,
+    deliverBy: null,
     distanceMeters: 100,
     pickupAddress: 'Pickup',
     pickupLatitude: -17.8292,
@@ -19,6 +25,8 @@ function delivery(status: CustomerDeliveryDetail['status'], id = 'delivery-1'): 
     dropoffLongitude: 31.033,
     parcelDescription: 'Documents',
     createdAt: null,
+    riderLocation: null,
+    ...extra,
   };
 }
 
@@ -280,6 +288,66 @@ describe('delivery tracking updates', () => {
     await Promise.resolve();
     tracker.refresh();
     await Promise.resolve();
+    expect(calls).toBe(2);
+  });
+
+  it('polls an active marketplace delivery and stops when it ends or the screen closes', async () => {
+    const timer = clock();
+    const statuses: CustomerDeliveryDetail['status'][] = ['COLLECTING', 'DELIVERED'];
+    let calls = 0;
+    const tracker = createDeliveryTracker({
+      load: () => {
+        const status = statuses[Math.min(calls, statuses.length - 1)] ?? 'DELIVERED';
+        calls += 1;
+        return Promise.resolve(delivery(status, 'delivery-1', {
+          serviceClass: 'FLEXIBLE',
+          riderLocation: status === 'COLLECTING' ? { latitude: -17.8, longitude: 31.1 } : null,
+        }));
+      },
+      clock: timer.tracking,
+      isAuthError: () => false,
+      errorText: () => 'offline',
+      onChange: () => undefined,
+    });
+
+    tracker.setFocused(true);
+    await Promise.resolve();
+    expect(timer.pending()?.delayMs).toBe(TRACKING_POLL_MS);
+    timer.fire();
+    await Promise.resolve();
+    expect(calls).toBe(2);
+    expect(timer.pending()).toBeNull();
+
+    tracker.setFocused(false);
+    expect(timer.pending()).toBeNull();
+  });
+
+  it('keeps the marketplace delivery when a refresh fails', async () => {
+    const timer = clock();
+    const seen: Array<CustomerDeliveryDetail['serviceClass'] | undefined> = [];
+    let calls = 0;
+    const tracker = createDeliveryTracker({
+      load: () => {
+        calls += 1;
+        if (calls === 2) {
+          return Promise.reject(new Error('Network request failed. Check your connection and try again.'));
+        }
+        return Promise.resolve(delivery('RIDER_ASSIGNED', 'delivery-1', { serviceClass: 'EXPRESS', offeredPrice: '9.00' }));
+      },
+      clock: timer.tracking,
+      isAuthError: () => false,
+      errorText: () => 'offline',
+      onChange: (snapshot) => {
+        if (snapshot.delivery) {
+          seen.push(snapshot.delivery.serviceClass);
+        }
+      },
+    });
+    tracker.setFocused(true);
+    await Promise.resolve();
+    tracker.refresh();
+    await Promise.resolve();
+    expect(seen).toEqual(['EXPRESS', 'EXPRESS']);
     expect(calls).toBe(2);
   });
 });

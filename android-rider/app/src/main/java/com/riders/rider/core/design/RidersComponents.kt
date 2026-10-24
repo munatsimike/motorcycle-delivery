@@ -39,6 +39,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
@@ -371,6 +372,7 @@ fun RidersEmptyState(
     body: String,
     modifier: Modifier = Modifier,
     image: Int? = null,
+    imageSize: Dp = 40.dp,
     compactTop: Boolean = false,
 ) {
     Column(
@@ -391,7 +393,7 @@ fun RidersEmptyState(
             Image(
                 painter = painterResource(image),
                 contentDescription = null,
-                modifier = Modifier.size(40.dp),
+                modifier = Modifier.size(imageSize),
                 contentScale = ContentScale.Fit,
             )
         }

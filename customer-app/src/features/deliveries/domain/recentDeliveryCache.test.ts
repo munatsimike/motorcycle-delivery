@@ -63,6 +63,11 @@ describe('recent delivery cache', () => {
       createdAt: '2026-10-18T11:00:00.000Z',
       pickupAddress: '1 pickup',
       dropoffAddress: '1 dropoff',
+      serviceClass: null,
+      deliverBy: null,
+      currency: null,
+      suggestedPrice: null,
+      offeredPrice: null,
     });
   });
 

@@ -90,22 +90,65 @@ export type DeliveryRow = {
   dropoffAddress: string;
   price: string;
   currency: string;
-  paymentMethod: string;
+  paymentMethod: string | null;
   activeAssignment: { id: string; riderProfileId: string; motorcycleId: string; status: string } | null;
   createdAt: string;
   updatedAt: string;
 };
 
-export type DeliveryDetail = DeliveryRow & {
+export type AdminBid = {
+  id: string;
+  riderProfileId: string;
+  riderName: string;
+  amount: string;
+  currency: string;
+  status: string;
+  closedAt: string | null;
+  createdAt: string;
+  accepted: boolean;
+};
+
+export type AdminReservation = {
+  id: string;
+  assignmentId: string | null;
+  amount: string;
+  currency: string;
+  status: string;
+  createdAt: string;
+  releasedAt: string | null;
+  capturedAt: string | null;
+};
+
+export type AdminAcceptance = {
+  assignmentId: string;
+  assignmentStatus: string;
+  riderProfileId: string;
+  riderName: string;
+  acceptedBidId: string | null;
+  acceptedAt: string | null;
+  bidAmount: string | null;
+  currency: string;
+  basisPoints: number | null;
+  rateVersion: number | null;
+  commissionAmount: string | null;
+  reservation: AdminReservation | null;
+  commissionState: 'RESERVED' | 'CAPTURED' | 'RELEASED' | 'NOT_RESERVED' | 'UNRECORDED';
+};
+
+export type DeliveryDetail = Omit<DeliveryRow, 'price'> & {
+  price: string | null;
   parcelSize: string | null;
   suggestedPrice: string | null;
   distanceMeters: number | null;
   pricingVersion: number | null;
   payer: string | null;
+  serviceClass: string | null;
+  deliverBy: string | null;
   assignments: Array<{
     id: string;
     riderProfileId: string;
-    motorcycleId: string;
+    riderName: string;
+    motorcycleId: string | null;
     status: string;
     offerExpiresAt: string | null;
     respondedAt: string | null;
@@ -120,6 +163,9 @@ export type DeliveryDetail = DeliveryRow & {
     actorType: string;
     occurredAt: string;
   }>;
+  bids: AdminBid[];
+  acceptances: AdminAcceptance[];
+  unmatchedReservations: AdminReservation[];
 };
 
 export type WalletConfig = {
@@ -188,4 +234,27 @@ export type PricingAudit = {
 export type CommissionPolicy = {
   model: 'ON_COMPLETION' | 'ON_ACCEPTANCE';
   policyVersion: number;
+};
+
+export type V2CommissionRate =
+  | { configured: false }
+  | {
+      configured: true;
+      basisPoints: number;
+      percentage: string;
+      rateVersion: number;
+      createdById: string;
+      createdAt: string;
+    };
+
+export type V2CommissionAudit = {
+  id: string;
+  actorId: string;
+  previousVersion: number | null;
+  nextVersion: number;
+  previousBasisPoints: number | null;
+  nextBasisPoints: number;
+  previousPercentage: string | null;
+  nextPercentage: string;
+  createdAt: string;
 };

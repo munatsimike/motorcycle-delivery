@@ -1,6 +1,6 @@
 export type AccountKind = 'INDIVIDUAL' | 'BUSINESS';
 
-export type AuthFlow = 'registration' | 'login';
+export type AuthFlow = 'registration' | 'login' | 'whatsapp_registration';
 
 export type PendingOtp = {
   status: 'pending';

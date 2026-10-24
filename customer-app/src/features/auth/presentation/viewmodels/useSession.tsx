@@ -17,6 +17,9 @@ import { BiometricPromptCancelled, supportsBiometricCredentialProtection } from 
 import { authenticateForSession, canUseBiometrics } from '../../../../services/session/biometricUnlock';
 import { reconcileInstallMarker } from '../../../../services/session/installMarker';
 import { osBiometricProtectionAvailable, secureSessionStore } from '../../../../services/session/secureSessionStore';
+import { removeCustomerPushDevice } from '../../../notifications/data/customerPushApi';
+import { pushRegistrationStore } from '../../../notifications/data/pushRegistrationStore';
+import { PUSH_DEREGISTER_FAILED, removePushRegistration } from '../../../notifications/domain/customerPushRegistration';
 
 type SessionStatus = 'loading' | 'signedOut' | 'locked' | 'needsConnection' | 'offerBiometric' | 'signedIn';
 
@@ -31,11 +34,13 @@ type SessionContextValue = {
   saveSession: (session: AuthSession) => Promise<void>;
   confirmCustomer: (customerId: string) => Promise<void>;
   logout: () => Promise<void>;
+  logoutNotice: string | null;
   unlock: () => Promise<'restored' | 'cancelled' | 'offline' | 'signed-out'>;
   retryRestore: () => Promise<void>;
   acceptBiometricOffer: () => Promise<BiometricUpdate>;
   declineBiometricOffer: () => Promise<void>;
   setBiometricEnabled: (enabled: boolean) => Promise<BiometricUpdate>;
+  setPassword: (password: string, currentPassword?: string) => Promise<void>;
 };
 
 const SessionContext = createContext<SessionContextValue | null>(null);
@@ -46,6 +51,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [customerId, setCustomerId] = useState<string | null>(null);
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [biometricEnabled, setBiometricEnabledState] = useState(false);
+  const [logoutNotice, setLogoutNotice] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -129,7 +135,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     biometricEnabled,
     accessToken: session?.accessToken ?? null,
     customerId,
+    logoutNotice,
     async saveSession(next) {
+      setLogoutNotice(null);
       await secureSessionStore.save(next);
       setCustomerId(null);
       setSession(next);
@@ -170,6 +178,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     async logout() {
       const knownCustomerId = customerId;
       const accessToken = session?.accessToken ?? null;
+      const pushRemoval = await removePushRegistration({
+        accessToken,
+        store: pushRegistrationStore,
+        remove: removeCustomerPushDevice,
+      });
+      setLogoutNotice(pushRemoval === 'failed' ? PUSH_DEREGISTER_FAILED : null);
       setCustomerId(null);
       setSession(null);
       setBiometricEnabledState(false);
@@ -218,6 +232,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           secureSessionStore,
           Date.now(),
           preloaded,
+          { requireLiveSession: true },
         );
         const next = await readRestoredCustomer(restored);
         applyRestoredCustomer(next, setSession, setCustomerId, setStatus);
@@ -270,7 +285,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       }
       return result;
     },
-  }), [biometricAvailable, biometricEnabled, customerId, session, status]);
+    async setPassword(password, currentPassword) {
+      const accessToken = session?.accessToken;
+      const refreshToken = session?.refreshToken;
+      if (!accessToken || !refreshToken) {
+        throw new Error('Authentication failed');
+      }
+      await customerAuthRepository.setPassword(accessToken, password, refreshToken, currentPassword);
+    },
+  }), [biometricAvailable, biometricEnabled, customerId, logoutNotice, session, status]);
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }

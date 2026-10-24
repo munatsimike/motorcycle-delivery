@@ -326,6 +326,17 @@ export class ParcelBody {
   instructions?: string | null;
 }
 
+export class BidSubmissionBody {
+  @ApiProperty({ format: 'uuid' })
+  deliveryId!: string;
+
+  @ApiProperty({ minimum: 0, description: 'Bid amount in integer cents.' })
+  amountCents!: number;
+
+  @ApiPropertyOptional({ enum: ['USD'] })
+  currency?: 'USD';
+}
+
 export class CreateDeliveryBody {
   @ApiProperty({ type: DeliveryStopBody })
   pickup!: DeliveryStopBody;
@@ -604,8 +615,8 @@ export class ReleaseOfferBody {
 
 export class DeliveryStatusBody {
   @ApiProperty({
-    enum: ['CREATED', 'SEARCHING', 'NO_RIDER_FOUND', 'ASSIGNED', 'ARRIVED_AT_PICKUP', 'PICKED_UP', 'IN_TRANSIT', 'ARRIVED_AT_DROPOFF', 'DELIVERED', 'CANCELLED', 'FAILED'],
-    description: 'The next status in the accepted delivery sequence.',
+    enum: ['CREATED', 'SEARCHING', 'NO_RIDER_FOUND', 'ASSIGNED', 'RIDER_ASSIGNED', 'COLLECTING', 'COLLECTED', 'OUT_FOR_DELIVERY', 'ARRIVED_AT_PICKUP', 'PICKED_UP', 'IN_TRANSIT', 'ARRIVED_AT_DROPOFF', 'DELIVERED', 'CANCELLED', 'FAILED'],
+    description: 'The next status. A V2 delivery uses COLLECTING, COLLECTED, and OUT_FOR_DELIVERY. A V1 delivery uses the arrival and transit statuses.',
   })
   status!: string;
 }
@@ -653,11 +664,30 @@ export class RiderOnboardingResponse {
 
   @ApiProperty()
   activeVerifiedMotorcycle!: boolean;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Included when the marketplace is enabled. True while this rider is receiving new requests.',
+  })
+  receiving?: boolean | null;
 }
 
 export class AvailabilityResponse {
   @ApiProperty({ enum: ['OFFLINE', 'AVAILABLE', 'BUSY'] })
   availability!: string;
+}
+
+export class ReceivingPreferenceBody {
+  @ApiProperty()
+  receiving!: boolean;
+}
+
+export class ReceivingPreferenceResponse {
+  @ApiProperty({ enum: ['OFFLINE', 'AVAILABLE', 'BUSY'] })
+  availability!: string;
+
+  @ApiProperty()
+  receiving!: boolean;
 }
 
 export class PushDeviceBody {
@@ -716,6 +746,9 @@ export class CustomerAccountResponse {
 
   @ApiProperty({ nullable: true })
   email!: string | null;
+
+  @ApiProperty({ description: 'Whether V2 Express and Flexible booking is enabled for this server.' })
+  marketplaceEnabled!: boolean;
 }
 
 export class CustomerProfileUpdateBody {
@@ -806,6 +839,68 @@ export class CommissionPolicyResponse {
 
   @ApiProperty({ type: 'integer' })
   policyVersion!: number;
+}
+
+export class V2CommissionRateBody {
+  @ApiProperty({ description: 'A percentage from 0 to 100 with at most two decimal places. 10 is 1000 basis points. 0 is a published rate.' })
+  percentage!: string;
+}
+
+export class V2CommissionRateResponse {
+  @ApiProperty()
+  configured!: boolean;
+
+  @ApiPropertyOptional({ type: 'integer', minimum: 0, maximum: 10000 })
+  basisPoints?: number;
+
+  @ApiPropertyOptional({ description: 'The percentage without a percent sign. 0 is a published rate.' })
+  percentage?: string;
+
+  @ApiPropertyOptional({ type: 'integer' })
+  rateVersion?: number;
+
+  @ApiPropertyOptional()
+  createdById?: string;
+
+  @ApiPropertyOptional({ format: 'date-time' })
+  createdAt?: string;
+}
+
+export class V2CommissionAuditResponse {
+  @ApiProperty()
+  id!: string;
+
+  @ApiProperty()
+  actorId!: string;
+
+  @ApiPropertyOptional({ type: 'integer', nullable: true })
+  previousVersion!: number | null;
+
+  @ApiProperty({ type: 'integer' })
+  nextVersion!: number;
+
+  @ApiPropertyOptional({ type: 'integer', nullable: true, minimum: 0, maximum: 10000 })
+  previousBasisPoints!: number | null;
+
+  @ApiProperty({ type: 'integer', minimum: 0, maximum: 10000 })
+  nextBasisPoints!: number;
+
+  @ApiPropertyOptional({ nullable: true })
+  previousPercentage!: string | null;
+
+  @ApiProperty()
+  nextPercentage!: string;
+
+  @ApiProperty({ format: 'date-time' })
+  createdAt!: string;
+}
+
+export class V2CommissionAuditPage {
+  @ApiProperty({ type: [V2CommissionAuditResponse] })
+  data!: V2CommissionAuditResponse[];
+
+  @ApiProperty({ type: PricingAuditPagination })
+  pagination!: PricingAuditPagination;
 }
 
 export class WalletConfigBody {

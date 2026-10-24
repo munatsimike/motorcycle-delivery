@@ -6,6 +6,7 @@ import { requestLoginCode } from '../../domain/usecases/requestLoginCode';
 import { requestRegistrationCode } from '../../domain/usecases/requestRegistrationCode';
 import { verifyLoginCode } from '../../domain/usecases/verifyLoginCode';
 import { verifyRegistrationCode } from '../../domain/usecases/verifyRegistrationCode';
+import { isVerificationCode } from '../../domain/verificationCode';
 import { errorMessage } from '../errorMessage';
 
 const RESEND_COOLDOWN_MS = 60_000;
@@ -35,7 +36,7 @@ export function useOtpVerification(phone: string, flow: AuthFlow) {
     if (inFlight.current) {
       return null;
     }
-    if (!/^\d{4,10}$/.test(code)) {
+    if (!isVerificationCode(code)) {
       setError('Enter the verification code sent to your phone.');
       return null;
     }
@@ -44,6 +45,10 @@ export function useOtpVerification(phone: string, flow: AuthFlow) {
     setIsLoading(true);
     setError(null);
     try {
+      if (flow === 'whatsapp_registration') {
+        const session = await customerAuthRepository.verifyWhatsAppRegistration(phone, code);
+        return { flow: 'session', session };
+      }
       if (flow === 'registration') {
         const verification = await verifyRegistrationCode(customerAuthRepository, phone, code);
         if ('accessToken' in verification) {
@@ -73,7 +78,9 @@ export function useOtpVerification(phone: string, flow: AuthFlow) {
     setIsLoading(true);
     setError(null);
     try {
-      if (flow === 'registration') {
+      if (flow === 'whatsapp_registration') {
+        await customerAuthRepository.resendWhatsAppRegistration(phone);
+      } else if (flow === 'registration') {
         await requestRegistrationCode(customerAuthRepository, phone);
       } else {
         const started = await requestLoginCode(customerAuthRepository, phone);

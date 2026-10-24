@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -15,6 +16,7 @@ import type { ComponentProps } from 'react';
 import BrandMark from '../../../../components/BrandMark';
 import ErrorMessage from '../../../../components/ErrorMessage';
 import PrimaryButton from '../../../../components/PrimaryButton';
+import SecondaryButton from '../../../../components/SecondaryButton';
 import ZimbabwePhoneField from '../../../../components/ZimbabwePhoneField';
 import { looksLikeDutchPhoneEntry } from '../../domain/normalizePhone';
 import { colors, spacing, typography } from '../../../../theme';
@@ -33,6 +35,9 @@ type PhoneEntryFormProps = {
   footerAction: string;
   onFooterPress: () => void;
   helperText?: string | null;
+  extra?: ReactNode;
+  secondaryLabel?: string;
+  onSecondary?: () => void;
 };
 
 export default function PhoneEntryForm({
@@ -49,6 +54,9 @@ export default function PhoneEntryForm({
   footerAction,
   onFooterPress,
   helperText = 'Enter a Zimbabwe mobile number. We\'ll send a one-time SMS code.',
+  extra,
+  secondaryLabel,
+  onSecondary,
 }: PhoneEntryFormProps) {
   const headerHeight = useHeaderHeight();
 
@@ -73,6 +81,7 @@ export default function PhoneEntryForm({
             countryCode={typeof __DEV__ === 'boolean' && __DEV__ && looksLikeDutchPhoneEntry(phone) ? '+31' : '+263'}
           />
           {helperText ? <Text style={styles.helperText}>{helperText}</Text> : null}
+          {extra}
           <ErrorMessage message={error} />
           <PrimaryButton
             label={buttonLabel}
@@ -81,6 +90,11 @@ export default function PhoneEntryForm({
             loading={isLoading}
             loadingLabel="Processing"
           />
+          {secondaryLabel && onSecondary ? (
+            <View style={styles.secondary}>
+              <SecondaryButton label={secondaryLabel} onPress={onSecondary} disabled={isLoading} />
+            </View>
+          ) : null}
           <View style={styles.footer}>
             <Text style={styles.footerText}>{footerText}</Text>
             <Pressable onPress={onFooterPress} disabled={isLoading}>
@@ -120,6 +134,9 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     lineHeight: 24,
     marginBottom: spacing.xxl,
+  },
+  secondary: {
+    marginTop: spacing.md,
   },
   helperText: {
     fontSize: typography.small,

@@ -7,6 +7,7 @@ import {
   nextCustomerOffer,
   normalizeCustomerOffer,
   offerFieldText,
+  quoteResultForRequest,
   quotesMatch,
   readDeliveryQuote,
 } from './deliveryQuote';
@@ -26,6 +27,7 @@ describe('readDeliveryQuote', () => {
       pricingVersion: 3,
       currency: 'USD',
       suggestedPrice: '4.50',
+      serviceClass: null,
     });
   });
 
@@ -42,6 +44,7 @@ describe('quotesMatch', () => {
     pricingVersion: 1,
     currency: 'USD' as const,
     suggestedPrice: '2.00',
+    serviceClass: null,
   };
 
   it('treats a different suggested price as a new quote', () => {
@@ -144,8 +147,11 @@ describe('createDelivery', () => {
       },
       getById: () => Promise.reject(new Error('unused')),
       list: () => Promise.reject(new Error('unused')),
+      listBids: () => Promise.reject(new Error('unused')),
+      acceptBid: () => Promise.reject(new Error('unused')),
       search: () => Promise.reject(new Error('unused')),
       cancel: () => Promise.reject(new Error('unused')),
+      createOpenRequest: () => Promise.reject(new Error('unused')),
     };
     await expect(createDelivery(repository, 'token', {} as PreparedBooking, '0.00')).rejects.toThrow(
       'Enter an offer from $0.01 to $1,000.00.',
@@ -214,5 +220,68 @@ describe('readCustomerDeliveryDetail', () => {
       dropoff: { address: 'Drop-off' },
       parcel: { description: 'Box' },
     })).toThrow('Delivery details are unavailable.');
+  });
+
+  it('reads a V2 delivery with no agreed price and ignores a rider point before collecting', () => {
+    const detail = readCustomerDeliveryDetail({
+      id: 'delivery-1',
+      status: 'RIDER_ASSIGNED',
+      currency: 'USD',
+      offeredPrice: null,
+      suggestedPrice: '8.00',
+      serviceClass: 'EXPRESS',
+      deliverBy: '2026-10-24T16:30:00.000Z',
+      distanceMeters: 800,
+      pickup: { address: 'Pickup', latitude: '-17.8000000', longitude: '31.1000000' },
+      dropoff: { address: 'Drop-off', latitude: '-17.8100000', longitude: '31.1100000' },
+      parcel: { description: 'Box' },
+      riderLocation: { latitude: '-17.8010000', longitude: '31.1090000' },
+    });
+    expect(detail.offeredPrice).toBeNull();
+    expect(detail.serviceClass).toBe('EXPRESS');
+    expect(detail.riderLocation).toBeNull();
+  });
+
+  it('keeps a collecting rider point and drops it once the parcel is collected', () => {
+    const point = { latitude: '-17.8010000', longitude: '31.1090000' };
+    const collecting = readCustomerDeliveryDetail({
+      id: 'delivery-1',
+      status: 'COLLECTING',
+      currency: 'USD',
+      offeredPrice: '9.00',
+      suggestedPrice: '8.00',
+      serviceClass: 'FLEXIBLE',
+      deliverBy: '2026-10-24T16:30:00.000Z',
+      distanceMeters: 800,
+      pickup: { address: 'Pickup' },
+      dropoff: { address: 'Drop-off' },
+      parcel: { description: 'Box' },
+      riderLocation: point,
+    });
+    expect(collecting.riderLocation).toEqual({ latitude: -17.801, longitude: 31.109 });
+    const collected = readCustomerDeliveryDetail({
+      id: 'delivery-1',
+      status: 'COLLECTED',
+      currency: 'USD',
+      offeredPrice: '9.00',
+      suggestedPrice: '8.00',
+      serviceClass: 'FLEXIBLE',
+      deliverBy: '2026-10-24T16:30:00.000Z',
+      distanceMeters: 800,
+      pickup: { address: 'Pickup' },
+      dropoff: { address: 'Drop-off' },
+      parcel: { description: 'Box' },
+      riderLocation: point,
+    });
+    expect(collected.riderLocation).toBeNull();
+  });
+});
+
+describe('quote freshness', () => {
+  it('drops a quote that belongs to an earlier route or class request', () => {
+    const first = { suggestedPrice: '8.00', serviceClass: 'EXPRESS' as const };
+    const second = { suggestedPrice: '11.00', serviceClass: 'FLEXIBLE' as const };
+    expect(quoteResultForRequest(1, 2, first)).toBeNull();
+    expect(quoteResultForRequest(2, 2, second)).toEqual(second);
   });
 });

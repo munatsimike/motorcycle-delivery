@@ -7,10 +7,32 @@ import com.riders.rider.core.network.text
 import com.riders.rider.feature.availability.data.AvailabilityRepository
 import com.riders.rider.feature.delivery.data.ActiveDeliveryStore
 import com.riders.rider.feature.delivery.data.AssignmentRepository
+import com.riders.rider.feature.delivery.data.TransitionKeyStore
 import com.riders.rider.feature.delivery.domain.ActiveDelivery
+import com.riders.rider.feature.delivery.domain.CommittedParcel
 import com.riders.rider.feature.delivery.domain.DeliveryActionGate
 import com.riders.rider.feature.delivery.domain.DeliveryContacts
 import com.riders.rider.feature.delivery.domain.DeliverySyncKind
+import com.riders.rider.feature.delivery.domain.DELIVERY_COMPLETED
+import com.riders.rider.feature.delivery.domain.agreedPriceLabel
+import com.riders.rider.feature.delivery.domain.cancellationNoteError
+import com.riders.rider.feature.delivery.domain.cancellationResultMessage
+import com.riders.rider.feature.delivery.domain.deadlineLabel
+import com.riders.rider.feature.delivery.domain.isIdempotencyConflict
+import com.riders.rider.feature.delivery.domain.ASSIGNMENT_RECOVERY_MESSAGE
+import com.riders.rider.feature.delivery.domain.AssignmentCertainty
+import com.riders.rider.feature.delivery.domain.assignmentFailureIsUncertain
+import com.riders.rider.feature.delivery.domain.hasCommittedV2
+import com.riders.rider.feature.delivery.domain.parcelActionsAllowed
+import com.riders.rider.feature.delivery.domain.recoverAssignments
+import com.riders.rider.feature.delivery.domain.selectedParcel
+import com.riders.rider.feature.delivery.domain.serviceClassLabel
+import com.riders.rider.feature.delivery.domain.targetForParcel
+import com.riders.rider.feature.delivery.domain.v2ActionLabel
+import com.riders.rider.feature.delivery.domain.v2CancellationVisible
+import com.riders.rider.feature.delivery.domain.v2StatusReached
+import com.riders.rider.feature.onboarding.data.OnboardingRepository
+import com.riders.rider.feature.offers.domain.leavesAcceptUnresolved
 import com.riders.rider.feature.delivery.domain.MAPS_UNAVAILABLE
 import com.riders.rider.feature.delivery.domain.applyDeliveryTransition
 import com.riders.rider.feature.delivery.domain.deliveryActionLabel
@@ -59,6 +81,17 @@ data class DeliveryUi(
     val busy: DeliveryBusy = DeliveryBusy.None,
     val error: String? = null,
     val finished: Boolean = false,
+    val serviceClassLabel: String? = null,
+    val deadlineLabel: String? = null,
+    val agreedPriceLabel: String? = null,
+    val readOnly: Boolean = false,
+    val missing: Boolean = false,
+    val marketplaceParcel: Boolean = false,
+    val cancelVisible: Boolean = false,
+    val completionMessage: String? = null,
+    val cancellationMessage: String? = null,
+    val pendingCancelReason: String? = null,
+    val pendingCancelNote: String? = null,
 )
 
 @HiltViewModel
@@ -67,6 +100,8 @@ class DeliveryViewModel @Inject constructor(
     private val assignments: AssignmentRepository,
     private val deliveries: ActiveDeliveryStore,
     private val availability: AvailabilityRepository,
+    private val onboarding: OnboardingRepository,
+    private val transitions: TransitionKeyStore,
 ) : ViewModel() {
     private val state = MutableStateFlow(DeliveryUi())
     val ui: StateFlow<DeliveryUi> = state.asStateFlow()
@@ -80,6 +115,85 @@ class DeliveryViewModel @Inject constructor(
         opening = true
         viewModelScope.launch {
             try {
+                val onboard = onboarding.loadCurrent()
+                val openForNewBids = when (onboard) {
+                    is ApiResult.Ok -> {
+                        val present = onboard.value.receiving != null
+                        assignments.rememberMarketplace(present)
+                        present
+                    }
+                    is ApiResult.Err -> assignments.marketplace() == true
+                }
+                val listed = assignments.refreshList()
+                val failureUncertain = listed is ApiResult.Err && assignmentFailureIsUncertain(listed.error)
+                val recovery = recoverAssignments(
+                    fetchSucceeded = listed is ApiResult.Ok,
+                    fetched = (listed as? ApiResult.Ok)?.value.orEmpty(),
+                    confirmed = assignments.current(),
+                    confirmedThisProcess = assignments.hasConfirmedAssignments(),
+                    failureUncertain = failureUncertain,
+                )
+                val useCommitted = parcelActionsAllowed(recovery.certainty) &&
+                    (openForNewBids || hasCommittedV2(recovery.parcels.map { parcel -> parcel.serviceClass }))
+                when {
+                    useCommitted -> showCommitted(deliveryId, fromUser, listed)
+                    recovery.certainty == AssignmentCertainty.Unknown -> state.value = DeliveryUi(
+                        deliveryId = deliveryId,
+                        syncing = false,
+                        refreshing = false,
+                        readOnly = true,
+                        error = (listed as? ApiResult.Err)?.error?.text() ?: ASSIGNMENT_RECOVERY_MESSAGE,
+                        title = "Delivery",
+                    )
+                    onboard is ApiResult.Err && listed is ApiResult.Err -> state.update {
+                        it.copy(
+                            deliveryId = deliveryId,
+                            syncing = false,
+                            refreshing = false,
+                            readOnly = true,
+                            error = onboard.error.text(),
+                        )
+                    }
+                    else -> loadSingular(deliveryId, fromUser)
+                }
+            } finally {
+                opening = false
+                state.update { it.copy(refreshing = false) }
+            }
+        }
+    }
+
+    private suspend fun showCommitted(deliveryId: String, fromUser: Boolean, result: ApiResult<List<CommittedParcel>>) {
+        val stored = assignments.parcel(deliveryId)
+        if (state.value.completionMessage != null || state.value.cancellationMessage != null) {
+            return
+        }
+        state.value = if (stored == null) {
+            DeliveryUi(deliveryId = deliveryId, syncing = true, refreshing = fromUser, readOnly = true)
+        } else {
+            presentParcel(stored, null).copy(syncing = true, refreshing = fromUser)
+        }
+        state.value = when (result) {
+            is ApiResult.Ok -> {
+                val selected = selectedParcel(result.value, deliveryId)
+                if (selected == null) {
+                    DeliveryUi(deliveryId = deliveryId, missing = true, marketplaceParcel = true, title = "Delivery")
+                } else {
+                    presentParcel(selected, null)
+                }
+            }
+            is ApiResult.Err -> {
+                val selected = assignments.parcel(deliveryId)
+                if (selected == null) {
+                    DeliveryUi(deliveryId = deliveryId, marketplaceParcel = true, error = result.error.text(), title = "Delivery")
+                } else {
+                    presentParcel(selected, result.error.text())
+                }
+            }
+        }
+    }
+
+    private suspend fun loadSingular(deliveryId: String, fromUser: Boolean) {
                 val stored = deliveries.read()?.takeIf { it.deliveryId == deliveryId }
                 if (stored != null) {
                     state.update {
@@ -92,7 +206,7 @@ class DeliveryViewModel @Inject constructor(
                 val sync = syncOpenDelivery(deliveryId, stored, assignments.lookup())
                 when (sync.kind) {
                     DeliverySyncKind.Replace -> {
-                        val snapshot = sync.snapshot ?: return@launch
+                        val snapshot = sync.snapshot ?: return
                         deliveries.write(snapshot)
                         state.value = present(snapshot, null, sync.contacts, syncing = false, busy = DeliveryBusy.None)
                     }
@@ -111,15 +225,17 @@ class DeliveryViewModel @Inject constructor(
                         state.update { it.copy(syncing = false, finished = true, error = null, contacts = null) }
                     }
                 }
-            } finally {
-                opening = false
-                state.update { it.copy(refreshing = false) }
-            }
-        }
     }
 
     fun advance() {
         val current = state.value
+        if (current.marketplaceParcel) {
+            advanceCommitted()
+            return
+        }
+        if (current.readOnly) {
+            return
+        }
         val requested = current.nextStatus ?: return
         if (current.syncing || current.busy != DeliveryBusy.None) {
             return
@@ -133,7 +249,8 @@ class DeliveryViewModel @Inject constructor(
                 when (val result = offers.progress(current.deliveryId, requested)) {
                     is ApiResult.Ok -> {
                         val decision = progressDecision(current.status, result.value.status)
-                        availability.applySharing(result.value.availability)
+                        availability.applySharing()
+                        assignments.refreshList()
                         if (decision.finished) {
                             deliveries.clear()
                             state.update {
@@ -162,13 +279,64 @@ class DeliveryViewModel @Inject constructor(
         }
     }
 
+    fun confirmCancellation(reason: String, note: String) {
+        val current = state.value
+        if (!assignments.hasConfirmedAssignments() || !current.marketplaceParcel || !current.cancelVisible || current.completionMessage != null) {
+            return
+        }
+        if (current.pendingCancelReason == null && reason.isBlank()) {
+            return
+        }
+        val noteError = cancellationNoteError(reason, note)
+        if (noteError != null && current.pendingCancelReason == null) {
+            state.update { it.copy(error = noteError) }
+            return
+        }
+        if (current.syncing || current.busy != DeliveryBusy.None || !actions.tryStart()) {
+            return
+        }
+        state.update { it.copy(busy = DeliveryBusy.Release, error = null) }
+        viewModelScope.launch {
+            try {
+                val attempt = transitions.cancellationKey(
+                    current.assignmentId,
+                    current.pendingCancelReason ?: reason,
+                    current.pendingCancelNote ?: note.trim().ifEmpty { null },
+                )
+                when (val result = offers.cancelAssignment(attempt.assignmentId, attempt.reason, attempt.note, attempt.key)) {
+                    is ApiResult.Ok -> {
+                        transitions.clearCancellation(current.assignmentId)
+                        transitions.clearProgress(current.deliveryId)
+                        assignments.refreshList()
+                        availability.applySharing()
+                        state.update {
+                            it.copy(
+                                cancellationMessage = cancellationResultMessage(result.value.reopened),
+                                cancelVisible = false,
+                                nextStatus = null,
+                                nextLabel = null,
+                                error = null,
+                                pendingCancelReason = null,
+                                pendingCancelNote = null,
+                            )
+                        }
+                    }
+                    is ApiResult.Err -> settleCancellationFailure(current.deliveryId, current.assignmentId, result.error.text(), result.error)
+                }
+            } finally {
+                actions.finish()
+                state.update { it.copy(busy = DeliveryBusy.None) }
+            }
+        }
+    }
+
     fun reportNavigationFailure() {
         state.update { it.copy(error = MAPS_UNAVAILABLE) }
     }
 
     fun release(reason: String) {
         val current = state.value
-        if (current.syncing || current.busy != DeliveryBusy.None) {
+        if (current.marketplaceParcel || current.readOnly || current.syncing || current.busy != DeliveryBusy.None) {
             return
         }
         if (!releaseActionVisible(current.assignmentId.isNotEmpty(), current.status) || !actions.tryStart()) {
@@ -180,7 +348,8 @@ class DeliveryViewModel @Inject constructor(
                 when (val result = offers.release(current.assignmentId, reason)) {
                     is ApiResult.Ok -> {
                         deliveries.clear()
-                        availability.applySharing(result.value.availability)
+                        availability.applySharing()
+                        assignments.refreshList()
                         state.update { it.copy(finished = true, error = null, contacts = null) }
                     }
                     is ApiResult.Err -> state.update { it.copy(error = result.error.text()) }
@@ -190,6 +359,128 @@ class DeliveryViewModel @Inject constructor(
                 state.update { it.copy(busy = DeliveryBusy.None) }
             }
         }
+    }
+
+    private fun advanceCommitted() {
+        val current = state.value
+        if (!assignments.hasConfirmedAssignments() || current.syncing || current.busy != DeliveryBusy.None || current.completionMessage != null) {
+            return
+        }
+        if (!actions.tryStart()) {
+            return
+        }
+        state.update { it.copy(busy = DeliveryBusy.Advance, error = null) }
+        viewModelScope.launch {
+            try {
+                val pending = transitions.clearProgressIfCommitted(current.deliveryId, current.status)
+                val target = targetForParcel(current.status, pending, current.deliveryId) ?: return@launch
+                val attempt = transitions.progressKey(current.deliveryId, target)
+                when (val result = offers.progressWithKey(current.deliveryId, attempt.targetStatus, attempt.key)) {
+                    is ApiResult.Ok -> {
+                        val confirmed = result.value.status
+                        if (v2StatusReached(confirmed, attempt.targetStatus)) {
+                            transitions.clearProgress(current.deliveryId)
+                        }
+                        assignments.confirmStatus(current.deliveryId, confirmed)
+                        assignments.refreshList()
+                        availability.applySharing()
+                        if (confirmed == "DELIVERED") {
+                            state.update {
+                                it.copy(
+                                    status = confirmed,
+                                    statusLabel = deliveryStatusLabel(confirmed),
+                                    title = deliveryStepTitle(confirmed),
+                                    nextStatus = null,
+                                    nextLabel = null,
+                                    cancelVisible = false,
+                                    completionMessage = DELIVERY_COMPLETED,
+                                    error = null,
+                                )
+                            }
+                        } else {
+                            val selected = assignments.parcel(current.deliveryId)?.copy(status = confirmed)
+                                ?: return@launch
+                            state.value = presentParcel(selected, null)
+                        }
+                    }
+                    is ApiResult.Err -> settleProgressFailure(current.deliveryId, attempt.targetStatus, result.error.text(), result.error)
+                }
+            } finally {
+                actions.finish()
+                state.update { it.copy(busy = DeliveryBusy.None) }
+            }
+        }
+    }
+
+    private suspend fun settleProgressFailure(deliveryId: String, targetStatus: String, message: String, error: com.riders.rider.core.network.ApiError) {
+        assignments.refreshList()
+        val selected = assignments.parcel(deliveryId)
+        if (selected != null && v2StatusReached(selected.status, targetStatus)) {
+            transitions.clearProgress(deliveryId)
+        }
+        state.value = if (selected == null) {
+            DeliveryUi(deliveryId = deliveryId, marketplaceParcel = true, error = message, title = "Delivery")
+        } else {
+            presentParcel(selected, message)
+        }
+    }
+
+    private suspend fun settleCancellationFailure(deliveryId: String, assignmentId: String, message: String, error: com.riders.rider.core.network.ApiError) {
+        assignments.refreshList()
+        val selected = assignments.parcel(deliveryId)
+        if (selected == null && !error.leavesAcceptUnresolved()) {
+            transitions.clearCancellation(assignmentId)
+            transitions.clearProgress(deliveryId)
+        }
+        val pending = transitions.pendingCancellation(assignmentId)
+        state.value = if (selected == null) {
+            DeliveryUi(
+                deliveryId = deliveryId,
+                marketplaceParcel = true,
+                error = if (isIdempotencyConflict(error)) message else message,
+                title = "Delivery",
+                missing = !isIdempotencyConflict(error),
+            )
+        } else {
+            presentParcel(selected, message).copy(
+                pendingCancelReason = pending?.reason,
+                pendingCancelNote = pending?.note,
+            )
+        }
+    }
+
+    private suspend fun presentParcel(parcel: CommittedParcel, error: String?): DeliveryUi {
+        val pending = transitions.clearProgressIfCommitted(parcel.deliveryId, parcel.status)
+            ?: transitions.pendingProgress(parcel.deliveryId)
+        val target = targetForParcel(parcel.status, pending, parcel.deliveryId)
+        val cancellation = transitions.pendingCancellation(parcel.assignmentId)
+        return DeliveryUi(
+            deliveryId = parcel.deliveryId,
+            assignmentId = parcel.assignmentId,
+            status = parcel.status,
+            title = deliveryStepTitle(parcel.status),
+            statusLabel = deliveryStatusLabel(parcel.status),
+            nextStatus = target,
+            nextLabel = target?.let { v2ActionLabel(it) },
+            parcelDescription = parcel.parcelDescription,
+            parcelSize = parcel.parcelSize,
+            parcelInstructions = parcel.parcelInstructions,
+            pickupAddress = parcel.pickupAddress,
+            pickupLandmark = parcel.pickupLandmark,
+            pickupInstructions = parcel.pickupInstructions,
+            dropoffAddress = parcel.dropoffAddress,
+            dropoffLandmark = parcel.dropoffLandmark,
+            dropoffInstructions = parcel.dropoffInstructions,
+            contacts = parcel.contacts,
+            serviceClassLabel = serviceClassLabel(parcel.serviceClass),
+            deadlineLabel = deadlineLabel(parcel.deliverBy),
+            agreedPriceLabel = agreedPriceLabel(parcel.agreedPrice),
+            marketplaceParcel = true,
+            cancelVisible = v2CancellationVisible(parcel.status),
+            pendingCancelReason = cancellation?.reason,
+            pendingCancelNote = cancellation?.note,
+            error = error,
+        )
     }
 
     private fun present(

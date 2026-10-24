@@ -7,6 +7,10 @@ export const DELIVERY_STATUSES = [
   'PICKED_UP',
   'IN_TRANSIT',
   'ARRIVED_AT_DROPOFF',
+  'RIDER_ASSIGNED',
+  'COLLECTING',
+  'COLLECTED',
+  'OUT_FOR_DELIVERY',
   'DELIVERED',
   'CANCELLED',
   'FAILED',
@@ -22,6 +26,11 @@ export type CustomerDelivery = {
   createdAt: string;
   pickupAddress: string;
   dropoffAddress: string;
+  serviceClass?: 'EXPRESS' | 'FLEXIBLE' | null;
+  deliverBy?: string | null;
+  currency?: string | null;
+  suggestedPrice?: string | null;
+  offeredPrice?: string | null;
 };
 
 const ACTIVE_DELIVERY_STATUSES = new Set<DeliveryStatus>([
@@ -33,6 +42,10 @@ const ACTIVE_DELIVERY_STATUSES = new Set<DeliveryStatus>([
   'PICKED_UP',
   'IN_TRANSIT',
   'ARRIVED_AT_DROPOFF',
+  'RIDER_ASSIGNED',
+  'COLLECTING',
+  'COLLECTED',
+  'OUT_FOR_DELIVERY',
 ]);
 
 const ACTIVE_LIST_STATUSES: readonly DeliveryStatus[] = [...ACTIVE_DELIVERY_STATUSES];
@@ -52,6 +65,10 @@ const STATUS_LABELS: Record<DeliveryStatus, string> = {
   PICKED_UP: 'Parcel picked up',
   IN_TRANSIT: 'In transit',
   ARRIVED_AT_DROPOFF: 'At dropoff',
+  RIDER_ASSIGNED: 'Rider assigned',
+  COLLECTING: 'Collecting',
+  COLLECTED: 'Collected',
+  OUT_FOR_DELIVERY: 'Out for delivery',
   DELIVERED: 'Delivered',
   CANCELLED: 'Cancelled',
   FAILED: 'Failed',
@@ -67,6 +84,17 @@ export function deliveriesInGroup(deliveries: CustomerDelivery[], group: Deliver
 
 export function deliveryStatusLabel(status: DeliveryStatus): string {
   return STATUS_LABELS[status];
+}
+
+export function deliveryListLabel(delivery: Pick<CustomerDelivery, 'status' | 'serviceClass'>): string {
+  if (delivery.serviceClass && delivery.status === 'CREATED') {
+    return 'Waiting for bids';
+  }
+  return STATUS_LABELS[delivery.status];
+}
+
+export function deliveryCanSearchAgain(delivery: Pick<CustomerDelivery, 'status' | 'serviceClass'>): boolean {
+  return delivery.status === 'NO_RIDER_FOUND' && delivery.serviceClass == null;
 }
 
 export function deliveryUsesPackageIcon(status: DeliveryStatus): boolean {

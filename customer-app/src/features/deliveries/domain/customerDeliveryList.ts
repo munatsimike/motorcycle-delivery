@@ -65,13 +65,72 @@ function readCustomerDelivery(value: unknown): CustomerDelivery {
   if (!pickupAddress || !dropoffAddress) {
     throw new Error('Deliveries are unavailable.');
   }
+  const serviceClass = readServiceClass(value.serviceClass);
+  const deliverBy = readDeadline(value.deliverBy);
+  const suggestedPrice = readMoney(value.suggestedPrice);
+  const offeredPrice = readMoney(value.offeredPrice);
+  const currency = readCurrency(value.currency);
+  if (
+    serviceClass === undefined
+    || deliverBy === undefined
+    || suggestedPrice === undefined
+    || offeredPrice === undefined
+    || currency === undefined
+  ) {
+    throw new Error('Deliveries are unavailable.');
+  }
   return {
     id: value.id,
     status: value.status,
     createdAt: value.createdAt,
     pickupAddress,
     dropoffAddress,
+    serviceClass,
+    deliverBy,
+    currency,
+    suggestedPrice,
+    offeredPrice,
   };
+}
+
+function readServiceClass(value: unknown): 'EXPRESS' | 'FLEXIBLE' | null | undefined {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+  if (value === 'EXPRESS' || value === 'FLEXIBLE') {
+    return value;
+  }
+  return undefined;
+}
+
+function readDeadline(value: unknown): string | null | undefined {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+  if (typeof value !== 'string' || Number.isNaN(new Date(value).getTime())) {
+    return undefined;
+  }
+  return value;
+}
+
+function readMoney(value: unknown): string | null | undefined {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+  if (typeof value !== 'string' || !/^\d{1,10}\.\d{2}$/.test(value)) {
+    return undefined;
+  }
+  return value;
+}
+
+function readCurrency(value: unknown): string | null | undefined {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+  if (value !== 'USD') {
+    return undefined;
+  }
+  return 'USD';
 }
 
 function addressOf(value: unknown): string | null {

@@ -9,6 +9,7 @@ import {
 import {
   AssignmentReleaseReason,
   AssignmentStatus,
+  BidStatus,
   CoordinateSource,
   Currency,
   DeliveryActorType,
@@ -30,9 +31,11 @@ import {
   openPlatformFeeReservation,
   releasePlatformFeeReservation,
   capturePlatformFeeReservation,
+  captureV2CommissionReservation,
   refundAcceptanceCommission,
 } from '../rider/wallet-ledger.js';
 import { findDispatchCandidates } from './dispatch-query.js';
+import { recordRequestReopened, recordV2CustomerStatus } from './v2-outbox.js';
 import {
   AUTO_RETRY_MAX_COUNT,
   AUTO_RETRY_DELAY_MS,
@@ -63,6 +66,21 @@ const RELEASEABLE = new Set<DeliveryStatus>([
   DeliveryStatus.ARRIVED_AT_PICKUP,
 ]);
 
+const V2_PRE_PICKUP = new Set<DeliveryStatus>([
+  DeliveryStatus.RIDER_ASSIGNED,
+  DeliveryStatus.COLLECTING,
+]);
+
+const V2_CANCEL_REASONS = new Set<AssignmentReleaseReason>([
+  AssignmentReleaseReason.PAYMENT_NOT_AGREED,
+  AssignmentReleaseReason.PARCEL_NOT_AS_DESCRIBED,
+  AssignmentReleaseReason.PARCEL_TOO_LARGE,
+  AssignmentReleaseReason.SENDER_UNAVAILABLE,
+  AssignmentReleaseReason.WRONG_ADDRESS,
+  AssignmentReleaseReason.BREAKDOWN,
+  AssignmentReleaseReason.OTHER,
+]);
+
 export const RIDER_RESUMABLE_STATUSES = [
   DeliveryStatus.ASSIGNED,
   DeliveryStatus.ARRIVED_AT_PICKUP,
@@ -81,6 +99,25 @@ const DELIVERY_PROGRESS = [
   DeliveryStatus.ARRIVED_AT_DROPOFF,
   DeliveryStatus.DELIVERED,
 ] as const;
+
+const V2_LIVE_STATUSES = [
+  DeliveryStatus.RIDER_ASSIGNED,
+  DeliveryStatus.COLLECTING,
+  DeliveryStatus.COLLECTED,
+  DeliveryStatus.OUT_FOR_DELIVERY,
+] as const;
+
+const V2_DELIVERY_PROGRESS = [
+  ...V2_LIVE_STATUSES,
+  DeliveryStatus.DELIVERED,
+] as const;
+
+const LIVE_ASSIGNMENT_STATUSES = [
+  ...RIDER_RESUMABLE_STATUSES,
+  ...V2_LIVE_STATUSES,
+] as const;
+
+const LIVE_ASSIGNMENT_STATUS_SET = new Set<DeliveryStatus>(LIVE_ASSIGNMENT_STATUSES);
 
 type AssignmentRow = {
   id: string;
@@ -101,10 +138,10 @@ type DeliveryRow = {
   customerId: string;
   status: DeliveryStatus;
   searchGeneration: number;
-  price: string | { toFixed(digits: number): string };
+  price: string | { toFixed(digits: number): string } | null;
   currency: Currency;
-  payer: string;
-  paymentMethod: string;
+  payer: string | null;
+  paymentMethod: string | null;
   parcelDescription: string;
   parcelSize: string;
   parcelInstructions: string | null;
@@ -123,6 +160,8 @@ type DeliveryRow = {
   recipientName: string;
   recipientPhone: string;
   createdAt?: Date;
+  serviceClass?: 'EXPRESS' | 'FLEXIBLE' | null;
+  deliverBy?: Date | null;
   pickupCoordinateSource?: CoordinateSource;
   pickupPlaceId?: string | null;
   pickupCoordinateRetrievedAt?: Date | null;
@@ -171,16 +210,20 @@ type StopView = {
 export type ActiveAssignment = {
   assignmentId: string;
   deliveryId: string;
-  status: (typeof RIDER_RESUMABLE_STATUSES)[number];
+  status: (typeof LIVE_ASSIGNMENT_STATUSES)[number];
   parcel: RiderOffer['parcel'];
   pickup: StopView;
   dropoff: StopView;
+  serviceClass: 'EXPRESS' | 'FLEXIBLE' | null;
+  deliverBy: string | null;
+  agreedPrice: string | null;
 };
 
 type ActiveAssignmentRow = {
   id: string;
   riderProfileId: string;
   status: AssignmentStatus;
+  acceptedBidAmount?: string | { toFixed(digits: number): string } | null;
   delivery: DeliveryRow;
 };
 
@@ -200,6 +243,16 @@ export type DeliveryProgress = {
   deliveryId: string;
   status: DeliveryStatus;
   availability: RiderAvailability;
+};
+
+export type V2CancellationResult = {
+  assignmentId: string;
+  deliveryId: string;
+  status: DeliveryStatus;
+  reopened: boolean;
+  released: boolean;
+  availability: RiderAvailability;
+  replayed: boolean;
 };
 
 @Injectable()
@@ -223,11 +276,32 @@ export class DispatchService {
       where: {
         riderProfileId: rider.riderProfileId,
         status: AssignmentStatus.ACCEPTED,
-        delivery: { status: { in: [...RIDER_RESUMABLE_STATUSES] } },
+        delivery: { status: { in: [...LIVE_ASSIGNMENT_STATUSES] } },
       },
       include: { delivery: true },
     });
     return { assignment: activeAssignmentFromRows(rider.riderProfileId, rows, now) };
+  }
+
+  async liveAssignments(rider: RiderContext, now = new Date()) {
+    const rows = await this.prisma.deliveryAssignment.findMany({
+      where: {
+        riderProfileId: rider.riderProfileId,
+        status: AssignmentStatus.ACCEPTED,
+        delivery: { status: { in: [...LIVE_ASSIGNMENT_STATUSES] } },
+      },
+      include: { delivery: true },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    });
+    return {
+      assignments: rows.flatMap((row) => {
+        if (row.riderProfileId !== rider.riderProfileId) {
+          return [];
+        }
+        const assignment = activeAssignmentFromRows(rider.riderProfileId, [row], now);
+        return assignment ? [assignment] : [];
+      }),
+    };
   }
 
   async accept(rider: RiderContext, assignmentId: string, idempotencyKey: string, now = new Date()) {
@@ -247,14 +321,63 @@ export class DispatchService {
     }
   }
 
-  async progress(rider: RiderContext, deliveryId: string, body: unknown, now = new Date()) {
+  async progress(
+    rider: RiderContext,
+    deliveryId: string,
+    body: unknown,
+    now = new Date(),
+    idempotencyKey?: string | null,
+  ) {
     const requested = readRequestedStatus(body);
-    return this.prisma.$transaction((tx) => progressDelivery(tx, rider, deliveryId, requested, now));
+    const key = normalizeProgressKey(idempotencyKey);
+    const hash = key ? progressPayloadHash(deliveryId, rider.riderProfileId, requested) : null;
+    try {
+      return await this.prisma.$transaction((tx) => progressDelivery(tx, rider, deliveryId, requested, now, key, hash));
+    } catch (error) {
+      if (!key || !hash || !isUniqueViolation(error)) {
+        throw error;
+      }
+      try {
+        return await this.prisma.$transaction((tx) => replayProgressCommand(tx, rider.riderProfileId, key, hash));
+      } catch (replayError) {
+        if (replayError instanceof ConflictException && replayError.message === 'This delivery status cannot be changed') {
+          throw error;
+        }
+        throw replayError;
+      }
+    }
   }
 
   async release(rider: RiderContext, assignmentId: string, body: unknown, now = new Date()) {
     const reason = readReleaseReason(body);
     return this.prisma.$transaction((tx) => releaseDelivery(tx, rider, assignmentId, reason, now));
+  }
+
+  async cancelBeforePickup(
+    rider: RiderContext,
+    assignmentId: string,
+    idempotencyKey: string,
+    body: unknown,
+    now = new Date(),
+  ): Promise<V2CancellationResult> {
+    const key = readIdempotencyKey(idempotencyKey);
+    const reason = readV2CancelReason(body);
+    const note = readV2CancelNote(body, reason);
+    const hash = cancellationHash(assignmentId, rider.riderProfileId, reason, note);
+    try {
+      return await this.prisma.$transaction((tx) => cancelBeforePickup(tx, rider, assignmentId, key, hash, reason, note, now));
+    } catch (error) {
+      if (!isUniqueViolation(error)) {
+        throw error;
+      }
+      return this.prisma.$transaction(async (tx) => {
+        const existing = await tx.deliveryAssignment.findUnique({ where: { cancellationIdempotencyKey: key } });
+        if (existing && existing.cancellationPayloadHash === hash && existing.riderProfileId === rider.riderProfileId) {
+          return cancellationReplay(tx, existing.id, true);
+        }
+        throw new ConflictException(existing ? IDEMPOTENCY_CONFLICT : 'This delivery cannot be cancelled');
+      });
+    }
   }
 
   processAutoRetry(now = new Date()): Promise<boolean> {
@@ -321,12 +444,33 @@ export function readRequestedStatus(body: unknown): DeliveryStatus {
   return status as DeliveryStatus;
 }
 
-function nextDeliveryStatus(status: DeliveryStatus): DeliveryStatus | null {
-  const index = DELIVERY_PROGRESS.indexOf(status as (typeof DELIVERY_PROGRESS)[number]);
-  if (index < 0 || index === DELIVERY_PROGRESS.length - 1) {
+function nextDeliveryStatus(status: DeliveryStatus, v2: boolean): DeliveryStatus | null {
+  const chain: readonly DeliveryStatus[] = v2 ? V2_DELIVERY_PROGRESS : DELIVERY_PROGRESS;
+  const index = chain.indexOf(status);
+  if (index < 0 || index === chain.length - 1) {
     return null;
   }
-  return DELIVERY_PROGRESS[index + 1] ?? null;
+  return chain[index + 1] ?? null;
+}
+
+function progressPayloadHash(deliveryId: string, riderProfileId: string, requested: DeliveryStatus): string {
+  return createHash('sha256')
+    .update(JSON.stringify({ kind: 'v2-delivery-progress', deliveryId, riderProfileId, status: requested }))
+    .digest('hex');
+}
+
+function normalizeProgressKey(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const key = value.trim();
+  if (!key) {
+    return null;
+  }
+  if (key.length > 200) {
+    throw new BadRequestException('Enter an idempotency key');
+  }
+  return key;
 }
 
 // Moves an accepted delivery one step. The caller locks the delivery, then the
@@ -339,7 +483,15 @@ async function progressDelivery(
   deliveryId: string,
   requested: DeliveryStatus,
   now: Date,
+  key: string | null,
+  hash: string | null,
 ): Promise<DeliveryProgress> {
+  if (key && hash) {
+    const prior = await tx.deliveryProgressCommand.findUnique({ where: { idempotencyKey: key } });
+    if (prior) {
+      return progressReplay(prior, rider.riderProfileId, hash);
+    }
+  }
   const existing = await tx.deliveryAssignment.findFirst({
     where: {
       deliveryId,
@@ -367,10 +519,22 @@ async function progressDelivery(
   ) {
     throw new NotFoundException('Delivery not found');
   }
-  if (nextDeliveryStatus(delivery.status) !== requested) {
+  if (key && hash) {
+    const prior = await tx.deliveryProgressCommand.findUnique({ where: { idempotencyKey: key } });
+    if (prior) {
+      return progressReplay(prior, rider.riderProfileId, hash);
+    }
+  }
+  const v2 = assignment.acceptedBidAmount != null;
+  if (v2 && (!key || !hash)) {
+    throw new BadRequestException('Enter an idempotency key');
+  }
+  if (nextDeliveryStatus(delivery.status, v2) !== requested) {
     throw new ConflictException('This delivery status cannot be changed');
   }
-  if (
+  if (requested === DeliveryStatus.DELIVERED && assignment.acceptedBidAmount != null) {
+    await captureV2CommissionReservation(tx, delivery.id, profile.id, assignment.id, now);
+  } else if (
     requested === DeliveryStatus.DELIVERED
     && (assignment.acceptedCommissionModel ?? 'ON_COMPLETION') === 'ON_COMPLETION'
   ) {
@@ -397,11 +561,61 @@ async function progressDelivery(
     });
     availability = await restoreAvailability(tx, profile, now);
   }
+  if (v2) {
+    await recordV2CustomerStatus(tx, {
+      status: requested,
+      deliveryId: delivery.id,
+      assignmentId: assignment.id,
+      customerAccountId: delivery.customerId,
+    });
+  }
+  if (v2 && key && hash) {
+    await tx.deliveryProgressCommand.create({
+      data: {
+        idempotencyKey: key,
+        payloadHash: hash,
+        riderProfileId: rider.riderProfileId,
+        deliveryId: delivery.id,
+        assignmentId: assignment.id,
+        requestedStatus: requested,
+        resultStatus: requested,
+        availability,
+      },
+    });
+  }
   return {
     deliveryId: delivery.id,
     status: requested,
     availability,
   };
+}
+
+function progressReplay(
+  prior: { payloadHash: string; riderProfileId: string; deliveryId: string; resultStatus: DeliveryStatus; availability: RiderAvailability },
+  riderProfileId: string,
+  hash: string,
+): DeliveryProgress {
+  if (prior.payloadHash !== hash || prior.riderProfileId !== riderProfileId) {
+    throw new ConflictException(IDEMPOTENCY_CONFLICT);
+  }
+  return {
+    deliveryId: prior.deliveryId,
+    status: prior.resultStatus,
+    availability: prior.availability,
+  };
+}
+
+async function replayProgressCommand(
+  tx: Prisma.TransactionClient,
+  riderProfileId: string,
+  key: string,
+  hash: string,
+): Promise<DeliveryProgress> {
+  const prior = await tx.deliveryProgressCommand.findUnique({ where: { idempotencyKey: key } });
+  if (!prior) {
+    throw new ConflictException('This delivery status cannot be changed');
+  }
+  return progressReplay(prior, riderProfileId, hash);
 }
 
 export function readReleaseReason(body: unknown): AssignmentReleaseReason {
@@ -413,6 +627,151 @@ export function readReleaseReason(body: unknown): AssignmentReleaseReason {
     throw new BadRequestException('Choose a release reason');
   }
   return reason as AssignmentReleaseReason;
+}
+
+async function cancelBeforePickup(
+  tx: Prisma.TransactionClient,
+  rider: RiderContext,
+  assignmentId: string,
+  key: string,
+  hash: string,
+  reason: AssignmentReleaseReason,
+  note: string | null,
+  now: Date,
+): Promise<V2CancellationResult> {
+  const existingKey = await tx.deliveryAssignment.findUnique({ where: { cancellationIdempotencyKey: key } });
+  if (existingKey) {
+    if (existingKey.cancellationPayloadHash !== hash || existingKey.riderProfileId !== rider.riderProfileId) {
+      throw new ConflictException(IDEMPOTENCY_CONFLICT);
+    }
+    return cancellationReplay(tx, existingKey.id, true);
+  }
+  const peeked = await tx.deliveryAssignment.findUnique({ where: { id: assignmentId } });
+  if (!peeked || peeked.riderProfileId !== rider.riderProfileId) {
+    throw new NotFoundException('Delivery not found');
+  }
+  await lockDelivery(tx, peeked.deliveryId);
+  const profile = await lockRiderProfile(tx, rider.riderProfileId, 'Rider profile not found');
+  if (profile.userId !== rider.userId) {
+    throw new ForbiddenException('Rider access is required');
+  }
+  await lockAssignment(tx, assignmentId);
+  const assignment = await tx.deliveryAssignment.findUnique({ where: { id: assignmentId } });
+  const delivery = await tx.delivery.findUnique({ where: { id: peeked.deliveryId } });
+  if (!assignment || !delivery || assignment.riderProfileId !== rider.riderProfileId) {
+    throw new NotFoundException('Delivery not found');
+  }
+  if (assignment.cancellationIdempotencyKey === key) {
+    if (assignment.cancellationPayloadHash !== hash) {
+      throw new ConflictException(IDEMPOTENCY_CONFLICT);
+    }
+    return cancellationReplay(tx, assignment.id, true);
+  }
+  if (
+    assignment.status !== AssignmentStatus.ACCEPTED
+    || assignment.acceptedBidAmount == null
+    || assignment.acceptedCommissionAmount == null
+    || !V2_PRE_PICKUP.has(delivery.status)
+  ) {
+    throw new ConflictException('This delivery cannot be cancelled');
+  }
+  const released = await releaseMatchingV2Reservation(tx, assignment, now);
+  await closeAcceptedBid(tx, delivery.id, profile.id, assignment.acceptedBidId, now);
+  const nextStatus = delivery.deliverBy != null && delivery.deliverBy.getTime() > now.getTime()
+    ? DeliveryStatus.CREATED
+    : DeliveryStatus.CANCELLED;
+  await tx.deliveryAssignment.update({
+    where: { id: assignment.id },
+    data: {
+      status: AssignmentStatus.RELEASED,
+      releaseReason: reason,
+      releasedAt: now,
+      cancellationNote: note,
+      cancellationStage: delivery.status,
+      cancellationIdempotencyKey: key,
+      cancellationPayloadHash: hash,
+    },
+  });
+  const availability = await restoreAvailability(tx, profile, now);
+  await tx.delivery.update({
+    where: { id: delivery.id },
+    data: { status: nextStatus, price: null, updatedAt: now },
+  });
+  await recordStatus(tx, delivery.id, delivery.status, nextStatus, rider.userId, DeliveryActorType.RIDER, now);
+  if (nextStatus === DeliveryStatus.CREATED) {
+    await recordRequestReopened(tx, {
+      deliveryId: delivery.id,
+      assignmentId: assignment.id,
+      customerAccountId: delivery.customerId,
+    });
+  }
+  return {
+    assignmentId: assignment.id,
+    deliveryId: delivery.id,
+    status: nextStatus,
+    reopened: nextStatus === DeliveryStatus.CREATED,
+    released,
+    availability,
+    replayed: false,
+  };
+}
+
+async function cancellationReplay(
+  tx: Prisma.TransactionClient,
+  assignmentId: string,
+  replayed: boolean,
+): Promise<V2CancellationResult> {
+  const assignment = await tx.deliveryAssignment.findUnique({ where: { id: assignmentId } });
+  if (!assignment || assignment.status !== AssignmentStatus.RELEASED) {
+    throw new ConflictException(IDEMPOTENCY_CONFLICT);
+  }
+  const delivery = await tx.delivery.findUnique({ where: { id: assignment.deliveryId } });
+  const profile = await tx.riderProfile.findUnique({ where: { id: assignment.riderProfileId } });
+  const reservation = await tx.walletFeeReservation.findFirst({ where: { assignmentId: assignment.id } });
+  if (!delivery || !profile || assignment.releasedAt == null) {
+    throw new ConflictException(IDEMPOTENCY_CONFLICT);
+  }
+  const reopened = delivery.deliverBy != null && delivery.deliverBy.getTime() > assignment.releasedAt.getTime();
+  return {
+    assignmentId: assignment.id,
+    deliveryId: delivery.id,
+    status: reopened ? DeliveryStatus.CREATED : DeliveryStatus.CANCELLED,
+    reopened,
+    released: reservation?.status === 'RELEASED',
+    availability: profile.availability,
+    replayed,
+  };
+}
+
+function readV2CancelReason(body: unknown): AssignmentReleaseReason {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    throw new BadRequestException('Choose a cancellation reason');
+  }
+  const reason = (body as { reason?: unknown }).reason;
+  if (typeof reason !== 'string' || !V2_CANCEL_REASONS.has(reason as AssignmentReleaseReason)) {
+    throw new BadRequestException('Choose a cancellation reason');
+  }
+  return reason as AssignmentReleaseReason;
+}
+
+function readV2CancelNote(body: unknown, reason: AssignmentReleaseReason): string | null {
+  const note = (body as { note?: unknown }).note;
+  if (note == null || note === '') {
+    if (reason === AssignmentReleaseReason.OTHER) {
+      throw new BadRequestException('Enter a cancellation note');
+    }
+    return null;
+  }
+  if (typeof note !== 'string' || note.trim().length === 0 || note.trim().length > 500) {
+    throw new BadRequestException('Enter a cancellation note');
+  }
+  return note.trim();
+}
+
+function cancellationHash(assignmentId: string, riderProfileId: string, reason: AssignmentReleaseReason, note: string | null): string {
+  return createHash('sha256')
+    .update(JSON.stringify({ kind: 'v2-pre-pickup-cancel', assignmentId, riderProfileId, reason, note }))
+    .digest('hex');
 }
 
 async function recoverCreatedDelivery(tx: Prisma.TransactionClient, now: Date): Promise<boolean> {
@@ -515,6 +874,98 @@ async function startSearch(
   return { deliveryId: delivery.id, status: nextStatus, searchGeneration: nextGeneration };
 }
 
+async function releaseMatchingV2Reservation(
+  tx: Prisma.TransactionClient,
+  assignment: { id: string; deliveryId: string; acceptedCommissionAmount: { toFixed(digits: number): string } | string | null },
+  now: Date,
+): Promise<boolean> {
+  if (assignment.acceptedCommissionAmount == null) {
+    throw new ConflictException('This commission reservation does not match the accepted bid');
+  }
+  const commissionCents = centsFromDecimal(assignment.acceptedCommissionAmount);
+  const reservation = await tx.walletFeeReservation.findFirst({
+    where: { assignmentId: assignment.id, status: 'OPEN' },
+  });
+  if (commissionCents > 0) {
+    if (!reservation || centsFromDecimal(reservation.amount) !== commissionCents) {
+      throw new ConflictException('This commission reservation does not match the accepted bid');
+    }
+  } else if (reservation) {
+    throw new ConflictException('This commission reservation does not match the accepted bid');
+  }
+  if (reservation) {
+    await releasePlatformFeeReservation(tx, assignment.deliveryId, now);
+  }
+  return reservation != null;
+}
+
+async function closeAcceptedBid(
+  tx: Prisma.TransactionClient,
+  deliveryId: string,
+  riderProfileId: string,
+  acceptedBidId: string | null,
+  now: Date,
+): Promise<void> {
+  await tx.$queryRaw`SELECT "id" FROM "bids" WHERE "delivery_id" = CAST(${deliveryId} AS uuid) AND "rider_profile_id" = CAST(${riderProfileId} AS uuid) AND "status" = 'ACCEPTED'::"bid_status" FOR UPDATE`;
+  const bid = await tx.bid.findFirst({
+    where: acceptedBidId
+      ? { id: acceptedBidId, deliveryId, status: BidStatus.ACCEPTED, closedAt: null }
+      : { deliveryId, riderProfileId, status: BidStatus.ACCEPTED, closedAt: null },
+  });
+  if (!bid) {
+    throw new ConflictException('This delivery cannot be cancelled');
+  }
+  await tx.bid.update({
+    where: { id: bid.id },
+    data: { closedAt: now },
+  });
+}
+
+async function cancelV2DeliveryByCustomer(
+  tx: Prisma.TransactionClient,
+  customer: CustomerContext,
+  assignmentId: string,
+  now: Date,
+) {
+  const peeked = await tx.deliveryAssignment.findUnique({ where: { id: assignmentId } });
+  if (!peeked) {
+    throw new ConflictException('This delivery cannot be cancelled');
+  }
+  const profile = await lockRiderProfile(tx, peeked.riderProfileId, 'Rider profile not found');
+  await lockAssignment(tx, peeked.id);
+  const assignment = await tx.deliveryAssignment.findUnique({ where: { id: peeked.id } });
+  const delivery = await tx.delivery.findUnique({ where: { id: peeked.deliveryId } });
+  if (
+    !assignment
+    || !delivery
+    || delivery.customerId !== customer.customerAccountId
+    || assignment.status !== AssignmentStatus.ACCEPTED
+    || assignment.acceptedBidAmount == null
+    || assignment.acceptedCommissionAmount == null
+    || !V2_PRE_PICKUP.has(delivery.status)
+  ) {
+    throw new ConflictException('This delivery cannot be cancelled');
+  }
+  await releaseMatchingV2Reservation(tx, assignment, now);
+  await closeAcceptedBid(tx, delivery.id, profile.id, assignment.acceptedBidId, now);
+  await tx.deliveryAssignment.update({
+    where: { id: assignment.id },
+    data: {
+      status: AssignmentStatus.RELEASED,
+      releaseReason: AssignmentReleaseReason.CUSTOMER_CANCELLED,
+      releasedAt: now,
+      cancellationStage: delivery.status,
+    },
+  });
+  await restoreAvailability(tx, profile, now);
+  await tx.delivery.update({
+    where: { id: delivery.id },
+    data: { status: DeliveryStatus.CANCELLED, updatedAt: now },
+  });
+  await recordStatus(tx, delivery.id, delivery.status, DeliveryStatus.CANCELLED, customer.userId, DeliveryActorType.CUSTOMER, now);
+  return { deliveryId: delivery.id, status: DeliveryStatus.CANCELLED };
+}
+
 async function cancelDelivery(
   tx: Prisma.TransactionClient,
   customer: CustomerContext,
@@ -523,6 +974,12 @@ async function cancelDelivery(
 ) {
   await lockDelivery(tx, deliveryId);
   const delivery = await requiredDelivery(tx, deliveryId, customer.customerAccountId);
+  const committed = await tx.deliveryAssignment.findFirst({
+    where: { deliveryId: delivery.id, status: AssignmentStatus.ACCEPTED },
+  });
+  if (committed?.acceptedBidAmount != null) {
+    return cancelV2DeliveryByCustomer(tx, customer, committed.id, now);
+  }
   if (!CANCELLABLE.has(delivery.status)) {
     throw new ConflictException('This delivery cannot be cancelled');
   }
@@ -705,7 +1162,7 @@ async function acceptOffer(
     deliveryId: delivery.id,
     status: DeliveryStatus.ASSIGNED,
     availability: RiderAvailability.BUSY,
-    offeredPrice: formatCents(centsFromDecimal(delivery.price)),
+    offeredPrice: formatCents(agreedPriceCents(delivery.price)),
     currency: Currency.USD,
     reservedFee: reservation.amount,
     configVersion: reservation.configVersion,
@@ -752,6 +1209,9 @@ async function releaseDelivery(
     throw new NotFoundException('Offer not found');
   }
   if (!delivery || assignment.status !== AssignmentStatus.ACCEPTED || !RELEASEABLE.has(delivery.status)) {
+    throw new ConflictException('This delivery cannot be released');
+  }
+  if (assignment.acceptedBidAmount != null) {
     throw new ConflictException('This delivery cannot be released');
   }
   await releasePlatformFeeReservation(tx, delivery.id, now);
@@ -893,7 +1353,7 @@ async function acceptanceResult(
     deliveryId: delivery.id,
     status: DeliveryStatus.ASSIGNED,
     availability: RiderAvailability.BUSY,
-    offeredPrice: formatCents(centsFromDecimal(delivery.price)),
+    offeredPrice: formatCents(agreedPriceCents(delivery.price)),
     currency: Currency.USD,
     reservedFee: moneyText(assignment.acceptedPlatformFee),
     configVersion: assignment.acceptedFeeConfigVersion,
@@ -929,6 +1389,13 @@ async function restoreAvailability(
 ): Promise<RiderAvailability> {
   if (profile.availability !== RiderAvailability.BUSY) {
     return profile.availability;
+  }
+  const stillAccepted = await tx.deliveryAssignment.findFirst({
+    where: { riderProfileId: profile.id, status: AssignmentStatus.ACCEPTED },
+    select: { id: true },
+  });
+  if (stillAccepted) {
+    return RiderAvailability.BUSY;
   }
   const eligible = await acceptanceRider(tx, profile);
   let next: RiderAvailability = RiderAvailability.OFFLINE;
@@ -1186,12 +1653,16 @@ async function claimDueRound(tx: Prisma.TransactionClient, now: Date): Promise<{
 }
 
 function toRiderOffer(assignment: AssignmentRow, delivery: DeliveryRow): RiderOffer {
+  const price = agreedPriceCents(delivery.price);
+  if (delivery.payer == null || delivery.paymentMethod == null) {
+    throw new ConflictException('This delivery has no agreed price');
+  }
   const stops = riderStops(delivery, new Date());
   return {
     assignmentId: assignment.id,
     deliveryId: delivery.id,
     expiresAt: assignment.offerExpiresAt.toISOString(),
-    offeredPrice: formatCents(centsFromDecimal(delivery.price)),
+    offeredPrice: formatCents(price),
     currency: delivery.currency,
     payer: delivery.payer,
     paymentMethod: delivery.paymentMethod,
@@ -1209,12 +1680,15 @@ export function activeAssignmentFromRows(
   const match = rows.find((row) =>
     row.riderProfileId === riderProfileId
     && row.status === AssignmentStatus.ACCEPTED
-    && RIDER_RESUMABLE.has(row.delivery.status),
+    && LIVE_ASSIGNMENT_STATUS_SET.has(row.delivery.status),
   );
   if (!match) {
     return null;
   }
   const stops = riderStops(match.delivery, now);
+  const serviceClass = match.delivery.serviceClass === 'EXPRESS' || match.delivery.serviceClass === 'FLEXIBLE'
+    ? match.delivery.serviceClass
+    : null;
   return {
     assignmentId: match.id,
     deliveryId: match.delivery.id,
@@ -1222,6 +1696,9 @@ export function activeAssignmentFromRows(
     parcel: stops.parcel,
     pickup: stops.pickup,
     dropoff: stops.dropoff,
+    serviceClass,
+    deliverBy: match.delivery.deliverBy instanceof Date ? match.delivery.deliverBy.toISOString() : null,
+    agreedPrice: match.acceptedBidAmount == null ? null : moneyText(match.acceptedBidAmount),
   };
 }
 
@@ -1294,6 +1771,13 @@ function coordinateText(value: string | { toFixed(digits: number): string } | nu
 
 function moneyText(value: string | { toFixed(digits: number): string }): string {
   return typeof value === 'string' ? value : value.toFixed(2);
+}
+
+function agreedPriceCents(price: string | { toFixed(digits: number): string } | null): number {
+  if (price == null) {
+    throw new ConflictException('This delivery has no agreed price');
+  }
+  return centsFromDecimal(price);
 }
 
 function readIdempotencyKey(value: string): string {

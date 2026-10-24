@@ -7,7 +7,9 @@ import com.riders.rider.core.network.text
 import com.riders.rider.feature.auth.data.AuthRepository
 import com.riders.rider.feature.availability.data.AvailabilityRepository
 import com.riders.rider.feature.delivery.data.ActiveDeliveryStore
+import com.riders.rider.feature.delivery.data.AssignmentRepository
 import com.riders.rider.feature.offers.data.DataStoreAcceptKeyStore
+import com.riders.rider.feature.offers.notification.OfferPushCoordinator
 import com.riders.rider.feature.onboarding.data.VerificationRepository
 import com.riders.rider.feature.profile.domain.ProfileBoard
 import com.riders.rider.feature.profile.domain.profileAfterRefresh
@@ -24,6 +26,9 @@ data class ProfileUi(
     val loading: Boolean = false,
     val refreshing: Boolean = false,
     val signingOut: Boolean = false,
+    val savingPassword: Boolean = false,
+    val passwordError: String? = null,
+    val passwordSaved: Boolean = false,
     val board: ProfileBoard = ProfileBoard(),
 )
 
@@ -32,8 +37,10 @@ class ProfileViewModel @Inject constructor(
     private val verification: VerificationRepository,
     private val availability: AvailabilityRepository,
     private val deliveries: ActiveDeliveryStore,
+    private val assignments: AssignmentRepository,
     private val acceptKeys: DataStoreAcceptKeyStore,
     private val auth: AuthRepository,
+    private val offerPush: OfferPushCoordinator,
 ) : ViewModel() {
     private val state = MutableStateFlow(ProfileUi())
     val ui: StateFlow<ProfileUi> = state.asStateFlow()
@@ -75,6 +82,25 @@ class ProfileViewModel @Inject constructor(
         }
     }
 
+    fun setPassword(password: String, currentPassword: String) {
+        if (password.length !in 12..128) {
+            state.update { it.copy(passwordError = "Password must contain 12 to 128 characters", passwordSaved = false) }
+            return
+        }
+        if (state.value.savingPassword) {
+            return
+        }
+        state.update { it.copy(savingPassword = true, passwordError = null, passwordSaved = false) }
+        viewModelScope.launch {
+            state.update {
+                when (val result = auth.setPassword(password, currentPassword)) {
+                    is ApiResult.Ok -> it.copy(savingPassword = false, passwordSaved = true, passwordError = null)
+                    is ApiResult.Err -> it.copy(savingPassword = false, passwordSaved = false, passwordError = result.error.text())
+                }
+            }
+        }
+    }
+
     fun logout() {
         if (state.value.signingOut) {
             return
@@ -84,10 +110,12 @@ class ProfileViewModel @Inject constructor(
     }
 
     private suspend fun finishLocalSignOut() {
-        availability.applySharing("OFFLINE")
+        auth.logout()
+        assignments.clearSession()
+        availability.applySharing()
         deliveries.clear()
         acceptKeys.clearAll()
-        auth.logout()
+        offerPush.forget()
         state.update { it.copy(signingOut = false) }
     }
 }

@@ -40,16 +40,18 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.riders.rider.R
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.riders.rider.core.design.PhoneWithFlag
 import com.riders.rider.core.design.RiderTheme
 import com.riders.rider.core.design.RidersCard
 import com.riders.rider.core.design.RidersColors
-import com.riders.rider.core.design.RidersEmptyState
 import com.riders.rider.core.design.RidersFailureNotice
 import com.riders.rider.core.design.RidersLoadingState
 import com.riders.rider.core.design.RidersPrimaryButton
@@ -59,7 +61,6 @@ import com.riders.rider.core.design.RidersSecondaryButton
 import com.riders.rider.core.design.RidersSpacing
 import com.riders.rider.core.design.RidersTextField
 import com.riders.rider.core.design.RidersType
-import com.riders.rider.core.design.RidersWordmark
 import com.riders.rider.feature.onboarding.domain.LICENCE_IMAGE_MAX_BYTES
 import com.riders.rider.feature.onboarding.domain.MotorcycleDetails
 import com.riders.rider.feature.onboarding.domain.OnboardingStep
@@ -68,7 +69,6 @@ import com.riders.rider.feature.onboarding.domain.canEditMotorcycle
 import com.riders.rider.feature.onboarding.domain.canReplaceLicence
 import com.riders.rider.feature.onboarding.domain.canSelectMotorcycle
 import com.riders.rider.feature.onboarding.domain.motorcycleStatusTitle
-import com.riders.rider.feature.onboarding.domain.profileCompletion
 import com.riders.rider.feature.onboarding.domain.riderReadiness
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
@@ -110,11 +110,8 @@ fun OnboardingScreen(
                 .padding(horizontal = RidersSpacing.xl, vertical = RidersSpacing.lg),
             verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
         ) {
-            if (ui.step != OnboardingStep.Motorcycle) {
-                RidersWordmark()
-            }
             if (!focused) {
-                Text("Step ${ui.step.ordinal + 1} of 4", style = RidersType.caption, color = RidersColors.textSecondary)
+                OnboardingProgress(ui.step)
             }
             when {
                 ui.loading && ui.onboarding == null -> RidersLoadingState("Loading your account")
@@ -126,11 +123,14 @@ fun OnboardingScreen(
                 else -> {
                     when (ui.step) {
                         OnboardingStep.Profile -> ProfileStep(ui)
-                        OnboardingStep.Licence -> LicenceStep(ui, onChoose = {
-                            picker.launch(PickVisualMediaRequest(PickVisualMedia.ImageOnly))
-                        }, onUpload = model::uploadLicence)
+                        OnboardingStep.Licence -> LicenceStep(
+                            ui,
+                            onPick = { picker.launch(PickVisualMediaRequest(PickVisualMedia.ImageOnly)) },
+                            onSave = model::uploadLicence,
+                        )
                         OnboardingStep.Motorcycle -> MotorcycleStep(
                             ui = ui,
+                            registration = !focused,
                             onBack = if (focused) onFinished else model::back,
                             onDraft = model::updateDraft,
                             onAdd = model::beginAddMotorcycle,
@@ -141,6 +141,7 @@ fun OnboardingScreen(
                         )
                         OnboardingStep.Status -> StatusStep(ui, onHome = onFinished)
                     }
+                    ui.notice?.let { SavedNotice(it) }
                     if (ui.error != null) {
                         RidersFailureNotice(message = ui.error ?: "", onRetry = model::refresh)
                     }
@@ -148,7 +149,7 @@ fun OnboardingScreen(
                         RidersSecondaryButton(label = "Back", onClick = onFinished, modifier = Modifier.fillMaxWidth())
                     } else if (!focused) {
                         Row(horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm)) {
-                            if (ui.step != OnboardingStep.Profile && ui.step != OnboardingStep.Status && ui.step != OnboardingStep.Motorcycle) {
+                            if (ui.step != OnboardingStep.Profile && ui.step != OnboardingStep.Status) {
                                 RidersSecondaryButton(label = "Back", onClick = model::back, modifier = Modifier.weight(1f))
                             }
                             if (ui.step != OnboardingStep.Status) {
@@ -168,30 +169,187 @@ fun OnboardingScreen(
 }
 
 @Composable
-private fun ProfileStep(ui: OnboardingUi) {
-    val onboarding = ui.onboarding ?: return
-    Text("Your profile", style = RidersType.title, color = RidersColors.text)
-    RidersCard {
-        Column(verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm)) {
-            Text(ui.fullName.ifBlank { "Name on your account" }, style = RidersType.heading, color = RidersColors.text)
-            PhoneWithFlag(ui.phone, style = RidersType.body, color = RidersColors.textSecondary)
-            Text("This phone number is verified and cannot be edited here.", style = RidersType.caption, color = RidersColors.textSecondary)
-            Text(
-                profileCompletion(onboarding, ui.licence != null, ui.motorcycles.size),
-                style = RidersType.body,
-                color = RidersColors.text,
-            )
+private fun SavedNotice(message: String) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(RidersRadius.lg))
+            .background(RidersColors.primaryLight)
+            .padding(RidersSpacing.lg),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
+    ) {
+        Icon(
+            painter = painterResource(R.drawable.ic_check),
+            contentDescription = null,
+            tint = RidersColors.primaryDark,
+            modifier = Modifier.size(18.dp),
+        )
+        Text(message, style = RidersType.bodyStrong, color = RidersColors.primaryDark)
+    }
+}
+
+@Composable
+private fun StepHeading(title: String, subtitle: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs)) {
+        Text(title, style = RidersType.title, color = RidersColors.text)
+        Text(subtitle, style = RidersType.body, color = RidersColors.textSecondary)
+    }
+}
+
+@Composable
+private fun IconTile(icon: Int, tint: Color, fill: Color) {
+    Box(
+        Modifier
+            .size(40.dp)
+            .clip(RoundedCornerShape(RidersRadius.md))
+            .background(fill),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            painter = painterResource(icon),
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(22.dp),
+        )
+    }
+}
+
+@Composable
+private fun StatusLine(
+    icon: Int,
+    label: String,
+    value: String,
+    positive: Boolean,
+    negative: Boolean,
+) {
+    val tint = when {
+        negative -> RidersColors.error
+        positive -> RidersColors.primaryDark
+        else -> Color(0xFFB86E00)
+    }
+    val fill = when {
+        negative -> RidersColors.dangerSurface
+        positive -> RidersColors.primaryLight
+        else -> Color(0xFFFFF4E5)
+    }
+    Row(
+        Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md),
+    ) {
+        IconTile(icon, tint, fill)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs)) {
+            Text(label, style = RidersType.caption, color = RidersColors.textSecondary)
+            Text(value, style = RidersType.bodyStrong, color = RidersColors.text)
         }
     }
 }
 
 @Composable
-private fun LicenceStep(ui: OnboardingUi, onChoose: () -> Unit, onUpload: () -> Unit) {
+private fun OnboardingProgress(step: OnboardingStep) {
+    val total = OnboardingStep.entries.size
+    Column(verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm)) {
+        Text(
+            buildAnnotatedString {
+                withStyle(SpanStyle(color = RidersColors.primary, fontWeight = FontWeight.Bold)) {
+                    append("Step ${step.ordinal + 1}")
+                }
+                withStyle(SpanStyle(color = RidersColors.textSecondary)) {
+                    append(" of $total")
+                }
+            },
+            style = RidersType.caption,
+        )
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
+        ) {
+            repeat(total) { index ->
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(RidersRadius.pill))
+                        .background(if (index <= step.ordinal) RidersColors.primary else Color(0xFFE4E6E5)),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProfileStep(ui: OnboardingUi) {
+    if (ui.onboarding == null) {
+        return
+    }
+    val name = ui.fullName.ifBlank { "Name on your account" }
+    StepHeading(
+        title = "Your profile",
+        subtitle = "Review your profile details before continuing.",
+    )
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(RidersRadius.xl))
+            .background(RidersColors.background)
+            .border(1.dp, RidersColors.border, RoundedCornerShape(RidersRadius.xl))
+            .padding(RidersSpacing.lg),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md),
+    ) {
+        Box(
+            Modifier
+                .size(48.dp)
+                .clip(CircleShape)
+                .background(Color(0xFF3D5A80)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(profileInitials(name), style = RidersType.bodyStrong, color = Color.White)
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs)) {
+            Text(name, style = RidersType.bodyStrong, color = RidersColors.text)
+            if (ui.phone.isNotBlank()) {
+                Text(ui.phone, style = RidersType.caption, color = RidersColors.textSecondary)
+            }
+        }
+        Row(
+            Modifier
+                .clip(RoundedCornerShape(RidersRadius.pill))
+                .background(RidersColors.primaryLight)
+                .padding(horizontal = RidersSpacing.sm, vertical = RidersSpacing.xs),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(RidersSpacing.xs),
+        ) {
+            Icon(
+                painter = painterResource(R.drawable.ic_check),
+                contentDescription = null,
+                tint = RidersColors.primary,
+                modifier = Modifier.size(14.dp),
+            )
+            Text("Verified", style = RidersType.captionStrong, color = RidersColors.primary)
+        }
+    }
+}
+
+private fun profileInitials(name: String): String {
+    val parts = name.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+    val letters = when {
+        parts.isEmpty() -> ""
+        parts.size == 1 -> parts[0].take(1)
+        else -> parts.first().take(1) + parts.last().take(1)
+    }
+    return letters.uppercase()
+}
+
+@Composable
+private fun LicenceStep(ui: OnboardingUi, onPick: () -> Unit, onSave: () -> Unit) {
     val onboarding = ui.onboarding ?: return
-    val readiness = riderReadiness(onboarding)
     val replace = canReplaceLicence(onboarding.licenceVerificationStatus)
-    Text("Driving licence", style = RidersType.title, color = RidersColors.text)
-    Text("Licence ${readiness.licenceLabel}", style = RidersType.body, color = RidersColors.text)
+    StepHeading(
+        title = "Driving licence",
+        subtitle = "Choose a clear photo, save it, then continue.",
+    )
     if (onboarding.rejectionReason != null) {
         Text(onboarding.rejectionReason, style = RidersType.caption, color = RidersColors.error)
     }
@@ -206,38 +364,121 @@ private fun LicenceStep(ui: OnboardingUi, onChoose: () -> Unit, onUpload: () -> 
             modifier = Modifier
                 .fillMaxWidth()
                 .height(180.dp)
-                .clip(RoundedCornerShape(RidersRadius.lg)),
+                .border(1.dp, RidersColors.border, RoundedCornerShape(RidersRadius.xl))
+                .clip(RoundedCornerShape(RidersRadius.xl)),
             contentScale = ContentScale.Crop,
         )
+        Text(
+            "Review this photo, then save it.",
+            style = RidersType.caption,
+            color = RidersColors.textSecondary,
+        )
     } else if (ui.licence != null) {
-        RidersCard {
-            Text("A licence image is already uploaded.", style = RidersType.body, color = RidersColors.text)
-            Text("Image review ${ui.licence.reviewStatus.lowercase().replaceFirstChar { it.titlecase() }}", style = RidersType.caption, color = RidersColors.textSecondary)
+        RidersCard(prominent = true) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md),
+            ) {
+                IconTile(R.drawable.ic_card, Color(0xFF3D5A80), Color(0xFFEEF2F6))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs)) {
+                    Text("Driving licence", style = RidersType.caption, color = RidersColors.textSecondary)
+                    Text("Photo uploaded", style = RidersType.bodyStrong, color = RidersColors.text)
+                }
+            }
+            LicenceStatusBadge(ui.licence.reviewStatus, licenceReviewLabel(ui.licence.reviewStatus))
         }
     } else {
-        RidersEmptyState(title = "No licence image", body = "Choose a JPEG, PNG, or WebP photo up to 5 MB.")
+        RidersCard(prominent = true) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md),
+            ) {
+                IconTile(R.drawable.ic_card, Color(0xFF3D5A80), Color(0xFFEEF2F6))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs)) {
+                    Text("No licence photo yet", style = RidersType.bodyStrong, color = RidersColors.text)
+                    Text("JPEG, PNG, or WebP, up to 5 MB.", style = RidersType.caption, color = RidersColors.textSecondary)
+                }
+            }
+        }
     }
     if (ui.uploading) {
         Text("Uploading ${ui.uploadPercent ?: 0}%", style = RidersType.caption, color = RidersColors.textSecondary)
     }
     if (replace) {
-        RidersSecondaryButton(label = if (ui.licence == null) "Choose image" else "Replace image", onClick = onChoose, modifier = Modifier.fillMaxWidth())
-        RidersPrimaryButton(
-            label = "Upload image",
-            onClick = onUpload,
-            enabled = preview != null && !ui.uploading,
-            loading = ui.uploading,
-            loadingLabel = "Uploading",
-            modifier = Modifier.fillMaxWidth(),
-        )
+        if (preview != null) {
+            RidersPrimaryButton(
+                label = "Save licence",
+                onClick = onSave,
+                enabled = !ui.uploading,
+                loading = ui.uploading,
+                loadingLabel = "Saving",
+                modifier = Modifier.fillMaxWidth(),
+            )
+            RidersSecondaryButton(
+                label = "Choose another image",
+                onClick = onPick,
+                enabled = !ui.uploading,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        } else {
+            RidersPrimaryButton(
+                label = "Upload licence",
+                onClick = onPick,
+                enabled = !ui.uploading,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
     } else {
         Text("A verified licence cannot be replaced yet.", style = RidersType.body, color = RidersColors.textSecondary)
     }
 }
 
 @Composable
+private fun LicenceStatusBadge(status: String, label: String) {
+    val tint = when {
+        status == "VERIFIED" -> RidersColors.primary
+        status == "REJECTED" -> RidersColors.error
+        else -> Color(0xFFB86E00)
+    }
+    val fill = when {
+        status == "VERIFIED" -> RidersColors.primaryLight
+        status == "REJECTED" -> RidersColors.dangerSurface
+        else -> Color(0xFFFFF4E5)
+    }
+    Row(
+        Modifier
+            .clip(RoundedCornerShape(RidersRadius.pill))
+            .background(fill)
+            .padding(horizontal = RidersSpacing.md, vertical = RidersSpacing.sm),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
+    ) {
+        Icon(
+            painter = painterResource(
+                when {
+                    status == "VERIFIED" -> R.drawable.ic_check
+                    status == "REJECTED" -> R.drawable.ic_info
+                    else -> R.drawable.ic_clock
+                },
+            ),
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(18.dp),
+        )
+        Text(label, style = RidersType.captionStrong, color = tint)
+    }
+}
+
+private fun licenceReviewLabel(status: String): String = when (status) {
+    "VERIFIED" -> "Verified"
+    "REJECTED" -> "Rejected"
+    else -> "Pending review"
+}
+
+@Composable
 private fun MotorcycleStep(
     ui: OnboardingUi,
+    registration: Boolean,
     onBack: () -> Unit,
     onDraft: (com.riders.rider.feature.onboarding.domain.MotorcycleDraft) -> Unit,
     onAdd: () -> Unit,
@@ -246,14 +487,10 @@ private fun MotorcycleStep(
     onEdit: (MotorcycleDetails) -> Unit,
     onSelect: (String) -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs)) {
-        Text("Motorbike", style = RidersType.title, color = RidersColors.text)
-        Text(
-            "Choose the motorcycle you want to use for deliveries.",
-            style = RidersType.body,
-            color = RidersColors.textSecondary,
-        )
-    }
+    StepHeading(
+        title = "Motorbike",
+        subtitle = "Add the motorcycle you want to use, save it, then continue.",
+    )
     ui.motorcycles.forEach { motorcycle ->
         val selected = motorcycle.isActive
         val selectable = canSelectMotorcycle(motorcycle.verificationStatus, motorcycle.isActive)
@@ -271,19 +508,21 @@ private fun MotorcycleStep(
         )
     }
     val editing = ui.editingId != null
-    val showForm = editing || ui.addingMotorcycle
+    val showForm = editing || ui.addingMotorcycle || (registration && ui.motorcycles.isEmpty() && ui.notice == null)
     if (!showForm) {
         RidersPrimaryButton(
             label = "Add motorbike",
             onClick = onAdd,
             modifier = Modifier.fillMaxWidth(),
         )
-        RidersSecondaryButton(
-            label = "Back",
-            onClick = onBack,
-            modifier = Modifier.fillMaxWidth(),
-        )
-    } else RidersCard(modifier = Modifier.fillMaxWidth()) {
+        if (!registration) {
+            RidersSecondaryButton(
+                label = "Back",
+                onClick = onBack,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    } else RidersCard(modifier = Modifier.fillMaxWidth(), prominent = true) {
         Text(if (editing) "Update motorcycle" else "Add a motorcycle", style = RidersType.heading, color = RidersColors.text)
         Text(
             "Use the registration book. The number plate, make, model, and colour are all required.",
@@ -326,12 +565,14 @@ private fun MotorcycleStep(
             error = motorcycleFieldError(ui.error, "Enter a colour"),
             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
         )
-        RidersSecondaryButton(
-            label = "Cancel",
-            onClick = onCancel,
-            enabled = !ui.savingMotorcycle,
-            modifier = Modifier.fillMaxWidth(),
-        )
+        if (!registration || editing) {
+            RidersSecondaryButton(
+                label = "Cancel",
+                onClick = onCancel,
+                enabled = !ui.savingMotorcycle,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
         RidersPrimaryButton(
             label = if (editing) "Save changes" else "Save motorcycle",
             onClick = onSave,
@@ -340,6 +581,14 @@ private fun MotorcycleStep(
             loadingLabel = "Saving",
             modifier = Modifier.fillMaxWidth(),
         )
+        if (!registration) {
+            RidersSecondaryButton(
+                label = "Back",
+                onClick = onBack,
+                enabled = !ui.savingMotorcycle,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
     }
 }
 
@@ -355,8 +604,8 @@ private fun MotorcycleChoice(
         Modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(if (selected) Color(0xFFE4F0FB) else Color(0xFFF4F5F6))
-            .border(1.dp, if (selected) Color(0xFFB7D0EA) else Color(0xFFE4E6E8), shape)
+            .background(if (selected) RidersColors.primaryLight else RidersColors.surface)
+            .border(1.dp, if (selected) RidersColors.primary else RidersColors.border, shape)
             .clickable(enabled = enabled, onClick = onClick)
             .padding(RidersSpacing.lg),
         verticalAlignment = Alignment.CenterVertically,
@@ -366,14 +615,14 @@ private fun MotorcycleChoice(
             Modifier
                 .size(40.dp)
                 .clip(RoundedCornerShape(RidersRadius.md))
-                .background(if (selected) Color(0xFFD4E6F6) else Color(0xFFE8EAEC)),
+                .background(if (selected) RidersColors.background else Color(0xFFDDF3E8)),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
                 painter = painterResource(R.drawable.ic_mdi_motorbike),
                 contentDescription = null,
                 modifier = Modifier.size(24.dp),
-                tint = RidersColors.text,
+                tint = RidersColors.primaryDark,
             )
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -396,10 +645,10 @@ private fun MotorcycleChoice(
                 Text(
                     "Active",
                     style = RidersType.captionStrong,
-                    color = Color(0xFF3E6FB5),
+                    color = RidersColors.primaryDark,
                     modifier = Modifier
                         .clip(RoundedCornerShape(RidersRadius.pill))
-                        .background(Color(0xFFD0E4F8))
+                        .background(RidersColors.background)
                         .padding(horizontal = RidersSpacing.sm, vertical = 2.dp),
                 )
             }
@@ -413,8 +662,8 @@ private fun SelectionMark(selected: Boolean) {
         Modifier
             .size(22.dp)
             .clip(CircleShape)
-            .background(if (selected) Color(0xFF4F86C8) else Color.Transparent)
-            .border(2.dp, if (selected) Color(0xFF4F86C8) else RidersColors.border, CircleShape),
+            .background(if (selected) RidersColors.primary else Color.Transparent)
+            .border(2.dp, if (selected) RidersColors.primary else RidersColors.border, CircleShape),
         contentAlignment = Alignment.Center,
     ) {
         if (selected) {
@@ -436,20 +685,45 @@ private fun motorcycleFieldError(message: String?, expected: String): String? {
 private fun StatusStep(ui: OnboardingUi, onHome: () -> Unit) {
     val onboarding = ui.onboarding ?: return
     val readiness = riderReadiness(onboarding)
-    Text("Approval status", style = RidersType.title, color = RidersColors.text)
-    RidersCard {
-        Column(verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm)) {
-            Text(approvalStatusTitle(onboarding.approvalStatus), style = RidersType.heading, color = RidersColors.text)
-            Text("Licence ${readiness.licenceLabel}", style = RidersType.body, color = RidersColors.text)
-            Text(
-                if (onboarding.activeVerifiedMotorcycle) "Motorcycle verified and active" else "Motorcycle ${if (onboarding.verifiedMotorcycleCount > 0) "verified, not active" else "not verified"}",
-                style = RidersType.body,
-                color = RidersColors.text,
-            )
-            Text(readiness.message, style = RidersType.body, color = RidersColors.text)
-            Text("Availability stays offline until an approved account has a verified licence and an active verified motorcycle.", style = RidersType.caption, color = RidersColors.textSecondary)
-        }
+    StepHeading(
+        title = "Approval status",
+        subtitle = "This is where your account stands.",
+    )
+    RidersCard(prominent = true) {
+        StatusLine(
+            icon = R.drawable.ic_nav_profile,
+            label = "Account",
+            value = approvalStatusTitle(onboarding.approvalStatus),
+            positive = onboarding.approvalStatus == "APPROVED",
+            negative = onboarding.approvalStatus == "REJECTED" || onboarding.approvalStatus == "SUSPENDED",
+        )
+        StatusLine(
+            icon = R.drawable.ic_card,
+            label = "Driving licence",
+            value = readiness.licenceLabel,
+            positive = readiness.licenceLabel == "Verified",
+            negative = readiness.licenceLabel == "Rejected",
+        )
+        StatusLine(
+            icon = R.drawable.ic_motorbike,
+            label = "Motorbike",
+            value = if (onboarding.activeVerifiedMotorcycle) {
+                "Verified and active"
+            } else if (onboarding.verifiedMotorcycleCount > 0) {
+                "Verified, not active"
+            } else {
+                "Not verified"
+            },
+            positive = onboarding.activeVerifiedMotorcycle,
+            negative = false,
+        )
     }
+    Text(readiness.message, style = RidersType.body, color = RidersColors.text)
+    Text(
+        "Availability stays offline until an approved account has a verified licence and an active verified motorcycle.",
+        style = RidersType.caption,
+        color = RidersColors.textSecondary,
+    )
     RidersPrimaryButton(label = "Back to home", onClick = onHome, modifier = Modifier.fillMaxWidth())
     Spacer(Modifier.height(RidersSpacing.sm))
 }

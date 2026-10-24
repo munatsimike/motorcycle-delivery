@@ -9,9 +9,10 @@ type FormInputProps = {
   onChangeText: (value: string) => void;
   placeholder?: string;
   keyboardType?: KeyboardTypeOptions;
-  autoComplete?: 'tel' | 'sms-otp' | 'name' | 'email' | 'off';
-  textContentType?: 'telephoneNumber' | 'oneTimeCode' | 'name' | 'emailAddress' | 'fullStreetAddress' | 'none';
+  autoComplete?: 'tel' | 'sms-otp' | 'name' | 'email' | 'off' | 'password';
+  textContentType?: 'telephoneNumber' | 'oneTimeCode' | 'name' | 'emailAddress' | 'fullStreetAddress' | 'none' | 'password';
   autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
+  secureTextEntry?: boolean;
   maxLength?: number;
   editable?: boolean;
   error?: string | null;
@@ -27,6 +28,7 @@ export default function FormInput({
   autoComplete,
   textContentType,
   autoCapitalize,
+  secureTextEntry,
   maxLength,
   editable = true,
   error,
@@ -45,8 +47,9 @@ export default function FormInput({
         placeholderTextColor={colors.textSecondary}
         keyboardType={keyboardType}
         autoCapitalize={autoCapitalize}
-        autoComplete={autoComplete}
-        textContentType={textContentType}
+        autoComplete={secureTextEntry ? 'password' : autoComplete}
+        textContentType={secureTextEntry ? 'password' : textContentType}
+        secureTextEntry={secureTextEntry}
         maxLength={maxLength}
         editable={editable}
         onFocus={() => {

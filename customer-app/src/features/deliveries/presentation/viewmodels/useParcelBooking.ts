@@ -9,22 +9,27 @@ import {
   emptyBookingDraft,
   parcelError,
   prepareBooking,
+  quoteIdentity,
   stopEntryError,
   stopError,
+  withBookingPatch,
   type BookingDraft,
   type PreparedBooking,
   type StopDraft,
 } from '../../domain/bookingDraft';
+import type { OpenBidRequest } from '../../domain/openBidRequest';
 import { readDeviceAddressPin } from '../../domain/deviceAddress';
 import { selectedAddressLabel, type PlaceSuggestion } from '../../domain/placeSuggestion';
 import {
   customerOfferForBooking,
   nextCustomerOffer,
   offerFieldText,
+  quoteResultForRequest,
   quotesMatch,
   type DeliveryQuote,
 } from '../../domain/deliveryQuote';
 import { createDelivery } from '../../domain/usecases/createDelivery';
+import { createOpenRequest } from '../../domain/usecases/createOpenRequest';
 import { quoteDelivery } from '../../domain/usecases/quoteDelivery';
 import { selectedPlaceBias } from './usePlaceBias';
 
@@ -41,7 +46,11 @@ type CustomerOffer = {
   pinKey: string | null;
 };
 
-export function useParcelBooking(accessToken: string | null) {
+export type BookingResult =
+  | { mode: 'v1'; deliveryId: string }
+  | { mode: 'v2'; request: OpenBidRequest };
+
+export function useParcelBooking(accessToken: string | null, marketplace = false) {
   const [draft, setDraft] = useState<BookingDraft>(emptyBookingDraft);
   const [step, setStep] = useState<BookingStep>('pickup');
   const [quote, setQuote] = useState<QuotedPrice | null>(null);
@@ -68,7 +77,11 @@ export function useParcelBooking(accessToken: string | null) {
 
   function updateDraft(patch: Partial<BookingDraft>) {
     setError(null);
-    setDraft((current) => ({ ...current, ...patch }));
+    if (patch.serviceClass !== undefined) {
+      quoteRequest.current += 1;
+      setQuote(null);
+    }
+    setDraft((current) => withBookingPatch(current, patch));
   }
 
   function prefillPickup(details: { contactName: string; contactPhone: string; address: string }) {
@@ -194,18 +207,19 @@ export function useParcelBooking(accessToken: string | null) {
       return;
     }
     const pricingDraft = draft;
-    const validation = validateStep(step, pricingDraft);
+    const validation = validateStep(step, pricingDraft, marketplace);
     if (validation) {
       setError(validation);
       return;
     }
-    const prepared = prepareBooking(pricingDraft);
+    const prepared = prepareBooking(pricingDraft, { marketplace });
     if (step === 'parcel' || step === 'review') {
       if (!prepared.ok) {
         setError(prepared.error);
         return;
       }
-      if (step === 'parcel' && (!quote || quote.pinKey !== prepared.booking.pinKey)) {
+      const identity = quoteIdentity(prepared.booking.pinKey, prepared.booking.serviceClass);
+      if (step === 'parcel' && (!quote || quote.pinKey !== identity)) {
         const loaded = await loadQuote(prepared.booking);
         if (!loaded) {
           return;
@@ -219,21 +233,22 @@ export function useParcelBooking(accessToken: string | null) {
     });
   }
 
-  async function confirm(onCreated: (deliveryId: string) => void) {
+  async function confirm(onCreated: (result: BookingResult) => void) {
     if (creating.current || busy) {
       return;
     }
-    const prepared = prepareBooking(draft);
+    const prepared = prepareBooking(draft, { marketplace });
     if (!prepared.ok) {
       setError(prepared.error);
       return;
     }
-    if (!quote || quote.pinKey !== prepared.booking.pinKey) {
+    const identity = quoteIdentity(prepared.booking.pinKey, prepared.booking.serviceClass);
+    if (!quote || quote.pinKey !== identity) {
       setError('Request a price before confirming.');
       return;
     }
-    const submission = customerOfferForBooking(offer.text);
-    if (!('offeredPrice' in submission)) {
+    const submission = marketplace ? null : customerOfferForBooking(offer.text);
+    if (submission && !('offeredPrice' in submission)) {
       setError(submission.error);
       return;
     }
@@ -242,9 +257,19 @@ export function useParcelBooking(accessToken: string | null) {
     setError(null);
     try {
       const fresh = await quoteDelivery(customerDeliveryRepository, accessToken, prepared.booking);
-      if (!quotesMatch(quote, fresh)) {
-        rememberQuote({ ...fresh, pinKey: prepared.booking.pinKey });
+      const classChanged = prepared.booking.serviceClass !== null && fresh.serviceClass !== prepared.booking.serviceClass;
+      if (!quotesMatch(quote, fresh) || classChanged) {
+        rememberQuote({ ...fresh, pinKey: identity });
         setError('The price changed. Review the new price and confirm again.');
+        return;
+      }
+      if (marketplace) {
+        const created = await createOpenRequest(customerDeliveryRepository, accessToken, prepared.booking);
+        onCreated({ mode: 'v2', request: created });
+        return;
+      }
+      if (!submission || !('offeredPrice' in submission)) {
+        setError('Enter an offer from $0.01 to $1,000.00.');
         return;
       }
       const created = await createDelivery(
@@ -253,7 +278,7 @@ export function useParcelBooking(accessToken: string | null) {
         prepared.booking,
         submission.offeredPrice,
       );
-      onCreated(created.id);
+      onCreated({ mode: 'v1', deliveryId: created.id });
     } catch (caught: unknown) {
       setError(errorMessage(caught, 'The delivery could not be booked.'));
     } finally {
@@ -269,10 +294,11 @@ export function useParcelBooking(accessToken: string | null) {
     setError(null);
     try {
       const next = await quoteDelivery(customerDeliveryRepository, accessToken, booking);
-      if (quoteRequest.current !== request) {
+      const current = quoteResultForRequest(request, quoteRequest.current, next);
+      if (!current) {
         return false;
       }
-      rememberQuote({ ...next, pinKey: booking.pinKey });
+      rememberQuote({ ...current, pinKey: quoteIdentity(booking.pinKey, booking.serviceClass) });
       return true;
     } catch (caught: unknown) {
       if (quoteRequest.current === request) {
@@ -339,7 +365,7 @@ function applyResolvedLocation(stop: StopDraft, location: ResolvedLocation): Sto
   };
 }
 
-function validateStep(step: BookingStep, draft: BookingDraft): string | null {
+function validateStep(step: BookingStep, draft: BookingDraft, marketplace: boolean): string | null {
   if (step === 'pickup') {
     return stopError(draft.pickup, 'pickup');
   }
@@ -347,7 +373,7 @@ function validateStep(step: BookingStep, draft: BookingDraft): string | null {
     return stopError(draft.dropoff, 'drop-off');
   }
   if (step === 'parcel') {
-    return parcelError(draft);
+    return parcelError(draft, marketplace);
   }
   return null;
 }

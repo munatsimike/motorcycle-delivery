@@ -1,5 +1,6 @@
-import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
 import {
+  AssignmentStatus,
   Currency,
   DeliveryActorType,
   DeliveryStatus,
@@ -7,15 +8,16 @@ import {
   PricingModel,
   PricingWindowKind,
   ServiceClass,
+  UserRole,
 } from '../generated/prisma/client.js';
 import type { CustomerContext } from '../auth/customer-access.service.js';
 import { v2MarketplaceEnabled } from '../auth/v2-flags.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { readDeliveryDraft, readQuoteRequest, type QuotePins, type QuoteRequest } from './delivery-request.js';
-import { toCustomerDelivery, toCustomerDeliverySummary, type StoredDelivery } from './delivery-view.js';
+import { readDeliveryDraft, readQuoteRequest, readV2DeliveryDraft, type QuotePins, type QuoteRequest } from './delivery-request.js';
+import { toCustomerDelivery, toCustomerDeliverySummary, withCollectingRiderLocation, type RiderPoint, type StoredDelivery } from './delivery-view.js';
 import { centsFromDecimal, formatCents } from './money.js';
 import { missingPricing } from './delivery-pricing.service.js';
-import { activeV1PricingWhere, lockActivePricing } from './pricing-lock.js';
+import { activeV1PricingWhere, lockActiveClassPricing, lockActivePricing } from './pricing-lock.js';
 import { calculateTariffPrice, PricingCalculationError, type TariffSnapshot } from './pricing-calculator.js';
 import { ROAD_DISTANCE, geoapifyRoadDistance, type RoadDistance } from './geoapify.js';
 import { suggestedCents } from './straight-line.js';
@@ -55,8 +57,39 @@ export class DeliveryService {
     if (!delivery) {
       throw new NotFoundException('Delivery not found');
     }
+    if (customer.role !== UserRole.CUSTOMER) {
+      throw new ForbiddenException('Customer access is required');
+    }
 
-    return toCustomerDelivery(delivery);
+    const point = delivery.status === DeliveryStatus.COLLECTING
+      ? await this.collectingRiderPoint(delivery.id)
+      : null;
+    return withCollectingRiderLocation(toCustomerDelivery(delivery), point);
+  }
+
+  private async collectingRiderPoint(deliveryId: string): Promise<RiderPoint | null> {
+    const assignment = await this.prisma.deliveryAssignment.findFirst({
+      where: {
+        deliveryId,
+        status: AssignmentStatus.ACCEPTED,
+        acceptedBidAmount: { not: null },
+      },
+      select: { riderProfileId: true },
+    });
+    if (!assignment) {
+      return null;
+    }
+    const location = await this.prisma.riderLocation.findUnique({
+      where: { riderProfileId: assignment.riderProfileId },
+      select: { latitude: true, longitude: true },
+    });
+    if (!location) {
+      return null;
+    }
+    return {
+      latitude: pointText(location.latitude),
+      longitude: pointText(location.longitude),
+    };
   }
 
   async list(customer: CustomerContext, query: Record<string, unknown>) {
@@ -80,6 +113,11 @@ export class DeliveryService {
           createdAt: true,
           pickupAddress: true,
           dropoffAddress: true,
+          serviceClass: true,
+          deliverBy: true,
+          currency: true,
+          suggestedPrice: true,
+          price: true,
         },
       }),
     ]);
@@ -113,6 +151,9 @@ export class DeliveryService {
   }
 
   async create(customer: CustomerContext, body: unknown) {
+    if (v2MarketplaceEnabled()) {
+      return this.createV2Request(customer, body);
+    }
     const draft = readDeliveryDraft(body);
     const metres = await this.roadMetres(draft);
     return this.prisma.$transaction(async (tx) => {
@@ -157,6 +198,85 @@ export class DeliveryService {
           currency: Currency.USD,
           paymentMethod: draft.paymentMethod,
           status: DeliveryStatus.CREATED,
+        },
+      });
+      await tx.deliveryStatusEvent.create({
+        data: {
+          deliveryId: created.id,
+          previousStatus: null,
+          newStatus: DeliveryStatus.CREATED,
+          actorId: customer.userId,
+          actorType: DeliveryActorType.CUSTOMER,
+        },
+      });
+      return toCustomerDelivery(created as StoredDelivery);
+    });
+  }
+
+  private async createV2Request(customer: CustomerContext, body: unknown) {
+    const now = this.clock();
+    const draft = readV2DeliveryDraft(body, now);
+    const metres = await this.roadMetres(draft);
+    return this.prisma.$transaction(async (tx) => {
+      await lockActiveClassPricing(tx, draft.serviceClass);
+      const active = await tx.deliveryPricingConfig.findFirst({
+        where: { isActive: true, serviceClass: draft.serviceClass },
+        include: {
+          tiers: { orderBy: { position: 'asc' } },
+          windows: true,
+        },
+      });
+      if (!active) {
+        throw classPricingUnavailable(draft.serviceClass);
+      }
+      let priced;
+      try {
+        priced = calculateTariffPrice(toClassSnapshot(active), metres, now);
+      } catch (error) {
+        throw quotedPriceError(error);
+      }
+      const retrievedAt = new Date();
+      const created = await tx.delivery.create({
+        data: {
+          customerId: customer.customerAccountId,
+          deliveryType: DeliveryType.PARCEL,
+          pickupAddress: draft.pickupAddress,
+          pickupLatitude: draft.pickupLatitude,
+          pickupLongitude: draft.pickupLongitude,
+          pickupPlaceId: draft.pickupPlaceId,
+          pickupCoordinateSource: draft.pickupCoordinateSource,
+          pickupCoordinateRetrievedAt: retrievedAt,
+          pickupLandmark: draft.pickupLandmark,
+          pickupInstructions: draft.pickupInstructions,
+          pickupContactName: draft.pickupContactName,
+          pickupContactPhone: draft.pickupContactPhone,
+          dropoffAddress: draft.dropoffAddress,
+          dropoffLatitude: draft.dropoffLatitude,
+          dropoffLongitude: draft.dropoffLongitude,
+          dropoffPlaceId: draft.dropoffPlaceId,
+          dropoffCoordinateSource: draft.dropoffCoordinateSource,
+          dropoffCoordinateRetrievedAt: retrievedAt,
+          dropoffLandmark: draft.dropoffLandmark,
+          dropoffInstructions: draft.dropoffInstructions,
+          parcelDescription: draft.parcelDescription,
+          parcelSize: draft.parcelSize,
+          parcelInstructions: draft.parcelInstructions,
+          recipientName: draft.dropoffContactName,
+          recipientPhone: draft.dropoffContactPhone,
+          price: null,
+          suggestedPrice: formatCents(priced.suggestedPriceCents),
+          distanceMeters: priced.distanceMetres,
+          pricingVersion: priced.pricingVersion,
+          pricingModel: priced.pricingModel,
+          pricingBasisPoints: priced.basisPoints,
+          pricingWindowId: priced.pricingWindow?.id ?? null,
+          payer: null,
+          currency: Currency.USD,
+          paymentMethod: null,
+          serviceClass: draft.serviceClass,
+          deliverBy: draft.deliverBy,
+          status: DeliveryStatus.CREATED,
+          searchGeneration: 0,
         },
       });
       await tx.deliveryStatusEvent.create({
@@ -361,6 +481,10 @@ function readStatuses(value: unknown): DeliveryStatus[] | undefined {
     statuses.push(item as DeliveryStatus);
   }
   return statuses;
+}
+
+function pointText(value: string | { toFixed(digits: number): string }): string {
+  return typeof value === 'string' ? value : value.toFixed(7);
 }
 
 

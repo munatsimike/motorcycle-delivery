@@ -7,6 +7,8 @@ import com.riders.rider.core.network.AcceptanceResponse
 import com.riders.rider.core.network.ApiError
 import com.riders.rider.core.network.ApiJson
 import com.riders.rider.core.network.ApiResult
+import com.riders.rider.core.network.CancellationRequest
+import com.riders.rider.core.network.CancellationResponse
 import com.riders.rider.core.network.OfferResponse
 import com.riders.rider.core.network.ReleaseRequest
 import com.riders.rider.core.network.RiderService
@@ -95,6 +97,24 @@ class OfferRepository @Inject constructor(
             )
             is ApiResult.Err -> result
         }
+    }
+
+    suspend fun progressWithKey(deliveryId: String, status: String, idempotencyKey: String): ApiResult<AcceptedDelivery> {
+        return when (val result = apiCall { riders.progressWithKey(deliveryId, idempotencyKey, StatusRequest(status)) }) {
+            is ApiResult.Ok -> ApiResult.Ok(
+                AcceptedDelivery("", result.value.deliveryId, result.value.status, result.value.availability),
+            )
+            is ApiResult.Err -> result
+        }
+    }
+
+    suspend fun cancelAssignment(
+        assignmentId: String,
+        reason: String,
+        note: String?,
+        idempotencyKey: String,
+    ): ApiResult<CancellationResponse> {
+        return apiCall { riders.cancelAssignment(assignmentId, idempotencyKey, CancellationRequest(reason, note)) }
     }
 }
 

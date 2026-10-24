@@ -18,16 +18,14 @@ class OnboardingRepository @Inject constructor(
     database: RiderDatabase,
 ) {
     private val dao: OnboardingDao = database.onboardingDao()
+    private var receivingKnown = false
+    private var knownReceiving: Boolean? = null
 
     suspend fun load(): ApiResult<RiderOnboarding> {
-        return when (val result = apiCall { riders.onboarding() }) {
-            is ApiResult.Ok -> {
-                val onboarding = result.value.toDomain()
-                dao.write(onboarding.toEntity())
-                ApiResult.Ok(onboarding)
-            }
+        return when (val result = readCurrent()) {
+            is ApiResult.Ok -> result
             is ApiResult.Err -> {
-                val cached = dao.read()?.toDomain()
+                val cached = dao.read()?.toDomain()?.withKnownReceiving()
                 if (cached != null && result.error is ApiError.Network) {
                     ApiResult.Ok(cached)
                 } else {
@@ -35,6 +33,25 @@ class OnboardingRepository @Inject constructor(
                 }
             }
         }
+    }
+
+    suspend fun loadCurrent(): ApiResult<RiderOnboarding> = readCurrent()
+
+    private suspend fun readCurrent(): ApiResult<RiderOnboarding> {
+        return when (val result = apiCall { riders.onboarding() }) {
+            is ApiResult.Ok -> {
+                receivingKnown = true
+                knownReceiving = result.value.receiving
+                val onboarding = result.value.toDomain()
+                dao.write(onboarding.toEntity())
+                ApiResult.Ok(onboarding)
+            }
+            is ApiResult.Err -> result
+        }
+    }
+
+    private fun RiderOnboarding.withKnownReceiving(): RiderOnboarding {
+        return if (receivingKnown) copy(receiving = knownReceiving) else this
     }
 }
 
@@ -48,6 +65,7 @@ private fun OnboardingResponse.toDomain(): RiderOnboarding {
         rejectionReason = rejectionReason,
         verifiedMotorcycleCount = verifiedMotorcycleCount,
         activeVerifiedMotorcycle = activeVerifiedMotorcycle,
+        receiving = receiving,
     )
 }
 

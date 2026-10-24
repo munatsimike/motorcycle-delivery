@@ -43,6 +43,28 @@ describe('DeliveryController', () => {
     expect(() => controller.cancel({}, 'delivery-1')).toThrow(ForbiddenException);
   });
 
+  it('does not start V1 search when the marketplace flag is on', async () => {
+    process.env.V2_MARKETPLACE_ENABLED = 'true';
+    const created = { id: 'delivery-v2', status: 'CREATED', searchGeneration: 0 };
+    let searched = false;
+    const flagged = new DeliveryController({
+      async create() {
+        return created;
+      },
+    } as never, {
+      async search() {
+        searched = true;
+        return { deliveryId: created.id, status: 'SEARCHING', searchGeneration: 1 };
+      },
+    } as never, {} as never);
+    try {
+      await expect(flagged.create({ customer: CUSTOMER }, {})).resolves.toEqual(created);
+      expect(searched).toBe(false);
+    } finally {
+      delete process.env.V2_MARKETPLACE_ENABLED;
+    }
+  });
+
   it('searches only after the booking is committed and returns the persisted status', async () => {
     const response = await controller.create({ customer: CUSTOMER }, { customerId: 'other-account' });
     expect(seen.accountId).toBe('account-1');
@@ -94,6 +116,34 @@ describe('DeliveryController', () => {
       autoRetryCount: 0,
       nextRetryAt: null,
     });
+  });
+
+  it('draws the cached route from pickup and dropoff', async () => {
+    const drawn: number[] = [];
+    const mapped = new DeliveryController({
+      async getById() {
+        return {
+          pickup: { latitude: '-17.1000000', longitude: '31.1000000' },
+          dropoff: { latitude: '-17.2000000', longitude: '31.2000000' },
+          riderLocation: { latitude: '-17.8010000', longitude: '31.1090000' },
+        };
+      },
+    } as never, {} as never, {
+      async deliveryMap(
+        pickupLatitude: number,
+        pickupLongitude: number,
+        dropoffLatitude: number,
+        dropoffLongitude: number,
+      ) {
+        drawn.push(pickupLatitude, pickupLongitude, dropoffLatitude, dropoffLongitude);
+        return new Uint8Array([1, 2, 3]);
+      },
+    } as never);
+
+    const file = await mapped.map({ customer: CUSTOMER }, 'delivery-1');
+    expect(drawn).toEqual([-17.1, 31.1, -17.2, 31.2]);
+    expect(JSON.stringify(drawn)).not.toContain('17.801');
+    expect(file.options.type).toBe('image/png');
   });
 
   it('lists with the session account and ignores a customer id in the query', async () => {
