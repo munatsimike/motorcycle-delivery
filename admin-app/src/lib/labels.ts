@@ -26,6 +26,7 @@ const WORDS: Record<string, string> = {
   ECOCASH: 'EcoCash',
   ON_COMPLETION: 'On completion',
   ON_ACCEPTANCE: 'On acceptance',
+  OFF_PEAK: 'Off-peak',
 };
 
 export function label(value: string): string {

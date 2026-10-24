@@ -139,6 +139,52 @@ export type DeliveryPricing = {
   maximumTripMetres: number;
 };
 
+export type PricingModel = 'FIXED' | 'PER_KILOMETRE' | 'BASE_PLUS_PER_KILOMETRE' | 'DISTANCE_TIERS';
+
+export type ServiceClassName = 'EXPRESS' | 'FLEXIBLE';
+
+export type PricingWindowKind = 'PEAK' | 'OFF_PEAK' | 'NIGHT';
+
+export type DistanceTier = {
+  id: string;
+  position: number;
+  upToMetres: number | null;
+  amount: string;
+};
+
+export type PricingWindow = {
+  id: string;
+  kind: PricingWindowKind;
+  enabled: boolean;
+  daysOfWeek: number[];
+  startsAt: string;
+  endsAt: string;
+  adjustmentBasisPoints: number;
+  createdAt: string;
+};
+
+export type ClassTariff = {
+  serviceClass: ServiceClassName;
+  pricingVersion: number;
+  pricingModel: PricingModel;
+  currency: string;
+  baseFee: string;
+  pricePerKilometre: string;
+  minimumTripMetres: number;
+  maximumTripMetres: number;
+  isActive: boolean;
+  tiers: DistanceTier[];
+  windows: PricingWindow[];
+};
+
+export type PricingAudit = {
+  id: string;
+  actorId: string;
+  previousVersion: number | null;
+  nextVersion: number | null;
+  createdAt: string;
+};
+
 export type CommissionPolicy = {
   model: 'ON_COMPLETION' | 'ON_ACCEPTANCE';
   policyVersion: number;

@@ -244,6 +244,20 @@ export class QuoteBody {
 
   @ApiProperty({ type: CoordinateBody })
   dropoff!: CoordinateBody;
+
+  @ApiPropertyOptional({
+    enum: ['EXPRESS', 'FLEXIBLE'],
+    description: 'Optional. Used only when the marketplace flag is exactly enabled. Otherwise it is ignored.',
+  })
+  serviceClass?: 'EXPRESS' | 'FLEXIBLE';
+}
+
+export class QuoteWindowResponse {
+  @ApiProperty()
+  id!: string;
+
+  @ApiProperty({ enum: ['PEAK', 'OFF_PEAK', 'NIGHT'] })
+  kind!: 'PEAK' | 'OFF_PEAK' | 'NIGHT';
 }
 
 export class QuoteResponse {
@@ -258,6 +272,18 @@ export class QuoteResponse {
 
   @ApiProperty({ pattern: MONEY, description: moneyDescription })
   suggestedPrice!: string;
+
+  @ApiPropertyOptional({ enum: ['FIXED', 'PER_KILOMETRE', 'BASE_PLUS_PER_KILOMETRE', 'DISTANCE_TIERS'] })
+  pricingModel?: 'FIXED' | 'PER_KILOMETRE' | 'BASE_PLUS_PER_KILOMETRE' | 'DISTANCE_TIERS';
+
+  @ApiPropertyOptional({ enum: ['EXPRESS', 'FLEXIBLE'] })
+  serviceClass?: 'EXPRESS' | 'FLEXIBLE';
+
+  @ApiPropertyOptional({ type: QuoteWindowResponse, nullable: true })
+  pricingWindow?: QuoteWindowResponse | null;
+
+  @ApiPropertyOptional({ type: 'integer' })
+  basisPoints?: number;
 }
 
 export class DeliveryStopBody {
@@ -358,6 +384,190 @@ export class DeliveryPricingResponse {
 
   @ApiProperty({ type: 'integer' })
   maximumTripMetres!: number;
+}
+
+export class DistanceTierBody {
+  @ApiProperty({ type: 'integer', minimum: 1 })
+  position!: number;
+
+  @ApiPropertyOptional({ type: 'integer', minimum: 0, nullable: true, description: 'Null only on the final open-ended slice. It ends at the maximum trip.' })
+  upToMetres!: number | null;
+
+  @ApiProperty({ pattern: MONEY, description: 'Per-kilometre amount for metres inside this slice. Zero is allowed.' })
+  amount!: string;
+}
+
+export class PricingWindowBody {
+  @ApiProperty({ enum: ['PEAK', 'OFF_PEAK', 'NIGHT'] })
+  kind!: 'PEAK' | 'OFF_PEAK' | 'NIGHT';
+
+  @ApiProperty()
+  enabled!: boolean;
+
+  @ApiProperty({ type: [Number], description: 'ISO weekdays, Monday 1 through Sunday 7.' })
+  daysOfWeek!: number[];
+
+  @ApiProperty({ description: 'Harare local time, HH:MM. An end at or before the start crosses midnight.' })
+  startsAt!: string;
+
+  @ApiProperty({ description: 'Harare local time, HH:MM. The end minute is exclusive.' })
+  endsAt!: string;
+
+  @ApiProperty({ type: 'integer', description: 'Basis points added to the unadjusted price. Negative values reduce it.' })
+  adjustmentBasisPoints!: number;
+}
+
+export class ClassTariffBody {
+  @ApiProperty({ enum: ['FIXED', 'PER_KILOMETRE', 'BASE_PLUS_PER_KILOMETRE', 'DISTANCE_TIERS'] })
+  pricingModel!: 'FIXED' | 'PER_KILOMETRE' | 'BASE_PLUS_PER_KILOMETRE' | 'DISTANCE_TIERS';
+
+  @ApiPropertyOptional({ enum: ['USD'] })
+  currency?: 'USD';
+
+  @ApiPropertyOptional({ pattern: MONEY, description: 'Required for FIXED and BASE_PLUS_PER_KILOMETRE.' })
+  baseFee?: string;
+
+  @ApiPropertyOptional({ pattern: MONEY, description: 'Required for PER_KILOMETRE and BASE_PLUS_PER_KILOMETRE.' })
+  pricePerKilometre?: string;
+
+  @ApiProperty({ type: 'integer', minimum: 0 })
+  minimumTripMetres!: number;
+
+  @ApiProperty({ type: 'integer', minimum: 0 })
+  maximumTripMetres!: number;
+
+  @ApiPropertyOptional({ type: [DistanceTierBody] })
+  tiers?: DistanceTierBody[];
+
+  @ApiPropertyOptional({ type: [PricingWindowBody] })
+  windows?: PricingWindowBody[];
+}
+
+export class DistanceTierResponse {
+  @ApiProperty()
+  id!: string;
+
+  @ApiProperty({ type: 'integer' })
+  position!: number;
+
+  @ApiPropertyOptional({ type: 'integer', nullable: true })
+  upToMetres!: number | null;
+
+  @ApiProperty({ pattern: MONEY })
+  amount!: string;
+}
+
+export class PricingWindowResponse {
+  @ApiProperty()
+  id!: string;
+
+  @ApiProperty({ enum: ['PEAK', 'OFF_PEAK', 'NIGHT'] })
+  kind!: 'PEAK' | 'OFF_PEAK' | 'NIGHT';
+
+  @ApiProperty()
+  enabled!: boolean;
+
+  @ApiProperty({ type: [Number] })
+  daysOfWeek!: number[];
+
+  @ApiProperty()
+  startsAt!: string;
+
+  @ApiProperty()
+  endsAt!: string;
+
+  @ApiProperty({ type: 'integer' })
+  adjustmentBasisPoints!: number;
+
+  @ApiProperty({ format: 'date-time' })
+  createdAt!: string;
+}
+
+export class ClassTariffResponse {
+  @ApiProperty({ enum: ['EXPRESS', 'FLEXIBLE'] })
+  serviceClass!: 'EXPRESS' | 'FLEXIBLE';
+
+  @ApiProperty({ type: 'integer' })
+  pricingVersion!: number;
+
+  @ApiProperty({ enum: ['FIXED', 'PER_KILOMETRE', 'BASE_PLUS_PER_KILOMETRE', 'DISTANCE_TIERS'] })
+  pricingModel!: 'FIXED' | 'PER_KILOMETRE' | 'BASE_PLUS_PER_KILOMETRE' | 'DISTANCE_TIERS';
+
+  @ApiProperty({ enum: ['USD'] })
+  currency!: 'USD';
+
+  @ApiProperty({ pattern: MONEY })
+  baseFee!: string;
+
+  @ApiProperty({ pattern: MONEY })
+  pricePerKilometre!: string;
+
+  @ApiProperty({ type: 'integer' })
+  minimumTripMetres!: number;
+
+  @ApiProperty({ type: 'integer' })
+  maximumTripMetres!: number;
+
+  @ApiProperty()
+  isActive!: boolean;
+
+  @ApiProperty({ type: [DistanceTierResponse] })
+  tiers!: DistanceTierResponse[];
+
+  @ApiProperty({ type: [PricingWindowResponse] })
+  windows!: PricingWindowResponse[];
+}
+
+export class ClassTariffsResponse {
+  @ApiProperty({ type: ClassTariffResponse, nullable: true })
+  express!: ClassTariffResponse | null;
+
+  @ApiProperty({ type: ClassTariffResponse, nullable: true })
+  flexible!: ClassTariffResponse | null;
+}
+
+export class WindowEnabledBody {
+  @ApiProperty()
+  enabled!: boolean;
+}
+
+export class PricingAuditResponse {
+  @ApiProperty()
+  id!: string;
+
+  @ApiProperty()
+  actorId!: string;
+
+  @ApiPropertyOptional({ type: 'integer', nullable: true })
+  previousVersion!: number | null;
+
+  @ApiPropertyOptional({ type: 'integer', nullable: true })
+  nextVersion!: number | null;
+
+  @ApiProperty({ format: 'date-time' })
+  createdAt!: string;
+}
+
+export class PricingAuditPagination {
+  @ApiProperty({ type: 'integer', minimum: 1 })
+  page!: number;
+
+  @ApiProperty({ type: 'integer', minimum: 1, maximum: 100 })
+  limit!: number;
+
+  @ApiProperty({ type: 'integer', minimum: 0 })
+  total!: number;
+
+  @ApiProperty({ type: 'integer', minimum: 0 })
+  totalPages!: number;
+}
+
+export class PricingAuditPage {
+  @ApiProperty({ type: [PricingAuditResponse] })
+  data!: PricingAuditResponse[];
+
+  @ApiProperty({ type: PricingAuditPagination })
+  pagination!: PricingAuditPagination;
 }
 
 export class LocationBody {

@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
-import { describe, expect, it } from 'vitest';
-import { DeliveryStatus, UserRole } from '../generated/prisma/client.js';
+import { afterEach, describe, expect, it } from 'vitest';
+import { DeliveryStatus, PricingModel, PricingWindowKind, ServiceClass, UserRole } from '../generated/prisma/client.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import type { RoadDistance } from './geoapify.js';
 import { DeliveryPricingService } from './delivery-pricing.service.js';
@@ -59,6 +59,36 @@ describe('DeliveryService', () => {
     expect(rider.offeredPrice).toBe('2.00');
   });
 
+  it('keeps the existing quote and delivery when Express and Flexible tariffs are also active', async () => {
+    const ctx = context();
+    await ctx.pricing.replace(ADMIN, tariff('2.00', '1.00', 0, 100_000));
+    ctx.configs.unshift(
+      classTariff('express', 'EXPRESS', '9.00'),
+      classTariff('flexible', 'FLEXIBLE', '1.00'),
+    );
+
+    const quote = await ctx.deliveries.quote(pins());
+    expect(quote).toEqual({
+      distanceMeters: 0,
+      pricingVersion: 1,
+      currency: 'USD',
+      suggestedPrice: '2.00',
+    });
+    const created = await ctx.deliveries.create(CUSTOMER, deliveryBody('1.00'));
+    expect(created).toMatchObject({
+      status: 'CREATED',
+      currency: 'USD',
+      payer: 'RECIPIENT',
+      paymentMethod: 'CASH',
+      pricingVersion: 1,
+      suggestedPrice: '2.00',
+      offeredPrice: '1.00',
+      distanceMeters: 0,
+    });
+    expect(ctx.configs.filter((row) => row.serviceClass === 'EXPRESS' || row.serviceClass === 'FLEXIBLE')
+      .every((row) => row.isActive)).toBe(true);
+  });
+
   it('keeps a delivery snapshot when the admin changes the tariff', async () => {
     const ctx = context();
     await ctx.pricing.replace(ADMIN, tariff('2.00', '1.00', 0, 100_000));
@@ -107,14 +137,68 @@ describe('DeliveryService', () => {
   });
 });
 
-const zeroRoadDistance: RoadDistance = {
-  async metres() {
-    return 0;
-  },
-};
-
 function tariff(baseFee: string, pricePerKilometre: string, minimumTripMetres: number, maximumTripMetres: number) {
   return { baseFee, pricePerKilometre, minimumTripMetres, maximumTripMetres };
+}
+
+function matchesV1Pricing(
+  row: { isActive: boolean; serviceClass?: string | null },
+  where: { isActive?: boolean; serviceClass?: string | null },
+) {
+  if (where.isActive !== undefined && row.isActive !== where.isActive) return false;
+  if (Object.prototype.hasOwnProperty.call(where, 'serviceClass') && (row.serviceClass ?? null) !== where.serviceClass) {
+    return false;
+  }
+  return true;
+}
+
+function published(
+  id: string,
+  serviceClass: ServiceClass,
+  pricingModel: PricingModel,
+  baseFee: string,
+  overrides: Record<string, unknown> = {},
+) {
+  return {
+    id,
+    isActive: true,
+    serviceClass,
+    pricingModel,
+    pricingVersion: serviceClass === ServiceClass.EXPRESS ? 9 : 8,
+    baseFee,
+    pricePerKilometre: '4.00',
+    minimumTripMetres: 0,
+    maximumTripMetres: 100_000,
+    tiers: [] as Array<Record<string, unknown>>,
+    windows: [] as Array<Record<string, unknown>>,
+    ...overrides,
+  };
+}
+
+function windowRow(id: string, kind: PricingWindowKind, basisPoints: number, enabled: boolean) {
+  return {
+    id,
+    kind,
+    enabled,
+    daysOfWeek: [1, 2, 3, 4, 5, 6, 7],
+    startsAt: '00:00',
+    endsAt: '23:59',
+    adjustmentBasisPoints: basisPoints,
+    createdAt: new Date('2026-01-01T00:00:00.000Z'),
+  };
+}
+
+function classTariff(id: string, serviceClass: 'EXPRESS' | 'FLEXIBLE', baseFee: string) {
+  return {
+    id,
+    isActive: true,
+    serviceClass,
+    pricingVersion: serviceClass === 'EXPRESS' ? 9 : 8,
+    baseFee,
+    pricePerKilometre: '4.00',
+    minimumTripMetres: 0,
+    maximumTripMetres: 100_000,
+  };
 }
 
 function pins() {
@@ -155,8 +239,9 @@ function stop(contactPhone: string, contactName: string, address: string) {
   };
 }
 
-function context() {
-  const configs: Array<Record<string, unknown> & { id: string; isActive: boolean }> = [];
+function context(options?: { metres?: number; now?: Date }) {
+  const configs: Array<Record<string, unknown> & { id: string; isActive: boolean; serviceClass?: string | null }> = [];
+  const audits: unknown[] = [];
   const deliveryRows: Array<Record<string, unknown> & { id: string; customerId: string }> = [];
   const events: Array<Record<string, unknown>> = [];
   const assignments: unknown[] = [];
@@ -173,8 +258,13 @@ function context() {
       },
     },
     deliveryPricingConfig: {
-      async findFirst({ where }: { where: { isActive: boolean } }) {
-        return configs.find((row) => row.isActive === where.isActive) ?? null;
+      async findFirst(args?: { where?: { isActive?: boolean; serviceClass?: string | null }; orderBy?: { pricingVersion?: 'asc' | 'desc' } }) {
+        const where = args?.where;
+        let rows = configs.filter((row) => !where || matchesV1Pricing(row, where));
+        if (args?.orderBy?.pricingVersion === 'desc') {
+          rows = [...rows].sort((left, right) => Number(right.pricingVersion) - Number(left.pricingVersion));
+        }
+        return rows[0] ?? null;
       },
       async update({ where, data }: { where: { id: string }; data: { isActive?: boolean; baseFee?: string } }) {
         if ('baseFee' in data) throw new Error('historical tariff fees were edited');
@@ -184,10 +274,16 @@ function context() {
         return row;
       },
       async create({ data }: { data: Record<string, unknown> }) {
-        const row = { id: `config-${nextId}`, isActive: true, ...data };
+        const row = { id: `config-${nextId}`, isActive: true, serviceClass: null, ...data };
         nextId += 1;
         configs.push(row);
         return row;
+      },
+    },
+    pricingConfigAudit: {
+      async create({ data }: { data: Record<string, unknown> }) {
+        audits.push(data);
+        return { id: 'audit', createdAt: new Date(), ...data };
       },
     },
     delivery: {
@@ -212,6 +308,16 @@ function context() {
         throw new Error('assignment created');
       },
     },
+    bid: {
+      async create() {
+        throw new Error('bid written');
+      },
+    },
+    walletFeeReservation: {
+      async create() {
+        throw new Error('reservation written');
+      },
+    },
     async $queryRaw() {
       return [];
     },
@@ -220,16 +326,204 @@ function context() {
     },
   };
   const prisma = db as unknown as PrismaService;
+  const roads: RoadDistance = {
+    async metres() {
+      return options?.metres ?? 0;
+    },
+  };
   return {
     pricing: new DeliveryPricingService(prisma),
-    deliveries: new DeliveryService(prisma, zeroRoadDistance),
+    deliveries: new DeliveryService(prisma, roads, options?.now ? () => options.now as Date : undefined),
     configs,
+    audits,
     deliveryRows,
     events,
     assignments,
     users,
   };
 }
+
+describe('flagged service-class quotes', () => {
+  const previousFlag = process.env.V2_MARKETPLACE_ENABLED;
+  afterEach(() => {
+    if (previousFlag === undefined) {
+      delete process.env.V2_MARKETPLACE_ENABLED;
+    } else {
+      process.env.V2_MARKETPLACE_ENABLED = previousFlag;
+    }
+  });
+
+  it('keeps the V1 quote when the flag is absent or not exactly true', async () => {
+    const ctx = context();
+    await ctx.pricing.replace(ADMIN, tariff('2.00', '1.00', 0, 100_000));
+    ctx.configs.unshift(classTariff('express', 'EXPRESS', '9.00'), classTariff('flexible', 'FLEXIBLE', '1.00'));
+    const body = { ...pins(), serviceClass: 'EXPRESS', suggestedPrice: '0.01', pricingVersion: 99, basisPoints: 5_000 };
+
+    delete process.env.V2_MARKETPLACE_ENABLED;
+    await expect(ctx.deliveries.quote(body)).resolves.toEqual({
+      distanceMeters: 0,
+      pricingVersion: 1,
+      currency: 'USD',
+      suggestedPrice: '2.00',
+    });
+
+    process.env.V2_MARKETPLACE_ENABLED = 'false';
+    await expect(ctx.deliveries.quote(body)).resolves.toEqual({
+      distanceMeters: 0,
+      pricingVersion: 1,
+      currency: 'USD',
+      suggestedPrice: '2.00',
+    });
+    const created = await ctx.deliveries.create(CUSTOMER, {
+      ...deliveryBody('4.00'),
+      serviceClass: 'FLEXIBLE',
+      suggestedPrice: '0.01',
+      pricingModel: 'FIXED',
+      basisPoints: 5_000,
+    });
+    expect(created).toMatchObject({
+      status: 'CREATED',
+      payer: 'RECIPIENT',
+      paymentMethod: 'CASH',
+      pricingVersion: 1,
+      suggestedPrice: '2.00',
+      offeredPrice: '4.00',
+    });
+    expect(ctx.deliveryRows[0]).not.toHaveProperty('serviceClass');
+    expect(ctx.events).toHaveLength(1);
+    expect(ctx.assignments).toHaveLength(0);
+    expect(ctx.audits).toHaveLength(1);
+  });
+
+  it('quotes the published class tariff and does not fall back when the flag is exactly true', async () => {
+    process.env.V2_MARKETPLACE_ENABLED = 'true';
+    const now = new Date('2026-01-05T10:00:00.000Z');
+    const ctx = context({ metres: 1_500, now });
+    await ctx.pricing.replace(ADMIN, tariff('2.00', '1.00', 0, 100_000));
+    ctx.configs.unshift(
+      published('express', ServiceClass.EXPRESS, PricingModel.FIXED, '9.00'),
+      published('flexible-old', ServiceClass.FLEXIBLE, PricingModel.FIXED, '1.00', { isActive: false, pricingVersion: 4 }),
+      published('flexible', ServiceClass.FLEXIBLE, PricingModel.DISTANCE_TIERS, '1.00', {
+        pricingVersion: 8,
+        maximumTripMetres: 5_000,
+        tiers: [
+          { position: 1, upToMetres: 1_000, amount: '10.00' },
+          { position: 2, upToMetres: 5_000, amount: '20.00' },
+        ],
+        windows: [
+          windowRow('night', PricingWindowKind.NIGHT, 5_000, false),
+          windowRow('peak', PricingWindowKind.PEAK, 1_000, true),
+        ],
+      }),
+    );
+
+    await expect(ctx.deliveries.quote(pins())).rejects.toThrow('Choose Express or Flexible');
+    await expect(ctx.deliveries.quote({ ...pins(), serviceClass: 'RIDER' })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(ctx.deliveries.quote({ ...pins(), serviceClass: 'FLEXIBLE' })).resolves.toEqual({
+      distanceMeters: 1_500,
+      pricingVersion: 8,
+      pricingModel: 'DISTANCE_TIERS',
+      serviceClass: 'FLEXIBLE',
+      pricingWindow: { id: 'peak', kind: 'PEAK' },
+      basisPoints: 1_000,
+      currency: 'USD',
+      suggestedPrice: '22.00',
+    });
+
+    const express = await ctx.deliveries.quote({ ...pins(), serviceClass: 'EXPRESS' });
+    expect(express).toMatchObject({
+      pricingVersion: 9,
+      pricingModel: 'FIXED',
+      serviceClass: 'EXPRESS',
+      pricingWindow: null,
+      basisPoints: 0,
+      suggestedPrice: '9.00',
+      distanceMeters: 1_500,
+    });
+    ctx.configs.find((row) => row.id === 'express')!.baseFee = '50.00';
+    expect(express.suggestedPrice).toBe('9.00');
+
+    ctx.configs.splice(ctx.configs.findIndex((row) => row.id === 'flexible'), 1);
+    await expect(ctx.deliveries.quote({ ...pins(), serviceClass: 'FLEXIBLE' })).rejects.toThrow('Flexible pricing is not available');
+    await expect(ctx.deliveries.quote({ ...pins(), serviceClass: 'EXPRESS' })).resolves.toMatchObject({ suggestedPrice: '50.00' });
+    expect(ctx.deliveryRows).toHaveLength(0);
+    expect(ctx.events).toHaveLength(0);
+    expect(ctx.assignments).toHaveLength(0);
+    expect(ctx.audits).toHaveLength(1);
+  });
+
+  it('quotes every pricing model through the flagged path', async () => {
+    process.env.V2_MARKETPLACE_ENABLED = 'true';
+    const ctx = context({ metres: 1_500, now: new Date('2026-01-05T10:00:00.000Z') });
+    ctx.configs.push(
+      published('fixed', ServiceClass.EXPRESS, PricingModel.FIXED, '3.50', { pricePerKilometre: '9.00' }),
+      published('per-km', ServiceClass.FLEXIBLE, PricingModel.PER_KILOMETRE, '9.00', { pricePerKilometre: '1.00', pricingVersion: 3 }),
+    );
+    await expect(ctx.deliveries.quote({ ...pins(), serviceClass: 'EXPRESS' })).resolves.toMatchObject({
+      pricingModel: 'FIXED',
+      suggestedPrice: '3.50',
+      distanceMeters: 1_500,
+    });
+    await expect(ctx.deliveries.quote({ ...pins(), serviceClass: 'FLEXIBLE' })).resolves.toMatchObject({
+      pricingModel: 'PER_KILOMETRE',
+      suggestedPrice: '1.50',
+    });
+
+    ctx.configs.splice(0, ctx.configs.length,
+      published('base', ServiceClass.EXPRESS, PricingModel.BASE_PLUS_PER_KILOMETRE, '2.00', { pricePerKilometre: '1.00' }),
+    );
+    await expect(ctx.deliveries.quote({ ...pins(), serviceClass: 'EXPRESS' })).resolves.toMatchObject({
+      pricingModel: 'BASE_PLUS_PER_KILOMETRE',
+      suggestedPrice: '3.50',
+      basisPoints: 0,
+      pricingWindow: null,
+    });
+    await expect(ctx.deliveries.quote({ ...pins(), serviceClass: 'FLEXIBLE' })).rejects.toThrow('Flexible pricing is not available');
+    expect(ctx.deliveryRows).toHaveLength(0);
+    expect(ctx.audits).toHaveLength(0);
+  });
+
+  it('keeps customer creation on the V1 tariff when the flag is on and the client sends a snapshot', async () => {
+    process.env.V2_MARKETPLACE_ENABLED = 'true';
+    const ctx = context();
+    await ctx.pricing.replace(ADMIN, tariff('2.00', '1.00', 0, 100_000));
+    ctx.configs.unshift(published('express', ServiceClass.EXPRESS, PricingModel.FIXED, '9.00'));
+    const body = {
+      ...deliveryBody('4.00'),
+      serviceClass: 'EXPRESS',
+      pricingModel: 'FIXED',
+      pricingVersion: 99,
+      basisPoints: 5_000,
+      pricingWindow: { id: 'client', kind: 'NIGHT' },
+      suggestedPrice: '0.01',
+      distanceMeters: 1_500,
+    };
+
+    await expect(ctx.deliveries.create(CUSTOMER, { ...body, payer: undefined })).rejects.toBeInstanceOf(BadRequestException);
+    expect(ctx.deliveryRows).toHaveLength(0);
+
+    const created = await ctx.deliveries.create(CUSTOMER, body);
+    expect(created).toMatchObject({
+      status: 'CREATED',
+      payer: 'RECIPIENT',
+      paymentMethod: 'CASH',
+      pricingVersion: 1,
+      suggestedPrice: '2.00',
+      offeredPrice: '4.00',
+    });
+    expect(created).not.toHaveProperty('serviceClass');
+    expect(ctx.deliveryRows[0]).toMatchObject({
+      price: '4.00',
+      suggestedPrice: '2.00',
+      pricingVersion: 1,
+      payer: 'RECIPIENT',
+      paymentMethod: 'CASH',
+    });
+    expect(ctx.deliveryRows[0]).not.toHaveProperty('serviceClass');
+    expect(ctx.assignments).toHaveLength(0);
+    expect(ctx.audits).toHaveLength(1);
+  });
+});
 
 describe('DeliveryService list', () => {
   const older = new Date('2026-10-01T00:00:00.000Z');

@@ -4,6 +4,7 @@ import { AdminDeliveryListService } from './admin-delivery-list.service.js';
 import { AuthModule } from '../auth/auth.module.js';
 import { DeliveryController } from './delivery.controller.js';
 import { DeliveryPricingController } from './delivery-pricing.controller.js';
+import { ClassPricingService } from './class-pricing.service.js';
 import { DeliveryPricingService } from './delivery-pricing.service.js';
 import { DeliveryService } from './delivery.service.js';
 import { CoordinateRetentionService } from './coordinate-retention.service.js';
@@ -28,6 +29,7 @@ import { RiderOfferController } from './rider-offer.controller.js';
   providers: [
     AdminDeliveryListService,
     DeliveryService,
+    ClassPricingService,
     DeliveryPricingService,
     DispatchService,
     RiderOfferNotificationService,

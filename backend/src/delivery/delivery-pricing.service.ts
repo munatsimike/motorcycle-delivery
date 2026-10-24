@@ -1,9 +1,9 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { Currency } from '../generated/prisma/client.js';
+import { Currency, PricingModel } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { readTariffInput } from './delivery-request.js';
 import { centsFromDecimal, formatCents } from './money.js';
-import { lockActivePricing } from './pricing-lock.js';
+import { activeV1PricingWhere, allocatePricingVersion, lockActivePricing, lockPricingPublication } from './pricing-lock.js';
 
 export const PRICING_NOT_CONFIGURED = 'Delivery pricing is not configured';
 
@@ -28,7 +28,7 @@ export class DeliveryPricingService {
   constructor(private readonly prisma: PrismaService) {}
 
   async current() {
-    const active = await this.prisma.deliveryPricingConfig.findFirst({ where: { isActive: true } });
+    const active = await this.prisma.deliveryPricingConfig.findFirst({ where: activeV1PricingWhere });
     if (!active) {
       throw new NotFoundException(PRICING_NOT_CONFIGURED);
     }
@@ -38,6 +38,7 @@ export class DeliveryPricingService {
   async replace(admin: { userId: string }, body: unknown) {
     const input = readTariffInput(body);
     return this.prisma.$transaction(async (tx) => {
+      await lockPricingPublication(tx);
       const active = await lockActivePricing(tx);
       if (active && sameTariff(active, input)) {
         return toTariffResponse(active);
@@ -50,7 +51,9 @@ export class DeliveryPricingService {
       }
       const created = await tx.deliveryPricingConfig.create({
         data: {
-          pricingVersion: active ? active.pricingVersion + 1 : 1,
+          pricingVersion: await allocatePricingVersion(tx),
+          pricingModel: PricingModel.BASE_PLUS_PER_KILOMETRE,
+          serviceClass: null,
           currency: Currency.USD,
           baseFee: formatCents(input.baseFeeCents),
           pricePerKilometre: formatCents(input.pricePerKilometreCents),
@@ -58,6 +61,13 @@ export class DeliveryPricingService {
           maximumTripMetres: input.maximumTripMetres,
           isActive: true,
           createdById: admin.userId,
+        },
+      });
+      await tx.pricingConfigAudit.create({
+        data: {
+          actorId: admin.userId,
+          previousVersion: active?.pricingVersion ?? null,
+          nextVersion: created.pricingVersion,
         },
       });
       return toTariffResponse(created);

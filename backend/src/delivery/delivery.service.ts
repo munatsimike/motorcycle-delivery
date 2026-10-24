@@ -1,19 +1,26 @@
-import { BadRequestException, Inject, Injectable, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
 import {
   Currency,
   DeliveryActorType,
   DeliveryStatus,
   DeliveryType,
+  PricingModel,
+  PricingWindowKind,
+  ServiceClass,
 } from '../generated/prisma/client.js';
 import type { CustomerContext } from '../auth/customer-access.service.js';
+import { v2MarketplaceEnabled } from '../auth/v2-flags.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { readDeliveryDraft, readQuotePins, type QuotePins } from './delivery-request.js';
+import { readDeliveryDraft, readQuoteRequest, type QuotePins, type QuoteRequest } from './delivery-request.js';
 import { toCustomerDelivery, toCustomerDeliverySummary, type StoredDelivery } from './delivery-view.js';
 import { centsFromDecimal, formatCents } from './money.js';
 import { missingPricing } from './delivery-pricing.service.js';
-import { lockActivePricing } from './pricing-lock.js';
+import { activeV1PricingWhere, lockActivePricing } from './pricing-lock.js';
+import { calculateTariffPrice, PricingCalculationError, type TariffSnapshot } from './pricing-calculator.js';
 import { ROAD_DISTANCE, geoapifyRoadDistance, type RoadDistance } from './geoapify.js';
 import { suggestedCents } from './straight-line.js';
+
+export const PRICING_CLOCK = Symbol('PRICING_CLOCK');
 
 type ActiveTariff = {
   pricingVersion: number;
@@ -26,12 +33,15 @@ type ActiveTariff = {
 @Injectable()
 export class DeliveryService {
   private readonly roads: RoadDistance;
+  private readonly clock: () => Date;
 
   constructor(
     private readonly prisma: PrismaService,
     @Optional() @Inject(ROAD_DISTANCE) roads?: RoadDistance,
+    @Optional() @Inject(PRICING_CLOCK) clock?: () => Date,
   ) {
     this.roads = roads ?? geoapifyRoadDistance();
+    this.clock = clock ?? (() => new Date());
   }
 
   async getById(customer: CustomerContext, deliveryId: string) {
@@ -85,12 +95,15 @@ export class DeliveryService {
   }
 
   async quote(body: unknown) {
-    const pins = readQuotePins(body);
-    const active = await this.prisma.deliveryPricingConfig.findFirst({ where: { isActive: true } });
+    const request = readQuoteRequest(body);
+    if (v2MarketplaceEnabled()) {
+      return this.quoteServiceClass(request);
+    }
+    const active = await this.prisma.deliveryPricingConfig.findFirst({ where: activeV1PricingWhere });
     if (!active) {
       throw missingPricing();
     }
-    const priced = this.priceMetres(await this.roadMetres(pins), active);
+    const priced = this.priceMetres(await this.roadMetres(request), active);
     return {
       distanceMeters: priced.distanceMeters,
       pricingVersion: priced.pricingVersion,
@@ -159,6 +172,39 @@ export class DeliveryService {
     });
   }
 
+  private async quoteServiceClass(request: QuoteRequest) {
+    if (request.serviceClassRejected || request.serviceClass === null) {
+      throw new BadRequestException('Choose Express or Flexible');
+    }
+    const active = await this.prisma.deliveryPricingConfig.findFirst({
+      where: { isActive: true, serviceClass: request.serviceClass },
+      include: {
+        tiers: { orderBy: { position: 'asc' } },
+        windows: true,
+      },
+    });
+    if (!active) {
+      throw classPricingUnavailable(request.serviceClass);
+    }
+    const metres = await this.roadMetres(request);
+    let priced;
+    try {
+      priced = calculateTariffPrice(toClassSnapshot(active), metres, this.clock());
+    } catch (error) {
+      throw quotedPriceError(error);
+    }
+    return {
+      distanceMeters: priced.distanceMetres,
+      pricingVersion: priced.pricingVersion,
+      pricingModel: priced.pricingModel,
+      serviceClass: priced.serviceClass,
+      pricingWindow: priced.pricingWindow,
+      basisPoints: priced.basisPoints,
+      currency: Currency.USD,
+      suggestedPrice: formatCents(priced.suggestedPriceCents),
+    };
+  }
+
   private async roadMetres(pins: QuotePins): Promise<number> {
     try {
       return Math.round(await this.roads.metres(
@@ -200,6 +246,87 @@ export class DeliveryService {
       suggestedPrice: formatCents(cents),
     };
   }
+}
+
+type StoredClassTariff = {
+  pricingVersion: number;
+  pricingModel: PricingModel;
+  serviceClass: ServiceClass | null;
+  baseFee: string | { toFixed(digits: number): string };
+  pricePerKilometre: string | { toFixed(digits: number): string };
+  minimumTripMetres: number;
+  maximumTripMetres: number;
+  tiers?: Array<{
+    position: number;
+    upToMetres: number | null;
+    amount: string | { toFixed(digits: number): string };
+  }>;
+  windows?: Array<{
+    id: string;
+    kind: PricingWindowKind;
+    enabled: boolean;
+    daysOfWeek: number[];
+    startsAt: string;
+    endsAt: string;
+    adjustmentBasisPoints: number;
+    createdAt: Date;
+  }>;
+};
+
+function toClassSnapshot(row: StoredClassTariff): TariffSnapshot {
+  return {
+    pricingVersion: row.pricingVersion,
+    pricingModel: row.pricingModel,
+    serviceClass: row.serviceClass,
+    baseFeeCents: centsFromDecimal(row.baseFee),
+    pricePerKilometreCents: centsFromDecimal(row.pricePerKilometre),
+    minimumTripMetres: row.minimumTripMetres,
+    maximumTripMetres: row.maximumTripMetres,
+    tiers: [...(row.tiers ?? [])]
+      .sort((left, right) => left.position - right.position)
+      .map((tier) => ({
+        position: tier.position,
+        upToMetres: tier.upToMetres,
+        amountCents: centsFromDecimal(tier.amount),
+      })),
+    windows: (row.windows ?? [])
+      .filter((window) => window.enabled)
+      .map((window) => ({
+        id: window.id,
+        kind: window.kind,
+        enabled: window.enabled,
+        daysOfWeek: [...window.daysOfWeek],
+        startsAt: window.startsAt,
+        endsAt: window.endsAt,
+        adjustmentBasisPoints: window.adjustmentBasisPoints,
+        createdAt: window.createdAt,
+      })),
+  };
+}
+
+function classPricingUnavailable(serviceClass: ServiceClass): ConflictException {
+  return new ConflictException(serviceClass === ServiceClass.FLEXIBLE
+    ? 'Flexible pricing is not available'
+    : 'Express pricing is not available');
+}
+
+function quotedPriceError(error: unknown): BadRequestException | ConflictException {
+  if (error instanceof PricingCalculationError) {
+    if (error.message === 'Trip is outside the configured range') {
+      return new BadRequestException('Trip distance is outside the configured range');
+    }
+    if (error.message === 'Suggested price is too large') {
+      return new BadRequestException('Suggested price is too large');
+    }
+    if (error.message === 'Distance is invalid') {
+      return new BadRequestException('A road route is not available for these locations.');
+    }
+    return new ConflictException('The published tariff cannot be quoted');
+  }
+  if (error instanceof RangeError) {
+    return new BadRequestException('Suggested price is too large');
+  }
+  throw error;
 }
 
 function readPage(value: unknown, fallback: number, minimum: number, maximum: number): number {

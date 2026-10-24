@@ -24,6 +24,7 @@ import { CustomerAccountService } from '../customer/customer-account.service.js'
 import { AdminDeliveryController } from '../delivery/admin-delivery.controller.js';
 import { AdminDeliveryListService } from '../delivery/admin-delivery-list.service.js';
 import { DeliveryController } from '../delivery/delivery.controller.js';
+import { ClassPricingService } from '../delivery/class-pricing.service.js';
 import { DeliveryPricingController } from '../delivery/delivery-pricing.controller.js';
 import { DeliveryPricingService } from '../delivery/delivery-pricing.service.js';
 import { DeliveryService } from '../delivery/delivery.service.js';
@@ -121,6 +122,7 @@ describe('OpenAPI document', () => {
         { provide: RiderAvailabilityAlertService, useValue: unused },
         { provide: AdminDeliveryListService, useValue: unused },
         { provide: DeliveryPricingService, useValue: unused },
+        { provide: ClassPricingService, useValue: unused },
         { provide: RiderOnboardingService, useValue: unused },
         { provide: RiderAvailabilityService, useValue: unused },
         { provide: RiderPushDeviceService, useValue: unused },
@@ -175,6 +177,42 @@ describe('OpenAPI document', () => {
     ]));
     expect(pricingSchema.properties?.currency?.enum).toEqual(['USD']);
     expect(document.paths?.['/admin/delivery-pricing']?.get?.responses?.['404']).toBeTruthy();
+    const v1Response = schemaOf(document, pricingGet?.responses?.['200']);
+    expect(v1Response.properties?.baseFee).toBeTruthy();
+    expect(v1Response.properties?.pricingModel).toBeUndefined();
+    expect(v1Response.properties?.serviceClass).toBeUndefined();
+
+    const classes = document.paths?.['/admin/delivery-pricing/classes']?.get;
+    const publish = document.paths?.['/admin/delivery-pricing/classes/{serviceClass}']?.post;
+    const windowToggle = document.paths?.['/admin/delivery-pricing/classes/{serviceClass}/windows/{windowId}']?.post;
+    const audits = document.paths?.['/admin/delivery-pricing/audits']?.get;
+    expect(classes?.security).toEqual([{ bearer: [] }]);
+    expect(publish?.security).toEqual([{ bearer: [] }]);
+    expect(windowToggle?.security).toEqual([{ bearer: [] }]);
+    expect(audits?.security).toEqual([{ bearer: [] }]);
+    const publishSchema = schemaOf(document, publish?.requestBody);
+    expect(publishSchema.required).toEqual(expect.arrayContaining([
+      'pricingModel',
+      'minimumTripMetres',
+      'maximumTripMetres',
+    ]));
+    expect(publishSchema.required ?? []).not.toContain('baseFee');
+    expect(publishSchema.properties?.pricingModel?.enum).toEqual([
+      'FIXED',
+      'PER_KILOMETRE',
+      'BASE_PLUS_PER_KILOMETRE',
+      'DISTANCE_TIERS',
+    ]);
+    const classList = schemaOf(document, classes?.responses?.['200']);
+    expect(classList.required).toEqual(expect.arrayContaining(['express', 'flexible']));
+    const auditPage = schemaOf(document, audits?.responses?.['200']);
+    const paginationRef = auditPage.properties?.pagination as { $ref?: string } | undefined;
+    const paginationName = paginationRef?.$ref?.replace('#/components/schemas/', '');
+    const pagination = document.components?.schemas?.[paginationName ?? ''] as {
+      required?: string[];
+      properties?: Record<string, unknown>;
+    };
+    expect(pagination.required).toEqual(expect.arrayContaining(['page', 'limit', 'total', 'totalPages']));
 
     const operations = Object.values(document.paths ?? {}).flatMap((path) =>
       Object.keys(path ?? {}).filter((method) => ['get', 'post', 'put', 'patch', 'delete'].includes(method)),

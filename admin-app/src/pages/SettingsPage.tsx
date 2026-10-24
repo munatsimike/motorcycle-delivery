@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { adminApi } from '../lib/client';
-import { label } from '../lib/labels';
+import { label, when } from '../lib/labels';
 import { moneyValue, wholeMetres } from '../lib/money';
-import type { CommissionPolicy, DeliveryPricing, WalletConfig } from '../lib/types';
-import { Dialog, ErrorNote, Loading, SuccessNote, textOf } from '../ui';
+import type { CommissionPolicy, DeliveryPricing, Page, PricingAudit, WalletConfig } from '../lib/types';
+import { Dialog, Empty, ErrorNote, Loading, Pager, SuccessNote, textOf } from '../ui';
+import { ClassPricingPanel } from './ClassPricingPanel';
 
 type Draft =
   | { kind: 'wallet'; welcomeBonus: string; defaultBorrowingLimit: string; platformFee: string }
@@ -18,6 +19,7 @@ export function SettingsPage() {
   const pricing = useQuery({ queryKey: ['pricing'], queryFn: () => adminApi.request<DeliveryPricing>('/admin/delivery-pricing') });
   const commission = useQuery({ queryKey: ['commission'], queryFn: () => adminApi.request<CommissionPolicy>('/admin/commission-policy') });
   const [draft, setDraft] = useState<Draft>(null);
+  const [section, setSection] = useState<'v1' | 'express' | 'flexible'>('v1');
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const save = useMutation({
@@ -84,32 +86,64 @@ export function SettingsPage() {
       </section>
       <section className="panel">
         <h2>Delivery pricing</h2>
-        {pricing.isLoading ? <Loading label="Loading delivery pricing" /> : null}
-        {pricing.error ? <ErrorNote>{textOf(pricing.error)}</ErrorNote> : null}
-        {pricing.data ? (
-          <form key={pricing.data.pricingVersion} className="stack" onSubmit={(event) => {
-            event.preventDefault();
-            setError(null);
-            const data = new FormData(event.currentTarget);
-            const baseFee = moneyValue(String(data.get('baseFee') ?? ''), true);
-            const pricePerKilometre = moneyValue(String(data.get('pricePerKilometre') ?? ''), true);
-            const minimumTripMetres = wholeMetres(String(data.get('minimumTripMetres') ?? ''));
-            const maximumTripMetres = wholeMetres(String(data.get('maximumTripMetres') ?? ''));
-            if (!baseFee || !pricePerKilometre || minimumTripMetres === null || maximumTripMetres === null || maximumTripMetres < minimumTripMetres) {
-              setError('Enter the tariff in dollars and cents, and a maximum distance that is at least the minimum.');
-              return;
-            }
-            setDraft({ kind: 'pricing', baseFee, pricePerKilometre, minimumTripMetres, maximumTripMetres });
-          }}>
-            <p className="muted">Version {pricing.data.pricingVersion}. Currency stays USD.</p>
-            <label>Base fee<input name="baseFee" defaultValue={pricing.data.baseFee} /></label>
-            <label>Price per kilometre<input name="pricePerKilometre" defaultValue={pricing.data.pricePerKilometre} /></label>
-            <label>Minimum trip metres<input name="minimumTripMetres" defaultValue={String(pricing.data.minimumTripMetres)} /></label>
-            <label>Maximum trip metres<input name="maximumTripMetres" defaultValue={String(pricing.data.maximumTripMetres)} /></label>
-            <button className="button" type="submit">Review pricing</button>
-          </form>
-        ) : null}
+        <div className="tabs" role="tablist" aria-label="Pricing sections">
+          {([
+            ['v1', 'V1 Legacy'],
+            ['express', 'Express'],
+            ['flexible', 'Flexible'],
+          ] as const).map(([id, title]) => (
+            <button
+              key={id}
+              id={`pricing-tab-${id}`}
+              className={section === id ? 'button' : 'button-secondary'}
+              type="button"
+              role="tab"
+              aria-selected={section === id}
+              aria-controls={`pricing-panel-${id}`}
+              onClick={() => setSection(id)}
+            >
+              {title}
+            </button>
+          ))}
+        </div>
+        <div role="tabpanel" id="pricing-panel-v1" aria-labelledby="pricing-tab-v1" hidden={section !== 'v1'}>
+          <div className="stack">
+            <h3>V1 legacy tariff</h3>
+            {pricing.isLoading ? <Loading label="Loading delivery pricing" /> : null}
+            {pricing.error ? <ErrorNote>{textOf(pricing.error)}</ErrorNote> : null}
+            {pricing.data ? (
+              <form key={pricing.data.pricingVersion} className="stack" onSubmit={(event) => {
+                event.preventDefault();
+                setError(null);
+                const data = new FormData(event.currentTarget);
+                const baseFee = moneyValue(String(data.get('baseFee') ?? ''), true);
+                const pricePerKilometre = moneyValue(String(data.get('pricePerKilometre') ?? ''), true);
+                const minimumTripMetres = wholeMetres(String(data.get('minimumTripMetres') ?? ''));
+                const maximumTripMetres = wholeMetres(String(data.get('maximumTripMetres') ?? ''));
+                if (!baseFee || !pricePerKilometre || minimumTripMetres === null || maximumTripMetres === null || maximumTripMetres < minimumTripMetres) {
+                  setError('Enter the tariff in dollars and cents, and a maximum distance that is at least the minimum.');
+                  return;
+                }
+                setDraft({ kind: 'pricing', baseFee, pricePerKilometre, minimumTripMetres, maximumTripMetres });
+              }}>
+                <p className="muted">Version {pricing.data.pricingVersion}. Currency stays USD.</p>
+                <label>Base fee<input name="baseFee" defaultValue={pricing.data.baseFee} /></label>
+                <label>Price per kilometre<input name="pricePerKilometre" defaultValue={pricing.data.pricePerKilometre} /></label>
+                <label>Minimum trip metres<input name="minimumTripMetres" defaultValue={String(pricing.data.minimumTripMetres)} /></label>
+                <label>Maximum trip metres<input name="maximumTripMetres" defaultValue={String(pricing.data.maximumTripMetres)} /></label>
+                <button className="button" type="submit">Review pricing</button>
+              </form>
+            ) : null}
+          </div>
+        </div>
+        <div role="tabpanel" id="pricing-panel-express" aria-labelledby="pricing-tab-express" hidden={section !== 'express'}>
+          <ClassPricingPanel serviceClass="EXPRESS" />
+        </div>
+        <div role="tabpanel" id="pricing-panel-flexible" aria-labelledby="pricing-tab-flexible" hidden={section !== 'flexible'}>
+          <ClassPricingPanel serviceClass="FLEXIBLE" />
+        </div>
       </section>
+      <PricingHistory />
       <section className="panel">
         <h2>Commission policy</h2>
         {commission.isLoading ? <Loading label="Loading commission policy" /> : null}
@@ -140,6 +174,52 @@ export function SettingsPage() {
         </Dialog>
       ) : null}
     </div>
+  );
+}
+
+function PricingHistory() {
+  const [page, setPage] = useState(1);
+  const audits = useQuery({
+    queryKey: ['pricing-audits', page],
+    queryFn: () => adminApi.request<Page<PricingAudit>>(`/admin/delivery-pricing/audits?page=${page}&limit=20`),
+  });
+  return (
+    <section className="panel">
+      <h2>Pricing history</h2>
+      <p className="muted">Each row shows the actor, the previous version, the next version, and the time. The audit does not name a service class.</p>
+      {audits.isLoading ? <Loading label="Loading pricing history" /> : null}
+      {audits.error ? (
+        <div className="stack">
+          <ErrorNote>{textOf(audits.error)}</ErrorNote>
+          <button className="button-secondary" type="button" onClick={() => { void audits.refetch(); }}>Try again</button>
+        </div>
+      ) : null}
+      {audits.data && audits.data.data.length === 0 ? <Empty>No pricing changes have been published.</Empty> : null}
+      {audits.data && audits.data.data.length > 0 ? (
+        <>
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr><th>When</th><th>Actor</th><th>Previous version</th><th>Next version</th></tr>
+              </thead>
+              <tbody>
+                {audits.data.data.map((audit) => (
+                  <tr key={audit.id}>
+                    <td>{when(audit.createdAt)}</td>
+                    <td>{audit.actorId}</td>
+                    <td>{audit.previousVersion ?? 'None'}</td>
+                    <td>{audit.nextVersion ?? 'None'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {audits.data.pagination.totalPages > 1 ? (
+            <Pager page={audits.data.pagination.page} totalPages={audits.data.pagination.totalPages} onPage={setPage} />
+          ) : null}
+        </>
+      ) : null}
+    </section>
   );
 }
 

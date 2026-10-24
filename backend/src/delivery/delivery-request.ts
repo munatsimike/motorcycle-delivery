@@ -1,7 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { InvalidPersonNameError, normalizePersonName } from '../auth/person-name.js';
 import { InvalidPhoneNumberError, normalizeAuthPhone } from '../auth/phone-number.js';
-import { CoordinateSource, Currency, DeliveryPayer, ParcelSize, PaymentMethod } from '../generated/prisma/client.js';
+import { CoordinateSource, Currency, DeliveryPayer, ParcelSize, PaymentMethod, ServiceClass } from '../generated/prisma/client.js';
 import { isPlaceId } from './google-places.js';
 import { readMoneyCents } from './money.js';
 
@@ -10,6 +10,11 @@ export type QuotePins = {
   pickupLongitude: string;
   dropoffLatitude: string;
   dropoffLongitude: string;
+};
+
+export type QuoteRequest = QuotePins & {
+  serviceClass: ServiceClass | null;
+  serviceClassRejected: boolean;
 };
 
 export type DeliveryDraft = QuotePins & {
@@ -58,6 +63,19 @@ export function readQuotePins(body: unknown): QuotePins {
     dropoffLatitude: readCoordinate(dropoff.latitude, -90, 90, 'Enter a valid drop-off location'),
     dropoffLongitude: readCoordinate(dropoff.longitude, -180, 180, 'Enter a valid drop-off location'),
   };
+}
+
+export function readQuoteRequest(body: unknown): QuoteRequest {
+  const pins = readQuotePins(body);
+  const record = recordOf(body, 'Enter the pickup and drop-off');
+  const serviceClass = record.serviceClass;
+  if (serviceClass === undefined || serviceClass === null || serviceClass === '') {
+    return { ...pins, serviceClass: null, serviceClassRejected: false };
+  }
+  if (serviceClass === ServiceClass.EXPRESS || serviceClass === ServiceClass.FLEXIBLE) {
+    return { ...pins, serviceClass, serviceClassRejected: false };
+  }
+  return { ...pins, serviceClass: null, serviceClassRejected: true };
 }
 
 export function readDeliveryDraft(body: unknown): DeliveryDraft {
