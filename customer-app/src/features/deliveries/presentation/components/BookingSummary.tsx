@@ -271,7 +271,7 @@ const styles = StyleSheet.create({
   pinCircle: {
     width: 32,
     height: 32,
-    borderRadius: 16,
+    borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -343,7 +343,7 @@ const styles = StyleSheet.create({
   factIcon: {
     width: 32,
     height: 32,
-    borderRadius: 16,
+    borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
   },

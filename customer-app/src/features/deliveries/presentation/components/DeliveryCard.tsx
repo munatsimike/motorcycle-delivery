@@ -266,7 +266,7 @@ const styles = StyleSheet.create({
   packageIcon: {
     width: 36,
     height: 36,
-    borderRadius: radius.lg,
+    borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.primaryLight,

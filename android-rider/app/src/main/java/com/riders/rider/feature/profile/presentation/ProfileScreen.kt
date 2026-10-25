@@ -214,7 +214,13 @@ fun ProfileScreen(
 private fun ProfileHeader(name: String, onboarding: RiderOnboarding?) {
     val status = onboarding?.approvalStatus
     val pill = if (status == null) "Rider" else approvalStatusTitle(status)
-    val pillColor = if (status == "REJECTED" || status == "SUSPENDED") RidersColors.error else RidersColors.primaryDark
+    val solidStatus = pill == "Pending review" || pill == "Approved"
+    val pillColor = when {
+        solidStatus -> RidersColors.textInverse
+        status == "REJECTED" || status == "SUSPENDED" -> RidersColors.error
+        else -> RidersColors.primaryDark
+    }
+    val pillFill = if (solidStatus) RidersColors.primary else RidersColors.background
     Column(Modifier.fillMaxWidth()) {
         Box(Modifier.fillMaxWidth().clipToBounds()) {
             ProfileBackdrop(Modifier.matchParentSize())
@@ -240,7 +246,7 @@ private fun ProfileHeader(name: String, onboarding: RiderOnboarding?) {
                     color = pillColor,
                     modifier = Modifier
                         .clip(RoundedCornerShape(RidersRadius.pill))
-                        .background(RidersColors.background)
+                        .background(pillFill)
                         .padding(horizontal = RidersSpacing.md, vertical = RidersSpacing.xs),
                 )
             }
@@ -357,12 +363,13 @@ private fun DetailsCard(
             )
         }
         Hairline()
+        val bike = motorcycleIconColors(motorcycles)
         InfoRow(
-            icon = R.drawable.ic_motorbike,
+            icon = R.drawable.ic_mdi_motorbike,
             label = "Motorbike",
             value = motorcycleSummary(motorcycles),
-            iconTint = RidersColors.primaryDark,
-            iconFill = BikeFill,
+            iconTint = bike.first,
+            iconFill = bike.second,
             onClick = onMotorcycles,
         )
     }
@@ -549,6 +556,20 @@ private fun licenceBadges(onboarding: RiderOnboarding?): List<String> {
         return emptyList()
     }
     return listOf("Verified")
+}
+
+private fun motorcycleIconColors(motorcycles: List<MotorcycleDetails>): Pair<Color, Color> {
+    val chosen = motorcycles.firstOrNull { it.isActive } ?: motorcycles.firstOrNull()
+    val pending = chosen == null || (
+        chosen.verificationStatus != "VERIFIED" &&
+            chosen.verificationStatus != "REJECTED" &&
+            chosen.verificationStatus != "REVOKED"
+        )
+    return if (pending) {
+        Color(0xFFB86E00) to Color(0xFFFFE8C2)
+    } else {
+        RidersColors.primaryDark to BikeFill
+    }
 }
 
 private fun motorcycleSummary(motorcycles: List<MotorcycleDetails>): String {

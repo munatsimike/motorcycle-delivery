@@ -47,6 +47,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -419,7 +420,7 @@ private fun HomeSummaries(
                 .padding(horizontal = RidersSpacing.md)
                 .width(1.dp)
                 .height(88.dp)
-                .background(RidersColors.border),
+                .background(RidersColors.textSecondary.copy(alpha = 0.35f)),
         )
         SummaryTile(
             icon = R.drawable.ic_nav_deliveries,
@@ -525,7 +526,16 @@ private fun SummaryTile(
                     color = RidersColors.textSecondary,
                     textAlign = TextAlign.Center,
                 )
-                Text(value, style = valueStyle, color = RidersColors.text, textAlign = TextAlign.Center)
+                Text(
+                    value,
+                    modifier = Modifier.fillMaxWidth(),
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Visible,
+                    style = valueStyle,
+                    color = RidersColors.text,
+                    textAlign = TextAlign.Center,
+                )
             }
         }
         Icon(
@@ -791,7 +801,7 @@ private fun RequestsSection(
             }
         } else {
             RidersEmptyState(
-                title = "No delivery requests",
+                title = "No requests",
                 body = "New delivery requests will appear here.",
                 image = R.drawable.parcel_box,
                 compactTop = true,

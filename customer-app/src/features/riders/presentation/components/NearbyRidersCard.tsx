@@ -159,7 +159,7 @@ const styles = StyleSheet.create({
   badge: {
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
   },

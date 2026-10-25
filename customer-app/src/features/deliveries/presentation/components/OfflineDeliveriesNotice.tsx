@@ -32,7 +32,7 @@ const styles = StyleSheet.create({
   icon: {
     width: 48,
     height: 48,
-    borderRadius: 24,
+    borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#F8D7D4',

@@ -248,7 +248,7 @@ const styles = StyleSheet.create({
   promiseIcon: {
     width: 34,
     height: 34,
-    borderRadius: 17,
+    borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
   },

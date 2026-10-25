@@ -461,7 +461,7 @@ const styles = StyleSheet.create({
   statusIcon: {
     width: 64,
     height: 64,
-    borderRadius: 32,
+    borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.background,
