@@ -58,6 +58,16 @@ describe('rider onboarding', () => {
     expect(ctx.userUpdates).toBe(0);
   });
 
+  it('returns the address saved with the rider profile', async () => {
+    const ctx = context();
+    ctx.profile!.address = '12 Samora Machel Avenue';
+    await expect(ctx.service.profile(RIDER)).resolves.toEqual({
+      fullName: 'Tendai Moyo',
+      phone: '+263771234567',
+      address: '12 Samora Machel Avenue',
+    });
+  });
+
   it('returns the customer address for a customer who also has a rider profile', async () => {
     const ctx = context();
     ctx.user.role = UserRole.CUSTOMER;
@@ -134,6 +144,7 @@ type ProfileRow = {
   receivingRequests?: boolean | null;
   licenceNumber: string | null;
   licenceClass: string | null;
+  address?: string | null;
 };
 
 type ReviewRow = {

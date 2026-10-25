@@ -4,7 +4,7 @@ import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { ComponentProps } from 'react';
 import { useState } from 'react';
-import { Image, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import CustomerAvatar from '../../../../components/CustomerAvatar';
@@ -25,18 +25,11 @@ type ProfileNavigation = CompositeNavigationProp<
 type IconName = ComponentProps<typeof MaterialDesignIcons>['name'];
 
 export default function ProfileScreen() {
-  const {
-    accessToken,
-    logout,
-    biometricEnabled,
-    setBiometricEnabled,
-  } = useSession();
+  const { accessToken, logout } = useSession();
   const { account, isLoading, error } = useCustomerAccount(accessToken);
   const navigation = useNavigation<ProfileNavigation>();
   const insets = useSafeAreaInsets();
   const [signingOut, setSigningOut] = useState(false);
-  const [isUpdatingBiometric, setIsUpdatingBiometric] = useState(false);
-  const [biometricError, setBiometricError] = useState<string | null>(null);
   const kindLabel = account?.kind === 'BUSINESS' ? 'Business' : 'Individual';
 
   async function handleLogout() {
@@ -48,24 +41,6 @@ export default function ProfileScreen() {
       await logout();
     } finally {
       setSigningOut(false);
-    }
-  }
-
-  async function handleBiometric(enabled: boolean) {
-    if (isUpdatingBiometric) {
-      return;
-    }
-    setIsUpdatingBiometric(true);
-    setBiometricError(null);
-    try {
-      const result = await setBiometricEnabled(enabled);
-      if (result === 'unavailable') {
-        setBiometricError('Set up fingerprint, face unlock, or a screen lock in phone settings, then try again.');
-      } else if (result === 'cancelled') {
-        setBiometricError('Biometric unlock was cancelled.');
-      }
-    } finally {
-      setIsUpdatingBiometric(false);
     }
   }
 
@@ -149,33 +124,6 @@ export default function ProfileScreen() {
             </Pressable>
           </View>
         ) : null}
-
-        {Platform.OS === 'ios' || biometricEnabled ? (
-        <View style={styles.card}>
-          <View style={styles.setting}>
-            <View style={styles.iconBox}>
-              <MaterialDesignIcons name="fingerprint" size={20} color={colors.primaryDark} />
-            </View>
-            <View style={styles.settingCopy}>
-              <Text style={styles.settingTitle}>Unlock with biometrics</Text>
-              <Text style={styles.settingBody}>
-                {Platform.OS === 'android'
-                  ? 'Fingerprint protection stays on for this saved session. Turning it off keeps you signed in.'
-                  : 'Use fingerprint or face unlock on this phone.'}
-              </Text>
-            </View>
-            <Switch
-              value={biometricEnabled}
-              disabled={isUpdatingBiometric}
-              onValueChange={(enabled) => {
-                void handleBiometric(enabled);
-              }}
-              trackColor={{ true: colors.primary, false: colors.border }}
-            />
-          </View>
-        </View>
-        ) : null}
-        <ErrorMessage message={biometricError} />
 
         <View style={styles.edit}>
           <SecondaryButton
@@ -275,13 +223,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.primaryDark,
   },
-  card: {
-    marginHorizontal: spacing.xl,
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-  },
   edit: {
     marginHorizontal: spacing.xl,
     gap: spacing.md,
@@ -358,26 +299,6 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     fontWeight: '600',
     color: colors.text,
-  },
-  setting: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    paddingVertical: spacing.md,
-  },
-  settingCopy: {
-    flex: 1,
-    gap: spacing.xs,
-  },
-  settingTitle: {
-    fontSize: typography.body,
-    fontWeight: '600',
-    color: colors.text,
-  },
-  settingBody: {
-    fontSize: typography.caption,
-    lineHeight: 20,
-    color: colors.textSecondary,
   },
   passwordHint: {
     fontSize: typography.caption,

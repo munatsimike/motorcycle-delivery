@@ -51,8 +51,7 @@ class RiderOfferNoticeTest {
         assertFalse(shouldAskNotificationPermission(sdkInt = 33, granted = true, alreadyAsked = false))
         assertFalse(shouldAskNotificationPermission(sdkInt = 33, granted = false, alreadyAsked = true))
         assertFalse(shouldAskNotificationPermission(sdkInt = 32, granted = false, alreadyAsked = false))
-        assertTrue(shouldHoldOfferTap(AppEntry.Unlock))
-        assertTrue(shouldHoldOfferTap(AppEntry.Offer))
+        assertTrue(shouldHoldOfferTap(AppEntry.SignedOut))
         assertFalse(shouldHoldOfferTap(AppEntry.Home))
     }
 

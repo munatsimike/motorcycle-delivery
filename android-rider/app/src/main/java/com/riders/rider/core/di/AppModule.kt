@@ -15,12 +15,6 @@ import com.riders.rider.core.network.retrofit
 import com.riders.rider.core.session.AuthSession
 import com.riders.rider.core.session.EncryptedSessionStore
 import com.riders.rider.core.session.SessionStore
-import com.riders.rider.feature.auth.data.AndroidBiometricCapability
-import com.riders.rider.feature.auth.data.AndroidBiometricPrompt
-import com.riders.rider.feature.auth.data.BiometricAuthenticator
-import com.riders.rider.feature.auth.data.BiometricCapability
-import com.riders.rider.feature.auth.data.SharedBiometricPreference
-import com.riders.rider.feature.auth.domain.BiometricPreference
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -40,18 +34,6 @@ object AppModule {
     @Provides
     @Singleton
     fun sessionStore(store: EncryptedSessionStore): SessionStore = store
-
-    @Provides
-    @Singleton
-    fun biometricPreference(store: SharedBiometricPreference): BiometricPreference = store
-
-    @Provides
-    @Singleton
-    fun biometricCapability(capability: AndroidBiometricCapability): BiometricCapability = capability
-
-    @Provides
-    @Singleton
-    fun biometricAuthenticator(prompt: AndroidBiometricPrompt): BiometricAuthenticator = prompt
 
     @Provides
     @Singleton

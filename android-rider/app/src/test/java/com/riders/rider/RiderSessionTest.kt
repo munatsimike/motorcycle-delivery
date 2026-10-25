@@ -19,7 +19,6 @@ import com.riders.rider.core.session.SessionStore
 import com.riders.rider.feature.auth.data.AuthRepository
 import com.riders.rider.feature.auth.data.LoginStart
 import com.riders.rider.feature.auth.data.VerifyOutcome
-import com.riders.rider.feature.auth.domain.MemoryBiometricPreference
 import com.riders.rider.feature.offers.domain.AcceptKeys
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -397,18 +396,14 @@ class RiderSessionTest {
     }
 
     @Test
-    fun logoutClearsTheSessionAndBiometricPreference() = runTest {
+    fun logoutClearsTheStoredSession() = runTest {
         val server = MockWebServer()
         server.enqueue(MockResponse().setResponseCode(500))
         server.start()
         try {
             val store = MemorySessionStore(AuthSession("access-1", "refresh-1", "soon", "later"))
-            val biometric = MemoryBiometricPreference()
-            biometric.enable()
-            AuthRepository(server.auth(), store, biometric).logout()
+            AuthRepository(server.auth(), store).logout()
             assertNull(store.read())
-            assertFalse(biometric.isEnabled())
-            assertFalse(biometric.isDeclined())
         } finally {
             server.shutdown()
         }

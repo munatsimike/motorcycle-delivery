@@ -237,7 +237,7 @@ export class WhatsAppAuthService {
     role: AuthSubjectRole,
     phone: string,
     profile: ReturnType<typeof readCustomerProfile> | null,
-    rider: { fullName: string } | null,
+    rider: { fullName: string; address: string } | null,
     now: Date,
   ) {
     const existing = await this.prisma.user.findUnique({ where: { phone }, include: accountInclude });
@@ -259,6 +259,9 @@ export class WhatsAppAuthService {
               updatedAt: now,
             },
           } : undefined,
+          riderProfile: rider && existing.riderProfile ? {
+            update: { address: rider.address },
+          } : undefined,
         },
         include: accountInclude,
       });
@@ -279,6 +282,7 @@ export class WhatsAppAuthService {
           const riderProfile = await tx.riderProfile.create({
             data: {
               userId: user.id,
+              address: rider?.address,
               verificationStatus: RiderVerificationStatus.PENDING,
               approvalStatus: RiderApprovalStatus.PENDING,
               availability: RiderAvailability.OFFLINE,
@@ -531,16 +535,16 @@ function readPhone(body: unknown): string {
   }
 }
 
-function readRiderAccount(body: unknown): { fullName: string } {
+function readRiderAccount(body: unknown): { fullName: string; address: string } {
   if (!isRecord(body) || typeof body.fullName !== 'string') {
     throw new BadRequestException('Full name is required');
   }
   if (body.accountKind === 'BUSINESS' || body.businessName !== undefined) {
     throw new BadRequestException('Rider accounts are individual');
   }
-  readAddress(body.address);
+  const address = readAddress(body.address);
   try {
-    return { fullName: normalizePersonName(body.fullName) };
+    return { fullName: normalizePersonName(body.fullName), address };
   } catch (error) {
     if (error instanceof InvalidPersonNameError) {
       throw new BadRequestException('Full name is required');

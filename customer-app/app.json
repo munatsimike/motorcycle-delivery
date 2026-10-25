@@ -10,10 +10,7 @@
     "owner": "munatsimike",
     "ios": {
       "bundleIdentifier": "com.riders.customer",
-      "supportsTablet": false,
-      "infoPlist": {
-        "NSFaceIDUsageDescription": "Unlock your Riders session with Face ID."
-      }
+      "supportsTablet": false
     },
     "android": {
       "package": "com.riders.customer",

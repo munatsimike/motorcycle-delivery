@@ -8,19 +8,13 @@ import com.riders.rider.core.network.text
 import com.riders.rider.feature.availability.domain.GpsFix
 import com.riders.rider.feature.availability.domain.LocationRelay
 import com.riders.rider.feature.auth.domain.AppEntry
-import com.riders.rider.feature.auth.domain.SessionGate
-import com.riders.rider.feature.auth.domain.biometricHomeAction
-import com.riders.rider.feature.auth.domain.initialBiometricState
 import com.riders.rider.feature.auth.domain.DEBUG_REGISTRATION_FULL_NAME
+import com.riders.rider.feature.auth.domain.appEntry
 import com.riders.rider.feature.auth.domain.normalizeRiderAddress
 import com.riders.rider.feature.auth.domain.normalizeRiderName
 import com.riders.rider.feature.auth.domain.registrationFullName
 import com.riders.rider.feature.auth.domain.normalizeRiderPhone
-import com.riders.rider.feature.auth.domain.reduceSession
-import com.riders.rider.feature.auth.domain.resolveAppEntry
 import com.riders.rider.feature.auth.domain.riderPhoneEntry
-import com.riders.rider.feature.auth.domain.sessionGate
-import com.riders.rider.feature.auth.domain.shouldOfferBiometric
 import com.riders.rider.feature.delivery.domain.canRelease
 import com.riders.rider.feature.delivery.domain.nextDeliveryStatus
 import com.riders.rider.feature.offers.domain.AcceptKeys
@@ -180,55 +174,9 @@ class RiderDomainTest {
     }
 
     @Test
-    fun biometricGateUsesTheStoredSession() {
-        assertEquals(SessionGate.SignedOut, sessionGate(false, true, true))
-        assertEquals(SessionGate.Restore, sessionGate(true, false, true))
-        assertEquals(SessionGate.Restore, sessionGate(true, false, false))
-        assertEquals(SessionGate.Biometric, sessionGate(true, true, true))
-        assertEquals(SessionGate.BiometricUnavailable, sessionGate(true, true, false))
-    }
-
-    @Test
-    fun freshSignInSkipsUnlockAndCanOfferBiometrics() {
-        val cold = reduceSession(initialBiometricState(hasStoredSession = true), hasSession = true)
-        val refreshed = reduceSession(cold, hasSession = true)
-        assertFalse(refreshed.unlocked)
-        assertFalse(refreshed.freshSignIn)
-        assertEquals(
-            AppEntry.Unlock,
-            resolveAppEntry(true, biometricEnabled = true, biometricAvailable = true, cold.unlocked, cold.freshSignIn, declined = false),
-        )
-        assertEquals(
-            AppEntry.Home,
-            resolveAppEntry(true, biometricEnabled = false, biometricAvailable = false, cold.unlocked, cold.freshSignIn, declined = false),
-        )
-
-        val signedIn = reduceSession(initialBiometricState(hasStoredSession = false), hasSession = true)
-        assertTrue(signedIn.unlocked)
-        assertTrue(signedIn.freshSignIn)
-        assertEquals(
-            AppEntry.Home,
-            resolveAppEntry(true, biometricEnabled = true, biometricAvailable = true, signedIn.unlocked, signedIn.freshSignIn, declined = false),
-        )
-        assertEquals(
-            AppEntry.Offer,
-            resolveAppEntry(true, biometricEnabled = false, biometricAvailable = true, signedIn.unlocked, signedIn.freshSignIn, declined = false),
-        )
-        assertEquals(AppEntry.Home, resolveAppEntry(true, false, true, signedIn.unlocked, signedIn.freshSignIn, declined = true))
-        assertEquals(AppEntry.Unlock, resolveAppEntry(true, true, false, unlocked = false, freshSignIn = false, declined = false))
-        assertEquals(AppEntry.SignedOut, resolveAppEntry(false, true, true, unlocked = true, freshSignIn = true, declined = false))
-    }
-
-    @Test
-    fun biometricOfferRequiresACapableDevice() {
-        assertTrue(shouldOfferBiometric(freshSignIn = true, biometricAvailable = true, biometricEnabled = false, declined = false))
-        assertFalse(shouldOfferBiometric(freshSignIn = false, biometricAvailable = true, biometricEnabled = false, declined = false))
-        assertFalse(shouldOfferBiometric(freshSignIn = true, biometricAvailable = false, biometricEnabled = false, declined = false))
-        assertFalse(shouldOfferBiometric(freshSignIn = true, biometricAvailable = true, biometricEnabled = true, declined = false))
-        assertFalse(shouldOfferBiometric(freshSignIn = true, biometricAvailable = true, biometricEnabled = false, declined = true))
-        assertEquals("Unlock with biometrics", biometricHomeAction(enabled = false, available = true))
-        assertEquals("Turn off biometric unlock", biometricHomeAction(enabled = true, available = false))
-        assertNull(biometricHomeAction(enabled = false, available = false))
+    fun storedSessionOpensHomeWithoutABiometricPrompt() {
+        assertEquals(AppEntry.SignedOut, appEntry(false))
+        assertEquals(AppEntry.Home, appEntry(true))
     }
 
     private fun readiness(json: String) = riderReadiness(ApiJson.decodeFromString(OnboardingResponse.serializer(), json).toOnboarding())

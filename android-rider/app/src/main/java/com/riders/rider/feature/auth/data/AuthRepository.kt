@@ -2,7 +2,6 @@ package com.riders.rider.feature.auth.data
 
 import com.riders.rider.core.network.ApiResult
 import com.riders.rider.core.network.AuthService
-import com.riders.rider.core.network.RefreshRequest
 import com.riders.rider.core.network.RiderWhatsAppRegistrationRequest
 import com.riders.rider.core.network.WhatsAppRecoveryRequest
 import com.riders.rider.core.network.PhoneRequest
@@ -13,8 +12,6 @@ import com.riders.rider.core.network.ApiError
 import com.riders.rider.core.network.SessionStorageException
 import com.riders.rider.core.session.AuthSession
 import com.riders.rider.core.session.SessionStore
-import com.riders.rider.feature.auth.domain.BiometricPreference
-import com.riders.rider.feature.auth.domain.MemoryBiometricPreference
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
@@ -44,7 +41,6 @@ sealed class VerifyOutcome {
 class AuthRepository @Inject constructor(
     private val auth: AuthService,
     private val sessions: SessionStore,
-    private val biometrics: BiometricPreference = MemoryBiometricPreference(),
 ) {
     suspend fun startWhatsAppLogin(phone: String): ApiResult<LoginStart> {
         val result = apiCall(establishedSession = false) {
@@ -115,22 +111,6 @@ class AuthRepository @Inject constructor(
         return apiCall(establishedSession = false) { call() }.map { Unit }
     }
 
-    suspend fun confirmStoredSession(): ApiResult<Unit> {
-        val current = sessions.read() ?: return ApiResult.Err(ApiError.SessionEnded)
-        return when (val refreshed = apiCall { auth.refresh(RefreshRequest(current.refreshToken)) }) {
-            is ApiResult.Err -> {
-                if (refreshed.error == ApiError.SessionEnded) {
-                    sessions.clear()
-                }
-                refreshed
-            }
-            is ApiResult.Ok -> when (val saved = saveSession(refreshed.value)) {
-                is ApiResult.Ok -> ApiResult.Ok(Unit)
-                is ApiResult.Err -> saved
-            }
-        }
-    }
-
     suspend fun completeRegistration(token: String, fullName: String, address: String): ApiResult<VerifyOutcome> {
         return ApiResult.Err(ApiError.Validation("Verify your phone number on WhatsApp to create an account"))
     }
@@ -142,7 +122,6 @@ class AuthRepository @Inject constructor(
             // Local sign-out still clears the session when the server cannot be reached.
         }
         sessions.clear()
-        biometrics.clear()
     }
 
     private suspend fun saveSession(session: SessionResponse): ApiResult<VerifyOutcome> {

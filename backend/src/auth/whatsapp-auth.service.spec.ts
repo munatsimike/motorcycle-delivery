@@ -56,7 +56,10 @@ describe('WhatsApp verification', () => {
     });
     expect(ctx.users[0]?.whatsappConsentAt).toEqual(NOW);
     expect(ctx.users[0]?.passwordHash ?? null).toBeNull();
-    expect(ctx.users[0]?.riderProfile).toMatchObject({ approvalStatus: RiderApprovalStatus.PENDING });
+    expect(ctx.users[0]?.riderProfile).toMatchObject({
+      approvalStatus: RiderApprovalStatus.PENDING,
+      address: '12 Samora Machel Avenue',
+    });
     expect(ctx.wallets).toHaveLength(1);
     expect(ctx.challenges[0]).not.toHaveProperty('code');
     expect(Object.values(ctx.challenges[0] ?? {})).not.toContain(CODE);
@@ -290,7 +293,7 @@ function user(overrides: Partial<UserRow> = {}): UserRow {
     phoneVerifiedAt: null,
     passwordHash: 'stored-hash',
     whatsappConsentAt: NOW,
-    riderProfile: { id: randomUUID(), approvalStatus: RiderApprovalStatus.PENDING },
+    riderProfile: { id: randomUUID(), approvalStatus: RiderApprovalStatus.PENDING, address: null },
     customerAccount: null,
     ...overrides,
   };
@@ -305,7 +308,7 @@ type UserRow = {
   phoneVerifiedAt: Date | null;
   passwordHash: string | null;
   whatsappConsentAt: Date | null;
-  riderProfile: { id: string; approvalStatus: RiderApprovalStatus } | null;
+  riderProfile: { id: string; approvalStatus: RiderApprovalStatus; address: string | null } | null;
   customerAccount: { id: string } | null;
 };
 
@@ -362,17 +365,20 @@ function memory(users: UserRow[], challenges: ChallengeRow[], sessions: SessionR
         if (!found) {
           throw new Error('missing user');
         }
-        const { customerAccount, ...rest } = data;
+        const { customerAccount, riderProfile, ...rest } = data;
         Object.assign(found, rest);
         if (customerAccount && typeof customerAccount === 'object' && 'update' in customerAccount && found.customerAccount) {
           Object.assign(found.customerAccount, (customerAccount as { update: object }).update);
+        }
+        if (riderProfile && typeof riderProfile === 'object' && 'update' in riderProfile && found.riderProfile) {
+          Object.assign(found.riderProfile, (riderProfile as { update: object }).update);
         }
         return found;
       },
     },
     riderProfile: {
-      async create({ data }: { data: { userId: string; approvalStatus: RiderApprovalStatus } }) {
-        const profile = { id: randomUUID(), approvalStatus: data.approvalStatus };
+      async create({ data }: { data: { userId: string; approvalStatus: RiderApprovalStatus; address?: string | null } }) {
+        const profile = { id: randomUUID(), approvalStatus: data.approvalStatus, address: data.address ?? null };
         const owner = users.find((row) => row.id === data.userId);
         if (owner) {
           owner.riderProfile = profile;

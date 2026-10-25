@@ -360,6 +360,8 @@ model RiderProfile {
   receivingRequests  Boolean?                @map("receiving_requests")
   licenceNumber      String?                 @map("licence_number") @db.VarChar(50)
   licenceClass       String?                 @map("licence_class") @db.VarChar(40)
+  // Home address collected at registration. Older rows stay null until a registration saves one.
+  address            String?                 @db.VarChar(500)
   verifiedAt         DateTime?               @map("verified_at") @db.Timestamptz(6)
   reviewerId         String?                 @map("reviewer_id") @db.Uuid
   createdAt          DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)

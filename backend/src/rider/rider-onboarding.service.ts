@@ -1,7 +1,6 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import {
   AccountStatus,
-  AuthChallengeStatus,
   AuthPurpose,
   AuthSubjectRole,
   LicenceReviewDecision,
@@ -49,21 +48,31 @@ export class RiderOnboardingService {
     ) {
       throw new ForbiddenException('Rider access is required');
     }
-    const customer = await this.prisma.customerAccount.findUnique({
-      where: { userId: user.id },
-      select: { address: true },
-    });
-    const registration = await this.prisma.authChallenge.findFirst({
-      where: {
-        phone: user.phone,
-        subjectRole: AuthSubjectRole.RIDER,
-        purpose: AuthPurpose.REGISTRATION,
-        status: AuthChallengeStatus.SUPERSEDED,
-      },
-      orderBy: { createdAt: 'desc' },
-      select: { address: true },
-    });
-    return { fullName: user.fullName, phone: user.phone, address: customer?.address ?? registration?.address ?? null };
+    const [riderProfile, customer, registration] = await Promise.all([
+      this.prisma.riderProfile.findUnique({
+        where: { userId: user.id },
+        select: { address: true },
+      }),
+      this.prisma.customerAccount.findUnique({
+        where: { userId: user.id },
+        select: { address: true },
+      }),
+      this.prisma.authChallenge.findFirst({
+        where: {
+          phone: user.phone,
+          subjectRole: AuthSubjectRole.RIDER,
+          address: { not: null },
+          purpose: { in: [AuthPurpose.REGISTRATION, AuthPurpose.WHATSAPP_REGISTRATION] },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { address: true },
+      }),
+    ]);
+    return {
+      fullName: user.fullName,
+      phone: user.phone,
+      address: storedAddress(riderProfile?.address) ?? storedAddress(customer?.address) ?? storedAddress(registration?.address),
+    };
   }
 
   async current(rider: RiderContext): Promise<RiderOnboardingResponse> {
@@ -106,4 +115,9 @@ export class RiderOnboardingService {
       ...(v2MarketplaceEnabled() ? { receiving: profile.receivingRequests === true } : {}),
     };
   }
+}
+
+function storedAddress(value: string | null | undefined): string | null {
+  const address = value?.trim() ?? '';
+  return address.length > 0 ? address : null;
 }

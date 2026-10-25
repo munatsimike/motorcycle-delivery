@@ -14,7 +14,7 @@ export class RiderOnboardingController {
   constructor(private readonly onboarding: RiderOnboardingService) {}
 
   @Get('profile')
-  @ApiOperation({ summary: 'Read the signed-in rider name and verified phone' })
+  @ApiOperation({ summary: 'Read the signed-in rider name, verified phone, and registration address' })
   @ApiOkResponse({ type: RiderSelfProfileResponse })
   profile(@Req() request: RiderRequest) {
     if (!request.rider) {

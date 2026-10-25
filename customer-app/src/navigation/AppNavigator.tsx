@@ -5,6 +5,7 @@ import {
   createNativeStackNavigator,
   type NativeStackScreenProps,
 } from '@react-navigation/native-stack';
+import { useState } from 'react';
 import {
   Image,
   StyleSheet,
@@ -26,8 +27,6 @@ import RequestOpenScreen from '../features/deliveries/presentation/screens/Reque
 import DeliveryTrackingScreen from '../features/deliveries/presentation/screens/DeliveryTrackingScreen';
 import OtpVerificationScreen from '../features/auth/presentation/screens/OtpVerificationScreen';
 import SignInScreen from '../features/auth/presentation/screens/SignInScreen';
-import UnlockScreen from '../features/auth/presentation/screens/UnlockScreen';
-import BiometricOfferScreen from '../features/auth/presentation/screens/BiometricOfferScreen';
 import { useSession } from '../features/auth/presentation/viewmodels/useSession';
 import { publishCustomerPush, useCustomerPush } from '../features/notifications/presentation/useCustomerPush';
 import { navigationRef } from './navigationRef';
@@ -115,6 +114,10 @@ export default function AppNavigator() {
     );
   }
 
+  if (status === 'needsConnection') {
+    return <ConnectionScreen />;
+  }
+
   return (
     <NavigationContainer ref={navigationRef} onReady={publishCustomerPush}>
       <Stack.Navigator>
@@ -146,18 +149,6 @@ export default function AppNavigator() {
               options={{ title: 'Edit Profile' }}
             />
           </>
-        ) : status === 'offerBiometric' ? (
-          <Stack.Screen
-            name="Unlock"
-            component={BiometricOfferScreen}
-            options={{ headerShown: false }}
-          />
-        ) : status === 'locked' || status === 'needsConnection' ? (
-          <Stack.Screen
-            name="Unlock"
-            component={UnlockScreen}
-            options={{ headerShown: false }}
-          />
         ) : (
           <>
             <Stack.Screen
@@ -187,12 +178,52 @@ export default function AppNavigator() {
   );
 }
 
+function ConnectionScreen() {
+  const { retryRestore } = useSession();
+  const [working, setWorking] = useState(false);
+
+  return (
+    <SafeAreaView style={styles.connection} edges={['top', 'bottom']}>
+      <Text style={styles.connectionTitle}>You are offline</Text>
+      <Text style={styles.connectionBody}>
+        This phone is offline, so Riders cannot confirm the saved session yet.
+      </Text>
+      <PrimaryButton
+        label="Try again"
+        icon="refresh"
+        loading={working}
+        onPress={() => {
+          setWorking(true);
+          void retryRestore().finally(() => setWorking(false));
+        }}
+      />
+    </SafeAreaView>
+  );
+}
+
 const styles = StyleSheet.create({
   loading: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.background,
+  },
+  connection: {
+    flex: 1,
+    backgroundColor: colors.background,
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.xxl,
+    gap: spacing.lg,
+  },
+  connectionTitle: {
+    fontSize: typography.title,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  connectionBody: {
+    fontSize: typography.body,
+    lineHeight: 24,
+    color: colors.textSecondary,
   },
 
   screen: {

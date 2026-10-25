@@ -3,9 +3,7 @@ import type { CustomerSessionStore } from '../repositories/CustomerSessionStore'
 
 export async function logoutCustomer(
   repository: CustomerAuthRepository,
-  store: CustomerSessionStore & {
-    saveBiometricEnabled(enabled: boolean): Promise<void>;
-  },
+  store: CustomerSessionStore,
   accessToken: string | null,
 ): Promise<void> {
   try {
@@ -13,10 +11,6 @@ export async function logoutCustomer(
       await repository.logout(accessToken);
     }
   } finally {
-    try {
-      await store.saveBiometricEnabled(false);
-    } finally {
-      await store.clear();
-    }
+    await store.clear();
   }
 }

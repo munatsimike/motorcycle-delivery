@@ -1,7 +1,6 @@
 package com.riders.rider.feature.profile.presentation
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,8 +18,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
@@ -37,7 +34,6 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.layout
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -53,8 +49,6 @@ import com.riders.rider.core.design.PhoneWithFlag
 import com.riders.rider.core.design.RidersButtonTone
 import com.riders.rider.core.design.RidersColors
 import com.riders.rider.core.design.RidersFailureNotice
-import com.riders.rider.core.design.RidersNetworkNotice
-import com.riders.rider.core.design.isConnectionFailure
 import com.riders.rider.core.design.RidersLoadingState
 import com.riders.rider.core.design.RidersPullRefresh
 import com.riders.rider.core.design.RidersRadius
@@ -63,8 +57,6 @@ import com.riders.rider.core.design.RidersSecondaryButton
 import com.riders.rider.core.design.RidersTextField
 import com.riders.rider.core.design.RidersSpacing
 import com.riders.rider.core.design.RidersType
-import com.riders.rider.feature.auth.presentation.SessionViewModel
-import com.riders.rider.feature.auth.presentation.findFragmentActivity
 import com.riders.rider.feature.onboarding.domain.MotorcycleDetails
 import com.riders.rider.feature.onboarding.domain.RiderOnboarding
 import com.riders.rider.feature.onboarding.domain.approvalStatusTitle
@@ -130,11 +122,6 @@ fun ProfileScreen(
     model: ProfileViewModel = hiltViewModel(),
 ) {
     val ui by model.ui.collectAsStateWithLifecycle()
-    val context = LocalContext.current
-    val activity = context.findFragmentActivity()
-        ?: error("Profile requires the rider activity")
-    val session: SessionViewModel = hiltViewModel(activity)
-    val sessionUi by session.ui.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { model.refresh(force = false) }
     val board = ui.board
     val hasProfile = board.fullName.isNotBlank() || board.onboarding != null
@@ -179,19 +166,10 @@ fun ProfileScreen(
                         onRetry = { model.refresh(force = true) },
                     )
                     else -> {
-                        val pageConnection = isConnectionFailure(board.error)
                         if (board.error != null) {
                             RidersFailureNotice(
                                 message = board.error.orEmpty(),
                                 onRetry = { model.refresh(force = true) },
-                            )
-                        }
-                        if (sessionUi.biometricAction != null) {
-                            BiometricCard(
-                                enabled = sessionUi.biometricAction == "Turn off biometric unlock",
-                                busy = sessionUi.working || ui.signingOut,
-                                error = sessionUi.error?.takeUnless { pageConnection && isConnectionFailure(it) },
-                                onToggle = { session.onHomeBiometric(activity) },
                             )
                         }
                         RidersSecondaryButton(
@@ -372,6 +350,7 @@ private fun DetailsCard(
             iconFill = bike.second,
             onClick = onMotorcycles,
         )
+        Hairline()
     }
 }
 
@@ -446,59 +425,6 @@ private fun StatusBadge(label: String) {
             .background(RidersColors.primaryLight)
             .padding(horizontal = RidersSpacing.sm, vertical = RidersSpacing.xs),
     )
-}
-
-@Composable
-private fun BiometricCard(
-    enabled: Boolean,
-    busy: Boolean,
-    error: String?,
-    onToggle: () -> Unit,
-) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(RidersRadius.xl))
-            .background(RidersColors.background)
-            .border(1.dp, RidersColors.border, RoundedCornerShape(RidersRadius.xl))
-            .padding(horizontal = RidersSpacing.lg, vertical = RidersSpacing.sm),
-    ) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(vertical = RidersSpacing.md),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md),
-        ) {
-            IconBadge(R.drawable.ic_fingerprint, RidersColors.primaryDark, RidersColors.primaryLight)
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs)) {
-                Text("Unlock with biometrics", style = RidersType.bodyStrong, color = RidersColors.text)
-                Text(
-                    "Use your fingerprint to unlock the app without signing in again.",
-                    style = RidersType.caption,
-                    color = RidersColors.textSecondary,
-                )
-            }
-            Switch(
-                checked = enabled,
-                onCheckedChange = { onToggle() },
-                enabled = !busy,
-                colors = SwitchDefaults.colors(
-                    checkedTrackColor = RidersColors.primary,
-                    uncheckedTrackColor = RidersColors.border,
-                    checkedThumbColor = RidersColors.background,
-                    uncheckedThumbColor = RidersColors.background,
-                ),
-            )
-        }
-        if (error != null) {
-            if (isConnectionFailure(error)) {
-                RidersNetworkNotice(onRetry = onToggle, modifier = Modifier.padding(bottom = RidersSpacing.sm))
-            } else {
-                Text(error, style = RidersType.caption, color = RidersColors.error, modifier = Modifier.padding(bottom = RidersSpacing.sm))
-            }
-        }
-    }
 }
 
 @Composable

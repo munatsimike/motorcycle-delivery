@@ -72,6 +72,15 @@ export default function CustomerHomeScreen() {
                 <Text style={styles.name} accessibilityRole="header">{firstName}</Text>
               ) : null}
             </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Notifications"
+              hitSlop={8}
+              onPress={() => navigation.navigate('Requests')}
+              style={styles.notificationButton}
+            >
+              <MaterialDesignIcons name="bell" color={colors.text} size={22} />
+            </Pressable>
           </View>
 
           <View style={styles.actionsCard}>
@@ -181,6 +190,14 @@ const styles = StyleSheet.create({
     flex: 1,
     flexShrink: 1,
     gap: spacing.xs,
+  },
+  notificationButton: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.background,
   },
   greeting: {
     fontSize: typography.caption,

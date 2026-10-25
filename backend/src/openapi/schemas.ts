@@ -621,6 +621,9 @@ export class RiderSelfProfileResponse {
 
   @ApiProperty()
   phone!: string;
+
+  @ApiProperty({ nullable: true, maxLength: 500 })
+  address!: string | null;
 }
 
 export class RiderOnboardingResponse {

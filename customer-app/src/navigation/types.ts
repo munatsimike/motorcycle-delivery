@@ -27,7 +27,6 @@ export type RootStackParamList = {
   EditProfile: {
     account: CustomerAccount;
   };
-  Unlock: undefined;
 };
 
 export type CustomerTabParamList = {
