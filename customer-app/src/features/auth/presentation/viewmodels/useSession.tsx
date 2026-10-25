@@ -40,7 +40,6 @@ type SessionContextValue = {
   acceptBiometricOffer: () => Promise<BiometricUpdate>;
   declineBiometricOffer: () => Promise<void>;
   setBiometricEnabled: (enabled: boolean) => Promise<BiometricUpdate>;
-  setPassword: (password: string, currentPassword?: string) => Promise<void>;
 };
 
 const SessionContext = createContext<SessionContextValue | null>(null);
@@ -284,14 +283,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         setBiometricAvailable(true);
       }
       return result;
-    },
-    async setPassword(password, currentPassword) {
-      const accessToken = session?.accessToken;
-      const refreshToken = session?.refreshToken;
-      if (!accessToken || !refreshToken) {
-        throw new Error('Authentication failed');
-      }
-      await customerAuthRepository.setPassword(accessToken, password, refreshToken, currentPassword);
     },
   }), [biometricAvailable, biometricEnabled, customerId, logoutNotice, session, status]);
 

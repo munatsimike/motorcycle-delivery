@@ -8,6 +8,8 @@ export abstract class PhoneVerificationProvider {
 }
 
 @Injectable()
+// The WhatsApp provider must not print verification codes. Local codes are logged
+// only by DevOtpVerificationProvider, and only after the local-development checks.
 export class TwilioWhatsAppVerificationProvider extends PhoneVerificationProvider {
   constructor(private readonly twilio: TwilioVerifyClient) {
     super();

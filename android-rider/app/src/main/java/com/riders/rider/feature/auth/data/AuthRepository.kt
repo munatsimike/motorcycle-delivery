@@ -2,32 +2,25 @@ package com.riders.rider.feature.auth.data
 
 import com.riders.rider.core.network.ApiResult
 import com.riders.rider.core.network.AuthService
-import com.riders.rider.BuildConfig
-import com.riders.rider.core.network.PasswordLoginRequest
-import com.riders.rider.core.network.PasswordResetRequest
 import com.riders.rider.core.network.RefreshRequest
 import com.riders.rider.core.network.RiderWhatsAppRegistrationRequest
 import com.riders.rider.core.network.WhatsAppRecoveryRequest
 import com.riders.rider.core.network.PhoneRequest
-import com.riders.rider.core.network.RegistrationVerifyResponse
-import com.riders.rider.core.network.RiderAccountRequest
-import com.riders.rider.core.network.RiderRegistrationRequest
-import com.riders.rider.core.network.SetPasswordRequest
 import com.riders.rider.core.network.SessionResponse
 import com.riders.rider.core.network.VerifyRequest
 import com.riders.rider.core.network.apiCall
-import com.riders.rider.core.network.mapHttpFailure
 import com.riders.rider.core.network.ApiError
 import com.riders.rider.core.network.SessionStorageException
 import com.riders.rider.core.session.AuthSession
 import com.riders.rider.core.session.SessionStore
 import com.riders.rider.feature.auth.domain.BiometricPreference
 import com.riders.rider.feature.auth.domain.MemoryBiometricPreference
-import com.riders.rider.feature.auth.domain.registrationFullName
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+
+data class AddressMatch(val label: String, val placeId: String)
 
 sealed class LoginStart {
     data object CodeSent : LoginStart()
@@ -53,61 +46,56 @@ class AuthRepository @Inject constructor(
     private val sessions: SessionStore,
     private val biometrics: BiometricPreference = MemoryBiometricPreference(),
 ) {
-    suspend fun requestLogin(phone: String): ApiResult<LoginStart> {
-        return when (val result = apiCall(establishedSession = false) { auth.requestLogin(PhoneRequest(phone)) }) {
+    suspend fun startWhatsAppLogin(phone: String): ApiResult<LoginStart> {
+        val result = apiCall(establishedSession = false) {
+            auth.startWhatsAppLogin(WhatsAppRecoveryRequest(phone, whatsappConsent = true))
+        }
+        return when (result) {
             is ApiResult.Err -> result
             is ApiResult.Ok -> when (result.value.status) {
                 "pending" -> ApiResult.Ok(LoginStart.CodeSent)
                 "unavailable" -> ApiResult.Ok(LoginStart.AccountMissing)
-                else -> ApiResult.Err(ApiError.Validation("Sign in could not be started."))
+                else -> ApiResult.Err(ApiError.Validation("Verification could not be started."))
             }
         }
-    }
-
-    suspend fun requestRegistration(phone: String): ApiResult<Unit> {
-        val body = RiderRegistrationRequest(phone, registrationFullName(BuildConfig.DEBUG))
-        return apiCall(establishedSession = false) { auth.requestRegistration(body) }.map { Unit }
     }
 
     suspend fun verify(flow: String, phone: String, code: String): ApiResult<VerifyOutcome> {
-        if (flow == "whatsapp") {
-            return when (val result = apiCall(establishedSession = false) { auth.verifyWhatsAppRegistration(VerifyRequest(phone, code)) }) {
-                is ApiResult.Err -> result
-                is ApiResult.Ok -> saveSession(result.value)
-            }
+        val call = when (flow) {
+            "whatsapp", "registration" -> suspend { auth.verifyWhatsAppRegistration(VerifyRequest(phone, code)) }
+            "whatsapp_login", "login" -> suspend { auth.verifyWhatsAppLogin(VerifyRequest(phone, code)) }
+            else -> return ApiResult.Err(ApiError.Validation("Verification code is invalid"))
         }
-        if (flow == "registration") {
-            return when (val result = apiCall(establishedSession = false) { auth.verifyRegistration(VerifyRequest(phone, code)) }) {
-                is ApiResult.Err -> result
-                is ApiResult.Ok -> registrationVerified(result.value)
-            }
-        }
-        return when (val result = apiCall(establishedSession = false) { auth.verifyLogin(VerifyRequest(phone, code)) }) {
+        return when (val result = apiCall(establishedSession = false) { call() }) {
             is ApiResult.Err -> result
             is ApiResult.Ok -> saveSession(result.value)
         }
     }
 
-    suspend fun loginWithPassword(phone: String, password: String): ApiResult<VerifyOutcome> {
-        val result = apiCall(establishedSession = false) {
-            auth.loginWithPassword(PasswordLoginRequest(phone, password))
+    suspend fun searchAddresses(text: String, sessionToken: String): ApiResult<List<AddressMatch>> {
+        return apiCall(establishedSession = false) {
+            auth.searchPlaces(text, sessionToken).suggestions.mapNotNull { item ->
+                val label = item.label.trim()
+                val placeId = item.placeId.trim()
+                if (label.isEmpty() || placeId.isEmpty()) null else AddressMatch(label, placeId)
+            }.take(10)
         }
-        return when (result) {
-            is ApiResult.Err -> result
-            is ApiResult.Ok -> saveSession(result.value)
+    }
+
+    suspend fun resolveAddress(placeId: String, sessionToken: String): ApiResult<String> {
+        return apiCall(establishedSession = false) {
+            auth.placeDetail(placeId, sessionToken).label.trim()
         }
     }
 
     suspend fun registerWithPassword(
         phone: String,
-        password: String,
         fullName: String,
         address: String,
     ): ApiResult<Unit> {
         return apiCall(establishedSession = false) {
             auth.startWhatsAppRegistration(RiderWhatsAppRegistrationRequest(
                 phone,
-                password,
                 fullName,
                 address,
                 whatsappConsent = true,
@@ -115,33 +103,16 @@ class AuthRepository @Inject constructor(
         }.map { Unit }
     }
 
-    suspend fun resendWhatsAppRegistration(phone: String): ApiResult<Unit> {
-        return apiCall(establishedSession = false) { auth.resendWhatsAppRegistration(PhoneRequest(phone)) }.map { Unit }
-    }
+    suspend fun requestLogin(phone: String): ApiResult<LoginStart> = startWhatsAppLogin(phone)
 
-    suspend fun requestPasswordReset(phone: String): ApiResult<Unit> {
-        return apiCall(establishedSession = false) {
-            auth.forgotPassword(WhatsAppRecoveryRequest(phone, whatsappConsent = true))
-        }.map { Unit }
-    }
+    suspend fun resendWhatsAppRegistration(phone: String): ApiResult<Unit> = resend("whatsapp", phone)
 
-    suspend fun resetPassword(phone: String, code: String, password: String): ApiResult<Unit> {
-        val result = apiCall(establishedSession = false) {
-            auth.resetPassword(PasswordResetRequest(phone, code, password))
+    suspend fun resend(flow: String, phone: String): ApiResult<Unit> {
+        val call = when (flow) {
+            "whatsapp_login", "login" -> suspend { auth.resendWhatsAppLogin(PhoneRequest(phone)) }
+            else -> suspend { auth.resendWhatsAppRegistration(PhoneRequest(phone)) }
         }
-        return when (result) {
-            is ApiResult.Err -> result
-            is ApiResult.Ok -> {
-                val response = result.value
-                if (!response.isSuccessful) {
-                    ApiResult.Err(mapHttpFailure(response.code(), response.errorBody()?.string(), establishedSession = false))
-                } else {
-                    sessions.clear()
-                    biometrics.clear()
-                    ApiResult.Ok(Unit)
-                }
-            }
-        }
+        return apiCall(establishedSession = false) { call() }.map { Unit }
     }
 
     suspend fun confirmStoredSession(): ApiResult<Unit> {
@@ -161,36 +132,7 @@ class AuthRepository @Inject constructor(
     }
 
     suspend fun completeRegistration(token: String, fullName: String, address: String): ApiResult<VerifyOutcome> {
-        val result = apiCall(establishedSession = false) {
-            auth.completeRegistration(RiderAccountRequest(token, fullName, address))
-        }
-        return when (result) {
-            is ApiResult.Err -> result
-            is ApiResult.Ok -> saveSession(result.value)
-        }
-    }
-
-    suspend fun setPassword(password: String, currentPassword: String?): ApiResult<Unit> {
-        val refreshToken = sessions.read()?.refreshToken?.takeIf { it.isNotBlank() }
-            ?: return ApiResult.Err(ApiError.Validation("Authentication failed"))
-        val result = apiCall(establishedSession = false) {
-            auth.setPassword(SetPasswordRequest(
-                password,
-                currentPassword?.takeIf { it.isNotBlank() },
-                refreshToken,
-            ))
-        }
-        return when (result) {
-            is ApiResult.Err -> result
-            is ApiResult.Ok -> {
-                val response = result.value
-                if (response.isSuccessful) {
-                    ApiResult.Ok(Unit)
-                } else {
-                    ApiResult.Err(mapHttpFailure(response.code(), response.errorBody()?.string(), establishedSession = false))
-                }
-            }
-        }
+        return ApiResult.Err(ApiError.Validation("Verify your phone number on WhatsApp to create an account"))
     }
 
     suspend fun logout() {
@@ -209,24 +151,6 @@ class AuthRepository @Inject constructor(
             return ApiResult.Err(ApiError.Unexpected(SessionStorageException.MESSAGE))
         }
         return ApiResult.Ok(VerifyOutcome.SignedIn)
-    }
-
-    private suspend fun registrationVerified(response: RegistrationVerifyResponse): ApiResult<VerifyOutcome> {
-        if (response.status == "sign_in") {
-            return ApiResult.Ok(VerifyOutcome.UseExistingLogin)
-        }
-        val token = response.registrationToken?.takeIf { it.isNotBlank() }
-        if (token != null) {
-            val locked = response.readOnly.contains("fullName")
-            return ApiResult.Ok(VerifyOutcome.NeedsAccount(
-                registrationToken = token,
-                fullName = response.fullName,
-                address = response.address,
-                lockDetails = locked,
-            ))
-        }
-        val session = response.sessionOrNull() ?: return ApiResult.Err(ApiError.Validation("Authentication failed"))
-        return saveSession(session)
     }
 }
 

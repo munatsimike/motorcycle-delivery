@@ -27,26 +27,14 @@ val ApiJson: Json = Json {
 }
 
 interface AuthService {
-    @POST("auth/rider/login/otp")
-    suspend fun requestLogin(@Body body: PhoneRequest): PendingResponse
+    @POST("auth/rider/login/whatsapp")
+    suspend fun startWhatsAppLogin(@Body body: WhatsAppRecoveryRequest): PendingResponse
 
-    @POST("auth/rider/login/verify")
-    suspend fun verifyLogin(@Body body: VerifyRequest): SessionResponse
+    @POST("auth/rider/login/whatsapp/resend")
+    suspend fun resendWhatsAppLogin(@Body body: PhoneRequest): PendingResponse
 
-    @POST("auth/rider/register/otp")
-    suspend fun requestRegistration(@Body body: RiderRegistrationRequest): PendingResponse
-
-    @POST("auth/rider/register/verify")
-    suspend fun verifyRegistration(@Body body: VerifyRequest): RegistrationVerifyResponse
-
-    @POST("auth/rider/register/complete")
-    suspend fun completeRegistration(@Body body: RiderAccountRequest): SessionResponse
-
-    @POST("auth/rider/login/password")
-    suspend fun loginWithPassword(@Body body: PasswordLoginRequest): SessionResponse
-
-    @POST("auth/rider/register/password")
-    suspend fun registerWithPassword(@Body body: RiderPasswordRegistrationRequest): SessionResponse
+    @POST("auth/rider/login/whatsapp/verify")
+    suspend fun verifyWhatsAppLogin(@Body body: VerifyRequest): SessionResponse
 
     @POST("auth/rider/register/whatsapp")
     suspend fun startWhatsAppRegistration(@Body body: RiderWhatsAppRegistrationRequest): PendingResponse
@@ -57,20 +45,23 @@ interface AuthService {
     @POST("auth/rider/register/whatsapp/verify")
     suspend fun verifyWhatsAppRegistration(@Body body: VerifyRequest): SessionResponse
 
-    @POST("auth/rider/password/forgot")
-    suspend fun forgotPassword(@Body body: WhatsAppRecoveryRequest): PendingResponse
-
-    @POST("auth/rider/password/reset")
-    suspend fun resetPassword(@Body body: PasswordResetRequest): Response<ResponseBody>
-
     @POST("auth/session/refresh")
     suspend fun refresh(@Body body: RefreshRequest): SessionResponse
 
+    @GET("auth/places")
+    suspend fun searchPlaces(
+        @Query("text") text: String,
+        @Query("sessionToken") sessionToken: String,
+    ): PlaceSuggestionsResponse
+
+    @GET("auth/places/detail")
+    suspend fun placeDetail(
+        @Query("placeId") placeId: String,
+        @Query("sessionToken") sessionToken: String,
+    ): ResolvedPlaceResponse
+
     @POST("auth/session/logout")
     suspend fun logout(): Response<ResponseBody>
-
-    @POST("auth/session/password")
-    suspend fun setPassword(@Body body: SetPasswordRequest): Response<ResponseBody>
 }
 
 interface RiderService {

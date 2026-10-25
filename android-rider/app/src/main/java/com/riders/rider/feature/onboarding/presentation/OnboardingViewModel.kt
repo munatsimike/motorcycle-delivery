@@ -84,12 +84,16 @@ class OnboardingViewModel @Inject constructor(
     }
 
     fun selectLicence(bytes: ByteArray) {
-        val issue = licenceImageIssue(bytes)
-        state.value = if (issue == null) {
-            state.value.copy(preview = bytes, error = null, notice = null)
-        } else {
-            state.value.copy(error = issue)
+        if (state.value.uploading) {
+            return
         }
+        val issue = licenceImageIssue(bytes)
+        if (issue != null) {
+            state.value = state.value.copy(error = issue)
+            return
+        }
+        state.value = state.value.copy(preview = bytes, error = null, notice = null)
+        uploadLicence()
     }
 
     fun permissionDenied() {
@@ -172,6 +176,10 @@ class OnboardingViewModel @Inject constructor(
     }
 
     fun saveMotorcycle() {
+        persistMotorcycle(advance = false)
+    }
+
+    private fun persistMotorcycle(advance: Boolean) {
         val current = state.value
         val issue = motorcycleIssue(current.draft)
         if (issue != null) {
@@ -182,14 +190,17 @@ class OnboardingViewModel @Inject constructor(
             state.value = state.value.copy(savingMotorcycle = true, error = null)
             when (val result = verification.saveMotorcycle(current.editingId, current.draft)) {
                 is ApiResult.Ok -> {
-                    state.value = state.value.copy(
+                    val saved = state.value.copy(
                         savingMotorcycle = false,
                         addingMotorcycle = false,
                         editingId = null,
                         draft = MotorcycleDraft(),
                         error = null,
-                        notice = "Your motorbike has been saved.",
+                        notice = if (advance) null else "Your motorbike has been saved.",
                     )
+                    val licenceReady = saved.onboarding?.licenceVerificationStatus == "VERIFIED" || saved.licence != null
+                    val next = if (advance) nextOnboardingStep(OnboardingStep.Motorcycle, licenceReady, true) else null
+                    state.value = if (next == null) saved else saved.copy(step = next)
                     refresh()
                 }
                 is ApiResult.Err -> state.value = state.value.copy(
@@ -219,6 +230,10 @@ class OnboardingViewModel @Inject constructor(
 
     fun continueStep() {
         val current = state.value
+        if (current.step == OnboardingStep.Motorcycle && motorcycleFormNeedsSave(current)) {
+            persistMotorcycle(advance = true)
+            return
+        }
         val blocked = continueBlock(current)
         if (blocked != null) {
             state.value = current.copy(error = blocked)
@@ -240,13 +255,11 @@ class OnboardingViewModel @Inject constructor(
 
     private fun continueBlock(current: OnboardingUi): String? = when (current.step) {
         OnboardingStep.Licence -> when {
-            current.preview != null -> "Save your licence before continuing."
             current.licence == null && current.onboarding?.licenceVerificationStatus != "VERIFIED" -> "Upload your driving licence to continue."
             else -> null
         }
         OnboardingStep.Motorcycle -> when {
-            draftStarted(current.draft) -> "Save your motorbike before continuing."
-            current.motorcycles.isEmpty() -> "Add your motorbike to continue."
+            current.motorcycles.isEmpty() && !draftStarted(current.draft) -> "Add your motorbike to continue."
             else -> null
         }
         else -> null
@@ -257,6 +270,10 @@ class OnboardingViewModel @Inject constructor(
         OnboardingStep.Motorcycle -> "Add your motorbike to continue."
         else -> null
     }
+}
+
+private fun motorcycleFormNeedsSave(current: OnboardingUi): Boolean {
+    return current.editingId != null || current.addingMotorcycle || current.motorcycles.isEmpty() || draftStarted(current.draft)
 }
 
 private fun draftStarted(draft: MotorcycleDraft): Boolean {

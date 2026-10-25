@@ -3,6 +3,7 @@ import { Image, StyleSheet, Text, TextInput, View } from 'react-native';
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
 
 import LoadingIndicator from '../../../../components/LoadingIndicator';
+import { useInputFocus } from '../../../../components/useInputFocus';
 import { colors, radius, spacing, typography } from '../../../../theme';
 import { deliveryContactPhone, formatDeadline, type BookingDraft, type StopDraft } from '../../domain/bookingDraft';
 import { deliveryCardAddress } from '../../domain/deliveryCard';
@@ -31,6 +32,7 @@ export default function BookingSummary({
   marketplace = false,
 }: BookingSummaryProps) {
   const deadline = draft.deliverBy ? formatDeadline(draft.deliverBy) : null;
+  const offerFocus = useInputFocus();
   return (
     <View style={styles.wrap}>
       <View style={styles.route}>
@@ -101,7 +103,7 @@ export default function BookingSummary({
             ) : (
               <>
                 <Text style={styles.offerLabel}>Your offer</Text>
-                <View style={styles.offerField}>
+                <View style={[styles.offerField, offerFocus.style]}>
                   <Text style={styles.offerCurrency}>{quote.currency}</Text>
                   <TextInput
                     style={styles.offerInput}
@@ -113,7 +115,11 @@ export default function BookingSummary({
                     placeholderTextColor={colors.textSecondary}
                     maxLength={7}
                     editable={offerEditable}
-                    onFocus={onOfferFocus}
+                    onFocus={() => {
+                      offerFocus.onFocus();
+                      onOfferFocus?.();
+                    }}
+                    onBlur={offerFocus.onBlur}
                   />
                 </View>
               </>

@@ -28,6 +28,7 @@ import com.riders.rider.feature.onboarding.data.OnboardingRepository
 import com.riders.rider.feature.onboarding.data.VerificationRepository
 import com.riders.rider.feature.onboarding.domain.RiderOnboarding
 import com.riders.rider.feature.onboarding.domain.RiderReadiness
+import com.riders.rider.feature.onboarding.domain.applicationAwaitingReview
 import com.riders.rider.feature.onboarding.domain.riderReadiness
 import com.riders.rider.feature.wallet.data.WalletRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -62,6 +63,7 @@ data class HomeUi(
     val committedV2: Boolean = false,
     val assignmentsUnknown: Boolean = false,
     val assignmentRefreshPending: Boolean = false,
+    val applicationSubmitted: Boolean = false,
 )
 
 @HiltViewModel
@@ -209,16 +211,33 @@ class HomeViewModel @Inject constructor(
         )
         val onboard = onboarding.loadCurrent()
         val profileName = (identity.profile() as? ApiResult.Ok)?.value?.fullName?.trim()?.takeIf { it.isNotEmpty() }
-        val (wallet, requestCount, listed) = coroutineScope {
+        val (wallet, requestCount, listed, submitted) = coroutineScope {
             val walletCall = async { wallets.summary() }
             val offersCall = async { offers.list() }
             val assignmentsCall = async { assignments.refreshList() }
+            val licenceCall = async { identity.licence() }
+            val motorcyclesCall = async { identity.motorcycles() }
             val walletResult = walletCall.await()
             val offerResult = offersCall.await()
             val assignmentResult = assignmentsCall.await()
+            val licenceResult = licenceCall.await()
+            val motorcycleResult = motorcyclesCall.await()
+            val applicationSubmitted = if (licenceResult is ApiResult.Ok && motorcycleResult is ApiResult.Ok) {
+                val approval = (onboard as? ApiResult.Ok)?.value?.approvalStatus
+                    ?: previous.onboarding?.approvalStatus
+                    ?: "PENDING"
+                applicationAwaitingReview(
+                    approvalStatus = approval,
+                    hasLicenceImage = licenceResult.value != null,
+                    licenceReviewStatus = licenceResult.value?.reviewStatus,
+                    motorcycleStatuses = motorcycleResult.value.map { it.verificationStatus },
+                )
+            } else {
+                previous.applicationSubmitted
+            }
             val loadedWallet = (walletResult as? ApiResult.Ok)?.value
             val loadedCount = (offerResult as? ApiResult.Ok)?.value?.offers?.size
-            Triple(loadedWallet, loadedCount ?: previous.activeRequestCount, assignmentResult)
+            HomeLoad(loadedWallet, loadedCount ?: previous.activeRequestCount, assignmentResult, applicationSubmitted)
         }
         val recovery = DeliveryRecoveryCoordinator(
             read = deliveries::read,
@@ -306,6 +325,7 @@ class HomeViewModel @Inject constructor(
             committedV2 = committedV2,
             assignmentsUnknown = assignmentsUnknown,
             assignmentRefreshPending = listed is ApiResult.Err && failureUncertain,
+            applicationSubmitted = submitted,
         )
     }
 
@@ -325,6 +345,13 @@ class HomeViewModel @Inject constructor(
         }
     }
 }
+
+private data class HomeLoad<TWallet, TListed>(
+    val wallet: TWallet,
+    val requestCount: Int?,
+    val listed: TListed,
+    val submitted: Boolean,
+)
 
 private fun workloadFor(
     showWorkload: Boolean,

@@ -82,25 +82,6 @@ class ProfileViewModel @Inject constructor(
         }
     }
 
-    fun setPassword(password: String, currentPassword: String) {
-        if (password.length !in 12..128) {
-            state.update { it.copy(passwordError = "Password must contain 12 to 128 characters", passwordSaved = false) }
-            return
-        }
-        if (state.value.savingPassword) {
-            return
-        }
-        state.update { it.copy(savingPassword = true, passwordError = null, passwordSaved = false) }
-        viewModelScope.launch {
-            state.update {
-                when (val result = auth.setPassword(password, currentPassword)) {
-                    is ApiResult.Ok -> it.copy(savingPassword = false, passwordSaved = true, passwordError = null)
-                    is ApiResult.Err -> it.copy(savingPassword = false, passwordSaved = false, passwordError = result.error.text())
-                }
-            }
-        }
-    }
-
     fun logout() {
         if (state.value.signingOut) {
             return

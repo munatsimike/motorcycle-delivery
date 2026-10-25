@@ -14,8 +14,6 @@ type SecondaryButtonProps = {
   soft?: boolean;
 };
 
-const dangerFill = '#FEF2F2';
-
 export default function SecondaryButton({
   label,
   onPress,
@@ -23,7 +21,6 @@ export default function SecondaryButton({
   loading,
   tone = 'primary',
   icon,
-  soft = true,
 }: SecondaryButtonProps) {
   const inactive = disabled || loading;
   const accent = tone === 'danger' ? colors.error : colors.primary;
@@ -41,7 +38,7 @@ export default function SecondaryButton({
       <View
         style={[
           styles.button,
-          { borderColor: accent, backgroundColor: tone === 'danger' ? dangerFill : soft ? colors.primaryLight : colors.background },
+          { borderColor: accent, backgroundColor: colors.background },
         ]}
       >
         {loading ? (
@@ -60,7 +57,7 @@ export default function SecondaryButton({
 const styles = StyleSheet.create({
   button: {
     minHeight: 56,
-    backgroundColor: colors.primaryLight,
+    backgroundColor: colors.background,
     borderWidth: 1,
     borderColor: colors.primary,
     borderRadius: radius.lg,

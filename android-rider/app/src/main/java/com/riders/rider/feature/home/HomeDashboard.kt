@@ -224,7 +224,8 @@ fun HomeDashboard(
                                     changing = ui.changingAvailability || ui.changingReceiving,
                                 ),
                                 changingReceiving = ui.changingReceiving,
-                                showFinishSetup = ui.onboarding != null && needsOnboarding(ui.onboarding) && !readiness.canGoOnline,
+                                showFinishSetup = ui.onboarding != null && needsOnboarding(ui.onboarding) && !readiness.canGoOnline && !ui.applicationSubmitted,
+                                showViewApplication = ui.applicationSubmitted,
                                 showGoOnline = ui.shift.showGoOnline && readiness.canGoOnline,
                                 showGoOffline = ui.shift.showGoOffline,
                                 onGoOnline = onGoOnline,
@@ -248,6 +249,15 @@ fun HomeDashboard(
                     Modifier.padding(horizontal = horizontal).padding(bottom = RidersSpacing.lg),
                     verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
                 ) {
+                    val recoveryText = if (ui.shift.recoveryFailed) {
+                        ui.shift.recoveryMessage ?: "Your current delivery could not be loaded. Check your connection and try again."
+                    } else {
+                        null
+                    }
+                    val pageConnection = isConnectionFailure(ui.error) || isConnectionFailure(recoveryText)
+                    if (pageConnection) {
+                        RidersNetworkNotice(onRetry = onRefresh)
+                    }
                     HomeSummaries(
                         balance = ui.walletBalance,
                         currency = ui.walletCurrency,
@@ -261,12 +271,6 @@ fun HomeDashboard(
                     if (ui.onboarding?.receiving != null || ui.committedV2) {
                         WorkloadCard(flexible = ui.flexibleCount, express = ui.expressCount)
                     }
-                    val recoveryText = if (ui.shift.recoveryFailed) {
-                        ui.shift.recoveryMessage ?: "Your current delivery could not be loaded. Check your connection and try again."
-                    } else {
-                        null
-                    }
-                    val pageConnection = isConnectionFailure(ui.error) || isConnectionFailure(recoveryText)
                     val recoveryOnly = pageConnection &&
                         ui.shift.recoveryFailed &&
                         !ui.shift.recovering &&
@@ -280,9 +284,6 @@ fun HomeDashboard(
                     }
                     if (ui.error != null && ui.error != ui.shift.recoveryMessage && !isConnectionFailure(ui.error)) {
                         RidersErrorState(message = ui.error)
-                    }
-                    if (pageConnection) {
-                        RidersNetworkNotice(onRetry = onRefresh)
                     }
                     Spacer(Modifier.height(RidersSpacing.lg))
                 }
@@ -544,6 +545,7 @@ private fun AvailabilityCard(
     receiving: ReceivingControl,
     changingReceiving: Boolean,
     showFinishSetup: Boolean,
+    showViewApplication: Boolean,
     showGoOnline: Boolean,
     showGoOffline: Boolean,
     onGoOnline: () -> Unit,
@@ -634,6 +636,14 @@ private fun AvailabilityCard(
                     ReceivingSwitch(receiving, changingReceiving, onReceiving)
                 }
             }
+        }
+        if (showViewApplication) {
+            RidersSecondaryButton(
+                label = "View application",
+                onClick = onSetup,
+                enabled = !loading,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
         if (showFinishSetup) {
             RidersPrimaryButton(

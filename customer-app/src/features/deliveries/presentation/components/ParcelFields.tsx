@@ -2,6 +2,7 @@ import { type ComponentProps, useEffect } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
 
+import { useInputFocus } from '../../../../components/useInputFocus';
 import { colors, radius, spacing, typography } from '../../../../theme';
 import type {
   BookingDraft,
@@ -69,6 +70,8 @@ export default function ParcelFields({ draft, onChange, marketplace = false }: P
     ? draft.description
     : 'Parcel';
 
+  const instructionsFocus = useInputFocus();
+
   useEffect(() => {
     const patch: Partial<BookingDraft> = {};
     if (draft.description !== selectedDescription) {
@@ -127,7 +130,7 @@ export default function ParcelFields({ draft, onChange, marketplace = false }: P
       <View style={styles.block}>
         <Text style={styles.title}>Instructions (optional)</Text>
         <Text style={styles.subtitle}>Add any special instructions for the rider.</Text>
-        <View style={styles.instructions}>
+        <View style={[styles.instructions, instructionsFocus.style]}>
           <View style={styles.instructionsRow}>
             <MaterialDesignIcons name="pencil" size={18} color={colors.textSecondary} style={styles.pencil} />
             <TextInput
@@ -139,6 +142,8 @@ export default function ParcelFields({ draft, onChange, marketplace = false }: P
               multiline
               maxLength={INSTRUCTION_LIMIT}
               textAlignVertical="top"
+              onFocus={instructionsFocus.onFocus}
+              onBlur={instructionsFocus.onBlur}
             />
           </View>
           <Text style={styles.counter}>{draft.instructions.length}/{INSTRUCTION_LIMIT}</Text>

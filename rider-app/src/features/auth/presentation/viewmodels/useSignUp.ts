@@ -9,7 +9,7 @@ export function useSignUp() {
   const [error, setError] = useState<string | null>(null);
   const inFlight = useRef(false);
 
-  async function requestCode(phone: string, fullName: string): Promise<{ phone: string; fullName: string } | null> {
+  async function requestCode(phone: string, fullName: string, address: string): Promise<{ phone: string; fullName: string } | null> {
     if (inFlight.current) {
       return null;
     }
@@ -17,7 +17,7 @@ export function useSignUp() {
     setIsLoading(true);
     setError(null);
     try {
-      return await requestRegistrationCode(riderAuthRepository, phone, fullName);
+      return await requestRegistrationCode(riderAuthRepository, phone, fullName, address);
     } catch (caught) {
       setError(errorMessage(caught, 'Registration could not be started.'));
       return null;

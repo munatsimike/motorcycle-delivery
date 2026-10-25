@@ -53,7 +53,7 @@ export default function PhoneEntryForm({
   footerText,
   footerAction,
   onFooterPress,
-  helperText = 'Enter a Zimbabwe mobile number. We\'ll send a one-time SMS code.',
+  helperText = null,
   extra,
   secondaryLabel,
   onSecondary,

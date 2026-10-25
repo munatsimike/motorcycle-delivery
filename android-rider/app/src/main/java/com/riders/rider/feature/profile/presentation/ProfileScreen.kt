@@ -194,12 +194,6 @@ fun ProfileScreen(
                                 onToggle = { session.onHomeBiometric(activity) },
                             )
                         }
-                        PasswordCard(
-                            saving = ui.savingPassword,
-                            error = ui.passwordError,
-                            saved = ui.passwordSaved,
-                            onSave = model::setPassword,
-                        )
                         RidersSecondaryButton(
                             label = "Log out",
                             onClick = model::logout,
@@ -327,7 +321,7 @@ private fun DetailsCard(
     ) {
         InfoRow(
             icon = R.drawable.ic_phone,
-            label = "Mobile number",
+            label = "WhatsApp number",
             iconTint = PhoneBlue,
             iconFill = PhoneFill,
         ) {

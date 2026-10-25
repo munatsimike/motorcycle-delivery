@@ -17,18 +17,18 @@ const session: AuthSession = {
 
 describe('rider authentication flow', () => {
   it('starts registration with the rider phone and name', async () => {
-    const calls: Array<{ phone: string; fullName: string }> = [];
+    const calls: Array<{ phone: string; fullName: string; address: string }> = [];
     const repository = repositoryWith({
-      async requestRegistrationCode(phone, fullName) {
-        calls.push({ phone, fullName });
+      async requestRegistrationCode(phone, fullName, address) {
+        calls.push({ phone, fullName, address });
         return { status: 'pending' };
       },
     });
 
-    const started = await requestRegistrationCode(repository, '0771234567', '  Tariro   Moyo ');
+    const started = await requestRegistrationCode(repository, '0771234567', '  Tariro   Moyo ', '12 Samora Machel Avenue');
 
     expect(started).toEqual({ phone: '+263771234567', fullName: 'Tariro Moyo' });
-    expect(calls).toEqual([{ phone: '+263771234567', fullName: 'Tariro Moyo' }]);
+    expect(calls).toEqual([{ phone: '+263771234567', fullName: 'Tariro Moyo', address: '12 Samora Machel Avenue' }]);
   });
 
   it('accepts a pending registration response and a session from verify', async () => {
@@ -68,8 +68,10 @@ function repositoryWith(overrides: Partial<RiderAuthRepository>): RiderAuthRepos
   const pending = async (): Promise<PendingOtp> => ({ status: 'pending' });
   return {
     requestRegistrationCode: pending,
+    resendRegistrationCode: pending,
     verifyRegistrationCode: async () => session,
     requestLoginCode: pending,
+    resendLoginCode: pending,
     verifyLoginCode: async () => session,
     refresh: async () => session,
     logout: async () => undefined,

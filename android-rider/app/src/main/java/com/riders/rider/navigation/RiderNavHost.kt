@@ -13,10 +13,8 @@ import androidx.navigation.navArgument
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.riders.rider.feature.offers.notification.rememberOfferInbox
 import com.riders.rider.feature.auth.presentation.AccountScreen
-import com.riders.rider.feature.auth.presentation.ForgotPasswordScreen
 import com.riders.rider.feature.auth.presentation.OtpScreen
 import com.riders.rider.feature.auth.presentation.RegisterScreen
-import com.riders.rider.feature.auth.presentation.ResetPasswordScreen
 import com.riders.rider.feature.auth.presentation.SignInScreen
 import com.riders.rider.feature.auth.presentation.WelcomeScreen
 import com.riders.rider.feature.delivery.domain.parcelRoute
@@ -70,10 +68,9 @@ private fun RiderGraph(signedIn: Boolean) {
             SignInScreen(
                 notice = entry.arguments?.getString("notice").orEmpty().ifBlank { null },
                 onCodeSent = { phone ->
-                    controller.navigate("otp/login/${Uri.encode(phone)}")
+                    controller.navigate("otp/whatsapp_login/${Uri.encode(phone)}")
                 },
                 onCreateAccount = { controller.navigate("register") },
-                onForgotPassword = { controller.navigate("forgot") },
             )
         }
         composable("register") {
@@ -85,27 +82,6 @@ private fun RiderGraph(signedIn: Boolean) {
                     controller.navigate("otp/whatsapp/${Uri.encode(phone)}")
                 },
                 onSignIn = { controller.navigate("sign-in") },
-            )
-        }
-        composable("forgot") {
-            ForgotPasswordScreen(
-                onCodeSent = { phone ->
-                    controller.navigate("reset/${Uri.encode(phone)}")
-                },
-                onSignIn = { controller.navigate("sign-in") },
-            )
-        }
-        composable(
-            route = "reset/{phone}",
-            arguments = listOf(navArgument("phone") { type = NavType.StringType }),
-        ) { entry ->
-            ResetPasswordScreen(
-                phone = entry.arguments?.getString("phone").orEmpty(),
-                onDone = {
-                    controller.navigate("sign-in?notice=${Uri.encode("Password updated. Sign in with your new password.")}") {
-                        popUpTo("welcome")
-                    }
-                },
             )
         }
         composable(

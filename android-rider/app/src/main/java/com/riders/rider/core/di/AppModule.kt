@@ -69,7 +69,9 @@ object AppModule {
                 val request = chain.request()
                 val path = request.url.encodedPath
                 val token = store.read()?.accessToken
-                val open = path.contains("/auth/rider/") || path.endsWith("/auth/session/refresh")
+                val open = path.contains("/auth/rider/")
+                    || path.contains("/auth/places")
+                    || path.endsWith("/auth/session/refresh")
                 if (open || token.isNullOrEmpty()) {
                     chain.proceed(request)
                 } else {

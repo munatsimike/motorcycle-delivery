@@ -1,21 +1,22 @@
-// Keep this false until Railway WhatsApp verification is enabled.
-// SMS registration, SMS login, and password login stay available either way.
-export const WHATSAPP_AUTH_ENABLED = false;
+// WhatsApp delivery stays off until WHATSAPP_VERIFICATION_ENABLED=true on the API.
+// The apps do not offer SMS or a password as a fallback.
 
 export type AuthEntryActions = {
-  smsRegistration: true;
-  smsLogin: true;
-  passwordLogin: true;
-  whatsappRegistration: boolean;
-  passwordRecovery: boolean;
+  smsRegistration: false;
+  smsLogin: false;
+  passwordLogin: false;
+  passwordRecovery: false;
+  whatsappRegistration: true;
+  whatsappLogin: true;
 };
 
-export function authEntryActions(whatsappEnabled = WHATSAPP_AUTH_ENABLED): AuthEntryActions {
+export function authEntryActions(): AuthEntryActions {
   return {
-    smsRegistration: true,
-    smsLogin: true,
-    passwordLogin: true,
-    whatsappRegistration: whatsappEnabled,
-    passwordRecovery: whatsappEnabled,
+    smsRegistration: false,
+    smsLogin: false,
+    passwordLogin: false,
+    passwordRecovery: false,
+    whatsappRegistration: true,
+    whatsappLogin: true,
   };
 }

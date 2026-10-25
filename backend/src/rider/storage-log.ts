@@ -9,7 +9,7 @@ const SECRET_ENV = [
   'DATABASE_URL',
   'TWILIO_AUTH_TOKEN',
   'TWILIO_ACCOUNT_SID',
-  'TWILIO_VERIFY_SERVICE_SID',
+  'WHATSAPP_VERIFICATION_SERVICE_SID',
 ];
 
 export function logStorageFailure(error: unknown): void {

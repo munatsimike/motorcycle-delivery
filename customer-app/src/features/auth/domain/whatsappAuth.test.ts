@@ -5,14 +5,13 @@ vi.mock('react-native', () => ({
 }));
 
 import { CustomerAuthApiRepository } from '../data/repositories/CustomerAuthApiRepository';
-import { authEntryActions, WHATSAPP_AUTH_ENABLED } from './whatsappRelease';
+import { authEntryActions } from './whatsappRelease';
 import { isVerificationCode } from './verificationCode';
 
 const originalFetch = globalThis.fetch;
 const repository = new CustomerAuthApiRepository();
 const registration = {
   phone: '+263771234567',
-  password: 'correct-horse',
   accountKind: 'INDIVIDUAL' as const,
   fullName: 'Tendai Moyo',
   address: '12 Samora Machel Avenue',
@@ -32,14 +31,14 @@ afterEach(() => {
 });
 
 describe('WhatsApp release gate', () => {
-  it('keeps SMS registration and login available while WhatsApp actions stay hidden', () => {
-    expect(WHATSAPP_AUTH_ENABLED).toBe(false);
+  it('uses WhatsApp codes for sign-in and registration without SMS or a password', () => {
     expect(authEntryActions()).toEqual({
-      smsRegistration: true,
-      smsLogin: true,
-      passwordLogin: true,
-      whatsappRegistration: false,
+      smsRegistration: false,
+      smsLogin: false,
+      passwordLogin: false,
       passwordRecovery: false,
+      whatsappRegistration: true,
+      whatsappLogin: true,
     });
   });
 });
@@ -127,31 +126,22 @@ describe('customer WhatsApp authentication', () => {
     );
   });
 
-  it('requests password recovery with WhatsApp consent', async () => {
+  it('starts WhatsApp sign-in with consent and verifies the code into a session', async () => {
     const calls = mockJson(200, { status: 'pending' });
 
-    await expect(repository.requestPasswordReset('+263771234567')).resolves.toEqual({ status: 'pending' });
+    await expect(repository.startWhatsAppLogin('+263771234567')).resolves.toEqual({ status: 'pending' });
 
-    expect(calls[0]?.url).toBe('https://api.example.com/auth/customer/password/forgot');
+    expect(calls[0]?.url).toBe('https://api.example.com/auth/customer/login/whatsapp');
     expect(calls[0]?.body).toEqual({ phone: '+263771234567', whatsappConsent: true });
+
+    mockJson(200, session);
+    await expect(repository.verifyWhatsAppLogin('+263771234567', '123456')).resolves.toEqual(session);
   });
 
-  it('resets the password without creating a session', async () => {
-    const calls = mockJson(204, null);
+  it('reports a missing account without a session', async () => {
+    mockJson(200, { status: 'unavailable' });
 
-    await expect(repository.resetPassword('+263771234567', '123456', 'correct-horse')).resolves.toBeUndefined();
-
-    expect(calls[0]?.url).toBe('https://api.example.com/auth/customer/password/reset');
-    expect(calls[0]?.body).toEqual({ phone: '+263771234567', code: '123456', password: 'correct-horse' });
-  });
-
-  it('keeps a failed password reset from looking successful', async () => {
-    mockJson(401, { message: 'Authentication failed', statusCode: 401 });
-
-    await expect(repository.resetPassword('+263771234567', '000000', 'correct-horse')).rejects.toMatchObject({
-      message: 'Authentication failed',
-      status: 401,
-    });
+    await expect(repository.startWhatsAppLogin('+263771234567')).resolves.toEqual({ status: 'unavailable' });
   });
 });
 

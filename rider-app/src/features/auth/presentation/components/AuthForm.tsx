@@ -13,6 +13,7 @@ import ErrorMessage from '../../../../components/ErrorMessage';
 import FormInput from '../../../../components/FormInput';
 import PrimaryButton from '../../../../components/PrimaryButton';
 import ZimbabwePhoneField from '../../../../components/ZimbabwePhoneField';
+import RegistrationAddressField from './RegistrationAddressField';
 import { colors, spacing, typography } from '../../../../theme';
 
 type AuthFormProps = {
@@ -27,8 +28,11 @@ type AuthFormProps = {
   footerText: string;
   footerAction: string;
   onFooterPress: () => void;
+  helperText?: string | null;
   fullName?: string;
   onChangeFullName?: (value: string) => void;
+  address?: string;
+  onChangeAddress?: (value: string) => void;
 };
 
 export default function AuthForm({
@@ -43,8 +47,11 @@ export default function AuthForm({
   footerText,
   footerAction,
   onFooterPress,
+  helperText = null,
   fullName,
   onChangeFullName,
+  address,
+  onChangeAddress,
 }: AuthFormProps) {
   return (
     <KeyboardAvoidingView
@@ -67,8 +74,15 @@ export default function AuthForm({
             editable={!isLoading}
           />
         ) : null}
+        {onChangeAddress ? (
+          <RegistrationAddressField
+            value={address ?? ''}
+            onChangeText={onChangeAddress}
+            editable={!isLoading}
+          />
+        ) : null}
         <ZimbabwePhoneField value={phone} onChangeText={onChangePhone} editable={!isLoading} />
-        <Text style={styles.helper}>We'll send a one-time SMS code to this Zimbabwe number.</Text>
+        {helperText ? <Text style={styles.helper}>{helperText}</Text> : null}
         <ErrorMessage message={error} />
         <PrimaryButton
           label={buttonLabel}

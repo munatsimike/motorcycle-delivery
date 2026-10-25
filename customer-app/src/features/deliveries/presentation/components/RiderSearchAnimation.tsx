@@ -113,7 +113,7 @@ function FloatingIcon({ running }: { running: boolean }) {
   return (
     <Animated.View style={{ transform: [{ translateY }] }}>
       <View style={styles.iconCircle}>
-        <MaterialDesignIcons name="bike" size={22} color={colors.textInverse} />
+        <MaterialDesignIcons name="motorbike" size={22} color={colors.textInverse} />
       </View>
     </Animated.View>
   );

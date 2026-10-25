@@ -71,6 +71,7 @@ export default function OtpVerificationScreen({ route }: OtpProps) {
           textContentType="oneTimeCode"
           maxLength={10}
           editable={!isLoading}
+          invalid={Boolean(saveError ?? error)}
         />
         <ErrorMessage message={saveError ?? error} />
         <PrimaryButton

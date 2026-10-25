@@ -53,7 +53,7 @@ class RiderSessionTest {
             val result = AuthRepository(auth, MemorySessionStore()).requestLogin("+263771234567")
             assertEquals(ApiResult.Ok(LoginStart.CodeSent), result)
             val recorded = server.takeRequest()
-            assertEquals("/auth/rider/login/otp", recorded.path)
+            assertEquals("/auth/rider/login/whatsapp", recorded.path)
             assertNull(recorded.getHeader("Authorization"))
             val body = recorded.body.readUtf8()
             assertTrue(body.contains("+263771234567"))
@@ -74,7 +74,7 @@ class RiderSessionTest {
             assertEquals(ApiResult.Ok(LoginStart.AccountMissing), result)
             assertNull(store.read())
             val recorded = server.takeRequest()
-            assertEquals("/auth/rider/login/otp", recorded.path)
+            assertEquals("/auth/rider/login/whatsapp", recorded.path)
             assertFalse(recorded.body.readUtf8().contains("code"))
         } finally {
             server.shutdown()
@@ -104,7 +104,7 @@ class RiderSessionTest {
             val result = AuthRepository(server.auth(), store).verify("login", "+263771234567", "000000")
             assertEquals("Verification code is invalid", (result as ApiResult.Err).error.text())
             assertNull(store.read())
-            assertEquals("/auth/rider/login/verify", server.takeRequest().path)
+            assertEquals("/auth/rider/login/whatsapp/verify", server.takeRequest().path)
         } finally {
             server.shutdown()
         }
@@ -116,13 +116,18 @@ class RiderSessionTest {
         server.enqueue(json("""{"status":"pending"}"""))
         server.start()
         try {
-            val result = AuthRepository(server.auth(), MemorySessionStore()).requestRegistration("+263771234567")
+            val result = AuthRepository(server.auth(), MemorySessionStore()).registerWithPassword(
+                "+263771234567",
+                "Tonderai Moyo",
+                "12 Samora Machel Avenue",
+            )
             assertTrue(result is ApiResult.Ok)
             val recorded = server.takeRequest()
-            assertEquals("/auth/rider/register/otp", recorded.path)
+            assertEquals("/auth/rider/register/whatsapp", recorded.path)
             val body = recorded.body.readUtf8()
             assertTrue(body.contains("+263771234567"))
             assertTrue(body.contains("\"fullName\":\"Tonderai Moyo\""))
+            assertFalse(body.contains("password"))
             assertFalse(body.contains("accountKind"))
             assertFalse(body.contains("register/complete"))
         } finally {
@@ -141,7 +146,7 @@ class RiderSessionTest {
             assertEquals(ApiResult.Ok(VerifyOutcome.SignedIn), result)
             assertEquals("access-1", store.read()?.accessToken)
             val recorded = server.takeRequest()
-            assertEquals("/auth/rider/register/verify", recorded.path)
+            assertEquals("/auth/rider/register/whatsapp/verify", recorded.path)
             assertEquals(1, server.requestCount)
         } finally {
             server.shutdown()
@@ -149,16 +154,15 @@ class RiderSessionTest {
     }
 
     @Test
-    fun verifiedRegistrationKeepsExistingDetailsReadOnly() = runTest {
+    fun verifiedRegistrationSavesTheSession() = runTest {
         val server = MockWebServer()
-        server.enqueue(json("""{"status":"verified","registrationToken":"proof-token","fullName":"Rudo Ncube","phone":"+263771234567","address":"1 First Street","readOnly":["fullName","phone","address"],"missing":[]}"""))
+        server.enqueue(session("access-verified", "refresh-verified"))
         server.start()
         try {
-            val result = AuthRepository(server.auth(), MemorySessionStore()).verify("registration", "+263771234567", "123456")
-            assertEquals(
-                ApiResult.Ok(VerifyOutcome.NeedsAccount("proof-token", "Rudo Ncube", "1 First Street", true)),
-                result,
-            )
+            val store = MemorySessionStore()
+            val result = AuthRepository(server.auth(), store).verify("registration", "+263771234567", "123456")
+            assertEquals(ApiResult.Ok(VerifyOutcome.SignedIn), result)
+            assertEquals("access-verified", store.read()?.accessToken)
         } finally {
             server.shutdown()
         }
@@ -176,7 +180,7 @@ class RiderSessionTest {
             assertEquals("access-existing", store.read()?.accessToken)
             assertEquals("refresh-existing", store.read()?.refreshToken)
             val recorded = server.takeRequest()
-            assertEquals("/auth/rider/register/verify", recorded.path)
+            assertEquals("/auth/rider/register/whatsapp/verify", recorded.path)
             assertEquals(1, server.requestCount)
         } finally {
             server.shutdown()
@@ -184,16 +188,16 @@ class RiderSessionTest {
     }
 
     @Test
-    fun verifiedRegistrationWaitsForTheAccountForm() = runTest {
+    fun verifiedRegistrationDoesNotWaitForAnotherAccountForm() = runTest {
         val server = MockWebServer()
-        server.enqueue(json("""{"status":"verified","registrationToken":"proof-token"}"""))
+        server.enqueue(session("access-form", "refresh-form"))
         server.start()
         try {
             val store = MemorySessionStore()
             val result = AuthRepository(server.auth(), store).verify("registration", "+263771234567", "123456")
-            assertEquals(ApiResult.Ok(VerifyOutcome.NeedsAccount("proof-token")), result)
-            assertNull(store.read())
-            assertEquals("/auth/rider/register/verify", server.takeRequest().path)
+            assertEquals(ApiResult.Ok(VerifyOutcome.SignedIn), result)
+            assertEquals("access-form", store.read()?.accessToken)
+            assertEquals("/auth/rider/register/whatsapp/verify", server.takeRequest().path)
         } finally {
             server.shutdown()
         }
@@ -211,16 +215,9 @@ class RiderSessionTest {
                 "Tendai Moyo",
                 "12 Samora Machel Avenue",
             )
-            assertTrue(result is ApiResult.Ok)
-            assertEquals("access-1", store.read()?.accessToken)
-            val recorded = server.takeRequest()
-            assertEquals("/auth/rider/register/complete", recorded.path)
-            val body = recorded.body.readUtf8()
-            assertTrue(body.contains("proof-token"))
-            assertTrue(body.contains("Tendai Moyo"))
-            assertTrue(body.contains("12 Samora Machel Avenue"))
-            assertFalse(body.contains("accountKind"))
-            assertFalse(body.contains("BUSINESS"))
+            assertTrue(result is ApiResult.Err)
+            assertNull(store.read())
+            assertEquals(0, server.requestCount)
         } finally {
             server.shutdown()
         }
@@ -236,7 +233,7 @@ class RiderSessionTest {
             val result = AuthRepository(server.auth(), store).verify("registration", "+263771234567", "123456")
             assertEquals("Authentication failed", (result as ApiResult.Err).error.text())
             assertNull(store.read())
-            assertEquals("/auth/rider/register/verify", server.takeRequest().path)
+            assertEquals("/auth/rider/register/whatsapp/verify", server.takeRequest().path)
         } finally {
             server.shutdown()
         }

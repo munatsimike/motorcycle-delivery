@@ -27,6 +27,20 @@ fun needsOnboarding(onboarding: RiderOnboarding): Boolean {
         || !onboarding.activeVerifiedMotorcycle
 }
 
+fun applicationAwaitingReview(
+    approvalStatus: String,
+    hasLicenceImage: Boolean,
+    licenceReviewStatus: String?,
+    motorcycleStatuses: List<String>,
+): Boolean {
+    if (approvalStatus != "PENDING") {
+        return false
+    }
+    val licenceSubmitted = hasLicenceImage && licenceReviewStatus != "REJECTED"
+    val motorcycleSubmitted = motorcycleStatuses.any { it == "PENDING" || it == "VERIFIED" }
+    return licenceSubmitted && motorcycleSubmitted
+}
+
 fun riderReadiness(onboarding: RiderOnboarding): RiderReadiness {
     val approved = onboarding.approvalStatus == "APPROVED"
     val licensed = onboarding.licenceVerificationStatus == "VERIFIED"

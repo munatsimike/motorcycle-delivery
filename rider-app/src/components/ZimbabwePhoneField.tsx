@@ -1,25 +1,27 @@
 import { Image, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { colors, radius, spacing, typography } from '../theme';
+import { colors, inputErrorStyle, radius, spacing, typography } from '../theme';
 import { useInputFocus } from './useInputFocus';
 
 type ZimbabwePhoneFieldProps = {
   value: string;
   onChangeText: (value: string) => void;
   editable?: boolean;
+  invalid?: boolean;
 };
 
 export default function ZimbabwePhoneField({
   value,
   onChangeText,
   editable = true,
+  invalid = false,
 }: ZimbabwePhoneFieldProps) {
   const focus = useInputFocus();
 
   return (
     <>
-      <Text style={styles.label}>Mobile number</Text>
-      <View style={[styles.inputContainer, focus.style]}>
+      <Text style={styles.label}>WhatsApp number</Text>
+      <View style={[styles.inputContainer, focus.style, invalid ? inputErrorStyle : null]}>
         <View style={styles.countryCode}>
           <Image
             source={require('../../assets/zimbabwe-flag.png')}
@@ -30,7 +32,7 @@ export default function ZimbabwePhoneField({
         </View>
         <View style={styles.inputDivider} />
         <TextInput
-          accessibilityLabel="Mobile number"
+          accessibilityLabel="WhatsApp number"
           style={styles.input}
           value={value}
           onChangeText={onChangeText}

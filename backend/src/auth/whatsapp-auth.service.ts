@@ -21,6 +21,7 @@ import { readCustomerProfile } from '../customer/customer-profile.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { createEmptyWallet } from '../rider/wallet-ledger.js';
 import {
+  DEV_OTP_TTL_MS,
   OTP_CHALLENGE_TTL_MS,
   OTP_COOLDOWN_MS,
   OTP_IP_HOURLY_LIMIT,
@@ -28,7 +29,7 @@ import {
   OTP_MAX_CHECK_ATTEMPTS,
   OTP_PHONE_HOURLY_LIMIT,
 } from './auth.constants.js';
-import { hashAdminPassword } from './admin-password.js';
+import { devOtpAllowed, rejectDevOtpUnlessLocal } from './dev-otp.js';
 import { Clock } from './clock.js';
 import { InvalidPersonNameError, normalizePersonName } from './person-name.js';
 import { InvalidPhoneNumberError, normalizeAuthPhone } from './phone-number.js';
@@ -61,14 +62,13 @@ export class WhatsAppAuthService {
 
   async startRegistration(role: AuthSubjectRole, body: unknown, remoteAddress: string): Promise<{ status: 'pending' }> {
     const phone = readPhone(body);
-    const passwordHash = await readPasswordHash(body);
     assertConsent(body);
     const profile = role === AuthSubjectRole.CUSTOMER ? readCustomerProfile(body) : null;
     const rider = role === AuthSubjectRole.RIDER ? readRiderAccount(body) : null;
     this.assertConfigured();
     const now = this.clock.now();
     await this.assertRegistrationSendAllowed(phone, role, hashSecret(remoteAddress), now);
-    const user = await this.savePendingAccount(role, phone, passwordHash, profile, rider, now);
+    const user = await this.savePendingAccount(role, phone, profile, rider, now);
     await this.sendChallenge({
       phone,
       role,
@@ -124,85 +124,99 @@ export class WhatsAppAuthService {
     return this.activateRegistration(challenge.id, phone, role, now);
   }
 
-  async requestRecovery(role: AuthSubjectRole, body: unknown, remoteAddress: string): Promise<{ status: 'pending' }> {
+  async startLogin(role: AuthSubjectRole, body: unknown, remoteAddress: string): Promise<LoginStart> {
     const phone = readPhone(body);
     assertConsent(body);
     this.assertConfigured();
     const now = this.clock.now();
-    const ipHash = hashSecret(remoteAddress);
-    if (await this.ipLimited(ipHash, now) || await this.phoneLimited(phone, role, now) || await this.coolingDown(phone, role, AuthPurpose.PASSWORD_RECOVERY, now) || await this.locked(phone, role, now)) {
-      return this.conceal();
+    if (await this.loginSendBlocked(phone, role, hashSecret(remoteAddress), now)) {
+      throw new TooManyRequestsException();
     }
     const user = await this.prisma.user.findUnique({ where: { phone }, include: accountInclude });
-    if (!canRecover(user, role)) {
-      await this.recordConcealed(phone, role, AuthPurpose.PASSWORD_RECOVERY, ipHash, now);
-      return this.conceal();
+    if (!canSignIn(user, role)) {
+      return { status: 'unavailable' };
     }
     if (!user.whatsappConsentAt) {
-      await this.prisma.user.update({
-        where: { id: user.id },
-        data: { whatsappConsentAt: now },
-      });
+      await this.prisma.user.update({ where: { id: user.id }, data: { whatsappConsentAt: now } });
     }
     await this.sendChallenge({
       phone,
       role,
-      purpose: AuthPurpose.PASSWORD_RECOVERY,
+      purpose: AuthPurpose.LOGIN,
       remoteAddress,
       now,
-      concealFailure: true,
+      concealFailure: false,
     });
-    return this.conceal();
+    return { status: 'pending' };
   }
 
-  async resetPassword(role: AuthSubjectRole, body: unknown): Promise<void> {
+  async resendLogin(role: AuthSubjectRole, body: unknown, remoteAddress: string): Promise<LoginStart> {
     const phone = readPhone(body);
-    const code = readCode(body, GENERIC_FAILURE);
-    const passwordHash = await readPasswordHash(body);
+    this.assertConfigured();
+    const now = this.clock.now();
+    if (await this.loginSendBlocked(phone, role, hashSecret(remoteAddress), now)) {
+      throw new TooManyRequestsException();
+    }
+    const user = await this.prisma.user.findUnique({ where: { phone }, include: accountInclude });
+    if (!canSignIn(user, role)) {
+      return { status: 'unavailable' };
+    }
+    await this.sendChallenge({
+      phone,
+      role,
+      purpose: AuthPurpose.LOGIN,
+      remoteAddress,
+      now,
+      concealFailure: false,
+    });
+    return { status: 'pending' };
+  }
+
+  async verifyLogin(role: AuthSubjectRole, body: unknown): Promise<AuthTokens> {
+    const phone = readPhone(body);
+    const code = readCode(body, 'Verification code is invalid');
     this.assertConfigured();
     const now = this.clock.now();
     if (await this.locked(phone, role, now)) {
       throw new TooManyRequestsException();
     }
-    const challenge = await this.pendingChallenge(phone, role, AuthPurpose.PASSWORD_RECOVERY, now);
+    const challenge = await this.pendingChallenge(phone, role, AuthPurpose.LOGIN, now);
     if (!challenge) {
-      throw new UnauthorizedException(GENERIC_FAILURE);
+      throw new UnauthorizedException('Verification code is invalid');
     }
     const approved = await this.verification.check(phone, code);
     if (!approved) {
       await this.recordCheckFailure(challenge.id, challenge.checkAttempts, now);
-      throw new UnauthorizedException(GENERIC_FAILURE);
+      throw new UnauthorizedException('Verification code is invalid');
     }
-    await this.prisma.$transaction(async (tx) => {
+    return this.prisma.$transaction(async (tx) => {
       const consumed = await tx.authChallenge.updateMany({
         where: { id: challenge.id, status: AuthChallengeStatus.PENDING },
         data: { status: AuthChallengeStatus.VERIFIED },
       });
       if (consumed.count !== 1) {
-        throw new UnauthorizedException(GENERIC_FAILURE);
+        throw new UnauthorizedException('Verification code is invalid');
       }
-      await tx.authChallenge.updateMany({
-        where: {
-          phone,
-          subjectRole: role,
-          purpose: AuthPurpose.PASSWORD_RECOVERY,
-          status: AuthChallengeStatus.PENDING,
-        },
-        data: { status: AuthChallengeStatus.SUPERSEDED },
-      });
       const user = await tx.user.findUnique({ where: { phone }, include: accountInclude });
-      if (!canRecover(user, role)) {
-        throw new UnauthorizedException(GENERIC_FAILURE);
+      if (!canSignIn(user, role)) {
+        throw new UnauthorizedException('Verification code is invalid');
       }
-      await tx.user.update({
-        where: { id: user.id },
-        data: { passwordHash },
-      });
-      await this.sessions.revokeAll(user.id, tx);
+      return this.sessions.issue(tx, user.id, user.role, now);
     });
   }
 
   private assertConfigured(): void {
+    if (process.env.DEV_OTP_ENABLED === 'true') {
+      try {
+        rejectDevOtpUnlessLocal();
+      } catch {
+        throw new ServiceUnavailableException('WhatsApp verification is unavailable');
+      }
+      if (devOtpAllowed()) {
+        return;
+      }
+      throw new ServiceUnavailableException('WhatsApp verification is unavailable');
+    }
     readWhatsAppVerificationConfig();
   }
 
@@ -212,10 +226,16 @@ export class WhatsAppAuthService {
     }
   }
 
+  private async loginSendBlocked(phone: string, role: AuthSubjectRole, ipHash: string, now: Date): Promise<boolean> {
+    return await this.ipLimited(ipHash, now)
+      || await this.phoneLimited(phone, role, now)
+      || await this.coolingDown(phone, role, AuthPurpose.LOGIN, now)
+      || await this.locked(phone, role, now);
+  }
+
   private async savePendingAccount(
     role: AuthSubjectRole,
     phone: string,
-    passwordHash: string,
     profile: ReturnType<typeof readCustomerProfile> | null,
     rider: { fullName: string } | null,
     now: Date,
@@ -229,7 +249,6 @@ export class WhatsAppAuthService {
         where: { id: existing.id },
         data: {
           fullName: profile?.personName ?? rider?.fullName ?? existing.fullName,
-          passwordHash,
           whatsappConsentAt: now,
           customerAccount: profile && existing.customerAccount ? {
             update: {
@@ -253,7 +272,6 @@ export class WhatsAppAuthService {
             role: role === AuthSubjectRole.RIDER ? UserRole.RIDER : UserRole.CUSTOMER,
             accountStatus: AccountStatus.PENDING,
             phoneVerifiedAt: null,
-            passwordHash,
             whatsappConsentAt: now,
           },
         });
@@ -340,7 +358,7 @@ export class WhatsAppAuthService {
         channel: VerificationChannel.WHATSAPP,
         status: AuthChallengeStatus.PENDING,
         sendCount: 1,
-        expiresAt: new Date(input.now.getTime() + OTP_CHALLENGE_TTL_MS),
+        expiresAt: new Date(input.now.getTime() + (devOtpAllowed() ? DEV_OTP_TTL_MS : OTP_CHALLENGE_TTL_MS)),
         ipHash: hashSecret(input.remoteAddress),
         createdAt: input.now,
       },
@@ -471,23 +489,11 @@ export class WhatsAppAuthService {
     });
     return challenge !== null;
   }
-
-  private async conceal(): Promise<{ status: 'pending' }> {
-    await this.clock.pause(this.clock.concealmentMs);
-    return { status: 'pending' };
-  }
 }
 
-function isPendingRegistration(user: AccountRecord, role: AuthSubjectRole): boolean {
-  const sameRole = role === AuthSubjectRole.RIDER ? user.role === UserRole.RIDER : user.role === UserRole.CUSTOMER;
-  return sameRole
-    && user.accountStatus === AccountStatus.PENDING
-    && user.phoneVerifiedAt === null
-    && typeof user.passwordHash === 'string'
-    && user.whatsappConsentAt !== null;
-}
+type LoginStart = { status: 'pending' } | { status: 'unavailable' };
 
-function canRecover(user: AccountRecord | null, role: AuthSubjectRole): user is AccountRecord {
+function canSignIn(user: AccountRecord | null, role: AuthSubjectRole): user is AccountRecord {
   if (!user || user.phoneVerifiedAt === null || user.accountStatus !== AccountStatus.ACTIVE) {
     return false;
   }
@@ -497,17 +503,18 @@ function canRecover(user: AccountRecord | null, role: AuthSubjectRole): user is 
   return user.role === UserRole.CUSTOMER && user.customerAccount !== null;
 }
 
+function isPendingRegistration(user: AccountRecord, role: AuthSubjectRole): boolean {
+  const sameRole = role === AuthSubjectRole.RIDER ? user.role === UserRole.RIDER : user.role === UserRole.CUSTOMER;
+  return sameRole
+    && user.accountStatus === AccountStatus.PENDING
+    && user.phoneVerifiedAt === null
+    && user.whatsappConsentAt !== null;
+}
+
 function assertConsent(body: unknown): void {
   if (!isRecord(body) || body.whatsappConsent !== true) {
     throw new BadRequestException('Consent to WhatsApp authentication messages is required');
   }
-}
-
-async function readPasswordHash(body: unknown): Promise<string> {
-  if (!isRecord(body) || typeof body.password !== 'string') {
-    throw new BadRequestException('Password must contain 12 to 128 characters');
-  }
-  return hashAdminPassword(body.password);
 }
 
 function readPhone(body: unknown): string {

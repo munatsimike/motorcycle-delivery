@@ -13,10 +13,14 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -28,13 +32,18 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.PlatformTextStyle
@@ -42,6 +51,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -215,16 +225,12 @@ fun RidersSecondaryButton(
     enabled: Boolean = true,
     loading: Boolean = false,
     tone: RidersButtonTone = RidersButtonTone.Primary,
-    soft: Boolean = true,
+    @Suppress("UNUSED_PARAMETER") soft: Boolean = true,
     icon: Int? = null,
 ) {
     val inactive = !enabled || loading
     val accent = if (tone == RidersButtonTone.Danger) RidersColors.error else RidersColors.primary
-    val fill = when {
-        tone == RidersButtonTone.Danger -> RidersColors.dangerSurface
-        soft -> RidersColors.primaryLight
-        else -> RidersColors.background
-    }
+    val fill = RidersColors.background
     Box(
         modifier = modifier
             .defaultMinSize(minHeight = 56.dp)
@@ -415,18 +421,18 @@ fun RidersNetworkNotice(
     onRetry: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
-    Row(
+    Column(
         modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(RidersRadius.lg))
             .background(RidersColors.dangerSurface)
-            .padding(RidersSpacing.lg),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md),
+            .padding(horizontal = RidersSpacing.lg, vertical = RidersSpacing.xl),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
     ) {
         Box(
             Modifier
-                .size(40.dp)
+                .size(48.dp)
                 .clip(CircleShape)
                 .background(Color(0xFFF8D7D4)),
             contentAlignment = Alignment.Center,
@@ -435,22 +441,30 @@ fun RidersNetworkNotice(
                 painter = painterResource(R.drawable.ic_wifi_off),
                 contentDescription = null,
                 tint = RidersColors.error,
-                modifier = Modifier.size(22.dp),
+                modifier = Modifier.size(26.dp),
             )
         }
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs)) {
-            Text("Network request failed", style = RidersType.bodyStrong, color = RidersColors.error)
-            Text("Check your connection and try again.", style = RidersType.caption, color = RidersColors.error)
-        }
+        Text(
+            "No internet connection",
+            style = RidersType.bodyStrong,
+            color = RidersColors.error,
+            textAlign = TextAlign.Center,
+        )
+        Text(
+            "Check your connection and try again.",
+            style = RidersType.caption,
+            color = RidersColors.error,
+            textAlign = TextAlign.Center,
+        )
         if (onRetry != null) {
-            Icon(
-                painter = painterResource(R.drawable.ic_refresh),
-                contentDescription = "Try again",
-                tint = RidersColors.error,
+            Text(
+                "Try again",
+                style = RidersType.captionStrong,
+                color = RidersColors.error,
+                textAlign = TextAlign.Center,
                 modifier = Modifier
-                    .size(40.dp)
-                    .clickable(role = Role.Button, onClick = onRetry)
-                    .padding(RidersSpacing.sm),
+                    .padding(top = RidersSpacing.xs)
+                    .clickable(role = Role.Button, onClick = onRetry),
             )
         }
     }
@@ -492,6 +506,21 @@ fun RidersErrorState(
     }
 }
 
+fun Modifier.ridersFocusRing(focused: Boolean, color: Color = RidersColors.focusRing): Modifier {
+    if (!focused) {
+        return this
+    }
+    return this.drawBehind {
+        val spread = 4.dp.toPx()
+        drawRoundRect(
+            color = color,
+            topLeft = Offset(-spread, -spread),
+            size = Size(size.width + spread * 2, size.height + spread * 2),
+            cornerRadius = CornerRadius(RidersRadius.md.toPx() + spread, RidersRadius.md.toPx() + spread),
+        )
+    }
+}
+
 @Composable
 fun RidersTextField(
     label: String,
@@ -506,6 +535,13 @@ fun RidersTextField(
 ) {
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
+    val bringIntoView = remember { BringIntoViewRequester() }
+    val imeBottom = WindowInsets.ime.getBottom(LocalDensity.current)
+    LaunchedEffect(focused, imeBottom) {
+        if (focused && enabled) {
+            bringIntoView.bringIntoView()
+        }
+    }
     val shape = RoundedCornerShape(RidersRadius.md)
     val borderColor = when {
         error != null -> RidersColors.error
@@ -513,7 +549,7 @@ fun RidersTextField(
         else -> RidersColors.border
     }
     val borderWidth = if (focused || error != null) 2.dp else 1.dp
-    Column(modifier) {
+    Column(modifier.bringIntoViewRequester(bringIntoView)) {
         Text(label, style = RidersType.captionStrong, color = RidersColors.text)
         Spacer(Modifier.height(RidersSpacing.md))
         BasicTextField(
@@ -522,14 +558,11 @@ fun RidersTextField(
             modifier = Modifier
                 .fillMaxWidth()
                 .defaultMinSize(minHeight = 58.dp)
-                .shadow(
-                    elevation = if (focused) 4.dp else 0.dp,
-                    shape = shape,
-                    ambientColor = RidersColors.focusRing,
-                    spotColor = RidersColors.focusRing,
+                .ridersFocusRing(
+                    focused = error != null || (focused && enabled),
+                    color = if (error != null) RidersColors.errorRing else RidersColors.focusRing,
                 )
-                .clip(shape)
-                .background(if (enabled) RidersColors.background else RidersColors.surface)
+                .background(if (enabled) RidersColors.background else RidersColors.surface, shape)
                 .border(borderWidth, borderColor, shape)
                 .padding(horizontal = RidersSpacing.lg, vertical = RidersSpacing.lg),
             enabled = enabled,

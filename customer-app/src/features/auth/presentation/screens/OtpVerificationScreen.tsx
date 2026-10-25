@@ -46,20 +46,6 @@ export default function OtpVerificationScreen({ navigation, route }: OtpProps) {
       setSubmitted(false);
       return;
     }
-    if (result.flow === 'registration') {
-      navigation.navigate('RegistrationForm', {
-        registrationToken: result.proof.registrationToken,
-        phone,
-        existing: result.proof.existing,
-      });
-      setSubmitted(false);
-      return;
-    }
-    if (result.flow === 'sign_in') {
-      navigation.navigate('SignIn', { notice: 'Sign in to your existing account.' });
-      setSubmitted(false);
-      return;
-    }
     try {
       await saveSession(result.session);
     } catch {
@@ -85,9 +71,7 @@ export default function OtpVerificationScreen({ navigation, route }: OtpProps) {
       >
         <Text style={styles.title}>Verify your number</Text>
         <Text style={styles.subtitle}>
-          {flow === 'whatsapp_registration'
-            ? `Enter the WhatsApp code sent to ${phone}. The account stays signed out until this code is accepted.`
-            : `Enter the verification code sent to ${phone}.`}
+          {`Enter the WhatsApp code sent to ${phone}. The account stays signed out until this code is accepted.`}
         </Text>
         <FormInput
           label="Verification code"
@@ -99,6 +83,7 @@ export default function OtpVerificationScreen({ navigation, route }: OtpProps) {
           textContentType="oneTimeCode"
           maxLength={10}
           editable={!isLoading}
+          invalid={Boolean(saveError ?? error)}
         />
         <ErrorMessage message={saveError ?? error} />
         <PrimaryButton

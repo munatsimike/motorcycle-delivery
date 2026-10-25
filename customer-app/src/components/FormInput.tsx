@@ -1,6 +1,6 @@
 import { StyleSheet, Text, TextInput, type KeyboardTypeOptions } from 'react-native';
 
-import { colors, radius, spacing, typography } from '../theme';
+import { colors, inputErrorStyle, radius, spacing, typography } from '../theme';
 import { useInputFocus } from './useInputFocus';
 
 type FormInputProps = {
@@ -16,6 +16,7 @@ type FormInputProps = {
   maxLength?: number;
   editable?: boolean;
   error?: string | null;
+  invalid?: boolean;
   onFocus?: () => void;
 };
 
@@ -32,6 +33,7 @@ export default function FormInput({
   maxLength,
   editable = true,
   error,
+  invalid = false,
   onFocus,
 }: FormInputProps) {
   const focus = useInputFocus();
@@ -40,7 +42,7 @@ export default function FormInput({
     <>
       <Text style={styles.label}>{label}</Text>
       <TextInput
-        style={[styles.input, focus.style, !editable && styles.locked]}
+        style={[styles.input, focus.style, (error || invalid) ? inputErrorStyle : null, !editable && styles.locked]}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}

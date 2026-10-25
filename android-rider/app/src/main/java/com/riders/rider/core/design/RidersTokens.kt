@@ -24,6 +24,7 @@ object RidersColors {
     val dangerSurface = Color(0xFFFEF2F2)
     val shadow = Color(0x1417211D)
     val focusRing = Color(0x38169B62)
+    val errorRing = Color(0x38D92D20)
 }
 
 object RidersSpacing {

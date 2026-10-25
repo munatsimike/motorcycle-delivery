@@ -1,25 +1,24 @@
 package com.riders.rider.feature.auth.domain
 
-// Keep this false until Railway WhatsApp verification is enabled.
-// SMS registration, SMS login, and password login stay available either way.
-object WhatsAppRelease {
-    const val ENABLED = false
-}
+// WhatsApp delivery stays off until WHATSAPP_VERIFICATION_ENABLED=true on the API.
+// The app does not offer SMS or a password as a fallback.
 
 data class AuthEntryActions(
     val smsRegistration: Boolean,
     val smsLogin: Boolean,
     val passwordLogin: Boolean,
-    val whatsappRegistration: Boolean,
     val passwordRecovery: Boolean,
+    val whatsappRegistration: Boolean,
+    val whatsappLogin: Boolean,
 )
 
-fun authEntryActions(whatsappEnabled: Boolean = WhatsAppRelease.ENABLED): AuthEntryActions {
+fun authEntryActions(): AuthEntryActions {
     return AuthEntryActions(
-        smsRegistration = true,
-        smsLogin = true,
-        passwordLogin = true,
-        whatsappRegistration = whatsappEnabled,
-        passwordRecovery = whatsappEnabled,
+        smsRegistration = false,
+        smsLogin = false,
+        passwordLogin = false,
+        passwordRecovery = false,
+        whatsappRegistration = true,
+        whatsappLogin = true,
     )
 }

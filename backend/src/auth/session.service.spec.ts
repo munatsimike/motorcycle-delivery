@@ -4,10 +4,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AccountStatus, Prisma, UserRole } from '../generated/prisma/client.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import { AccessTokenService } from './access-token.service.js';
+import { REFRESH_ABSOLUTE_MS, REFRESH_INACTIVITY_MS, REFRESH_REUSE_GRACE_MS } from './auth.constants.js';
 import { SessionService } from './session.service.js';
 import { hashSecret } from './token-hash.js';
 
 const SECRET = '0123456789abcdef0123456789abcdef';
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 type UserRow = {
   id: string;
@@ -62,8 +64,9 @@ describe('SessionService', () => {
     expect(tokens.verify(rotated.accessToken).sid).toBe(store.sessions[1].id);
 
     await expect(service.refresh(issued.refreshToken)).rejects.toBeInstanceOf(UnauthorizedException);
-    expect(store.sessions[1].revokedAt).toBeInstanceOf(Date);
-    await expect(service.refresh(rotated.refreshToken)).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(store.sessions[1].revokedAt).toBeNull();
+    const continued = await service.refresh(rotated.refreshToken);
+    expect(continued.refreshToken).not.toBe(rotated.refreshToken);
   });
 
   it('revokes an expired session without issuing a replacement', async () => {
@@ -99,20 +102,15 @@ describe('SessionService', () => {
     expect(store.sessions[0].revokedAt).toBeNull();
   });
 
-  it('refreshes a password account that has not verified the phone by SMS', async () => {
+  it('rejects refresh when the phone is no longer verified', async () => {
     const user = rider();
-    user.phoneVerifiedAt = null;
-    user.passwordHash = '$argon2id$stored';
+    user.phoneVerifiedAt = new Date('2026-10-01T00:00:00.000Z');
     const store = memoryStore(user);
     const service = new SessionService(store.db as unknown as PrismaService, tokens);
     const issued = await service.issue(store.db as unknown as Prisma.TransactionClient, user.id, UserRole.RIDER);
+    user.phoneVerifiedAt = null;
 
-    const refreshed = await service.refresh(issued.refreshToken);
-
-    expect(refreshed.accessToken).not.toBe(issued.accessToken);
-    expect(refreshed.refreshToken).not.toBe(issued.refreshToken);
-    expect(store.sessions).toHaveLength(2);
-    expect(store.sessions[1].revokedAt).toBeNull();
+    await expect(service.refresh(issued.refreshToken)).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
   it('confirms the current refresh token without rotating or revoking the session', async () => {
@@ -183,6 +181,130 @@ describe('SessionService', () => {
     expect(() => tokens.verify(parts.join('.'))).toThrow(UnauthorizedException);
   });
 
+  it('keeps a customer or rider signed in past 90 days while they keep refreshing', async () => {
+    for (const role of [UserRole.RIDER, UserRole.CUSTOMER]) {
+      const user = account(role);
+      const store = memoryStore(user);
+      const service = new SessionService(store.db as unknown as PrismaService, tokens);
+      const start = new Date('2026-01-01T00:00:00.000Z');
+      let current = await service.issue(store.db as unknown as Prisma.TransactionClient, user.id, role, start);
+      expect(Date.parse(current.accessTokenExpiresAt) - start.getTime()).toBe(900_000);
+      expect(Date.parse(current.refreshTokenExpiresAt) - start.getTime()).toBe(REFRESH_INACTIVITY_MS);
+
+      let cursor = start;
+      for (const day of [25, 50, 75, 100, 125]) {
+        cursor = new Date(start.getTime() + day * DAY_MS);
+        current = await service.refresh(current.refreshToken, cursor);
+      }
+
+      expect(cursor.getTime() - start.getTime()).toBeGreaterThan(90 * DAY_MS);
+      const latest = store.sessions[store.sessions.length - 1];
+      expect(latest.familyExpiresAt.getTime()).toBe(cursor.getTime() + REFRESH_INACTIVITY_MS);
+      expect(latest.expiresAt.getTime()).toBe(cursor.getTime() + REFRESH_INACTIVITY_MS);
+      expect(latest.revokedAt).toBeNull();
+      expect(Date.parse(current.accessTokenExpiresAt) - cursor.getTime()).toBe(900_000);
+    }
+  });
+
+  it('revokes a refresh token left unused for more than 30 days', async () => {
+    const store = memoryStore(rider());
+    const service = new SessionService(store.db as unknown as PrismaService, tokens);
+    const start = new Date('2026-01-01T00:00:00.000Z');
+    const issued = await service.issue(store.db as unknown as Prisma.TransactionClient, store.users[0].id, UserRole.RIDER, start);
+    const idle = new Date(start.getTime() + REFRESH_INACTIVITY_MS + 1000);
+
+    await expect(service.refresh(issued.refreshToken, idle)).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(store.sessions).toHaveLength(1);
+    expect(store.sessions[0].revokedAt).toEqual(idle);
+  });
+
+  it('accepts one of two overlapping refreshes and leaves that session usable', async () => {
+    const store = memoryStore(rider());
+    const service = new SessionService(store.db as unknown as PrismaService, tokens);
+    const issued = await service.issue(store.db as unknown as Prisma.TransactionClient, store.users[0].id, UserRole.RIDER);
+    const presented = hashSecret(issued.refreshToken);
+    let waiting = 0;
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const original = store.db.refreshSession.findUnique.bind(store.db.refreshSession);
+    store.db.refreshSession.findUnique = async (args) => {
+      const row = await original(args);
+      if (args.where.tokenHash === presented) {
+        waiting += 1;
+        if (waiting === 2) {
+          release();
+        }
+        await gate;
+      }
+      return row;
+    };
+
+    const results = await Promise.allSettled([
+      service.refresh(issued.refreshToken),
+      service.refresh(issued.refreshToken),
+    ]);
+    const succeeded = results.filter((result) => result.status === 'fulfilled');
+    const failed = results.filter((result) => result.status === 'rejected');
+    expect(succeeded).toHaveLength(1);
+    expect(failed).toHaveLength(1);
+    const winner = succeeded[0]?.status === 'fulfilled' ? succeeded[0].value.refreshToken : '';
+    const successor = store.sessions.find((session) => session.tokenHash === hashSecret(winner));
+    expect(successor?.revokedAt).toBeNull();
+    const continued = await service.refresh(winner);
+    expect(continued.refreshToken).not.toBe(winner);
+    expect(store.sessions.find((session) => session.tokenHash === hashSecret(continued.refreshToken))?.revokedAt).toBeNull();
+  });
+
+  it('revokes the family when a rotated token is replayed after the grace window', async () => {
+    const store = memoryStore(rider());
+    const service = new SessionService(store.db as unknown as PrismaService, tokens);
+    const start = new Date('2026-03-01T00:00:00.000Z');
+    const issued = await service.issue(store.db as unknown as Prisma.TransactionClient, store.users[0].id, UserRole.RIDER, start);
+    const rotatedAt = new Date(start.getTime() + 1000);
+    const rotated = await service.refresh(issued.refreshToken, rotatedAt);
+
+    await expect(service.refresh(issued.refreshToken, new Date(rotatedAt.getTime() + 1000)))
+      .rejects.toBeInstanceOf(UnauthorizedException);
+    expect(store.sessions[1].revokedAt).toBeNull();
+
+    const replayAt = new Date(rotatedAt.getTime() + REFRESH_REUSE_GRACE_MS + 1000);
+    await expect(service.refresh(issued.refreshToken, replayAt)).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(store.sessions.every((session) => session.revokedAt instanceof Date)).toBe(true);
+    await expect(service.refresh(rotated.refreshToken, replayAt)).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('revokes the session when the account is deactivated', async () => {
+    const user = rider();
+    const store = memoryStore(user);
+    const service = new SessionService(store.db as unknown as PrismaService, tokens);
+    const issued = await service.issue(store.db as unknown as Prisma.TransactionClient, user.id, UserRole.RIDER);
+    user.accountStatus = AccountStatus.DEACTIVATED;
+
+    await expect(service.refresh(issued.refreshToken)).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(store.sessions).toHaveLength(1);
+    expect(store.sessions[0].revokedAt).toBeInstanceOf(Date);
+  });
+
+  it('keeps an admin session on the fixed 90-day family', async () => {
+    const user = account(UserRole.ADMIN);
+    const store = memoryStore(user);
+    const service = new SessionService(store.db as unknown as PrismaService, tokens);
+    const start = new Date('2026-01-01T00:00:00.000Z');
+    const issued = await service.issue(store.db as unknown as Prisma.TransactionClient, user.id, UserRole.ADMIN, start);
+    const familyExpiresAt = store.sessions[0].familyExpiresAt.getTime();
+    expect(familyExpiresAt).toBe(start.getTime() + REFRESH_ABSOLUTE_MS);
+
+    const refreshed = await service.refresh(issued.refreshToken, new Date(start.getTime() + 40 * DAY_MS));
+    expect(store.sessions[1].familyExpiresAt.getTime()).toBe(familyExpiresAt);
+    expect(store.sessions[1].expiresAt.getTime()).toBe(familyExpiresAt);
+
+    await expect(service.refresh(refreshed.refreshToken, new Date(start.getTime() + 91 * DAY_MS)))
+      .rejects.toBeInstanceOf(UnauthorizedException);
+    expect(store.sessions[1].revokedAt).toBeInstanceOf(Date);
+  });
+
   it('logout revokes one session and logout-all revokes every session for the user', async () => {
     const user = rider();
     const store = memoryStore(user);
@@ -200,11 +322,15 @@ describe('SessionService', () => {
 });
 
 function rider(): UserRow {
+  return account(UserRole.RIDER);
+}
+
+function account(role: UserRole): UserRow {
   return {
     id: randomUUID(),
-    role: UserRole.RIDER,
+    role,
     accountStatus: AccountStatus.ACTIVE,
-    phoneVerifiedAt: new Date('2026-10-13T12:00:00.000Z'),
+    phoneVerifiedAt: role === UserRole.ADMIN ? null : new Date('2026-10-13T12:00:00.000Z'),
   };
 }
 

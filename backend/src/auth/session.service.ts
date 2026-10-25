@@ -3,7 +3,7 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { AccountStatus, Prisma, UserRole } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { AccessTokenService } from './access-token.service.js';
-import { REFRESH_ABSOLUTE_MS, REFRESH_IDLE_MS } from './auth.constants.js';
+import { REFRESH_ABSOLUTE_MS, REFRESH_INACTIVITY_MS, REFRESH_REUSE_GRACE_MS } from './auth.constants.js';
 import { hasAccountCredential } from './account-credential.js';
 import { hashSecret, newRefreshToken } from './token-hash.js';
 
@@ -21,7 +21,6 @@ type AllowedUser = {
   role: UserRole;
   accountStatus: AccountStatus;
   phoneVerifiedAt: Date | null;
-  passwordHash?: string | null;
 };
 
 @Injectable()
@@ -35,13 +34,13 @@ export class SessionService {
     const created = await this.insertSession(writer, {
       userId,
       familyId: randomUUID(),
-      familyExpiresAt: new Date(now.getTime() + REFRESH_ABSOLUTE_MS),
+      familyExpiresAt: familyExpiry(role, now),
       now,
     });
     return this.tokens(userId, role, created, now);
   }
 
-  async refresh(rawToken: string): Promise<AuthTokens> {
+  async refresh(rawToken: string, now = new Date()): Promise<AuthTokens> {
     if (rawToken.length < 20 || rawToken.length > 200) {
       throw new UnauthorizedException('Authentication failed');
     }
@@ -51,12 +50,15 @@ export class SessionService {
       if (!current) {
         throw new UnauthorizedException('Authentication failed');
       }
-      const now = new Date();
       if (current.revokedAt || current.replacedBySessionId) {
-        await tx.refreshSession.updateMany({
-          where: { familyId: current.familyId, revokedAt: null },
-          data: { revokedAt: now },
-        });
+        const withinGrace = current.revokedAt !== null
+          && now.getTime() - current.revokedAt.getTime() <= REFRESH_REUSE_GRACE_MS;
+        if (!withinGrace) {
+          await tx.refreshSession.updateMany({
+            where: { familyId: current.familyId, revokedAt: null },
+            data: { revokedAt: now },
+          });
+        }
         throw new UnauthorizedException('Authentication failed');
       }
 
@@ -81,7 +83,7 @@ export class SessionService {
       const created = await this.insertSession(tx, {
         userId: current.userId,
         familyId: current.familyId,
-        familyExpiresAt: current.familyExpiresAt,
+        familyExpiresAt: familyExpiry(user.role, now, current.familyExpiresAt),
         now,
       });
       await tx.refreshSession.update({
@@ -133,8 +135,7 @@ export class SessionService {
     input: { userId: string; familyId: string; familyExpiresAt: Date; now: Date },
   ): Promise<{ id: string; rawToken: string; expiresAt: Date }> {
     const rawToken = newRefreshToken();
-    const idleExpiry = new Date(input.now.getTime() + REFRESH_IDLE_MS);
-    const expiresAt = idleExpiry < input.familyExpiresAt ? idleExpiry : input.familyExpiresAt;
+    const expiresAt = input.familyExpiresAt;
     const session = await writer.refreshSession.create({
       data: {
         userId: input.userId,
@@ -161,6 +162,13 @@ export class SessionService {
       refreshTokenExpiresAt: created.expiresAt.toISOString(),
     };
   }
+}
+
+function familyExpiry(role: UserRole, now: Date, currentFamilyExpiresAt?: Date): Date {
+  if (role === UserRole.ADMIN) {
+    return currentFamilyExpiresAt ?? new Date(now.getTime() + REFRESH_ABSOLUTE_MS);
+  }
+  return new Date(now.getTime() + REFRESH_INACTIVITY_MS);
 }
 
 function sessionAllowed(user: AllowedUser): boolean {

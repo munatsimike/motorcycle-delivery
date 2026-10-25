@@ -1,9 +1,8 @@
 import { useRef, useState } from 'react';
 
 import { customerAuthRepository } from '../../data/repositories/CustomerAuthApiRepository';
-import type { AuthSession } from '../../domain/auth.types';
-import { loginWithPassword as signInWithPassword } from '../../domain/usecases/loginWithPassword';
-import { requestLoginCode, type LoginCodeResult } from '../../domain/usecases/requestLoginCode';
+import type { LoginStart } from '../../domain/auth.types';
+import { normalizePhone } from '../../domain/normalizePhone';
 import { errorMessage } from '../errorMessage';
 
 export function useSignIn() {
@@ -11,7 +10,7 @@ export function useSignIn() {
   const [error, setError] = useState<string | null>(null);
   const inFlight = useRef(false);
 
-  async function requestCode(phone: string): Promise<LoginCodeResult | null> {
+  async function startWhatsAppLogin(phone: string): Promise<LoginStart & { phone?: string } | null> {
     if (inFlight.current) {
       return null;
     }
@@ -19,9 +18,15 @@ export function useSignIn() {
     setIsLoading(true);
     setError(null);
     try {
-      return await requestLoginCode(customerAuthRepository, phone);
+      const normalized = normalizePhone(phone);
+      const started = await customerAuthRepository.startWhatsAppLogin(normalized);
+      if (started.status === 'unavailable') {
+        setError('Account not found. Create an account to continue.');
+        return { status: 'unavailable' };
+      }
+      return { status: 'pending', phone: normalized };
     } catch (caught) {
-      setError(errorMessage(caught, 'Sign in could not be started.'));
+      setError(errorMessage(caught, 'WhatsApp verification is unavailable'));
       return null;
     } finally {
       inFlight.current = false;
@@ -29,27 +34,5 @@ export function useSignIn() {
     }
   }
 
-  async function loginWithPassword(phone: string, password: string): Promise<AuthSession | null> {
-    if (inFlight.current) {
-      return null;
-    }
-    if (password.length < 12 || password.length > 128) {
-      setError('Password must contain 12 to 128 characters');
-      return null;
-    }
-    inFlight.current = true;
-    setIsLoading(true);
-    setError(null);
-    try {
-      return await signInWithPassword(customerAuthRepository, phone, password);
-    } catch (caught) {
-      setError(errorMessage(caught, 'Authentication failed'));
-      return null;
-    } finally {
-      inFlight.current = false;
-      setIsLoading(false);
-    }
-  }
-
-  return { isLoading, error, requestCode, loginWithPassword };
+  return { isLoading, error, startWhatsAppLogin };
 }

@@ -83,13 +83,13 @@ export default function EditProfileScreen({ route, navigation }: EditProfileProp
         }}
       />
       <ZimbabwePhoneField
-        label="Mobile number"
+        label="WhatsApp number"
         value={form.phone.startsWith('+263') ? form.phone.slice(4) : form.phone.startsWith('+31') ? form.phone.slice(3) : form.phone}
         onChangeText={() => undefined}
         editable={false}
         countryCode={form.phone.startsWith('+31') ? '+31' : '+263'}
       />
-      <Text style={styles.note}>Your mobile number is used to sign in and cannot be changed here.</Text>
+      <Text style={styles.note}>Your WhatsApp number is used to sign in and cannot be changed here.</Text>
       <ErrorMessage message={form.error} />
       <View style={styles.actions}>
         <PrimaryButton

@@ -33,7 +33,7 @@ fun ApiError.text(): String = when (this) {
     ApiError.Forbidden -> "Rider access is required."
     is ApiError.Conflict -> message
     is ApiError.TooManyRequests -> message
-    ApiError.Unavailable -> "SMS verification is unavailable."
+    ApiError.Unavailable -> "WhatsApp verification is unavailable."
     is ApiError.Unexpected -> message
 }
 
@@ -78,6 +78,23 @@ fun apiMessage(body: String?): String? {
 data class PendingResponse(val status: String)
 
 @Serializable
+data class PlaceSuggestionsResponse(val suggestions: List<PlaceSuggestionResponse> = emptyList())
+
+@Serializable
+data class PlaceSuggestionResponse(
+    val label: String = "",
+    val placeId: String = "",
+    val exact: Boolean = false,
+)
+
+@Serializable
+data class ResolvedPlaceResponse(
+    val label: String = "",
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+)
+
+@Serializable
 data class SessionResponse(
     val accessToken: String,
     val refreshToken: String,
@@ -89,27 +106,8 @@ data class SessionResponse(
 data class PhoneRequest(val phone: String)
 
 @Serializable
-data class PasswordLoginRequest(val phone: String, val password: String)
-
-@Serializable
-data class SetPasswordRequest(
-    val password: String,
-    val currentPassword: String? = null,
-    val refreshToken: String? = null,
-)
-
-@Serializable
-data class RiderPasswordRegistrationRequest(
-    val phone: String,
-    val password: String,
-    val fullName: String,
-    val address: String,
-)
-
-@Serializable
 data class RiderWhatsAppRegistrationRequest(
     val phone: String,
-    val password: String,
     val fullName: String,
     val address: String,
     val whatsappConsent: Boolean,
@@ -122,49 +120,7 @@ data class WhatsAppRecoveryRequest(
 )
 
 @Serializable
-data class PasswordResetRequest(
-    val phone: String,
-    val code: String,
-    val password: String,
-)
-
-@Serializable
-data class RiderRegistrationRequest(
-    val phone: String,
-    val fullName: String? = null,
-)
-
-@Serializable
 data class VerifyRequest(val phone: String, val code: String)
-
-@Serializable
-data class RegistrationVerifyResponse(
-    val status: String? = null,
-    val registrationToken: String? = null,
-    val fullName: String? = null,
-    val phone: String? = null,
-    val address: String? = null,
-    val readOnly: List<String> = emptyList(),
-    val accessToken: String? = null,
-    val refreshToken: String? = null,
-    val accessTokenExpiresAt: String? = null,
-    val refreshTokenExpiresAt: String? = null,
-) {
-    fun sessionOrNull(): SessionResponse? {
-        val access = accessToken ?: return null
-        val refresh = refreshToken ?: return null
-        val accessExpiry = accessTokenExpiresAt ?: return null
-        val refreshExpiry = refreshTokenExpiresAt ?: return null
-        return SessionResponse(access, refresh, accessExpiry, refreshExpiry)
-    }
-}
-
-@Serializable
-data class RiderAccountRequest(
-    val registrationToken: String,
-    val fullName: String,
-    val address: String,
-)
 
 @Serializable
 data class RefreshRequest(val refreshToken: String)

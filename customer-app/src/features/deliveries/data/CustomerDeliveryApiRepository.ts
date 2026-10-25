@@ -90,6 +90,10 @@ export class CustomerDeliveryApiRepository implements CustomerDeliveryRepository
     return this.loadPlaces(`/auth/customer/places?${placeQuery(text, bias, sessionToken)}`, registrationToken, text, bias, sessionToken);
   }
 
+  searchOpenPlaces(text: string, sessionToken: string): Promise<PlaceSuggestion[]> {
+    return this.loadPlaces(`/auth/places?${placeQuery(text, null, sessionToken)}`, undefined, text, null, sessionToken);
+  }
+
   resolvePlace(accessToken: string, placeId: string, sessionToken: string): Promise<ResolvedPlace> {
     return this.loadPlace(`/customers/me/places/detail?${detailQuery(placeId, sessionToken)}`, accessToken);
   }
@@ -98,14 +102,18 @@ export class CustomerDeliveryApiRepository implements CustomerDeliveryRepository
     return this.loadPlace(`/auth/customer/places/detail?${detailQuery(placeId, sessionToken)}`, registrationToken);
   }
 
-  private async loadPlace(path: string, token: string): Promise<ResolvedPlace> {
-    const body = await apiGet<unknown>(path, { accessToken: token });
+  resolveOpenPlace(placeId: string, sessionToken: string): Promise<ResolvedPlace> {
+    return this.loadPlace(`/auth/places/detail?${detailQuery(placeId, sessionToken)}`);
+  }
+
+  private async loadPlace(path: string, token?: string): Promise<ResolvedPlace> {
+    const body = await apiGet<unknown>(path, token ? { accessToken: token } : undefined);
     return readResolvedPlace(body);
   }
 
   private async loadPlaces(
     path: string,
-    token: string,
+    token: string | undefined,
     text: string,
     bias: PlaceBias | null | undefined,
     sessionToken: string,
@@ -115,7 +123,7 @@ export class CustomerDeliveryApiRepository implements CustomerDeliveryRepository
     if (saved && Date.now() - saved.at < SEARCH_CACHE_MS) {
       return saved.suggestions;
     }
-    const body = await apiGet<unknown>(path, { accessToken: token });
+    const body = await apiGet<unknown>(path, token ? { accessToken: token } : undefined);
     const suggestions = readPlaceSuggestions(body);
     searchCache.set(key, { at: Date.now(), suggestions });
     if (searchCache.size > 20) {

@@ -10,7 +10,6 @@ import com.riders.rider.core.session.AuthSession
 import com.riders.rider.core.session.MemorySessionStore
 import com.riders.rider.feature.auth.data.AuthRepository
 import com.riders.rider.feature.auth.data.VerifyOutcome
-import com.riders.rider.feature.auth.domain.WhatsAppRelease
 import com.riders.rider.feature.auth.domain.authEntryActions
 import com.riders.rider.feature.auth.domain.isVerificationCode
 import kotlinx.coroutines.test.runTest
@@ -25,14 +24,14 @@ import org.junit.Test
 
 class RiderWhatsAppAuthTest {
     @Test
-    fun defaultBuildKeepsSmsAndHidesWhatsAppActions() {
-        assertFalse(WhatsAppRelease.ENABLED)
+    fun whatsAppCodesAreTheOnlySignInAndRegistrationPath() {
         val actions = authEntryActions()
-        assertTrue(actions.smsRegistration)
-        assertTrue(actions.smsLogin)
-        assertTrue(actions.passwordLogin)
-        assertFalse(actions.whatsappRegistration)
+        assertFalse(actions.smsRegistration)
+        assertFalse(actions.smsLogin)
+        assertFalse(actions.passwordLogin)
         assertFalse(actions.passwordRecovery)
+        assertTrue(actions.whatsappRegistration)
+        assertTrue(actions.whatsappLogin)
     }
 
     @Test
@@ -54,7 +53,6 @@ class RiderWhatsAppAuthTest {
             val store = MemorySessionStore()
             val result = AuthRepository(server.auth(), store).registerWithPassword(
                 "+263771234567",
-                "correct-horse",
                 "Tendai Moyo",
                 "12 Samora Machel Avenue",
             )
@@ -164,59 +162,6 @@ class RiderWhatsAppAuthTest {
         }
     }
 
-    @Test
-    fun forgotPasswordRequestsAWhatsAppCodeWithoutASession() = runTest {
-        val server = MockWebServer()
-        server.enqueue(json("""{"status":"pending"}"""))
-        server.start()
-        try {
-            val store = MemorySessionStore()
-            val result = AuthRepository(server.auth(), store).requestPasswordReset("+263771234567")
-            assertTrue(result is ApiResult.Ok)
-            assertNull(store.read())
-            val recorded = server.takeRequest()
-            assertEquals("/auth/rider/password/forgot", recorded.path)
-            val body = recorded.body.readUtf8()
-            assertTrue(body.contains(""""whatsappConsent":true"""))
-        } finally {
-            server.shutdown()
-        }
-    }
-
-    @Test
-    fun passwordResetClearsTheLocalSessionOnlyAfterSuccess() = runTest {
-        val server = MockWebServer()
-        server.enqueue(MockResponse().setResponseCode(204))
-        server.start()
-        try {
-            val store = MemorySessionStore()
-            store.write(AuthSession("access", "refresh", "soon", "later"))
-            val result = AuthRepository(server.auth(), store).resetPassword("+263771234567", "123456", "correct-horse")
-            assertTrue(result is ApiResult.Ok)
-            assertNull(store.read())
-            val recorded = server.takeRequest()
-            assertEquals("/auth/rider/password/reset", recorded.path)
-            assertTrue(recorded.body.readUtf8().contains(""""code":"123456""""))
-        } finally {
-            server.shutdown()
-        }
-    }
-
-    @Test
-    fun failedPasswordResetKeepsTheExistingSession() = runTest {
-        val server = MockWebServer()
-        server.enqueue(json("""{"message":"Authentication failed","statusCode":401}""", 401))
-        server.start()
-        try {
-            val store = MemorySessionStore()
-            store.write(AuthSession("access", "refresh", "soon", "later"))
-            val result = AuthRepository(server.auth(), store).resetPassword("+263771234567", "000000", "correct-horse")
-            assertEquals("Authentication failed", (result as ApiResult.Err).error.text())
-            assertEquals("refresh", store.read()?.refreshToken)
-        } finally {
-            server.shutdown()
-        }
-    }
 }
 
 private fun json(body: String, code: Int = 200): MockResponse {

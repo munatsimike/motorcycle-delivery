@@ -21,6 +21,8 @@ import { ROAD_DISTANCE, geoapifyRoadDistance } from './geoapify.js';
 import { NearbyRidersController } from './nearby-riders.controller.js';
 import { NearbyRidersService } from './nearby-riders.service.js';
 import { PlacesController } from './places.controller.js';
+import { RegistrationAddressController } from './registration-address.controller.js';
+import { RegistrationPlaceLimiter } from './registration-address-limit.js';
 import { RegistrationPlacesController } from './registration-places.controller.js';
 import { PlacesService } from './places.service.js';
 import { RiderAvailabilityAlertController } from './rider-availability-alert.controller.js';
@@ -32,7 +34,7 @@ import { RiderOfferController } from './rider-offer.controller.js';
 
 @Module({
   imports: [AuthModule],
-  controllers: [AdminDeliveryController, CustomerBidController, DeliveryController, DeliveryPricingController, NearbyRidersController, PlacesController, RegistrationPlacesController, RiderAssignmentController, RiderAvailabilityAlertController, RiderBidController, RiderDeliveryController, RiderOfferController],
+  controllers: [AdminDeliveryController, CustomerBidController, DeliveryController, DeliveryPricingController, NearbyRidersController, PlacesController, RegistrationAddressController, RegistrationPlacesController, RiderAssignmentController, RiderAvailabilityAlertController, RiderBidController, RiderDeliveryController, RiderOfferController],
   providers: [
     AdminDeliveryListService,
     BidAcceptanceService,
@@ -49,6 +51,7 @@ import { RiderOfferController } from './rider-offer.controller.js';
     V2OutboxSender,
     NearbyRidersService,
     PlacesService,
+    RegistrationPlaceLimiter,
     RiderAvailabilityAlertService,
     CoordinateRetentionService,
     { provide: ROAD_DISTANCE, useFactory: () => geoapifyRoadDistance() },

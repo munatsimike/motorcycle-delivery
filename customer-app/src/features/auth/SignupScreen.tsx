@@ -5,7 +5,9 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import FormInput from '../../components/FormInput';
 import type { RootStackParamList } from '../../navigation/types';
 import { colors, spacing, typography } from '../../theme';
-import { authEntryActions } from './domain/whatsappRelease';
+import { customerDeliveryRepository } from '../deliveries/data/CustomerDeliveryApiRepository';
+import { emptyStop, type StopDraft } from '../deliveries/domain/bookingDraft';
+import AddressField from '../deliveries/presentation/components/AddressField';
 import PhoneEntryForm from './presentation/components/PhoneEntryForm';
 import { useSignUp } from './presentation/viewmodels/useSignUp';
 
@@ -14,28 +16,15 @@ type SignUpProps = NativeStackScreenProps<RootStackParamList, 'SignUp'>;
 export default function SignUpScreen({ navigation }: SignUpProps) {
   const [phone, setPhone] = useState('');
   const [fullName, setFullName] = useState('');
-  const [address, setAddress] = useState('');
-  const [password, setPassword] = useState('');
-  const [passwordMode, setPasswordMode] = useState(false);
+  const [addressStop, setAddressStop] = useState<StopDraft>(emptyStop);
   const [whatsappConsent, setWhatsappConsent] = useState(false);
-  const { isLoading, error, requestCode, startWhatsAppRegistration } = useSignUp();
-  const whatsappRegistration = authEntryActions().whatsappRegistration;
-  const showWhatsApp = whatsappRegistration && passwordMode;
+  const { isLoading, error, startWhatsAppRegistration } = useSignUp();
 
-  async function handleContinue() {
-    const normalized = await requestCode(phone);
-    if (!normalized) {
-      return;
-    }
-    navigation.navigate('OtpVerification', { phone: normalized, flow: 'registration' });
-  }
-
-  async function handlePassword() {
+  async function handleSubmit() {
     const verifiedPhone = await startWhatsAppRegistration({
       phone,
-      password,
       fullName,
-      address,
+      address: addressStop.address,
       whatsappConsent,
     });
     if (!verifiedPhone) {
@@ -47,35 +36,29 @@ export default function SignUpScreen({ navigation }: SignUpProps) {
   return (
     <PhoneEntryForm
       title="Create your account"
-      subtitle={showWhatsApp
-        ? 'Create an individual account with your phone number and a password. We send one WhatsApp code before the account can sign in.'
-        : 'Join Riders and enjoy fast, safe, and reliable motorcycle deliveries.'}
-      buttonLabel={showWhatsApp ? 'Create account' : 'Verify'}
+      subtitle="We'll send one WhatsApp code to create your account."
+      buttonLabel="Create account"
       trailingIcon="chevron-right"
       isLoading={isLoading}
       error={error}
       phone={phone}
       onChangePhone={setPhone}
       onSubmit={() => {
-        if (showWhatsApp) {
-          void handlePassword();
-          return;
-        }
-        void handleContinue();
+        void handleSubmit();
       }}
-      helperText={showWhatsApp ? null : undefined}
-      extra={showWhatsApp ? (
+      helperText={null}
+      extra={(
         <>
           <FormInput label="Full name" value={fullName} onChangeText={setFullName} autoCapitalize="words" editable={!isLoading} />
-          <FormInput label="Address" value={address} onChangeText={setAddress} autoCapitalize="sentences" editable={!isLoading} />
-          <FormInput
-            label="Password"
-            value={password}
-            onChangeText={setPassword}
-            placeholder="12 or more characters"
-            autoCapitalize="none"
-            secureTextEntry
+          <AddressField
+            stop={addressStop}
             editable={!isLoading}
+            showMatchNote={false}
+            searchPlaces={(text, sessionToken) => customerDeliveryRepository.searchOpenPlaces(text, sessionToken)}
+            resolvePlace={(placeId, sessionToken) => customerDeliveryRepository.resolveOpenPlace(placeId, sessionToken)}
+            onChange={(patch) => {
+              setAddressStop((current) => ({ ...current, ...patch }));
+            }}
           />
           <Pressable
             accessibilityRole="switch"
@@ -93,9 +76,7 @@ export default function SignUpScreen({ navigation }: SignUpProps) {
             <Text style={styles.consentText}>I agree to receive WhatsApp authentication messages.</Text>
           </Pressable>
         </>
-      ) : null}
-      secondaryLabel={whatsappRegistration ? (passwordMode ? 'Use a one-time code' : 'Create account with a password') : undefined}
-      onSecondary={whatsappRegistration ? () => setPasswordMode((current) => !current) : undefined}
+      )}
       footerText="Already have an account?"
       footerAction="Sign In"
       onFooterPress={() => navigation.navigate('SignIn')}

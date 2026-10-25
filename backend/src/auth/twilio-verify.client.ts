@@ -5,7 +5,7 @@ const ACCOUNT_SID = /^AC[0-9a-f]{32}$/i;
 const SERVICE_SID = /^VA[0-9a-f]{32}$/i;
 const logger = new Logger('TwilioVerify');
 
-export type VerifyChannel = 'sms' | 'whatsapp';
+export type VerifyChannel = 'whatsapp';
 
 export type VerifyOptions = {
   channel?: VerifyChannel;
@@ -21,25 +21,25 @@ export abstract class TwilioVerifyClient {
 @Injectable()
 export class HttpTwilioVerifyClient extends TwilioVerifyClient {
   async startVerification(phone: string, options: VerifyOptions = {}): Promise<{ sid: string }> {
-    const channel = options.channel ?? 'sms';
+    const channel = requireWhatsApp(options);
     const response = await this.request('Verifications', { To: phone, Channel: channel }, options);
     if (response.status === 429) {
       throw new TooManyRequestsException('Too many verification attempts. Try again later.');
     }
     if (!response.ok) {
       await logHttpFailure('Verifications', response, phone, options);
-      throw new ServiceUnavailableException(unavailable(channel));
+      throw new ServiceUnavailableException(unavailable());
     }
     const body = await readJson(response);
     if (typeof body.sid !== 'string' || body.sid.length === 0) {
       logTwilioFailure('Verifications', response.status, null, 'Verification response did not include a sid', phone, options);
-      throw new ServiceUnavailableException(unavailable(channel));
+      throw new ServiceUnavailableException(unavailable());
     }
     return { sid: body.sid };
   }
 
   async checkVerification(phone: string, code: string, options: VerifyOptions = {}): Promise<boolean> {
-    const channel = options.channel ?? 'sms';
+    requireWhatsApp(options);
     const response = await this.request('VerificationCheck', { To: phone, Code: code }, options);
     if (response.status === 429) {
       throw new TooManyRequestsException('Too many verification attempts. Try again later.');
@@ -49,7 +49,7 @@ export class HttpTwilioVerifyClient extends TwilioVerifyClient {
     }
     if (response.status >= 500) {
       await logHttpFailure('VerificationCheck', response, phone, options);
-      throw new ServiceUnavailableException(unavailable(channel));
+      throw new ServiceUnavailableException(unavailable());
     }
     if (!response.ok) {
       return false;
@@ -63,8 +63,8 @@ export class HttpTwilioVerifyClient extends TwilioVerifyClient {
     fields: Record<string, string>,
     options: VerifyOptions,
   ): Promise<Response> {
-    const channel = options.channel ?? 'sms';
-    const { accountSid, authToken, serviceSid } = credentials(options.serviceSid, channel);
+    requireWhatsApp(options);
+    const { accountSid, authToken, serviceSid } = credentials(options.serviceSid);
     const authorization = Buffer.from(`${accountSid}:${authToken}`).toString('base64');
     try {
       return await fetch(`https://verify.twilio.com/v2/Services/${serviceSid}/${action}`, {
@@ -78,22 +78,28 @@ export class HttpTwilioVerifyClient extends TwilioVerifyClient {
       });
     } catch (error) {
       logTwilioFailure(action, null, null, networkFailureMessage(error), fields.To, options);
-      throw new ServiceUnavailableException(unavailable(channel));
+      throw new ServiceUnavailableException(unavailable());
     }
   }
 }
 
-function unavailable(channel: VerifyChannel): string {
-  return channel === 'whatsapp' ? 'WhatsApp verification is unavailable' : 'SMS verification is unavailable';
+function requireWhatsApp(options: VerifyOptions): VerifyChannel {
+  if (options.channel !== 'whatsapp') {
+    throw new ServiceUnavailableException('WhatsApp verification is unavailable');
+  }
+  return 'whatsapp';
 }
 
-function credentials(serviceSidOverride: string | undefined, channel: VerifyChannel): { accountSid: string; authToken: string; serviceSid: string } {
+function unavailable(): string {
+  return 'WhatsApp verification is unavailable';
+}
+
+function credentials(serviceSidOverride: string | undefined): { accountSid: string; authToken: string; serviceSid: string } {
   const accountSid = process.env.TWILIO_ACCOUNT_SID ?? '';
   const authToken = process.env.TWILIO_AUTH_TOKEN ?? '';
-  const serviceSid = serviceSidOverride ?? process.env.TWILIO_VERIFY_SERVICE_SID ?? '';
-  const configured = channel === 'whatsapp' ? 'WhatsApp verification is not configured' : 'SMS verification is not configured';
+  const serviceSid = serviceSidOverride ?? '';
   if (!ACCOUNT_SID.test(accountSid) || !SERVICE_SID.test(serviceSid) || !isToken(authToken)) {
-    throw new ServiceUnavailableException(configured);
+    throw new ServiceUnavailableException('WhatsApp verification is not configured');
   }
   return { accountSid, authToken, serviceSid };
 }
@@ -121,7 +127,7 @@ function logTwilioFailure(
   phone: string | undefined,
   options: VerifyOptions = {},
 ): void {
-  const serviceSid = options.serviceSid ?? process.env.TWILIO_VERIFY_SERVICE_SID;
+  const serviceSid = options.serviceSid ?? process.env.WHATSAPP_VERIFICATION_SERVICE_SID;
   logger.warn(
     `Twilio Verify ${action} failed httpStatus=${httpStatus ?? 'none'} twilioCode=${twilioCode ?? 'none'} accountSidSuffix=${sidSuffix(process.env.TWILIO_ACCOUNT_SID)} serviceSidSuffix=${sidSuffix(serviceSid)} destinationCountry=${destinationCountry(phone)} message=${message}`,
   );
@@ -188,7 +194,6 @@ function redactKnownSecrets(value: string): string {
   const secrets = [
     process.env.TWILIO_AUTH_TOKEN,
     process.env.TWILIO_ACCOUNT_SID,
-    process.env.TWILIO_VERIFY_SERVICE_SID,
     process.env.WHATSAPP_VERIFICATION_SERVICE_SID,
     process.env.WHATSAPP_VERIFICATION_SENDER,
     process.env.JWT_ACCESS_SECRET,

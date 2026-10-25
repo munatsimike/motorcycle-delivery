@@ -4,16 +4,14 @@ import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AccountStatus, AuthChallengeStatus, AuthPurpose, AuthSubjectRole, RiderApprovalStatus, UserRole, VerificationChannel } from '../generated/prisma/client.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
-import { verifyAdminPassword } from './admin-password.js';
 import type { Clock } from './clock.js';
 import type { PhoneVerificationProvider } from './phone-verification.provider.js';
 import type { SessionService } from './session.service.js';
+import { DEV_OTP_TTL_MS } from './auth.constants.js';
 import { TooManyRequestsException } from './too-many-requests.exception.js';
 import { WhatsAppAuthService } from './whatsapp-auth.service.js';
 
 const PHONE = '+263771234567';
-const PASSWORD = 'correct horse battery';
-const NEXT_PASSWORD = 'another correct horse';
 const CODE = '123456';
 const NOW = new Date('2026-10-23T12:00:00.000Z');
 
@@ -57,7 +55,7 @@ describe('WhatsApp verification', () => {
       role: UserRole.RIDER,
     });
     expect(ctx.users[0]?.whatsappConsentAt).toEqual(NOW);
-    expect(ctx.users[0]?.passwordHash).toMatch(/^\$argon2id\$/);
+    expect(ctx.users[0]?.passwordHash ?? null).toBeNull();
     expect(ctx.users[0]?.riderProfile).toMatchObject({ approvalStatus: RiderApprovalStatus.PENDING });
     expect(ctx.wallets).toHaveLength(1);
     expect(ctx.challenges[0]).not.toHaveProperty('code');
@@ -76,6 +74,25 @@ describe('WhatsApp verification', () => {
     expect(ctx.users[0]?.phoneVerifiedAt).toEqual(NOW);
     expect(ctx.users[0]?.riderProfile?.approvalStatus).toBe(RiderApprovalStatus.PENDING);
     expect(ctx.issued).toEqual([ctx.users[0]?.id]);
+  });
+
+  it('signs in an existing account with a WhatsApp code and issues a session', async () => {
+    const ctx = harness();
+    ctx.users.push(user({ phoneVerifiedAt: NOW, accountStatus: AccountStatus.ACTIVE, whatsappConsentAt: NOW }));
+    await expect(ctx.service.startLogin(AuthSubjectRole.RIDER, { phone: PHONE, whatsappConsent: true }, '203.0.113.20'))
+      .resolves.toEqual({ status: 'pending' });
+    expect(ctx.challenges[0]?.purpose).toBe(AuthPurpose.LOGIN);
+    const tokens = await ctx.service.verifyLogin(AuthSubjectRole.RIDER, { phone: PHONE, code: CODE });
+    expect(tokens).toMatchObject({ accessToken: 'access', refreshToken: 'refresh' });
+    expect(ctx.issued).toEqual([ctx.users[0]?.id]);
+  });
+
+  it('does not send a sign-in code when the number has no account', async () => {
+    const ctx = harness();
+    await expect(ctx.service.startLogin(AuthSubjectRole.RIDER, { phone: PHONE, whatsappConsent: true }, '203.0.113.21'))
+      .resolves.toEqual({ status: 'unavailable' });
+    expect(ctx.sent).toEqual([]);
+    expect(ctx.issued).toEqual([]);
   });
 
   it('rejects a wrong, expired, or repeated code without activating the account', async () => {
@@ -130,68 +147,43 @@ describe('WhatsApp verification', () => {
     expect(ctx.challenges.filter((challenge) => challenge.status === AuthChallengeStatus.PENDING)).toHaveLength(1);
   });
 
-  it('returns the same recovery response for a missing, unverified, or verified number', async () => {
-    const missing = harness();
-    const unknown = await missing.service.requestRecovery(AuthSubjectRole.RIDER, recoveryBody('+263771111111'), '198.51.100.2');
-    expect(unknown).toEqual({ status: 'pending' });
-    expect(missing.sent).toEqual([]);
-
-    const unverified = harness();
-    unverified.users.push(user({ phoneVerifiedAt: null, accountStatus: AccountStatus.ACTIVE }));
-    const hidden = await unverified.service.requestRecovery(AuthSubjectRole.RIDER, recoveryBody(PHONE), '198.51.100.3');
-    expect(hidden).toEqual(unknown);
-    expect(unverified.sent).toEqual([]);
-
-    const verified = harness();
-    verified.users.push(user({ phoneVerifiedAt: NOW, accountStatus: AccountStatus.ACTIVE, whatsappConsentAt: NOW }));
-    const accepted = await verified.service.requestRecovery(AuthSubjectRole.RIDER, recoveryBody(PHONE), '198.51.100.4');
-    expect(accepted).toEqual(unknown);
-    expect(verified.sent).toEqual([PHONE]);
-  });
-
-  it('resets a verified password, revokes sessions, and does not issue a new one', async () => {
-    const ctx = harness();
-    const existing = user({ phoneVerifiedAt: NOW, accountStatus: AccountStatus.ACTIVE, whatsappConsentAt: NOW });
-    ctx.users.push(existing);
-    ctx.sessions.push({ userId: existing.id, revokedAt: null });
-    await ctx.service.requestRecovery(AuthSubjectRole.RIDER, recoveryBody(PHONE), '198.51.100.5');
-
-    const body = { phone: PHONE, code: CODE, password: NEXT_PASSWORD };
-    await ctx.service.resetPassword(AuthSubjectRole.RIDER, body);
-    expect(body.code).toBeUndefined();
-    expect(ctx.issued).toEqual([]);
-    expect(ctx.sessions[0]?.revokedAt).toBeInstanceOf(Date);
-    expect(await verifyAdminPassword(ctx.users[0]?.passwordHash, NEXT_PASSWORD)).toBe(true);
-    expect(ctx.challenges.find((challenge) => challenge.purpose === AuthPurpose.PASSWORD_RECOVERY)?.status)
-      .toBe(AuthChallengeStatus.VERIFIED);
-  });
-
-  it('does not accept a registration code as a password reset', async () => {
-    const ctx = harness();
-    await ctx.service.startRegistration(AuthSubjectRole.RIDER, riderBody(), '203.0.113.12');
-    ctx.checks.length = 0;
-    const body = { phone: PHONE, code: CODE, password: NEXT_PASSWORD };
-    const failure = await expectFailure(ctx.service.resetPassword(AuthSubjectRole.RIDER, body));
-    expect(failure.message).toBe('Authentication failed');
-    expect(failure.message).not.toContain(CODE);
-    expect(body.code).toBeUndefined();
-    expect(ctx.checks).toEqual([]);
-    expect(ctx.users[0]?.accountStatus).toBe(AccountStatus.PENDING);
-    expect(ctx.sessions).toHaveLength(0);
-  });
-
-  it('locks a challenge after repeated wrong codes', async () => {
-    const ctx = harness();
-    ctx.users.push(user({ phoneVerifiedAt: NOW, accountStatus: AccountStatus.ACTIVE, whatsappConsentAt: NOW }));
-    await ctx.service.requestRecovery(AuthSubjectRole.RIDER, recoveryBody(PHONE), '198.51.100.6');
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      await expect(ctx.service.resetPassword(AuthSubjectRole.RIDER, { phone: PHONE, code: '000000', password: NEXT_PASSWORD }))
-        .rejects.toBeInstanceOf(UnauthorizedException);
+  it('uses a five-minute challenge for the local mock and keeps the code out of the response', async () => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'development';
+    process.env.DEV_OTP_ENABLED = 'true';
+    try {
+      const ctx = harness();
+      delete process.env.WHATSAPP_VERIFICATION_ENABLED;
+      delete process.env.WHATSAPP_VERIFICATION_PROVIDER;
+      delete process.env.WHATSAPP_VERIFICATION_SERVICE_SID;
+      delete process.env.WHATSAPP_VERIFICATION_SENDER;
+      const started = await ctx.service.startRegistration(AuthSubjectRole.CUSTOMER, customerBody(), '203.0.113.41');
+      expect(started).toEqual({ status: 'pending' });
+      expect(JSON.stringify(started)).not.toContain(CODE);
+      expect(ctx.challenges[0]?.expiresAt.getTime()).toBe(NOW.getTime() + DEV_OTP_TTL_MS);
+      expect(ctx.challenges[0]).not.toHaveProperty('code');
+    } finally {
+      if (previousNodeEnv === undefined) {
+        delete process.env.NODE_ENV;
+      } else {
+        process.env.NODE_ENV = previousNodeEnv;
+      }
+      delete process.env.DEV_OTP_ENABLED;
     }
-    await expect(ctx.service.resetPassword(AuthSubjectRole.RIDER, { phone: PHONE, code: '000000', password: NEXT_PASSWORD }))
-      .rejects.toBeInstanceOf(TooManyRequestsException);
-    expect(ctx.checks).toHaveLength(5);
-    expect(ctx.users[0]?.passwordHash).toBe('stored-hash');
+  });
+
+  it('stops an address after the hourly verification limit', async () => {
+    const ctx = harness();
+    for (let index = 0; index < 20; index += 1) {
+      const phone = `+26377${String(index).padStart(7, '0')}`;
+      await ctx.service.startRegistration(AuthSubjectRole.RIDER, { ...riderBody(), phone }, '203.0.113.40');
+    }
+    await expect(ctx.service.startRegistration(
+      AuthSubjectRole.RIDER,
+      { ...riderBody(), phone: '+263770000020' },
+      '203.0.113.40',
+    )).rejects.toBeInstanceOf(TooManyRequestsException);
+    expect(ctx.sent).toHaveLength(20);
   });
 
   it('leaves the one-accepted rider index and historical checksums untouched', () => {
@@ -207,7 +199,6 @@ describe('WhatsApp verification', () => {
 function riderBody() {
   return {
     phone: '0771234567',
-    password: PASSWORD,
     fullName: 'Tatenda Moyo',
     address: '12 Samora Machel Avenue',
     whatsappConsent: true,
@@ -217,16 +208,11 @@ function riderBody() {
 function customerBody() {
   return {
     phone: PHONE,
-    password: PASSWORD,
     accountKind: 'INDIVIDUAL',
     fullName: 'Rudo Ncube',
     address: '4 Jason Moyo',
     whatsappConsent: true,
   };
-}
-
-function recoveryBody(phone: string) {
-  return { phone, whatsappConsent: true };
 }
 
 function harness() {

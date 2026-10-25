@@ -303,9 +303,9 @@ enum DeliveryActorType {
   @@map("delivery_actor_type")
 }
 
-// Riders and customers may sign in with a password or with a verified phone.
-// users_account_credential_chk replaced users_passwordless_account_chk.
-// An ACTIVE account needs a password hash or phone_verified_at. Admins are excluded.
+// Customers and riders sign in with WhatsApp. password_hash is admin-only.
+// users_account_credential_chk requires a verified phone for an ACTIVE customer
+// or rider and forbids a password hash on those roles. Admins are excluded.
 model User {
   id            String        @id @default(uuid(7)) @db.Uuid
   fullName      String        @map("full_name") @db.VarChar(200)
@@ -1362,17 +1362,6 @@ model PricingConfigAudit {
 
   @@index([actorId])
   @@map("pricing_config_audits")
-}
-
-model PasswordLoginAttempt {
-  id        String   @id @default(uuid(7)) @db.Uuid
-  ipHash    String   @map("ip_hash") @db.Char(64)
-  phoneHash String   @map("phone_hash") @db.Char(64)
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-
-  @@index([ipHash, createdAt])
-  @@index([phoneHash, createdAt])
-  @@map("password_login_attempts")
 }
 
 enum CommissionModel {

@@ -12,8 +12,6 @@ import { AdminLoginService } from '../auth/admin-login.service.js';
 import { AccessTokenService } from '../auth/access-token.service.js';
 import { CustomerAccessService } from '../auth/customer-access.service.js';
 import { CustomerAuthController } from '../auth/customer-auth.controller.js';
-import { OtpAuthService } from '../auth/otp-auth.service.js';
-import { PasswordAuthService } from '../auth/password-auth.service.js';
 import { RiderAccessService } from '../auth/rider-access.service.js';
 import { WhatsAppAuthService } from '../auth/whatsapp-auth.service.js';
 import { RiderAuthController } from '../auth/rider-auth.controller.js';
@@ -39,6 +37,8 @@ import { NearbyRidersController } from '../delivery/nearby-riders.controller.js'
 import { NearbyRidersService } from '../delivery/nearby-riders.service.js';
 import { PlacesController } from '../delivery/places.controller.js';
 import { PlacesService } from '../delivery/places.service.js';
+import { RegistrationAddressController } from '../delivery/registration-address.controller.js';
+import { RegistrationPlaceLimiter } from '../delivery/registration-address-limit.js';
 import { RegistrationPlacesController } from '../delivery/registration-places.controller.js';
 import { RiderAssignmentController } from '../delivery/rider-assignment.controller.js';
 import { RiderAvailabilityAlertController } from '../delivery/rider-availability-alert.controller.js';
@@ -94,6 +94,7 @@ describe('OpenAPI document', () => {
         DeliveryController,
         RiderBidController,
         PlacesController,
+        RegistrationAddressController,
         RegistrationPlacesController,
         NearbyRidersController,
         RiderAvailabilityAlertController,
@@ -119,8 +120,6 @@ describe('OpenAPI document', () => {
       ],
       providers: [
         { provide: AppService, useValue: unused },
-        { provide: OtpAuthService, useValue: unused },
-        { provide: PasswordAuthService, useValue: unused },
         { provide: WhatsAppAuthService, useValue: unused },
         { provide: AdminLoginService, useValue: unused },
         { provide: AccessTokenService, useValue: unused },
@@ -135,6 +134,7 @@ describe('OpenAPI document', () => {
         { provide: DeliveryService, useValue: unused },
         { provide: DispatchService, useValue: unused },
         { provide: PlacesService, useValue: unused },
+        RegistrationPlaceLimiter,
         { provide: NearbyRidersService, useValue: unused },
         { provide: RiderAvailabilityAlertService, useValue: unused },
         { provide: AdminDeliveryListService, useValue: unused },
@@ -174,7 +174,11 @@ describe('OpenAPI document', () => {
       scheme: 'bearer',
     });
 
-    const verify = document.paths?.['/auth/rider/login/verify']?.post;
+    const verify = document.paths?.['/auth/rider/register/whatsapp/verify']?.post;
+    expect(document.paths?.['/auth/rider/login/otp']).toBeUndefined();
+    expect(document.paths?.['/auth/rider/register/otp']).toBeUndefined();
+    expect(document.paths?.['/auth/customer/login']).toBeUndefined();
+    expect(document.paths?.['/auth/customer/register']).toBeUndefined();
     expect(verify?.requestBody).toBeTruthy();
     const verifySchema = schemaOf(document, verify?.requestBody);
     expect(verifySchema.required).toEqual(expect.arrayContaining(['phone', 'code']));

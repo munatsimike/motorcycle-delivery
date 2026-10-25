@@ -188,7 +188,7 @@ fun WalletScreen(
                         title = "No wallet activity",
                         body = "Platform fees and credits will appear here.",
                         image = R.drawable.wallet_empty,
-                        imageSize = 64.dp,
+                        imageSize = 48.dp,
                     )
                 } else {
                     Column(Modifier.fillMaxWidth()) {

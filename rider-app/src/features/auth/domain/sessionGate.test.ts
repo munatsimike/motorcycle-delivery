@@ -186,8 +186,10 @@ function repository(overrides: Partial<RiderAuthRepository>): RiderAuthRepositor
   };
   return {
     requestRegistrationCode: unused,
+    resendRegistrationCode: unused,
     verifyRegistrationCode: unused,
     requestLoginCode: unused,
+    resendLoginCode: unused,
     verifyLoginCode: unused,
     refresh: unused,
     logout: async () => undefined,

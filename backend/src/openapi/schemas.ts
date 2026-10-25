@@ -7,9 +7,6 @@ export class RiderWhatsAppRegistrationBody {
   @ApiProperty({ description: 'Zimbabwe mobile number. A national or +263 form is accepted and stored as E.164.' })
   phone!: string;
 
-  @ApiProperty({ minLength: 12, maxLength: 128 })
-  password!: string;
-
   @ApiProperty({ maxLength: 200 })
   fullName!: string;
 
@@ -23,9 +20,6 @@ export class RiderWhatsAppRegistrationBody {
 export class CustomerWhatsAppRegistrationBody {
   @ApiProperty({ description: 'Zimbabwe mobile number. A national or +263 form is accepted and stored as E.164.' })
   phone!: string;
-
-  @ApiProperty({ minLength: 12, maxLength: 128 })
-  password!: string;
 
   @ApiProperty({ enum: ['INDIVIDUAL', 'BUSINESS'] })
   accountKind!: 'INDIVIDUAL' | 'BUSINESS';
@@ -50,19 +44,8 @@ export class WhatsAppRecoveryBody {
   @ApiProperty({ description: 'Zimbabwe mobile number. A national or +263 form is accepted and stored as E.164.' })
   phone!: string;
 
-  @ApiProperty({ description: 'Must be true. Recovery codes are sent only with consent to WhatsApp authentication messages.' })
+  @ApiProperty({ description: 'Must be true. Sign-in codes are sent only with consent to WhatsApp authentication messages.' })
   whatsappConsent!: boolean;
-}
-
-export class PasswordResetBody {
-  @ApiProperty({ description: 'Zimbabwe mobile number. A national or +263 form is accepted and stored as E.164.' })
-  phone!: string;
-
-  @ApiProperty({ description: 'WhatsApp verification code. The code is not returned or logged.' })
-  code!: string;
-
-  @ApiProperty({ minLength: 12, maxLength: 128 })
-  password!: string;
 }
 
 export class PhoneBody {
@@ -127,7 +110,7 @@ export class OtpVerifyBody {
   @ApiProperty({ description: 'The same phone number used to request the code.' })
   phone!: string;
 
-  @ApiProperty({ pattern: '^\\d{4,10}$', description: 'One-time code from the SMS. Do not put a real code in a saved request.' })
+  @ApiProperty({ pattern: '^\\d{4,10}$', description: 'One-time WhatsApp code. Do not put a real code in a saved request.' })
   code!: string;
 }
 

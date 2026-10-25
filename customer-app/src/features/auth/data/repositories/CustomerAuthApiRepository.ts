@@ -1,59 +1,21 @@
 import { apiPost } from '../../../../services/api/apiClient';
-import type {
-  AuthSession,
-  CompleteRegistrationRequest,
-  CustomerProfile,
-  LoginStart,
-  PendingOtp,
-  RegistrationVerification,
-} from '../../domain/auth.types';
+import type { AuthSession, CustomerProfile, LoginStart, PendingOtp } from '../../domain/auth.types';
 import type { CustomerAuthRepository } from '../../domain/repositories/CustomerAuthRepository';
-import { readLoginStart } from '../../domain/loginStart';
-import { readRegistrationVerification } from '../../domain/registrationVerification';
 
 export class CustomerAuthApiRepository implements CustomerAuthRepository {
-  requestRegistrationCode(phone: string): Promise<PendingOtp> {
-    return apiPost<unknown>('/auth/customer/register', { phone }).then(readPending);
+  startWhatsAppLogin(phone: string): Promise<LoginStart> {
+    return apiPost<unknown>('/auth/customer/login/whatsapp', { phone, whatsappConsent: true }).then(readLoginStart);
   }
 
-  requestLoginCode(phone: string): Promise<LoginStart> {
-    return apiPost<unknown>('/auth/customer/login', { phone }).then(readLoginStart);
+  resendWhatsAppLogin(phone: string): Promise<LoginStart> {
+    return apiPost<unknown>('/auth/customer/login/whatsapp/resend', { phone }).then(readLoginStart);
   }
 
-  verifyRegistrationCode(phone: string, code: string): Promise<RegistrationVerification> {
-    return apiPost<unknown>('/auth/customer/register/verify', { phone, code }).then(readRegistrationVerification);
+  verifyWhatsAppLogin(phone: string, code: string): Promise<AuthSession> {
+    return apiPost<unknown>('/auth/customer/login/whatsapp/verify', { phone, code }).then(readSession);
   }
 
-  verifyLoginCode(phone: string, code: string): Promise<AuthSession> {
-    return apiPost<unknown>('/auth/customer/login/verify', { phone, code }).then(readSession);
-  }
-
-  completeRegistration(request: CompleteRegistrationRequest): Promise<AuthSession> {
-    return apiPost<unknown>('/auth/customer/register/complete', request).then(readSession);
-  }
-
-  loginWithPassword(phone: string, password: string): Promise<AuthSession> {
-    return apiPost<unknown>('/auth/customer/login/password', { phone, password }).then(readSession);
-  }
-
-  async setPassword(
-    accessToken: string,
-    password: string,
-    refreshToken: string,
-    currentPassword?: string,
-  ): Promise<void> {
-    await apiPost<unknown>('/auth/session/password', {
-      password,
-      refreshToken,
-      ...(currentPassword ? { currentPassword } : {}),
-    }, { accessToken });
-  }
-
-  registerWithPassword(request: CustomerProfile & { phone: string; password: string }): Promise<AuthSession> {
-    return apiPost<unknown>('/auth/customer/register/password', request).then(readSession);
-  }
-
-  startWhatsAppRegistration(request: CustomerProfile & { phone: string; password: string; whatsappConsent: true }): Promise<PendingOtp> {
+  startWhatsAppRegistration(request: CustomerProfile & { phone: string; whatsappConsent: true }): Promise<PendingOtp> {
     return apiPost<unknown>('/auth/customer/register/whatsapp', request).then(readPending);
   }
 
@@ -63,14 +25,6 @@ export class CustomerAuthApiRepository implements CustomerAuthRepository {
 
   verifyWhatsAppRegistration(phone: string, code: string): Promise<AuthSession> {
     return apiPost<unknown>('/auth/customer/register/whatsapp/verify', { phone, code }).then(readSession);
-  }
-
-  requestPasswordReset(phone: string): Promise<PendingOtp> {
-    return apiPost<unknown>('/auth/customer/password/forgot', { phone, whatsappConsent: true }).then(readPending);
-  }
-
-  async resetPassword(phone: string, code: string, password: string): Promise<void> {
-    await apiPost<unknown>('/auth/customer/password/reset', { phone, code, password });
   }
 
   refresh(refreshToken: string): Promise<AuthSession> {
@@ -83,6 +37,19 @@ export class CustomerAuthApiRepository implements CustomerAuthRepository {
 }
 
 export const customerAuthRepository = new CustomerAuthApiRepository();
+
+function readLoginStart(value: unknown): LoginStart {
+  if (!isRecord(value)) {
+    throw new Error('Verification could not be started.');
+  }
+  if (value.status === 'pending') {
+    return { status: 'pending' };
+  }
+  if (value.status === 'unavailable') {
+    return { status: 'unavailable' };
+  }
+  throw new Error('Verification could not be started.');
+}
 
 function readPending(value: unknown): PendingOtp {
   if (!isRecord(value) || value.status !== 'pending') {

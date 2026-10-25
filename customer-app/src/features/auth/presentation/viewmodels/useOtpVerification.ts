@@ -1,21 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { customerAuthRepository } from '../../data/repositories/CustomerAuthApiRepository';
-import type { AuthFlow, AuthSession, RegistrationVerification } from '../../domain/auth.types';
-import { requestLoginCode } from '../../domain/usecases/requestLoginCode';
-import { requestRegistrationCode } from '../../domain/usecases/requestRegistrationCode';
-import { verifyLoginCode } from '../../domain/usecases/verifyLoginCode';
-import { verifyRegistrationCode } from '../../domain/usecases/verifyRegistrationCode';
+import type { AuthFlow, AuthSession } from '../../domain/auth.types';
 import { isVerificationCode } from '../../domain/verificationCode';
 import { errorMessage } from '../errorMessage';
 
 const RESEND_COOLDOWN_MS = 60_000;
 
-export type OtpVerificationResult =
-  | { flow: 'registration'; proof: Extract<RegistrationVerification, { status: 'verified' }> }
-  | { flow: 'sign_in' }
-  | { flow: 'session'; session: AuthSession }
-  | { flow: 'login'; session: AuthSession };
+export type OtpVerificationResult = { flow: 'session'; session: AuthSession };
 
 export function useOtpVerification(phone: string, flow: AuthFlow) {
   const [code, setCode] = useState('');
@@ -45,22 +37,10 @@ export function useOtpVerification(phone: string, flow: AuthFlow) {
     setIsLoading(true);
     setError(null);
     try {
-      if (flow === 'whatsapp_registration') {
-        const session = await customerAuthRepository.verifyWhatsAppRegistration(phone, code);
-        return { flow: 'session', session };
-      }
-      if (flow === 'registration') {
-        const verification = await verifyRegistrationCode(customerAuthRepository, phone, code);
-        if ('accessToken' in verification) {
-          return { flow: 'session', session: verification };
-        }
-        if (verification.status === 'sign_in') {
-          return { flow: 'sign_in' };
-        }
-        return { flow: 'registration', proof: verification };
-      }
-      const session = await verifyLoginCode(customerAuthRepository, phone, code);
-      return { flow: 'login', session };
+      const session = flow === 'whatsapp_login'
+        ? await customerAuthRepository.verifyWhatsAppLogin(phone, code)
+        : await customerAuthRepository.verifyWhatsAppRegistration(phone, code);
+      return { flow: 'session', session };
     } catch (caught) {
       setError(errorMessage(caught, 'Verification failed.'));
       return null;
@@ -78,16 +58,10 @@ export function useOtpVerification(phone: string, flow: AuthFlow) {
     setIsLoading(true);
     setError(null);
     try {
-      if (flow === 'whatsapp_registration') {
-        await customerAuthRepository.resendWhatsAppRegistration(phone);
-      } else if (flow === 'registration') {
-        await requestRegistrationCode(customerAuthRepository, phone);
+      if (flow === 'whatsapp_login') {
+        await customerAuthRepository.resendWhatsAppLogin(phone);
       } else {
-        const started = await requestLoginCode(customerAuthRepository, phone);
-        if (started.status === 'unavailable') {
-          setError('A new code could not be sent.');
-          return;
-        }
+        await customerAuthRepository.resendWhatsAppRegistration(phone);
       }
       setResendAvailableAt(Date.now() + RESEND_COOLDOWN_MS);
     } catch (caught) {

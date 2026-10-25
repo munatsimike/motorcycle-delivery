@@ -50,26 +50,19 @@ function memoryStore(initial: AuthSession | null, biometric = false) {
 
 function repository(refresh: CustomerAuthRepository['refresh']): CustomerAuthRepository {
   return {
-    requestRegistrationCode: () => Promise.reject(new Error('unused')),
-    requestLoginCode: () => Promise.reject(new Error('unused')),
-    verifyRegistrationCode: () => Promise.reject(new Error('unused')),
-    verifyLoginCode: () => Promise.reject(new Error('unused')),
-    completeRegistration: () => Promise.reject(new Error('unused')),
-    loginWithPassword: () => Promise.reject(new Error('unused')),
-    setPassword: () => Promise.reject(new Error('unused')),
-    registerWithPassword: () => Promise.reject(new Error('unused')),
+    startWhatsAppLogin: () => Promise.reject(new Error('unused')),
+    resendWhatsAppLogin: () => Promise.reject(new Error('unused')),
+    verifyWhatsAppLogin: () => Promise.reject(new Error('unused')),
     startWhatsAppRegistration: () => Promise.reject(new Error('unused')),
     resendWhatsAppRegistration: () => Promise.reject(new Error('unused')),
     verifyWhatsAppRegistration: () => Promise.reject(new Error('unused')),
-    requestPasswordReset: () => Promise.reject(new Error('unused')),
-    resetPassword: () => Promise.reject(new Error('unused')),
     refresh,
     logout: () => Promise.resolve(),
   };
 }
 
 describe('session gate', () => {
-  it('sends a first visit to OTP because no session is stored', () => {
+  it('sends a first visit to sign-in because no session is stored', () => {
     expect(sessionGate({
       hasStoredSession: false,
       biometricEnabled: false,

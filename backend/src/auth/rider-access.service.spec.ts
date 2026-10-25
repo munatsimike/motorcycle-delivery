@@ -92,14 +92,10 @@ describe('RiderAccessService', () => {
     await expect(noProfile.service.authenticate(noProfile.token(), NOW)).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it('allows a password account that has not verified the phone by SMS', async () => {
+  it('rejects a rider whose phone is no longer verified', async () => {
     const ctx = context();
     ctx.user.phoneVerifiedAt = null;
-    ctx.user.passwordHash = '$argon2id$stored';
-    await expect(ctx.service.authenticate(ctx.token(), NOW)).resolves.toEqual({
-      userId: 'user-1',
-      riderProfileId: 'profile-1',
-    });
+    await expect(ctx.service.authenticate(ctx.token(), NOW)).rejects.toBeInstanceOf(ForbiddenException);
   });
 });
 

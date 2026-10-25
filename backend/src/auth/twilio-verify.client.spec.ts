@@ -3,6 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TooManyRequestsException } from './too-many-requests.exception.js';
 import { HttpTwilioVerifyClient } from './twilio-verify.client.js';
 
+const whatsapp = {
+  channel: 'whatsapp' as const,
+  serviceSid: `VA${'c'.repeat(32)}`,
+};
+
 describe('HttpTwilioVerifyClient', () => {
   const client = new HttpTwilioVerifyClient();
   const fetchMock = vi.fn();
@@ -11,7 +16,6 @@ describe('HttpTwilioVerifyClient', () => {
   beforeEach(() => {
     process.env.TWILIO_ACCOUNT_SID = 'AC' + 'a'.repeat(32);
     process.env.TWILIO_AUTH_TOKEN = 'test-auth-token-value';
-    process.env.TWILIO_VERIFY_SERVICE_SID = 'VA' + 'b'.repeat(32);
     process.env.JWT_ACCESS_SECRET = '0123456789abcdef0123456789abcdef';
     vi.stubGlobal('fetch', fetchMock);
     fetchMock.mockReset();
@@ -21,7 +25,6 @@ describe('HttpTwilioVerifyClient', () => {
   afterEach(() => {
     delete process.env.TWILIO_ACCOUNT_SID;
     delete process.env.TWILIO_AUTH_TOKEN;
-    delete process.env.TWILIO_VERIFY_SERVICE_SID;
     delete process.env.WHATSAPP_VERIFICATION_SERVICE_SID;
     delete process.env.WHATSAPP_VERIFICATION_SENDER;
     delete process.env.JWT_ACCESS_SECRET;
@@ -39,65 +42,63 @@ describe('HttpTwilioVerifyClient', () => {
     })).resolves.toEqual({ sid: 'VE456' });
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toContain(process.env.WHATSAPP_VERIFICATION_SERVICE_SID);
-    expect(url).not.toContain(process.env.TWILIO_VERIFY_SERVICE_SID);
     expect(String(init.body)).toContain('Channel=whatsapp');
     expect(String(init.body)).not.toContain(process.env.WHATSAPP_VERIFICATION_SENDER);
     expect(warn).not.toHaveBeenCalled();
   });
 
-  it('starts an SMS verification and returns only the verification sid', async () => {
-    fetchMock.mockResolvedValue(jsonResponse(201, { sid: 'VE123', to: '+263771234567' }));
-    await expect(client.startVerification('+263771234567')).resolves.toEqual({ sid: 'VE123' });
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toContain('/Verifications');
-    expect(String(init.body)).toContain('Channel=sms');
-    expect(JSON.stringify(init)).not.toContain(process.env.TWILIO_AUTH_TOKEN);
-    expect(warn).not.toHaveBeenCalled();
+  it('does not send SMS when the WhatsApp channel is omitted', async () => {
+    await expect(client.startVerification('+263771234567')).rejects.toMatchObject({
+      message: 'WhatsApp verification is unavailable',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('treats an approved check as success and any other code as failure', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(200, { status: 'approved', valid: true }));
-    await expect(client.checkVerification('+263771234567', '123456')).resolves.toBe(true);
+    await expect(client.checkVerification('+263771234567', '123456', whatsapp)).resolves.toBe(true);
     fetchMock.mockResolvedValueOnce(jsonResponse(200, { status: 'pending', valid: false }));
-    await expect(client.checkVerification('+263771234567', '000000')).resolves.toBe(false);
+    await expect(client.checkVerification('+263771234567', '000000', whatsapp)).resolves.toBe(false);
     fetchMock.mockResolvedValueOnce(jsonResponse(404, { status: 404 }));
-    await expect(client.checkVerification('+263771234567', '000000')).resolves.toBe(false);
+    await expect(client.checkVerification('+263771234567', '000000', whatsapp)).resolves.toBe(false);
   });
 
   it('does not call Twilio when credentials are missing', async () => {
     delete process.env.TWILIO_AUTH_TOKEN;
-    await expect(client.startVerification('+263771234567')).rejects.toBeInstanceOf(ServiceUnavailableException);
+    await expect(client.startVerification('+263771234567', whatsapp)).rejects.toMatchObject({
+      message: 'WhatsApp verification is not configured',
+    });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('surfaces Twilio rate limits without the response body', async () => {
     fetchMock.mockResolvedValue(jsonResponse(429, { message: 'secret upstream detail' }));
-    await expect(client.checkVerification('+263771234567', '123456')).rejects.toBeInstanceOf(TooManyRequestsException);
+    await expect(client.checkVerification('+263771234567', '123456', whatsapp)).rejects.toBeInstanceOf(TooManyRequestsException);
     expect(warn).not.toHaveBeenCalled();
   });
 
-  it('logs Twilio status and code when SMS verification is unavailable', async () => {
+  it('logs Twilio status and code when WhatsApp verification is unavailable', async () => {
     fetchMock.mockResolvedValue(jsonResponse(401, {
       code: 20003,
       message: 'Authenticate failed for +263771234567',
       more_info: 'https://www.twilio.com/docs/errors/20003',
     }));
 
-    await expect(client.startVerification('+263771234567')).rejects.toMatchObject({
-      message: 'SMS verification is unavailable',
+    await expect(client.startVerification('+263771234567', whatsapp)).rejects.toMatchObject({
+      message: 'WhatsApp verification is unavailable',
     });
 
     const logged = warn.mock.calls.map((call) => String(call[0])).join('\n');
     expect(logged).toContain('httpStatus=401');
     expect(logged).toContain('twilioCode=20003');
     expect(logged).toContain('accountSidSuffix=aaaa');
-    expect(logged).toContain('serviceSidSuffix=bbbb');
+    expect(logged).toContain('serviceSidSuffix=cccc');
     expect(logged).toContain('destinationCountry=+263');
     expect(logged).toContain('message=Authenticate failed for [phone]');
     expect(logged).not.toContain('+263771234567');
     expect(logged).not.toContain('771234567');
     expect(logged).not.toContain(process.env.TWILIO_ACCOUNT_SID);
-    expect(logged).not.toContain(process.env.TWILIO_VERIFY_SERVICE_SID);
+    expect(logged).not.toContain(whatsapp.serviceSid);
     expect(logged).not.toContain(process.env.TWILIO_AUTH_TOKEN);
     expect(logged).not.toContain('Authorization');
   });
@@ -105,8 +106,8 @@ describe('HttpTwilioVerifyClient', () => {
   it('logs a Dutch destination as +31 without the rest of the number', async () => {
     fetchMock.mockResolvedValue(jsonResponse(403, { code: 21608, message: 'The number +31612345678 is unverified' }));
 
-    await expect(client.startVerification('+31612345678')).rejects.toMatchObject({
-      message: 'SMS verification is unavailable',
+    await expect(client.startVerification('+31612345678', whatsapp)).rejects.toMatchObject({
+      message: 'WhatsApp verification is unavailable',
     });
 
     const logged = warn.mock.calls.map((call) => String(call[0])).join('\n');
@@ -119,18 +120,18 @@ describe('HttpTwilioVerifyClient', () => {
   });
 
   it('redacts secrets from Twilio and network failure logs', async () => {
-    const serviceSid = process.env.TWILIO_VERIFY_SERVICE_SID ?? '';
+    const serviceSid = whatsapp.serviceSid;
     fetchMock.mockRejectedValueOnce(new TypeError(
       `connect failed https://verify.twilio.com/v2/Services/${serviceSid}/Verifications for +263771234567 Basic ${process.env.TWILIO_AUTH_TOKEN} Bearer ${process.env.JWT_ACCESS_SECRET}`,
     ));
 
-    await expect(client.startVerification('+263771234567')).rejects.toBeInstanceOf(ServiceUnavailableException);
+    await expect(client.startVerification('+263771234567', whatsapp)).rejects.toBeInstanceOf(ServiceUnavailableException);
 
     const logged = warn.mock.calls.map((call) => String(call[0])).join('\n');
     expect(logged).toContain('httpStatus=none');
     expect(logged).toContain('twilioCode=none');
     expect(logged).toContain('accountSidSuffix=aaaa');
-    expect(logged).toContain('serviceSidSuffix=bbbb');
+    expect(logged).toContain('serviceSidSuffix=cccc');
     expect(logged).toContain('destinationCountry=+263');
     expect(logged).toContain('[url]');
     expect(logged).toContain('[phone]');

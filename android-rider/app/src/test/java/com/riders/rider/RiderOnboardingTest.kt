@@ -10,6 +10,7 @@ import com.riders.rider.feature.onboarding.domain.LICENCE_IMAGE_MAX_BYTES
 import com.riders.rider.feature.onboarding.domain.MotorcycleDraft
 import com.riders.rider.feature.onboarding.domain.OnboardingStep
 import com.riders.rider.feature.onboarding.domain.RiderOnboarding
+import com.riders.rider.feature.onboarding.domain.applicationAwaitingReview
 import com.riders.rider.feature.onboarding.domain.approvalStatusTitle
 import com.riders.rider.feature.onboarding.domain.canEditMotorcycle
 import com.riders.rider.feature.onboarding.domain.canReplaceLicence
@@ -55,6 +56,10 @@ class RiderOnboardingTest {
         assertEquals("Your profile is complete.", profileCompletion(approved(), true, 1))
         assertTrue(needsOnboarding(pending))
         assertFalse(needsOnboarding(approved()))
+        assertTrue(applicationAwaitingReview("PENDING", true, "PENDING", listOf("PENDING")))
+        assertFalse(applicationAwaitingReview("PENDING", false, null, listOf("PENDING")))
+        assertFalse(applicationAwaitingReview("PENDING", true, "PENDING", emptyList()))
+        assertFalse(applicationAwaitingReview("APPROVED", true, "VERIFIED", listOf("VERIFIED")))
     }
 
     @Test

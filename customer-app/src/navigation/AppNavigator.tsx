@@ -25,9 +25,6 @@ import ParcelRequestScreen from '../features/deliveries/presentation/screens/Par
 import RequestOpenScreen from '../features/deliveries/presentation/screens/RequestOpenScreen';
 import DeliveryTrackingScreen from '../features/deliveries/presentation/screens/DeliveryTrackingScreen';
 import OtpVerificationScreen from '../features/auth/presentation/screens/OtpVerificationScreen';
-import RegistrationFormScreen from '../features/auth/presentation/screens/RegistrationFormScreen';
-import ForgotPasswordScreen from '../features/auth/presentation/screens/ForgotPasswordScreen';
-import ResetPasswordScreen from '../features/auth/presentation/screens/ResetPasswordScreen';
 import SignInScreen from '../features/auth/presentation/screens/SignInScreen';
 import UnlockScreen from '../features/auth/presentation/screens/UnlockScreen';
 import BiometricOfferScreen from '../features/auth/presentation/screens/BiometricOfferScreen';
@@ -179,24 +176,9 @@ export default function AppNavigator() {
               options={{ title: 'Create account' }}
             />
             <Stack.Screen
-              name="ForgotPassword"
-              component={ForgotPasswordScreen}
-              options={{ title: 'Forgot password' }}
-            />
-            <Stack.Screen
-              name="ResetPassword"
-              component={ResetPasswordScreen}
-              options={{ title: 'Reset password' }}
-            />
-            <Stack.Screen
               name="OtpVerification"
               component={OtpVerificationScreen}
               options={{ title: 'Verify' }}
-            />
-            <Stack.Screen
-              name="RegistrationForm"
-              component={RegistrationFormScreen}
-              options={{ title: 'Create account' }}
             />
           </>
         )}

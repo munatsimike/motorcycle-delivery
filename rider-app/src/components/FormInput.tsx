@@ -1,6 +1,6 @@
 import { StyleSheet, Text, TextInput, type KeyboardTypeOptions } from 'react-native';
 
-import { colors, radius, spacing, typography } from '../theme';
+import { colors, inputErrorStyle, radius, spacing, typography } from '../theme';
 import { useInputFocus } from './useInputFocus';
 
 type FormInputProps = {
@@ -13,6 +13,8 @@ type FormInputProps = {
   textContentType?: 'telephoneNumber' | 'oneTimeCode' | 'name' | 'none';
   maxLength?: number;
   editable?: boolean;
+  error?: string | null;
+  invalid?: boolean;
 };
 
 export default function FormInput({
@@ -25,6 +27,8 @@ export default function FormInput({
   textContentType,
   maxLength,
   editable = true,
+  error,
+  invalid = false,
 }: FormInputProps) {
   const focus = useInputFocus();
 
@@ -33,7 +37,7 @@ export default function FormInput({
       <Text style={styles.label}>{label}</Text>
       <TextInput
         accessibilityLabel={label}
-        style={[styles.input, focus.style, !editable && styles.locked]}
+        style={[styles.input, focus.style, (error || invalid) ? inputErrorStyle : null, !editable && styles.locked]}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
@@ -46,6 +50,7 @@ export default function FormInput({
         onFocus={focus.onFocus}
         onBlur={focus.onBlur}
       />
+      {error ? <Text style={styles.error}>{error}</Text> : null}
     </>
   );
 }
@@ -71,5 +76,12 @@ const styles = StyleSheet.create({
   locked: {
     backgroundColor: colors.surface,
     color: colors.textSecondary,
+  },
+  error: {
+    marginTop: -spacing.sm,
+    marginBottom: spacing.md,
+    fontSize: typography.caption,
+    lineHeight: 20,
+    color: colors.error,
   },
 });

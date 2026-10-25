@@ -42,8 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.autofill.ContentType
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
@@ -71,6 +70,7 @@ import com.riders.rider.core.design.RidersRadius
 import com.riders.rider.core.design.RidersSecondaryButton
 import com.riders.rider.core.design.RidersSpacing
 import com.riders.rider.core.design.RidersTextField
+import com.riders.rider.core.design.ridersFocusRing
 import com.riders.rider.core.design.ridersFieldTextStyle
 import com.riders.rider.core.design.RidersType
 import com.riders.rider.BuildConfig
@@ -80,7 +80,6 @@ import com.riders.rider.core.design.RidersBrandMark
 import com.riders.rider.core.design.PhoneWithFlag
 import com.riders.rider.core.design.ZimbabweFlag
 import com.riders.rider.feature.auth.domain.VERIFICATION_CODE_MAX_LENGTH
-import com.riders.rider.feature.auth.domain.authEntryActions
 import com.riders.rider.feature.auth.domain.isVerificationCode
 import com.riders.rider.feature.auth.domain.looksLikeDutchTestNumber
 import com.riders.rider.feature.auth.domain.riderPhoneEntry
@@ -186,13 +185,11 @@ fun WelcomeScreen(onSignIn: () -> Unit, onRegister: () -> Unit) {
 fun SignInScreen(
     onCodeSent: (String) -> Unit,
     onCreateAccount: () -> Unit,
-    onForgotPassword: () -> Unit,
     notice: String? = null,
     model: SignInViewModel = hiltViewModel(),
 ) {
     val ui by model.ui.collectAsStateWithLifecycle()
     var phone by rememberSaveable { mutableStateOf("") }
-    var password by rememberSaveable { mutableStateOf("") }
     LaunchedEffect(ui.completedPhone) {
         ui.completedPhone?.let(onCodeSent)
     }
@@ -202,14 +199,10 @@ fun SignInScreen(
             phone = it
             model.clearAccountMissing()
         },
-        password = password,
-        onPassword = { password = it },
         loading = ui.loading,
         error = ui.error ?: notice,
         codeSent = ui.completedPhone != null,
-        onSubmit = { model.submit(riderPhoneEntry(phone, allowDutchTestNumbers = BuildConfig.DEBUG)) },
-        onPasswordSubmit = { model.loginWithPassword(riderPhoneEntry(phone, allowDutchTestNumbers = BuildConfig.DEBUG), password) },
-        onForgotPassword = onForgotPassword,
+        onSubmit = { model.startWhatsAppLogin(riderPhoneEntry(phone, allowDutchTestNumbers = BuildConfig.DEBUG)) },
         onCreateAccount = onCreateAccount,
         accountMissing = ui.accountMissing,
     )
@@ -226,8 +219,6 @@ fun RegisterScreen(
     var phone by rememberSaveable { mutableStateOf("") }
     var fullName by rememberSaveable { mutableStateOf("") }
     var address by rememberSaveable { mutableStateOf("") }
-    var password by rememberSaveable { mutableStateOf("") }
-    var passwordMode by rememberSaveable { mutableStateOf(false) }
     var consent by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(ui.completedPhone, ui.whatsapp) {
         val completed = ui.completedPhone ?: return@LaunchedEffect
@@ -240,20 +231,14 @@ fun RegisterScreen(
         onFullName = { fullName = it },
         address = address,
         onAddress = { address = it },
-        password = password,
-        onPassword = { password = it },
-        passwordMode = passwordMode,
-        onTogglePassword = { passwordMode = !passwordMode },
         consent = consent,
         onConsent = { consent = it },
         loading = ui.loading,
         error = ui.error,
         codeSent = ui.completedPhone != null,
-        onSubmit = { model.submit(riderPhoneEntry(phone, allowDutchTestNumbers = BuildConfig.DEBUG)) },
-        onPasswordSubmit = {
+        onSubmit = {
             model.registerWithPassword(
                 riderPhoneEntry(phone, allowDutchTestNumbers = BuildConfig.DEBUG),
-                password,
                 fullName,
                 address,
                 consent,
@@ -289,7 +274,7 @@ fun OtpScreen(
         loading = ui.loading,
         error = ui.error,
         signedIn = ui.completedPhone != null,
-        whatsapp = flow == "whatsapp",
+        whatsapp = flow == "whatsapp" || flow == "whatsapp_login" || flow == "login",
         onSubmit = { model.submit(flow, phone, code) },
         onResend = { model.resend(flow, phone) },
     )
@@ -305,26 +290,18 @@ private fun SignInContent(
     onSubmit: () -> Unit,
     onCreateAccount: () -> Unit,
     accountMissing: Boolean = false,
-    password: String = "",
-    onPassword: (String) -> Unit = {},
-    onPasswordSubmit: () -> Unit = {},
-    onForgotPassword: () -> Unit = {},
 ) {
     AuthScaffold {
         RidersBrandMark()
         Spacer(Modifier.height(RidersSpacing.xxxl))
         Text(
-            if (accountMissing) "Rider account not found" else "Welcome back",
+            "Welcome back",
             style = RidersType.title,
             color = RidersColors.text,
         )
         Spacer(Modifier.height(RidersSpacing.md))
         Text(
-            if (accountMissing) {
-                "You don't have a rider account for this phone number. If you already have a Riders customer account, you can use the same number to register as a rider."
-            } else {
-                "Enter your mobile number and we'll send a one-time code."
-            },
+            "We'll send a one-time WhatsApp code to this number.",
             style = RidersType.body,
             color = RidersColors.textSecondary,
         )
@@ -337,50 +314,20 @@ private fun SignInContent(
         )
         if (!accountMissing) {
             Text(
-                "Enter a Zimbabwe mobile number. We'll send a one-time SMS code.",
+                "Enter a Zimbabwe mobile number. We'll send a one-time WhatsApp code.",
                 style = RidersType.small,
                 color = RidersColors.textSecondary,
             )
-            Spacer(Modifier.height(RidersSpacing.lg))
-            RidersTextField(
-                label = "Password",
-                value = password,
-                onValueChange = onPassword,
-                placeholder = "12 or more characters",
-                enabled = !loading,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
-                visualTransformation = PasswordVisualTransformation(),
-            )
         }
         Spacer(Modifier.height(RidersSpacing.xl))
-        AuthFeedback(error = if (accountMissing) null else error, success = if (codeSent) "Code sent" else null, onRetry = onSubmit)
+        AuthFeedback(error = error, success = if (codeSent) "Code sent" else null, onRetry = onSubmit)
         RidersPrimaryButton(
-            label = if (accountMissing) "Create Rider Account" else "Continue",
-            onClick = if (accountMissing) onCreateAccount else onSubmit,
+            label = "Send code",
+            onClick = onSubmit,
             loading = loading,
             loadingLabel = "Sending",
             modifier = Modifier.fillMaxWidth(),
         )
-        if (!accountMissing) {
-            Spacer(Modifier.height(RidersSpacing.md))
-            RidersSecondaryButton(
-                label = "Sign in with password",
-                onClick = onPasswordSubmit,
-                enabled = !loading,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            if (authEntryActions().passwordRecovery) {
-                Spacer(Modifier.height(RidersSpacing.md))
-                Text(
-                    "Forgot password",
-                    style = RidersType.captionStrong,
-                    color = RidersColors.primary,
-                    modifier = Modifier
-                        .clickable(enabled = !loading, role = Role.Button, onClick = onForgotPassword)
-                        .padding(vertical = RidersSpacing.md),
-                )
-            }
-        }
         AuthFooter(prompt = "New to Riders?", action = "Sign up", enabled = !loading, onClick = onCreateAccount)
     }
 }
@@ -406,19 +353,13 @@ private fun RegisterContent(
     consent: Boolean = false,
     onConsent: (Boolean) -> Unit = {},
 ) {
-    val whatsappRegistration = authEntryActions().whatsappRegistration
-    val showWhatsApp = whatsappRegistration && passwordMode
     AuthScaffold {
         RidersBrandMark()
         Spacer(Modifier.height(RidersSpacing.xxxl))
         Text("Create your account", style = RidersType.title, color = RidersColors.text)
         Spacer(Modifier.height(RidersSpacing.md))
         Text(
-            if (showWhatsApp) {
-                "Create the account with your phone number and a password. We send one WhatsApp code before the account can sign in."
-            } else {
-                "Enter your mobile number. We'll verify it before asking for your name and address."
-            },
+            "We'll send one WhatsApp code to create your account.",
             style = RidersType.body,
             color = RidersColors.textSecondary,
         )
@@ -429,15 +370,7 @@ private fun RegisterContent(
             enabled = !loading,
             countryCode = if (BuildConfig.DEBUG && looksLikeDutchTestNumber(phone)) "+31" else "+263",
         )
-        if (!showWhatsApp) {
-            Text(
-                "Enter a Zimbabwe mobile number. We'll send a one-time SMS code.",
-                style = RidersType.small,
-                color = RidersColors.textSecondary,
-            )
-        }
-        if (showWhatsApp) {
-            Spacer(Modifier.height(RidersSpacing.lg))
+        Spacer(Modifier.height(RidersSpacing.lg))
             RidersTextField(
                 label = "Full name",
                 value = fullName,
@@ -445,21 +378,10 @@ private fun RegisterContent(
                 enabled = !loading,
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Next),
             )
-            RidersTextField(
-                label = "Address",
+            RegistrationAddressField(
                 value = address,
                 onValueChange = onAddress,
                 enabled = !loading,
-                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Next),
-            )
-            RidersTextField(
-                label = "Password",
-                value = password,
-                onValueChange = onPassword,
-                placeholder = "12 or more characters",
-                enabled = !loading,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
-                visualTransformation = PasswordVisualTransformation(),
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(checked = consent, onCheckedChange = onConsent, enabled = !loading)
@@ -470,25 +392,15 @@ private fun RegisterContent(
                     modifier = Modifier.weight(1f),
                 )
             }
-        }
         Spacer(Modifier.height(RidersSpacing.xl))
         AuthFeedback(error = error, success = if (codeSent) "Code sent" else null, onRetry = onSubmit)
         RidersPrimaryButton(
-            label = if (showWhatsApp) "Create account" else "Verify",
-            onClick = if (showWhatsApp) onPasswordSubmit else onSubmit,
+            label = "Create account",
+            onClick = onSubmit,
             loading = loading,
-            loadingLabel = if (showWhatsApp) "Creating" else "Sending",
+            loadingLabel = "Creating",
             modifier = Modifier.fillMaxWidth(),
         )
-        if (whatsappRegistration) {
-            Spacer(Modifier.height(RidersSpacing.md))
-            RidersSecondaryButton(
-                label = if (passwordMode) "Use a one-time code" else "Create account with a password",
-                onClick = onTogglePassword,
-                enabled = !loading,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
         AuthFooter(prompt = "Already have an account?", action = "Sign in", enabled = !loading, onClick = onSignIn)
     }
 }
@@ -562,16 +474,12 @@ private fun AccountContent(
             ),
         )
         if (!locked || address.isNotBlank()) {
-            RidersTextField(
-                label = "Address",
+            RegistrationAddressField(
                 value = address,
                 onValueChange = onAddress,
-                placeholder = "12 Samora Machel Avenue",
                 enabled = !loading && !locked,
-                keyboardOptions = KeyboardOptions(
-                    capitalization = KeyboardCapitalization.Words,
-                    imeAction = ImeAction.Done,
-                ),
+                placeholder = "12 Samora Machel Avenue",
+                imeAction = ImeAction.Done,
             )
         }
         Spacer(Modifier.height(RidersSpacing.sm))
@@ -605,7 +513,7 @@ private fun OtpContent(
             if (whatsapp) {
                 "Enter the WhatsApp code sent to $phone. The account stays signed out until this code is accepted."
             } else {
-                "Enter the verification code from the SMS. If this number can sign in, we sent it to $phone."
+                "Enter the WhatsApp code sent to $phone. The account stays signed out until this code is accepted."
             },
             style = RidersType.body,
             color = RidersColors.textSecondary,
@@ -689,20 +597,14 @@ private fun ZimbabwePhoneField(
     val shape = RoundedCornerShape(RidersRadius.md)
     val borderColor = if (focused) RidersColors.primary else RidersColors.border
     Column(Modifier.fillMaxWidth().semantics { contentDescription = "Zimbabwe mobile number" }) {
-        Text("Mobile number", style = RidersType.captionStrong, color = RidersColors.text)
+        Text("WhatsApp number", style = RidersType.captionStrong, color = RidersColors.text)
         Spacer(Modifier.height(RidersSpacing.md))
         Row(
             Modifier
                 .fillMaxWidth()
                 .defaultMinSize(minHeight = 58.dp)
-                .shadow(
-                    elevation = if (focused) 4.dp else 0.dp,
-                    shape = shape,
-                    ambientColor = RidersColors.focusRing,
-                    spotColor = RidersColors.focusRing,
-                )
-                .clip(shape)
-                .background(if (enabled) RidersColors.background else RidersColors.surface)
+                .ridersFocusRing(focused && enabled)
+                .background(if (enabled) RidersColors.background else RidersColors.surface, shape)
                 .border(if (focused) 2.dp else 1.dp, borderColor, shape)
                 .padding(horizontal = RidersSpacing.lg, vertical = RidersSpacing.lg),
             verticalAlignment = Alignment.CenterVertically,
@@ -761,6 +663,7 @@ private fun OtpCodeField(
     error: Boolean,
 ) {
     val focus = remember { FocusRequester() }
+    var focused by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { focus.requestFocus() }
     BasicTextField(
         value = value,
@@ -768,6 +671,7 @@ private fun OtpCodeField(
         modifier = Modifier
             .fillMaxWidth()
             .focusRequester(focus)
+            .onFocusChanged { focused = it.isFocused }
             .semantics {
                 contentDescription = "Verification code"
                 contentType = ContentType.SmsOtpCode
@@ -782,13 +686,18 @@ private fun OtpCodeField(
         cursorBrush = SolidColor(RidersColors.primary),
         decorationBox = { inner ->
             val shape = RoundedCornerShape(RidersRadius.md)
-            val borderColor = if (error) RidersColors.error else RidersColors.border
+            val borderColor = when {
+                error -> RidersColors.error
+                focused -> RidersColors.primary
+                else -> RidersColors.border
+            }
             Box(
                 Modifier
                     .fillMaxWidth()
                     .defaultMinSize(minHeight = 56.dp)
+                    .ridersFocusRing(error || focused, if (error) RidersColors.errorRing else RidersColors.focusRing)
                     .background(RidersColors.background, shape)
-                    .border(if (error) 2.dp else 1.dp, borderColor, shape)
+                    .border(if (error || focused) 2.dp else 1.dp, borderColor, shape)
                     .padding(vertical = RidersSpacing.md, horizontal = RidersSpacing.lg),
                 contentAlignment = Alignment.Center,
             ) {
@@ -878,103 +787,6 @@ private fun PreviewRegisterNetwork() {
 }
 
 @Preview(name = "OTP", showBackground = true, widthDp = 360)
-@Composable
-fun ForgotPasswordScreen(
-    onCodeSent: (String) -> Unit,
-    onSignIn: () -> Unit,
-    model: RecoveryViewModel = hiltViewModel(),
-) {
-    val ui by model.ui.collectAsStateWithLifecycle()
-    var phone by rememberSaveable { mutableStateOf("") }
-    var consent by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(ui.completedPhone) {
-        ui.completedPhone?.let(onCodeSent)
-    }
-    AuthScaffold {
-        Text("Forgot password", style = RidersType.title, color = RidersColors.text)
-        Spacer(Modifier.height(RidersSpacing.md))
-        Text(
-            "If this number has a verified account, we'll send a WhatsApp code. Unverified numbers are not reset.",
-            style = RidersType.body,
-            color = RidersColors.textSecondary,
-        )
-        Spacer(Modifier.height(RidersSpacing.xxl))
-        ZimbabwePhoneField(
-            value = phone,
-            onValueChange = { phone = it },
-            enabled = !ui.loading,
-            countryCode = if (BuildConfig.DEBUG && looksLikeDutchTestNumber(phone)) "+31" else "+263",
-        )
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(checked = consent, onCheckedChange = { consent = it }, enabled = !ui.loading)
-            Text(
-                "I agree to receive a WhatsApp authentication message.",
-                style = RidersType.small,
-                color = RidersColors.text,
-                modifier = Modifier.weight(1f),
-            )
-        }
-        Spacer(Modifier.height(RidersSpacing.xl))
-        AuthFeedback(error = ui.error, success = null, onRetry = {
-            model.request(riderPhoneEntry(phone, allowDutchTestNumbers = BuildConfig.DEBUG), consent)
-        })
-        RidersPrimaryButton(
-            label = "Send code",
-            onClick = { model.request(riderPhoneEntry(phone, allowDutchTestNumbers = BuildConfig.DEBUG), consent) },
-            loading = ui.loading,
-            loadingLabel = "Sending",
-            modifier = Modifier.fillMaxWidth(),
-        )
-        AuthFooter(prompt = "Remembered it?", action = "Sign in", enabled = !ui.loading, onClick = onSignIn)
-    }
-}
-
-@Composable
-fun ResetPasswordScreen(
-    phone: String,
-    onDone: () -> Unit,
-    model: RecoveryViewModel = hiltViewModel(),
-) {
-    val ui by model.ui.collectAsStateWithLifecycle()
-    var code by rememberSaveable { mutableStateOf("") }
-    var password by rememberSaveable { mutableStateOf("") }
-    LaunchedEffect(ui.completedPhone) {
-        if (ui.completedPhone != null) {
-            onDone()
-        }
-    }
-    AuthScaffold {
-        Text("Choose a new password", style = RidersType.title, color = RidersColors.text)
-        Spacer(Modifier.height(RidersSpacing.md))
-        Text(
-            "Enter the WhatsApp code for $phone. You will need to sign in again. Saved sessions on other phones are signed out.",
-            style = RidersType.body,
-            color = RidersColors.textSecondary,
-        )
-        Spacer(Modifier.height(RidersSpacing.xxl))
-        OtpCodeField(value = code, onValueChange = { code = it }, enabled = !ui.loading, error = ui.error != null)
-        Spacer(Modifier.height(RidersSpacing.lg))
-        RidersTextField(
-            label = "New password",
-            value = password,
-            onValueChange = { password = it },
-            placeholder = "12 or more characters",
-            enabled = !ui.loading,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
-            visualTransformation = PasswordVisualTransformation(),
-        )
-        Spacer(Modifier.height(RidersSpacing.xl))
-        AuthFeedback(error = ui.error, success = null, onRetry = { model.reset(phone, code, password) })
-        RidersPrimaryButton(
-            label = "Reset password",
-            onClick = { model.reset(phone, code, password) },
-            loading = ui.loading,
-            loadingLabel = "Saving",
-            modifier = Modifier.fillMaxWidth(),
-        )
-    }
-}
-
 @Composable
 private fun PreviewOtp() {
     RiderTheme {
