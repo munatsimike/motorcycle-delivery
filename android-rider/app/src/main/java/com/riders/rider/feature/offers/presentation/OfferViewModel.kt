@@ -17,6 +17,7 @@ import com.riders.rider.feature.bids.domain.BID_AMOUNT_INVALID
 import com.riders.rider.feature.bids.domain.OpenBidRequest
 import com.riders.rider.feature.bids.domain.OwnBid
 import com.riders.rider.feature.bids.domain.availableRequests
+import com.riders.rider.feature.bids.domain.notificationBidRequest
 import com.riders.rider.feature.bids.domain.bidAmountCents
 import com.riders.rider.feature.bids.domain.marketplaceBidButtonsVisible
 import com.riders.rider.feature.bids.domain.optimisticAmountsAfterServerRefresh
@@ -29,7 +30,7 @@ import com.riders.rider.feature.offers.domain.sentOffersAfterRefresh
 import com.riders.rider.feature.offers.domain.AcceptedDelivery
 import com.riders.rider.feature.offers.domain.OFFER_UNAVAILABLE
 import com.riders.rider.feature.offers.domain.REQUEST_UNAVAILABLE
-import com.riders.rider.feature.offers.domain.notificationTapCanOpen
+import com.riders.rider.feature.offers.domain.notificationRequestCanOpen
 import com.riders.rider.feature.offers.notification.PendingOffer
 import com.riders.rider.feature.offers.domain.OfferBoard
 import com.riders.rider.feature.offers.domain.OfferRefreshGate
@@ -37,6 +38,7 @@ import com.riders.rider.feature.offers.domain.OfferWatch
 import com.riders.rider.feature.offers.domain.adjustedNowMillis
 import com.riders.rider.feature.offers.domain.canAcceptOffer
 import com.riders.rider.feature.offers.domain.clockOffsetMillis
+import com.riders.rider.feature.offers.domain.marketplaceOffersError
 import com.riders.rider.feature.offers.domain.offerBoardAfterLoad
 import com.riders.rider.feature.offers.domain.matchingOfferIndex
 import com.riders.rider.feature.offers.domain.offerUnavailableAfterRefresh
@@ -133,21 +135,31 @@ class OfferViewModel @Inject constructor(
     fun openFromNotification(assignmentId: String) {
         viewModelScope.launch {
             val now = adjustedNowMillis(System.currentTimeMillis(), clockOffset)
-            when (val result = offers.list()) {
-                is ApiResult.Ok if result.value.fromNetwork -> {
-                    applyListed(result.value)
-                    val match = availableRequests(result.value.offers, openRequests).find { it.assignmentId == assignmentId }
-                    val canOpen = notificationTapCanOpen(match != null, match?.expiresAt, adjustedNowMillis(System.currentTimeMillis(), clockOffset))
+            when (val opened = bids.openRequests()) {
+                is ApiResult.Ok -> {
+                    openRequests = opened.value
+                    bids.refreshOwnBids(null)
+                    val visible = availableRequests(emptyList(), openRequests)
+                    applyListed(ListedOffers(emptyList(), fromNetwork = true, serverNowMillis = null))
+                    val match = notificationBidRequest(visible, assignmentId)
+                    val canOpen = notificationRequestCanOpen(
+                        match != null,
+                        match?.expiresAt,
+                        adjustedNowMillis(System.currentTimeMillis(), clockOffset),
+                    )
                     state.update {
                         it.copy(
                             selected = if (canOpen) match else null,
                             offerGone = false,
                             error = if (canOpen) null else REQUEST_UNAVAILABLE,
                             nowMillis = now,
+                            loading = false,
                         )
                     }
                 }
-                else -> state.update { it.copy(selected = null, offerGone = false, error = REQUEST_UNAVAILABLE, nowMillis = now) }
+                else -> state.update {
+                    it.copy(selected = null, offerGone = false, error = REQUEST_UNAVAILABLE, nowMillis = now, loading = false)
+                }
             }
             pending.clear()
         }
@@ -310,7 +322,14 @@ class OfferViewModel @Inject constructor(
                 bids.refreshOwnBids(null)
                 when (val result = offers.list()) {
                     is ApiResult.Ok -> applyListed(result.value)
-                    is ApiResult.Err -> keepOffers(result.error.text())
+                    is ApiResult.Err -> {
+                        val blocked = marketplaceOffersError(opened is ApiResult.Ok, result.error.text())
+                        if (blocked == null) {
+                            applyListed(ListedOffers(emptyList(), fromNetwork = true, serverNowMillis = null))
+                        } else {
+                            keepOffers((opened as? ApiResult.Err)?.error?.text() ?: blocked)
+                        }
+                    }
                 }
                 presented = true
             } finally {

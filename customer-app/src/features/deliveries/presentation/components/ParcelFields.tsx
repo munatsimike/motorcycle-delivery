@@ -165,10 +165,10 @@ export default function ParcelFields({ draft, onChange, marketplace = false }: P
                   <MaterialDesignIcons
                     name={option.icon}
                     size={16}
-                    color={selected ? colors.primary : colors.textSecondary}
+                    color="#000000"
                     style={optionIconStyle(option.icon)}
                   />
-                  <Text style={styles.deliveryRadioLabel}>{option.label}</Text>
+                  <Text style={[styles.deliveryRadioLabel, styles.deliveryTypeLabel]}>{option.label}</Text>
                 </Pressable>
               );
             })}
@@ -409,6 +409,9 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: colors.textSecondary,
     includeFontPadding: false,
+  },
+  deliveryTypeLabel: {
+    color: '#000000',
   },
   deliveryRadioSelected: {
     borderColor: colors.primary,

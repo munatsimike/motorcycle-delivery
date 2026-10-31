@@ -1,5 +1,6 @@
 package com.riders.rider.feature.bids.domain
 
+import com.riders.rider.core.money.moneyLabel
 import com.riders.rider.core.network.ApiError
 import java.time.Instant
 import com.riders.rider.core.network.OfferResponse
@@ -11,10 +12,11 @@ import com.riders.rider.feature.offers.domain.offerSentConfirmation
 import kotlinx.serialization.Serializable
 
 const val EXPRESS_BIDS_UNAVAILABLE = "New bids are unavailable while an Urgent delivery is active."
-const val BID_AMOUNT_INVALID = "Enter a bid amount in USD."
+const val BID_AMOUNT_INVALID = "Enter a bid amount ($)."
 const val MARKETPLACE_DISABLED = "Bidding is not available"
 const val BID_LIST_UNAVAILABLE = "Your existing offers could not be loaded. Try again before sending another offer."
 const val REQUEST_NO_LONGER_OPEN = "This request is no longer open for offers."
+const val AWAITING_CUSTOMER_RESPONSE = "Awaiting customer response"
 
 @Serializable
 data class BidAttempt(
@@ -265,7 +267,9 @@ fun displayedBidProblem(hasMarketplaceRequest: Boolean, listProblem: String?, su
     return if (hasMarketplaceRequest) listProblem else null
 }
 
-fun bidAmountLabel(currency: String, amount: String): String = "$currency $amount"
+fun bidAmountLabel(currency: String, amount: String): String {
+    return moneyLabel(currency, amount)
+}
 
 fun requestDistanceLabel(meters: Int?): String? {
     if (meters == null || meters < 0) {
@@ -284,7 +288,7 @@ fun suggestedPriceLabel(amount: String?): String? {
     if (value.isEmpty()) {
         return null
     }
-    return "Suggested price USD $value"
+    return "Suggested price \$$value"
 }
 
 fun parcelSummary(description: String, size: String): String {
@@ -293,6 +297,28 @@ fun parcelSummary(description: String, size: String): String {
 
 fun openBidFor(bids: List<OwnBid>, deliveryId: String): OwnBid? {
     return bids.firstOrNull { it.deliveryId == deliveryId && it.status == "OPEN" }
+}
+
+fun pendingBids(bids: List<OwnBid>): List<OwnBid> = bids.filter { it.status == "OPEN" }
+
+fun newMarketplaceOffers(
+    offers: List<OfferResponse>,
+    bids: List<OwnBid>,
+    optimistic: Map<String, String> = emptyMap(),
+): List<OfferResponse> = offers.filter { requestStillNeedsOffer(it.deliveryId, bids, optimistic) }
+
+fun homeNewRequestCount(requests: List<OpenBidRequest>, bids: List<OwnBid>): Int {
+    return newMarketplaceOffers(availableRequests(emptyList(), requests), bids).size
+}
+
+fun notificationBidRequest(requests: List<OfferResponse>, tappedId: String): OfferResponse? {
+    val id = tappedId.trim()
+    if (id.isEmpty()) {
+        return null
+    }
+    return requests.firstOrNull { offer ->
+        offer.assignmentId == id || offer.deliveryId == id || offer.assignmentId == "request:$id"
+    }
 }
 
 fun bidBoardPhase(loading: Boolean, requestCount: Int, bidCount: Int, error: String?): BidBoardPhase {

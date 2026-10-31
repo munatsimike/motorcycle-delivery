@@ -8,8 +8,9 @@ import BottomSheetModal from '../../../../components/BottomSheetModal';
 import SecondaryButton from '../../../../components/SecondaryButton';
 import { colors, radius, spacing, typography } from '../../../../theme';
 import { deliveryCardAddress, deliveryContentKind, deliveryWhenLabel, shortDeliveryReference } from '../../domain/deliveryCard';
+import { moneyLabel } from '../../domain/moneyLabel';
 import { displayedCustomerOffer, type CustomerDeliveryDetail } from '../../domain/customerDeliveryDetail';
-import { ContentIcon, ContentLabel, LocationPin, ServiceClassBadge, StopLabel } from '../deliveryIcons';
+import { ContentIcon, ContentLabel, LocationPin, ServiceClassBadge, StopLabel, deliveryIcon } from '../deliveryIcons';
 
 type ParcelDetailsSheetProps = {
   delivery: CustomerDeliveryDetail | null;
@@ -73,7 +74,7 @@ export function Summary({
   const amount = customerOffer
     ? (offerAmount ?? displayedCustomerOffer(delivery))
     : (delivery.offeredPrice ?? delivery.suggestedPrice);
-  const price = `${delivery.currency} ${amount}`;
+  const price = moneyLabel(delivery.currency, amount ?? '');
   return (
     <View style={framed ? styles.card : styles.sheetSummary}>
       <View style={styles.badgeRow}>
@@ -132,7 +133,7 @@ export function Summary({
   );
 }
 
-const PIN_SIZE = 32;
+const PIN_SIZE = deliveryIcon.size;
 const DOT_SIZE = 3;
 const DOT_STEP = 7;
 
@@ -230,7 +231,6 @@ const styles = StyleSheet.create({
   facts: {
     flexDirection: 'row',
     gap: spacing.lg,
-    paddingBottom: spacing.sm,
   },
   referenceRow: {
     flex: 1,
@@ -248,12 +248,12 @@ const styles = StyleSheet.create({
   },
   markerColumn: {
     width: PIN_SIZE,
-    alignItems: 'center',
+    alignItems: 'flex-start',
   },
   pinCircle: {
     width: PIN_SIZE,
     height: PIN_SIZE,
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'center',
   },
   connector: {
@@ -272,24 +272,21 @@ const styles = StyleSheet.create({
   },
   stopCopy: {
     flex: 1,
-    gap: spacing.xs,
-    paddingBottom: spacing.sm,
+    gap: 2,
   },
   stopValue: {
     fontSize: typography.caption,
-    lineHeight: 20,
+    lineHeight: 18,
     fontWeight: '400',
     color: colors.text,
   },
   divider: {
     height: 1,
-    marginTop: spacing.sm,
   },
   meta: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-end',
-    marginTop: -spacing.sm,
   },
   offerMeta: {
     alignItems: 'flex-start',

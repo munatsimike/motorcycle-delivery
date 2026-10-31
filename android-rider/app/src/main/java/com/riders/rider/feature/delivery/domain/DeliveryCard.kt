@@ -103,5 +103,5 @@ fun deliveryPriceLabel(amount: String?): String? {
     if (value.isEmpty()) {
         return null
     }
-    return "USD $value"
+    return "\$$value"
 }

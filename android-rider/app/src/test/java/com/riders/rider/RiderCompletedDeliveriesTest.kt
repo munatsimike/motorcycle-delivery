@@ -10,6 +10,8 @@ import com.riders.rider.feature.delivery.domain.requestCompletedBoard
 import com.riders.rider.feature.delivery.domain.v2CancellationVisible
 import com.riders.rider.feature.delivery.domain.v2RiderAction
 import com.riders.rider.navigation.DeliveryBoardTab
+import com.riders.rider.navigation.defaultDeliveryBoardTab
+import com.riders.rider.navigation.deliveryBoardTabLabel
 import com.riders.rider.navigation.deliveryBoardTabs
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -19,15 +21,17 @@ import org.junit.Test
 
 class RiderCompletedDeliveriesTest {
     @Test
-    fun completedTabSitsBesideActiveAndMyOffers() {
-        assertEquals(
-            listOf(DeliveryBoardTab.Active, DeliveryBoardTab.Offers, DeliveryBoardTab.Completed),
-            deliveryBoardTabs(showsOffers = true),
+    fun deliveriesScreenUsesFourTabsWithActiveFirst() {
+        val tabs = listOf(
+            DeliveryBoardTab.Active,
+            DeliveryBoardTab.New,
+            DeliveryBoardTab.Pending,
+            DeliveryBoardTab.Completed,
         )
-        assertEquals(
-            listOf(DeliveryBoardTab.Active, DeliveryBoardTab.Completed),
-            deliveryBoardTabs(showsOffers = false),
-        )
+        assertEquals(tabs, deliveryBoardTabs(showsOffers = true))
+        assertEquals(tabs, deliveryBoardTabs(showsOffers = false))
+        assertEquals(DeliveryBoardTab.Active, defaultDeliveryBoardTab())
+        assertEquals(listOf("Active", "New", "Pending", "Completed"), tabs.map(::deliveryBoardTabLabel))
     }
 
     @Test

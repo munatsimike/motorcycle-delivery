@@ -216,7 +216,13 @@ export default function ParcelRequestScreen({ navigation }: ParcelRequestProps) 
             />
           )}
           {booking.step === 'pickup' ? null : (
-            <SecondaryButton label="Back" soft onPress={booking.goBack} disabled={Boolean(booking.busy) || booked} />
+            <SecondaryButton
+              label="Back"
+              icon="arrow-left"
+              bordered={false}
+              onPress={booking.goBack}
+              disabled={Boolean(booking.busy) || booked}
+            />
           )}
         </View>
       </ScrollView>

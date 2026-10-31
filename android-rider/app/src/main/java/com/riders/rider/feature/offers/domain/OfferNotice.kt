@@ -74,3 +74,13 @@ fun notificationTapCanOpen(listed: Boolean, expiresAt: String?, nowMillis: Long)
     }
     return !offerIsExpired(expiresAt, nowMillis)
 }
+
+fun notificationRequestCanOpen(listed: Boolean, expiresAt: String?, nowMillis: Long): Boolean {
+    if (!listed) {
+        return false
+    }
+    if (expiresAt.isNullOrBlank()) {
+        return true
+    }
+    return notificationTapCanOpen(listed = true, expiresAt = expiresAt, nowMillis = nowMillis)
+}

@@ -1,5 +1,6 @@
 package com.riders.rider.feature.offers.domain
 
+import com.riders.rider.core.money.moneyLabel
 import java.time.Instant
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
@@ -22,11 +23,16 @@ fun offerBoardAfterLoad(previous: OfferBoard, count: Int?, error: String?): Offe
     }
 }
 
-fun offerPriceLabel(currency: String, offeredPrice: String): String = "$currency $offeredPrice"
+fun marketplaceOffersError(openRequestsLoaded: Boolean, legacyOffersError: String?): String? {
+    return if (openRequestsLoaded) null else legacyOffersError
+}
+
+fun offerPriceLabel(currency: String, offeredPrice: String): String {
+    return moneyLabel(currency, offeredPrice)
+}
 
 fun acceptOfferLabel(currency: String, offeredPrice: String): String {
-    val amount = if (currency == "USD") "\$$offeredPrice" else offerPriceLabel(currency, offeredPrice)
-    return "Accept for $amount"
+    return "Accept for ${offerPriceLabel(currency, offeredPrice)}"
 }
 
 fun senderChoosesRider(serviceClass: String?): Boolean {

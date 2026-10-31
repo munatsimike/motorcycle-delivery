@@ -15,6 +15,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -27,6 +28,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavBackStackEntry
 import com.riders.rider.R
 import com.riders.rider.core.design.NetworkSnackbarClearance
@@ -36,6 +38,7 @@ import com.riders.rider.core.design.RidersType
 import com.riders.rider.core.design.rememberRidersMotion
 import com.riders.rider.feature.home.DeliveriesScreen
 import com.riders.rider.feature.home.HomeScreen
+import com.riders.rider.feature.offers.notification.rememberOfferInbox
 import com.riders.rider.feature.offers.notification.rememberOfferPush
 import com.riders.rider.feature.home.HomeViewModel
 import com.riders.rider.feature.profile.presentation.ProfileScreen
@@ -60,8 +63,22 @@ fun RiderShell(
     onMotorcycles: () -> Unit,
 ) {
     var tabName by rememberSaveable { mutableStateOf(RiderDestination.Home.name) }
+    var deliveriesBoard by rememberSaveable { mutableStateOf(DeliveryBoardTab.Active.name) }
+    var requestToOpen by rememberSaveable { mutableStateOf<String?>(null) }
     val tab = RiderDestination.valueOf(tabName)
     val offerPush = rememberOfferPush()
+    val pendingRequests = rememberOfferInbox()
+    val requestTap by pendingRequests.taps.collectAsStateWithLifecycle()
+    LaunchedEffect(requestTap) {
+        val requestId = requestTap?.trim().orEmpty()
+        if (requestId.isEmpty()) {
+            return@LaunchedEffect
+        }
+        deliveriesBoard = DeliveryBoardTab.New.name
+        tabName = RiderDestination.Deliveries.name
+        requestToOpen = requestId
+        pendingRequests.clear()
+    }
     val home: HomeViewModel = hiltViewModel()
     val profile: ProfileViewModel = hiltViewModel()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -90,7 +107,12 @@ fun RiderShell(
                     val selected = destination == tab
                     NavigationBarItem(
                         selected = selected,
-                        onClick = { tabName = selectRiderTab(tab, destination).name },
+                        onClick = {
+                            if (destination == RiderDestination.Deliveries) {
+                                deliveriesBoard = DeliveryBoardTab.Active.name
+                            }
+                            tabName = selectRiderTab(tab, destination).name
+                        },
                         icon = {
                             Icon(
                                 painter = painterResource(destination.navIcon),
@@ -134,6 +156,14 @@ fun RiderShell(
                 when (destination) {
                     RiderDestination.Home -> HomeScreen(
                         onOffers = { tabName = RiderDestination.Deliveries.name },
+                        onActiveDeliveries = {
+                            deliveriesBoard = DeliveryBoardTab.Active.name
+                            tabName = RiderDestination.Deliveries.name
+                        },
+                        onNewRequests = {
+                            deliveriesBoard = DeliveryBoardTab.New.name
+                            tabName = RiderDestination.Deliveries.name
+                        },
                         onWallet = { tabName = RiderDestination.Wallet.name },
                         onDelivery = onDelivery,
                         onSetup = onSetup,
@@ -144,6 +174,9 @@ fun RiderShell(
                         onAccepted = onAccepted,
                         onOpenDelivery = onDelivery,
                         onOpenCompleted = onCompleted,
+                        boardTab = DeliveryBoardTab.valueOf(deliveriesBoard),
+                        requestId = requestToOpen,
+                        onRequestHandled = { requestToOpen = null },
                         model = home,
                     )
                     RiderDestination.Wallet -> WalletScreen(showBack = false, inShell = true)

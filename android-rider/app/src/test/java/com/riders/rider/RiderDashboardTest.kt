@@ -14,7 +14,9 @@ import com.riders.rider.feature.home.confirmAvailability
 import com.riders.rider.feature.home.failAvailability
 import com.riders.rider.feature.home.DashboardFailure
 import com.riders.rider.feature.home.dashboardFailure
+import com.riders.rider.feature.delivery.domain.CommittedParcel
 import com.riders.rider.feature.home.activeDeliveryCount
+import com.riders.rider.feature.home.dashboardActiveCount
 import com.riders.rider.feature.home.homeShift
 import com.riders.rider.feature.home.OFFLINE_WITH_DELIVERIES_MESSAGE
 import com.riders.rider.feature.home.offlineConfirmationRequired
@@ -36,6 +38,7 @@ import com.riders.rider.feature.offers.domain.canAcceptOffer
 import com.riders.rider.feature.offers.domain.clockOffsetMillis
 import com.riders.rider.feature.offers.domain.httpDateMillis
 import com.riders.rider.feature.offers.domain.matchingOfferIndex
+import com.riders.rider.feature.offers.domain.marketplaceOffersError
 import com.riders.rider.feature.offers.domain.offerBoardAfterLoad
 import com.riders.rider.feature.offers.domain.offerExpiryLabel
 import com.riders.rider.feature.offers.domain.offerIsExpired
@@ -112,6 +115,15 @@ class RiderDashboardTest {
         assertFalse(offlineConfirmationRequired(activeDeliveryCount(showActiveDelivery = false, flexibleCount = 0, expressCount = 0)))
         assertTrue(offlineConfirmationRequired(activeDeliveryCount(showActiveDelivery = true, flexibleCount = null, expressCount = null)))
         assertEquals(3, activeDeliveryCount(showActiveDelivery = true, flexibleCount = 2, expressCount = 1))
+        assertEquals(1, activeDeliveryCount(showActiveDelivery = true, flexibleCount = 0, expressCount = 0))
+        assertEquals(
+            2,
+            dashboardActiveCount(listOf(
+                CommittedParcel(deliveryId = "a", assignmentId = "a", status = "RIDER_ASSIGNED", serviceClass = "FLEXIBLE"),
+                CommittedParcel(deliveryId = "b", assignmentId = "b", status = "COLLECTED", serviceClass = "EXPRESS"),
+                CommittedParcel(deliveryId = "c", assignmentId = "c", status = "DELIVERED", serviceClass = "FLEXIBLE"),
+            )),
+        )
         assertTrue(OFFLINE_WITH_DELIVERIES_MESSAGE.contains("stay assigned to you"))
     }
 
@@ -169,6 +181,11 @@ class RiderDashboardTest {
         )
         assertEquals(1, failed.count)
         assertEquals("Network request failed. Check your connection and try again.", failed.error)
+        assertNull(marketplaceOffersError(openRequestsLoaded = true, "Cannot GET /riders/me/offers"))
+        assertEquals(
+            "Cannot GET /riders/me/offers",
+            marketplaceOffersError(openRequestsLoaded = false, "Cannot GET /riders/me/offers"),
+        )
     }
 
     @Test
@@ -189,7 +206,7 @@ class RiderDashboardTest {
     @Test
     fun offeredPriceShowsCurrencyWithoutCallingItEarnings() {
         val label = offerPriceLabel("USD", "2.00")
-        assertEquals("USD 2.00", label)
+        assertEquals("$2.00", label)
         assertEquals("Accept for $2.98", acceptOfferLabel("USD", "2.98"))
         assertEquals("Your offer", OFFER_YOUR_PRICE)
         assertEquals("Awaiting customer", AWAITING_CUSTOMER)

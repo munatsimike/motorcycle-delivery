@@ -3,6 +3,7 @@ package com.riders.rider
 import com.riders.rider.feature.offers.domain.OFFER_NOTICE_BODY
 import com.riders.rider.feature.offers.domain.OFFER_NOTICE_TITLE
 import com.riders.rider.feature.offers.domain.REQUEST_UNAVAILABLE
+import com.riders.rider.feature.offers.domain.notificationRequestCanOpen
 import com.riders.rider.feature.offers.domain.notificationTapCanOpen
 import com.riders.rider.feature.offers.domain.offerNotificationId
 import com.riders.rider.feature.offers.domain.parseRiderOffer
@@ -61,6 +62,8 @@ class RiderOfferNoticeTest {
         assertFalse(notificationTapCanOpen(listed = false, expiresAt = "2026-10-23T00:01:00.000Z", nowMillis = now))
         assertFalse(notificationTapCanOpen(listed = true, expiresAt = "2020-01-01T00:00:00.000Z", nowMillis = now))
         assertTrue(notificationTapCanOpen(listed = true, expiresAt = "2099-01-01T00:00:00.000Z", nowMillis = now))
+        assertTrue(notificationRequestCanOpen(listed = true, expiresAt = null, nowMillis = now))
+        assertFalse(notificationRequestCanOpen(listed = true, expiresAt = "2020-01-01T00:00:00.000Z", nowMillis = now))
         assertEquals("New delivery request", OFFER_NOTICE_TITLE)
         assertEquals("Open the app to respond. This request expires soon.", OFFER_NOTICE_BODY)
         assertEquals("Offer no longer available", REQUEST_UNAVAILABLE)

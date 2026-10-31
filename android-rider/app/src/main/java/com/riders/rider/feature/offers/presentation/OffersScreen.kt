@@ -76,8 +76,12 @@ import com.riders.rider.core.network.OfferResponse
 import com.riders.rider.feature.bids.domain.bidAmountCents
 import com.riders.rider.feature.bids.domain.displayedBidProblem
 import com.riders.rider.feature.bids.domain.marketplaceBidButtonsVisible
+import com.riders.rider.feature.bids.domain.newMarketplaceOffers
 import com.riders.rider.feature.bids.domain.formatBidDollars
 import com.riders.rider.feature.delivery.presentation.ContentIcon
+import com.riders.rider.feature.delivery.presentation.StopContactName
+import com.riders.rider.feature.delivery.presentation.partyName
+import com.riders.rider.feature.delivery.presentation.partyPhone
 import com.riders.rider.feature.delivery.presentation.ContentLabel
 import com.riders.rider.feature.delivery.presentation.DeliveryStop
 import com.riders.rider.feature.delivery.presentation.ServiceClassBadge
@@ -94,6 +98,8 @@ import com.riders.rider.feature.bids.domain.resolvedSubmittedAmount
 import com.riders.rider.feature.offers.domain.offerSentConfirmation
 import com.riders.rider.feature.offers.domain.senderChoosesRider
 import com.riders.rider.feature.offers.domain.offerPriceLabel
+import com.riders.rider.feature.delivery.domain.DeliveryListSort
+import com.riders.rider.feature.delivery.domain.sortDeliveries
 import com.riders.rider.feature.offers.domain.offerStopLine
 import com.riders.rider.navigation.bidOptionsEnter
 import com.riders.rider.navigation.bidOptionsExit
@@ -104,7 +110,10 @@ fun OffersScreen(
     inShell: Boolean = false,
     modifier: Modifier = Modifier,
     offerAssignmentId: String? = null,
+    onRequestHandled: () -> Unit = {},
     contentKind: String? = null,
+    sort: DeliveryListSort = DeliveryListSort.Newest,
+    unbidOnly: Boolean = false,
     model: OfferViewModel = hiltViewModel(),
 ) {
     val ui by model.ui.collectAsStateWithLifecycle()
@@ -129,6 +138,7 @@ fun OffersScreen(
     LaunchedEffect(offerAssignmentId) {
         val assignmentId = offerAssignmentId ?: return@LaunchedEffect
         model.openFromNotification(assignmentId)
+        onRequestHandled()
     }
     val selected = ui.selected
     val placingBid = ui.placingBid
@@ -165,6 +175,8 @@ fun OffersScreen(
                 onInterest = model::expressInterest,
                 onRetry = model::pullRefresh,
                 contentKind = contentKind,
+                sort = sort,
+                unbidOnly = unbidOnly,
             )
         } else if (resolvedSubmittedAmount(ui.ownBids, selected.deliveryId, ui.sentAmounts[selected.deliveryId]) != null && !placingBid) {
             SentOfferDetails(
@@ -202,18 +214,34 @@ private fun OfferList(
     onInterest: (OfferResponse) -> Unit,
     onRetry: () -> Unit,
     contentKind: String? = null,
+    sort: DeliveryListSort = DeliveryListSort.Newest,
+    unbidOnly: Boolean = false,
 ) {
-    val shown = ui.offers.filter { deliveryContentMatches(it.parcel.description, contentKind) }
+    val pool = if (unbidOnly) newMarketplaceOffers(ui.offers, ui.ownBids, ui.sentAmounts) else ui.offers
+    val shown = sortDeliveries(
+        pool.filter { deliveryContentMatches(it.parcel.description, contentKind) },
+        sort,
+        { it.expiresAt },
+        { it.distanceMeters },
+        { it.offeredPrice },
+        { it.deliveryId },
+    )
+    val emptyTitle = if (unbidOnly) "No new offers" else "No open requests"
+    val emptyBody = if (unbidOnly) {
+        "Available delivery requests will appear here."
+    } else {
+        "New requests appear here while you stay available."
+    }
     when {
-        ui.loading && ui.offers.isEmpty() -> RidersLoadingState("Looking for requests")
-        ui.offers.isEmpty() && ui.error != null -> RidersFailureNotice(
+        ui.loading && pool.isEmpty() -> RidersLoadingState("Looking for requests")
+        pool.isEmpty() && ui.error != null -> RidersFailureNotice(
             message = ui.error,
             title = "Requests unavailable",
             onRetry = onRetry,
         )
         shown.isEmpty() -> RidersEmptyState(
-            title = filteredContentTitle(contentKind, "No open requests"),
-            body = "New requests appear here while you stay available.",
+            title = filteredContentTitle(contentKind, emptyTitle),
+            body = emptyBody,
             image = R.drawable.parcel_box,
         )
         else -> shown.forEach { offer ->
@@ -379,7 +407,7 @@ private fun IncomingOfferActions(
             verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
         ) {
             RidersTextField(
-                label = "Your offer (USD)",
+                label = "Your offer ($)",
                 value = amount,
                 onValueChange = { amount = it },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
@@ -675,8 +703,32 @@ private fun OfferDetailsSheet(visible: Boolean, offer: OfferResponse, amount: St
                 ServiceClassBadge(offer.serviceClass)
             }
             Column(Modifier.fillMaxWidth()) {
-                OfferStop("Pickup", offerStopLine(offer.pickup.address, offer.pickup.landmark), pickup = true, connected = true)
-                OfferStop("Drop-off", offerStopLine(offer.dropoff.address, offer.dropoff.landmark), pickup = false, connected = false)
+                OfferStop(
+                    "Pickup",
+                    offerStopLine(offer.pickup.address, offer.pickup.landmark),
+                    pickup = true,
+                    connected = true,
+                    above = {
+                        StopContactName(
+                            name = offer.pickup.partyName(),
+                            phone = offer.pickup.partyPhone(),
+                            actions = true,
+                        )
+                    },
+                )
+                OfferStop(
+                    "Drop-off",
+                    offerStopLine(offer.dropoff.address, offer.dropoff.landmark),
+                    pickup = false,
+                    connected = false,
+                    above = {
+                        StopContactName(
+                            name = offer.dropoff.partyName(),
+                            phone = offer.dropoff.partyPhone(),
+                            actions = true,
+                        )
+                    },
+                )
             }
             HorizontalDivider()
             DetailLine("Distance", offerDistanceLabel(offer.distanceMeters))
@@ -936,6 +988,12 @@ private fun OfferExpiry(expiresAt: String, nowMillis: Long, expired: Boolean, st
 }
 
 @Composable
-private fun OfferStop(title: String, line: String, pickup: Boolean, connected: Boolean) {
-    DeliveryStop(title, line, dropoff = !pickup, connect = connected)
+private fun OfferStop(
+    title: String,
+    line: String,
+    pickup: Boolean,
+    connected: Boolean,
+    above: @Composable () -> Unit = {},
+) {
+    DeliveryStop(title, line, dropoff = !pickup, connect = connected, above = above)
 }

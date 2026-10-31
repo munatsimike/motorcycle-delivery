@@ -31,6 +31,7 @@ function offer(patch: Partial<CustomerBid> & Pick<CustomerBid, 'id' | 'amount'>)
     completedDeliveries: 0,
     distanceMeters: null,
     motorcycle: null,
+    registrationNumber: null,
     hasProfilePhoto: false,
     ...patch,
   };
@@ -38,18 +39,23 @@ function offer(patch: Partial<CustomerBid> & Pick<CustomerBid, 'id' | 'amount'>)
 
 describe('rider offer sorting', () => {
   const bids = [
-    offer({ id: 'b', amount: '4.00', distanceMeters: 800, riderName: 'Rudo Ncube' }),
-    offer({ id: 'a', amount: '3.50', distanceMeters: null, riderName: 'New Person' }),
-    offer({ id: 'c', amount: '3.50', distanceMeters: 1_200, riderName: 'Tendai Moyo' }),
-    offer({ id: 'd', amount: '5.00', distanceMeters: 400, riderName: 'Chipo Dube' }),
+    offer({ id: 'b', amount: '4.00', distanceMeters: 800, completedDeliveries: 4, riderName: 'Rudo Ncube' }),
+    offer({ id: 'a', amount: '3.50', distanceMeters: null, completedDeliveries: 0, riderName: 'New Person' }),
+    offer({ id: 'c', amount: '3.50', distanceMeters: 1_200, completedDeliveries: 12, riderName: 'Tendai Moyo' }),
+    offer({ id: 'd', amount: '5.00', distanceMeters: 400, completedDeliveries: 12, riderName: 'Chipo Dube' }),
   ];
 
-  it('defaults to lowest price, then distance, then id', () => {
-    expect(sortRiderOffers(bids, 'price').map((bid) => bid.id)).toEqual(['c', 'a', 'b', 'd']);
+  it('sorts cheapest offers first, then fewer rides', () => {
+    expect(sortRiderOffers(bids, 'price').map((bid) => bid.id)).toEqual(['a', 'c', 'b', 'd']);
   });
 
-  it('sorts nearest riders first and leaves unknown distance last', () => {
-    expect(sortRiderOffers(bids, 'distance').map((bid) => bid.id)).toEqual(['d', 'b', 'c', 'a']);
+  it('sorts highest prices first, then fewer rides', () => {
+    expect(sortRiderOffers(bids, 'price-high').map((bid) => bid.id)).toEqual(['d', 'b', 'a', 'c']);
+  });
+
+  it('sorts fewest and most rides, then cheaper offers', () => {
+    expect(sortRiderOffers(bids, 'rides-low').map((bid) => bid.id)).toEqual(['a', 'b', 'c', 'd']);
+    expect(sortRiderOffers(bids, 'rides-high').map((bid) => bid.id)).toEqual(['c', 'd', 'b', 'a']);
   });
 
   it('keeps the original list unchanged', () => {
@@ -72,9 +78,9 @@ describe('rider offer sorting', () => {
     expect(arrivalTimeLabel(null)).toBeNull();
     expect(arrivalTimeLabel(450)).toBe('about 1 min');
     expect(arrivalTimeLabel(1_200)).toBe('about 3 min');
-    expect(tripCountLabel(0)).toBe('0 trips');
-    expect(tripCountLabel(1)).toBe('1 trip');
-    expect(tripCountLabel(12)).toBe('12 trips');
+    expect(tripCountLabel(0)).toBe('0 rides');
+    expect(tripCountLabel(1)).toBe('1 ride');
+    expect(tripCountLabel(12)).toBe('12 rides');
     expect(offerCountLabel(1)).toBe('1 rider has made an offer');
     expect(offerCountLabel(3)).toBe('3 riders have made offers');
     expect(parcelTypeLabel('documents')).toBe('Document');
@@ -94,8 +100,10 @@ describe('rider offer sorting', () => {
     expect(deliveryAwaitsRiderOffers({ status: 'NO_RIDER_FOUND', serviceClass: 'EXPRESS', deliverBy: null })).toBe(false);
     expect(deliveryAwaitsRiderOffers({ status: 'ASSIGNED', serviceClass: null })).toBe(false);
     expect(deliveryAwaitsRiderOffers(null)).toBe(false);
-    expect(receivedOfferCountLabel(1)).toBe('(1) offer received');
-    expect(receivedOfferCountLabel(3)).toBe('(3) offers received');
+    expect(receivedOfferCountLabel(0)).toBe('0 offers');
+    expect(receivedOfferCountLabel(1)).toBe('1 offer');
+    expect(receivedOfferCountLabel(2)).toBe('2 offers');
+    expect(receivedOfferCountLabel(5)).toBe('5 offers');
   });
 
   it('keeps offer order, updates prices, and drops closed or repeated offers', () => {
@@ -141,6 +149,7 @@ describe('rider offer sorting', () => {
         completedDeliveries: 12,
         distanceMeters: 1200,
         motorcycle: 'Honda Ace',
+        registrationNumber: 'AEX1234',
       },
     }]);
     expect(bid).toMatchObject({
@@ -149,6 +158,7 @@ describe('rider offer sorting', () => {
       completedDeliveries: 12,
       distanceMeters: 1200,
       motorcycle: 'Honda Ace',
+      registrationNumber: 'AEX1234',
     });
     expect(JSON.stringify(bid)).not.toContain('+263');
     expect(JSON.stringify(bid)).not.toContain('rider-');

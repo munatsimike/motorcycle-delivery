@@ -78,7 +78,7 @@ fun v2ActionLabel(targetStatus: String): String? = when (targetStatus) {
 }
 
 fun v2CancellationVisible(status: String): Boolean {
-    return status == "RIDER_ASSIGNED" || status == "COLLECTING"
+    return status == "RIDER_ASSIGNED" || status == "COLLECTING" || status == "COLLECTED" || status == "OUT_FOR_DELIVERY"
 }
 
 fun v2StatusReached(serverStatus: String, targetStatus: String): Boolean {
@@ -106,7 +106,7 @@ fun riderDetailsHeading(status: String): String = when (status) {
 
 fun riderDetailsSupport(status: String): String = when (status) {
     "RIDER_ASSIGNED", "ASSIGNED", "COLLECTING", "ARRIVED_AT_PICKUP" -> "Collect the parcel from the sender."
-    "COLLECTED", "PICKED_UP" -> "The parcel has been collected."
+    "COLLECTED", "PICKED_UP" -> "You've collected the parcel. Finish and mark it delivered."
     "OUT_FOR_DELIVERY", "IN_TRANSIT" -> "Take the parcel to the drop-off."
     "ARRIVED_AT_DROPOFF" -> "Hand the parcel to the recipient."
     "DELIVERED" -> "This delivery is complete."

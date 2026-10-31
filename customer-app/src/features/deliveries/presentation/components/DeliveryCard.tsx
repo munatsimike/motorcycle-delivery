@@ -60,10 +60,11 @@ export default function DeliveryCard({
   const press = usePressScale();
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
-  const tone = STATUS_TONES[delivery.status];
+  const bidsReceived = showsViewBids(delivery);
+  const tone = bidsReceived ? STATUS_TONES.ASSIGNED : STATUS_TONES[delivery.status];
   const contentKind = deliveryContentKind(delivery.parcelDescription);
   const canSearch = deliveryCanSearchAgain(delivery) && Boolean(onSearchAgain);
-  const canViewBids = showsViewBids(delivery) && Boolean(onOpenDetails);
+  const canViewBids = bidsReceived && Boolean(onOpenDetails);
 
   async function searchAgain() {
     if (!onSearchAgain || searching) {
@@ -149,24 +150,27 @@ export default function DeliveryCard({
 }
 
 function StatusPill({ tone, label, pulse }: { tone: StatusTone; label: string; pulse: boolean }) {
-  const opacity = useRef(new Animated.Value(1)).current;
+  const presence = useRef(new Animated.Value(1)).current;
+  const opacity = presence.interpolate({ inputRange: [0, 1], outputRange: [0.35, 1] });
+  const scale = presence.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1.08] });
 
   useEffect(() => {
     if (!pulse) {
-      opacity.stopAnimation();
-      opacity.setValue(1);
+      presence.stopAnimation();
+      presence.setValue(1);
       return;
     }
+    presence.setValue(0);
     const animation = Animated.loop(
       Animated.sequence([
-        Animated.timing(opacity, {
-          toValue: 0.35,
+        Animated.timing(presence, {
+          toValue: 1,
           duration: 900,
           easing: Easing.inOut(Easing.sin),
           useNativeDriver: true,
         }),
-        Animated.timing(opacity, {
-          toValue: 1,
+        Animated.timing(presence, {
+          toValue: 0,
           duration: 900,
           easing: Easing.inOut(Easing.sin),
           useNativeDriver: true,
@@ -175,10 +179,10 @@ function StatusPill({ tone, label, pulse }: { tone: StatusTone; label: string; p
     );
     animation.start();
     return () => animation.stop();
-  }, [opacity, pulse]);
+  }, [presence, pulse]);
 
   return (
-    <Animated.View style={[styles.pill, { backgroundColor: tone.background, opacity }]}>
+    <Animated.View style={[styles.pill, { backgroundColor: tone.background, opacity }, pulse ? { transform: [{ scale }] } : null]}>
       <Text numberOfLines={1} style={[styles.pillText, { color: tone.color }]}>{label}</Text>
     </Animated.View>
   );

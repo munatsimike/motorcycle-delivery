@@ -13,6 +13,7 @@ import com.riders.rider.core.design.RiderTheme
 import com.riders.rider.feature.auth.domain.AppEntry
 import com.riders.rider.feature.auth.presentation.SessionViewModel
 import com.riders.rider.feature.offers.domain.ACCEPTED_BID_EXTRA_DELIVERY_ID
+import com.riders.rider.feature.offers.domain.OFFER_EXTRA_ASSIGNMENT_ID
 import com.riders.rider.feature.offers.notification.OfferPushCoordinator
 import com.riders.rider.feature.offers.notification.PendingOffer
 import com.riders.rider.navigation.RiderNavHost
@@ -52,6 +53,11 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun captureOffer(intent: Intent?) {
+        val requestId = intent?.getStringExtra(OFFER_EXTRA_ASSIGNMENT_ID)?.trim().orEmpty()
+        if (requestId.isNotEmpty()) {
+            pendingOffer.notificationTapped(requestId)
+            intent?.removeExtra(OFFER_EXTRA_ASSIGNMENT_ID)
+        }
         val deliveryId = intent?.getStringExtra(ACCEPTED_BID_EXTRA_DELIVERY_ID)?.trim().orEmpty()
         if (deliveryId.isNotEmpty()) {
             pendingOffer.acceptedBidTapped(deliveryId)

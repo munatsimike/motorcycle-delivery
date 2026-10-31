@@ -47,6 +47,13 @@ const V2_PRE_PICKUP = new Set<DeliveryStatus>([
   DeliveryStatus.COLLECTING,
 ]);
 
+const V2_RIDER_CANCELLABLE = new Set<DeliveryStatus>([
+  DeliveryStatus.RIDER_ASSIGNED,
+  DeliveryStatus.COLLECTING,
+  DeliveryStatus.COLLECTED,
+  DeliveryStatus.OUT_FOR_DELIVERY,
+]);
+
 const V2_CANCEL_REASONS = new Set<AssignmentReleaseReason>([
   AssignmentReleaseReason.PAYMENT_NOT_AGREED,
   AssignmentReleaseReason.PARCEL_NOT_AS_DESCRIBED,
@@ -584,7 +591,7 @@ async function cancelBeforePickup(
     assignment.status !== AssignmentStatus.ACCEPTED
     || assignment.acceptedBidAmount == null
     || assignment.acceptedCommissionAmount == null
-    || !V2_PRE_PICKUP.has(delivery.status)
+    || !V2_RIDER_CANCELLABLE.has(delivery.status)
   ) {
     throw new ConflictException('This delivery cannot be cancelled');
   }

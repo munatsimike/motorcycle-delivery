@@ -144,8 +144,8 @@ fun AssignmentListPane(
                     onRetry = model::refresh,
                 )
                 visible.isEmpty() -> RidersEmptyState(
-                    title = filteredContentTitle(contentKind, "No committed deliveries"),
-                    body = "Accepted deliveries appear here, including ones accepted while the app was closed.",
+                    title = filteredContentTitle(contentKind, "No active deliveries"),
+                    body = "Your assigned deliveries will appear here.",
                     image = R.drawable.parcel_box,
                     modifier = Modifier.fillMaxWidth(),
                 )

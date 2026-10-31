@@ -125,6 +125,7 @@ export default function ProfileScreen() {
                 icon="map-marker-outline"
                 label="Address"
                 value={account.address}
+                onEdit={() => navigation.navigate('EditProfile', { account })}
               />
               {account.contactName ? (
                 <InfoRow icon="account-outline" label="Contact person" value={account.contactName} />
@@ -137,29 +138,6 @@ export default function ProfileScreen() {
         {isLoading ? <LoadingIndicator /> : null}
         {!isLoading && error ? <ErrorMessage message={error} /> : null}
         {photo.error ? <ErrorMessage message={photo.error} /> : null}
-
-        {account ? (
-          <View style={styles.edit}>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => navigation.navigate('EditProfile', { account })}
-              style={({ pressed }) => pressed && styles.pressed}
-            >
-              <View style={styles.editButton}>
-                <View style={styles.editLabelRow}>
-                  <MaterialDesignIcons name="pencil-outline" color={colors.textInverse} size={20} />
-                  <Text style={styles.editLabel}>Edit Profile</Text>
-                </View>
-                <MaterialDesignIcons
-                  name="chevron-right"
-                  color={colors.textInverse}
-                  size={22}
-                  style={styles.editChevron}
-                />
-              </View>
-            </Pressable>
-          </View>
-        ) : null}
 
         <View style={styles.edit}>
           <SecondaryButton
@@ -185,11 +163,13 @@ function InfoRow({
   label,
   value,
   flag = false,
+  onEdit,
 }: {
   icon: IconName;
   label: string;
   value: string;
   flag?: boolean;
+  onEdit?: () => void;
 }) {
   return (
     <View style={styles.row}>
@@ -207,6 +187,11 @@ function InfoRow({
           <Text style={styles.rowValue}>{value}</Text>
         </View>
       </View>
+      {onEdit ? (
+        <Pressable accessibilityRole="button" accessibilityLabel={`Edit ${label}`} hitSlop={8} onPress={onEdit}>
+          <MaterialDesignIcons name="pencil-outline" size={20} color="#000000" />
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -269,31 +254,6 @@ const styles = StyleSheet.create({
   edit: {
     marginHorizontal: spacing.lg,
     gap: spacing.md,
-  },
-  pressed: {
-    opacity: 0.8,
-  },
-  editButton: {
-    minHeight: 56,
-    borderRadius: radius.lg,
-    backgroundColor: colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing.lg,
-  },
-  editLabelRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  editLabel: {
-    color: colors.textInverse,
-    fontSize: typography.button,
-    fontWeight: '700',
-  },
-  editChevron: {
-    position: 'absolute',
-    right: spacing.lg,
   },
   settingCard: {
     backgroundColor: '#F8FAF9',

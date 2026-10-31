@@ -7,18 +7,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -38,6 +34,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -56,9 +53,11 @@ import com.riders.rider.feature.delivery.presentation.AssignmentListPane
 import com.riders.rider.feature.delivery.presentation.CompletedDeliveriesPane
 import com.riders.rider.feature.delivery.presentation.filteredContentTitle
 import com.riders.rider.feature.bids.presentation.BidBoardScreen
+import com.riders.rider.feature.offers.presentation.OffersScreen
 import com.riders.rider.navigation.DeliveryBoardTab
+import com.riders.rider.navigation.defaultDeliveryBoardTab
 import com.riders.rider.navigation.deliveriesShowsAssignmentList
-import com.riders.rider.navigation.deliveriesShowsBidBoard
+import com.riders.rider.navigation.deliveryBoardTabLabel
 import com.riders.rider.navigation.deliveryBoardTabs
 
 private enum class DeliveryContent(val label: String, val icon: Int) {
@@ -80,13 +79,17 @@ fun DeliveriesScreen(
     @Suppress("UNUSED_PARAMETER") onAccepted: (String) -> Unit,
     onOpenDelivery: (String) -> Unit,
     onOpenCompleted: (String) -> Unit,
+    boardTab: DeliveryBoardTab = defaultDeliveryBoardTab(),
+    requestId: String? = null,
+    onRequestHandled: () -> Unit = {},
     model: HomeViewModel = hiltViewModel(),
 ) {
     val ui by model.ui.collectAsStateWithLifecycle()
-    var tab by remember { mutableStateOf(DeliveryBoardTab.Active) }
+    var tab by remember(boardTab) { mutableStateOf(boardTab) }
     var content by remember { mutableStateOf(DeliveryContent.All) }
     var sort by remember { mutableStateOf(DeliveryListSort.Newest) }
     var sortOpen by remember { mutableStateOf(false) }
+    var filterOpen by remember { mutableStateOf(false) }
     val availability = ui.onboarding?.availability
     Column(
         Modifier
@@ -94,10 +97,9 @@ fun DeliveriesScreen(
             .background(RidersColors.background)
             .statusBarsPadding(),
     ) {
-        val marketplace = deliveriesShowsBidBoard(ui.onboarding?.receiving)
         val committed = ui.committedV2
-        val tabs = deliveryBoardTabs(marketplace)
-        val selected = if (tab in tabs) tab else DeliveryBoardTab.Active
+        val tabs = deliveryBoardTabs()
+        val selected = if (tab in tabs) tab else defaultDeliveryBoardTab()
         val contentKind = content.kind()
         if (tabs.size > 1) {
             DeliveryTabs(
@@ -107,13 +109,29 @@ fun DeliveriesScreen(
                 modifier = Modifier.padding(horizontal = RidersSpacing.lg).padding(top = RidersSpacing.lg, bottom = RidersSpacing.sm),
             )
         }
-        DeliveryContentFilters(
-            selected = content,
-            onSelect = { content = it },
-            onSort = { sortOpen = true },
+        DeliveryToolbar(
+            content = content,
+            sort = sort,
+            onFilter = {
+                sortOpen = false
+                filterOpen = true
+            },
+            onSort = {
+                filterOpen = false
+                sortOpen = true
+            },
             modifier = Modifier
                 .padding(horizontal = RidersSpacing.lg)
                 .padding(top = if (tabs.size > 1) 0.dp else RidersSpacing.lg, bottom = RidersSpacing.lg),
+        )
+        DeliveryFilterSheet(
+            visible = filterOpen,
+            selected = content,
+            onSelect = {
+                content = if (it == content || it == DeliveryContent.All) DeliveryContent.All else it
+                filterOpen = false
+            },
+            onDismiss = { filterOpen = false },
         )
         DeliverySortSheet(
             visible = sortOpen,
@@ -125,7 +143,17 @@ fun DeliveriesScreen(
             onDismiss = { sortOpen = false },
         )
         when (selected) {
-            DeliveryBoardTab.Offers -> BidBoardScreen(
+            DeliveryBoardTab.New -> OffersScreen(
+                onAccepted = onOpenDelivery,
+                inShell = true,
+                modifier = Modifier.weight(1f),
+                contentKind = contentKind,
+                sort = sort,
+                unbidOnly = true,
+                offerAssignmentId = requestId,
+                onRequestHandled = onRequestHandled,
+            )
+            DeliveryBoardTab.Pending -> BidBoardScreen(
                 contentKind = contentKind,
                 sort = sort,
                 modifier = Modifier.weight(1f),
@@ -166,7 +194,7 @@ fun DeliveriesScreen(
                     ) {
                         RidersEmptyState(
                             title = filteredContentTitle(contentKind, "No active deliveries"),
-                            body = "Accepted deliveries appear here.",
+                            body = "Your assigned deliveries will appear here.",
                             image = R.drawable.parcel_box,
                             modifier = Modifier.fillMaxWidth(),
                         )
@@ -178,73 +206,92 @@ fun DeliveriesScreen(
 }
 
 @Composable
-private fun DeliveryContentFilters(
-    selected: DeliveryContent,
-    onSelect: (DeliveryContent) -> Unit,
+private fun DeliveryToolbar(
+    content: DeliveryContent,
+    sort: DeliveryListSort,
+    onFilter: () -> Unit,
     onSort: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val selectedSort = sortChoices.first { it.sort == sort }
     Row(
         modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            Modifier
-                .weight(1f)
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        ToolbarMenu(
+            label = content.label,
+            leading = R.drawable.ic_filter,
+            trailing = content.icon,
+            contentDescription = "Filter deliveries, ${content.label}",
+            onClick = onFilter,
+        )
+        ToolbarMenu(
+            label = selectedSort.shortLabel,
+            leading = R.drawable.ic_sort,
+            trailing = selectedSort.icon,
+            contentDescription = "Sort deliveries, ${selectedSort.label}",
+            onClick = onSort,
+        )
+    }
+}
+
+@Composable
+private fun ToolbarMenu(
+    label: String,
+    leading: Int,
+    trailing: Int,
+    contentDescription: String,
+    onClick: () -> Unit,
+) {
+    val shape = RoundedCornerShape(RidersRadius.pill)
+    Row(
+        Modifier
+            .clip(shape)
+            .background(RidersColors.background)
+            .border(1.dp, RidersColors.border, shape)
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = RidersSpacing.md, vertical = RidersSpacing.xs),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(RidersSpacing.xs),
+    ) {
+        Image(
+            painterResource(leading),
+            contentDescription = contentDescription,
+            modifier = Modifier.size(18.dp),
+            colorFilter = ColorFilter.tint(RidersColors.text),
+        )
+        Text(label, style = RidersType.caption.copy(fontWeight = FontWeight.SemiBold), color = RidersColors.text)
+        Image(
+            painterResource(trailing),
+            contentDescription = null,
+            modifier = Modifier.size(18.dp),
+            colorFilter = ColorFilter.tint(RidersColors.text),
+        )
+        Image(
+            painterResource(R.drawable.ic_chevron_down),
+            contentDescription = null,
+            modifier = Modifier.size(18.dp),
+            colorFilter = ColorFilter.tint(RidersColors.textSecondary),
+        )
+    }
+}
+
+@Composable
+private fun DeliveryFilterSheet(
+    visible: Boolean,
+    selected: DeliveryContent,
+    onSelect: (DeliveryContent) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ChoiceSheet(visible = visible, title = "Filter", onDismiss = onDismiss) {
         DeliveryContent.entries.forEach { item ->
             val isSelected = item == selected
-            val shape = RoundedCornerShape(RidersRadius.pill)
-            Box(
-                Modifier
-                    .clip(shape)
-                    .background(if (isSelected) RidersColors.primaryLight else RidersColors.background)
-                    .border(1.dp, if (isSelected) RidersColors.primary else RidersColors.border, shape)
-                    .clickable(role = Role.RadioButton, onClick = {
-                        onSelect(if (isSelected) DeliveryContent.All else item)
-                    })
-                    .semantics { this.selected = isSelected }
-                    .padding(horizontal = RidersSpacing.md, vertical = RidersSpacing.xs),
-                contentAlignment = Alignment.Center,
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(RidersSpacing.xs),
-                ) {
-                    Image(
-                        painterResource(item.icon),
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp),
-                        colorFilter = ColorFilter.tint(if (isSelected) RidersColors.primaryDark else RidersColors.textSecondary),
-                    )
-                    Text(
-                        item.label,
-                        style = RidersType.small.copy(fontWeight = FontWeight.SemiBold),
-                        color = if (isSelected) RidersColors.primaryDark else RidersColors.textSecondary,
-                    )
-                }
-            }
-        }
-        }
-        Spacer(Modifier.width(RidersSpacing.sm))
-        val sortShape = CircleShape
-        Box(
-            Modifier
-                .size(36.dp)
-                .clip(sortShape)
-                .background(RidersColors.background)
-                .border(1.dp, RidersColors.border, sortShape)
-                .clickable(role = Role.Button, onClick = onSort),
-            contentAlignment = Alignment.Center,
-        ) {
-            Image(
-                painterResource(R.drawable.ic_sort),
-                contentDescription = "Sort",
-                modifier = Modifier.size(18.dp),
-                colorFilter = ColorFilter.tint(RidersColors.text),
+            SheetOption(
+                label = if (item == DeliveryContent.Document) "Document" else item.label,
+                icon = item.icon,
+                selected = isSelected,
+                onClick = { onSelect(item) },
             )
         }
     }
@@ -257,14 +304,25 @@ private fun DeliverySortSheet(
     onSelect: (DeliveryListSort) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val options = listOf(
-        SortChoice(DeliveryListSort.Newest, "Newest", R.drawable.ic_clock),
-        SortChoice(DeliveryListSort.Oldest, "Oldest", R.drawable.ic_clock),
-        SortChoice(DeliveryListSort.Shortest, "Shortest distance", R.drawable.ic_route),
-        SortChoice(DeliveryListSort.Longest, "Longest distance", R.drawable.ic_route),
-        SortChoice(DeliveryListSort.Highest, "Highest price", R.drawable.ic_currency),
-        SortChoice(DeliveryListSort.Lowest, "Lowest price", R.drawable.ic_currency),
-    )
+    ChoiceSheet(visible = visible, title = "Sort by", onDismiss = onDismiss) {
+        sortChoices.forEach { choice ->
+            SheetOption(
+                label = choice.label,
+                icon = choice.icon,
+                selected = choice.sort == selected,
+                onClick = { onSelect(choice.sort) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun ChoiceSheet(
+    visible: Boolean,
+    title: String,
+    onDismiss: () -> Unit,
+    options: @Composable () -> Unit,
+) {
     val sheetShape = RoundedCornerShape(topStart = RidersRadius.xl, topEnd = RidersRadius.xl)
     RidersBottomSheet(visible = visible, onDismiss = onDismiss, handle = false) {
         Column(
@@ -273,93 +331,75 @@ private fun DeliverySortSheet(
                 .clip(sheetShape)
                 .background(RidersColors.background)
                 .navigationBarsPadding()
-                .padding(horizontal = RidersSpacing.lg)
-                .padding(bottom = RidersSpacing.lg),
+                .padding(RidersSpacing.lg),
+            verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
         ) {
-            Box(
-                Modifier
-                    .align(Alignment.CenterHorizontally)
-                    .padding(top = RidersSpacing.sm, bottom = RidersSpacing.md)
-                    .width(36.dp)
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(RidersColors.border),
-            )
-            Row(
-                Modifier.fillMaxWidth().padding(bottom = RidersSpacing.md),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    "Sort by",
-                    style = RidersType.heading,
-                    color = RidersColors.text,
-                    modifier = Modifier.weight(1f),
+            Text(title, style = RidersType.heading, color = RidersColors.text)
+            options()
+        }
+    }
+}
+
+@Composable
+private fun SheetOption(
+    label: String,
+    icon: Int,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(RidersRadius.md))
+            .background(if (selected) RidersColors.surface else RidersColors.background)
+            .clickable(role = Role.RadioButton, onClick = onClick)
+            .semantics { this.selected = selected }
+            .padding(vertical = RidersSpacing.sm),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md),
+    ) {
+        Image(
+            painterResource(icon),
+            contentDescription = null,
+            modifier = Modifier.size(20.dp),
+            colorFilter = ColorFilter.tint(if (selected) RidersColors.primaryDark else RidersColors.textSecondary),
+        )
+        Text(
+            label,
+            style = RidersType.body.copy(fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal),
+            color = if (selected) RidersColors.primaryDark else RidersColors.text,
+            modifier = Modifier.weight(1f),
+        )
+        Box(
+            Modifier
+                .size(22.dp)
+                .clip(CircleShape)
+                .background(if (selected) RidersColors.primary else RidersColors.background)
+                .border(1.dp, if (selected) RidersColors.primary else RidersColors.border, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (selected) {
+                Image(
+                    painterResource(R.drawable.ic_check),
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp),
+                    colorFilter = ColorFilter.tint(RidersColors.textInverse),
                 )
-                Box(
-                    Modifier
-                        .size(32.dp)
-                        .clip(CircleShape)
-                        .clickable(role = Role.Button, onClick = onDismiss),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Image(
-                        painterResource(R.drawable.ic_close),
-                        contentDescription = "Close",
-                        modifier = Modifier.size(22.dp),
-                        colorFilter = ColorFilter.tint(RidersColors.textSecondary),
-                    )
-                }
-            }
-            options.forEach { choice ->
-                val isSelected = choice.sort == selected
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .defaultMinSize(minHeight = 52.dp)
-                        .clip(RoundedCornerShape(RidersRadius.lg))
-                        .background(if (isSelected) RidersColors.primaryLight else RidersColors.background)
-                        .clickable(role = Role.RadioButton, onClick = { onSelect(choice.sort) })
-                        .semantics { this.selected = isSelected }
-                        .padding(horizontal = RidersSpacing.md),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md),
-                ) {
-                    Image(
-                        painterResource(choice.icon),
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp),
-                        colorFilter = ColorFilter.tint(if (isSelected) RidersColors.primaryDark else RidersColors.textSecondary),
-                    )
-                    Text(
-                        choice.label,
-                        style = RidersType.body.copy(fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium),
-                        color = if (isSelected) RidersColors.primaryDark else RidersColors.text,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Box(
-                        Modifier
-                            .size(22.dp)
-                            .clip(CircleShape)
-                            .background(if (isSelected) RidersColors.primary else RidersColors.background)
-                            .border(if (isSelected) 0.dp else 1.5.dp, RidersColors.border, CircleShape),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        if (isSelected) {
-                            Image(
-                                painterResource(R.drawable.ic_check),
-                                contentDescription = null,
-                                modifier = Modifier.size(14.dp),
-                                colorFilter = ColorFilter.tint(RidersColors.textInverse),
-                            )
-                        }
-                    }
-                }
             }
         }
     }
 }
 
-private data class SortChoice(val sort: DeliveryListSort, val label: String, val icon: Int)
+private val sortChoices = listOf(
+    SortChoice(DeliveryListSort.Oldest, "Date: oldest to newest", "Date", R.drawable.ic_sort_ascending),
+    SortChoice(DeliveryListSort.Newest, "Date: newest to oldest", "Date", R.drawable.ic_sort_descending),
+    SortChoice(DeliveryListSort.Shortest, "Distance: shortest to longest", "Distance", R.drawable.ic_sort_ascending),
+    SortChoice(DeliveryListSort.Longest, "Distance: longest to shortest", "Distance", R.drawable.ic_sort_descending),
+    SortChoice(DeliveryListSort.Lowest, "Price: lowest to highest", "Price", R.drawable.ic_sort_ascending),
+    SortChoice(DeliveryListSort.Highest, "Price: highest to lowest", "Price", R.drawable.ic_sort_descending),
+)
+
+private data class SortChoice(val sort: DeliveryListSort, val label: String, val shortLabel: String, val icon: Int)
 
 @Composable
 private fun DeliveryTabs(
@@ -384,17 +424,15 @@ private fun DeliveryTabs(
                     .border(1.dp, if (isSelected) RidersColors.primary else RidersColors.border, shape)
                     .clickable(role = Role.Button, onClick = { onSelect(tab) })
                     .semantics { this.selected = isSelected }
-                    .padding(horizontal = RidersSpacing.md, vertical = RidersSpacing.sm),
+                    .padding(horizontal = RidersSpacing.xs, vertical = RidersSpacing.sm),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    when (tab) {
-                        DeliveryBoardTab.Active -> "Active"
-                        DeliveryBoardTab.Offers -> "My offers"
-                        DeliveryBoardTab.Completed -> "Completed"
-                    },
-                    style = RidersType.body.copy(fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium),
+                    deliveryBoardTabLabel(tab),
+                    style = RidersType.caption.copy(fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium),
                     color = if (isSelected) RidersColors.primaryDark else RidersColors.textSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }

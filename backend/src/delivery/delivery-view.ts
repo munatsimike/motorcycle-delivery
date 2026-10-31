@@ -96,6 +96,7 @@ export type AssignedRiderView = {
   name: string;
   verified: boolean;
   motorcycle: string | null;
+  registrationNumber: string | null;
   phone: string | null;
   hasProfilePhoto: boolean;
 };

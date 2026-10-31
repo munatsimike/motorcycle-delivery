@@ -38,6 +38,7 @@ type MarketplaceDeliveryProps = {
   showRiderConfirmation?: boolean;
   onContinueConfirmation?: () => void;
   onRefreshDelivery: () => void;
+  refreshing: boolean;
 };
 
 export default function MarketplaceDelivery({
@@ -48,6 +49,7 @@ export default function MarketplaceDelivery({
   showRiderConfirmation = false,
   onContinueConfirmation,
   onRefreshDelivery,
+  refreshing,
 }: MarketplaceDeliveryProps) {
   const focused = useIsFocused();
   const [cancelling, setCancelling] = useState(false);
@@ -133,7 +135,7 @@ export default function MarketplaceDelivery({
         nestedScrollEnabled
         removeClippedSubviews={false}
         refreshControl={(
-          <RefreshControl refreshing={false} onRefresh={onRefreshDelivery} tintColor={colors.primary} colors={[colors.primary]} />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefreshDelivery} tintColor={colors.primary} colors={[colors.primary]} />
         )}
       >
         {mapView.kind === 'live' ? (
@@ -174,6 +176,24 @@ export default function MarketplaceDelivery({
           ) : (
             <Text style={styles.title}>{deliveryStatusLabel(delivery.status)}</Text>
           )}
+          {live ? (
+            <View style={styles.metrics}>
+              <View style={styles.metric}>
+                <View style={styles.metricLabelRow}>
+                  <MaterialDesignIcons name="map-marker-distance" size={16} color={colors.textSecondary} />
+                  <Text style={styles.metricLabel}>Distance</Text>
+                </View>
+                <Text style={styles.metricValue}>{distanceText ?? 'Unavailable'}</Text>
+              </View>
+              <View style={styles.metric}>
+                <View style={styles.metricLabelRow}>
+                  <MaterialDesignIcons name="clock-outline" size={16} color={colors.textSecondary} />
+                  <Text style={styles.metricLabel}>Time</Text>
+                </View>
+                <Text style={styles.metricValue}>{arrivalText ?? 'Unavailable'}</Text>
+              </View>
+            </View>
+          ) : null}
           {pendingRiderName && !delivery.rider ? <Text style={styles.body}>{pendingRiderName} is assigned to this delivery.</Text> : null}
           {deadline ? <Text style={styles.body}>Deliver by {deadline}</Text> : null}
           {!delivery.offeredPrice ? (
@@ -203,32 +223,6 @@ export default function MarketplaceDelivery({
                   </Pressable>
                 </View>
               ) : null}
-            </View>
-          ) : null}
-          {delivery.rider && headline && live ? (
-            <LinearGradient
-              colors={['transparent', colors.border, 'transparent']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.divider}
-            />
-          ) : null}
-          {live ? (
-            <View style={styles.metrics}>
-              <View style={styles.metric}>
-                <View style={styles.metricLabelRow}>
-                  <MaterialDesignIcons name="map-marker-distance" size={16} color={colors.textSecondary} />
-                  <Text style={styles.metricLabel}>Distance</Text>
-                </View>
-                <Text style={styles.metricValue}>{distanceText ?? 'Unavailable'}</Text>
-              </View>
-              <View style={styles.metric}>
-                <View style={styles.metricLabelRow}>
-                  <MaterialDesignIcons name="clock-outline" size={16} color={colors.textSecondary} />
-                  <Text style={styles.metricLabel}>Time</Text>
-                </View>
-                <Text style={styles.metricValue}>{arrivalText ?? 'Unavailable'}</Text>
-              </View>
             </View>
           ) : null}
           <LinearGradient

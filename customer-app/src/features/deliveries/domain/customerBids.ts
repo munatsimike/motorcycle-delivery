@@ -1,4 +1,5 @@
 import type { CustomerDeliveryDetail } from './customerDeliveryDetail';
+import { moneyLabel } from './moneyLabel';
 
 const MONEY = /^\d{1,10}\.\d{2}$/;
 const BID_STATUSES = ['OPEN', 'WITHDRAWN', 'ACCEPTED', 'SUPERSEDED', 'EXPIRED'] as const;
@@ -17,6 +18,7 @@ export type CustomerBid = {
   completedDeliveries: number;
   distanceMeters: number | null;
   motorcycle: string | null;
+  registrationNumber: string | null;
   hasProfilePhoto: boolean;
 };
 
@@ -66,7 +68,7 @@ export function acceptableBids(bids: readonly CustomerBid[]): CustomerBid[] {
 }
 
 export function acceptancePrompt(bid: CustomerBid): string {
-  return `Choose ${bid.riderName} for ${bid.currency} ${bid.amount}?`;
+  return `Choose ${bid.riderName} for ${moneyLabel(bid.currency, bid.amount)}?`;
 }
 
 export function agreedPriceDiffers(agreed: string, suggested: string): boolean {
@@ -141,7 +143,8 @@ function readCustomerBid(value: unknown): CustomerBid {
   const completedDeliveries = readCount(isRecord(value.rider) ? value.rider.completedDeliveries : undefined);
   const distanceMeters = readDistance(isRecord(value.rider) ? value.rider.distanceMeters : undefined);
   const motorcycle = readMotorcycle(isRecord(value.rider) ? value.rider.motorcycle : undefined);
-  if (completedDeliveries === undefined || distanceMeters === undefined || motorcycle === undefined) {
+  const registrationNumber = readMotorcycle(isRecord(value.rider) ? value.rider.registrationNumber : undefined);
+  if (completedDeliveries === undefined || distanceMeters === undefined || motorcycle === undefined || registrationNumber === undefined) {
     throw new Error('Bids are unavailable.');
   }
   return {
@@ -156,6 +159,7 @@ function readCustomerBid(value: unknown): CustomerBid {
     completedDeliveries,
     distanceMeters,
     motorcycle,
+    registrationNumber,
     hasProfilePhoto: isRecord(value.rider) && value.rider.hasProfilePhoto === true,
   };
 }

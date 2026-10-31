@@ -36,6 +36,7 @@ export default function RiderPortrait({ name, initials, path, accessToken, style
     };
   }, [path, accessToken]);
   const showPhoto = uri !== null && !failed;
+  const borderRadius = StyleSheet.flatten(style)?.borderRadius;
   return (
     <View
       style={[style, styles.frame]}
@@ -44,7 +45,7 @@ export default function RiderPortrait({ name, initials, path, accessToken, style
       {showPhoto ? (
         <Image
           source={{ uri }}
-          style={styles.image}
+          style={[styles.image, borderRadius != null ? { borderRadius } : null]}
           resizeMode="cover"
           onError={() => setFailed(true)}
         />

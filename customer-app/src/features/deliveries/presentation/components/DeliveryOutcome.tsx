@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -8,7 +8,14 @@ import GreenSurface from '../../../../components/GreenSurface';
 import { colors, radius, spacing, typography } from '../../../../theme';
 import type { CustomerDeliveryDetail } from '../../domain/customerDeliveryDetail';
 import { deliveryStatusLabel, type DeliveryStatus } from '../../domain/deliveryStatus';
+import {
+  assignedRiderPhotoPath,
+  riderDialUrl,
+  riderInitials,
+  riderWhatsAppCallUrl,
+} from '../../domain/trackingJourney';
 import { Summary } from './ParcelDetailsSheet';
+import RiderPortrait from './RiderPortrait';
 
 type DeliveryOutcomeProps = {
   delivery: CustomerDeliveryDetail;
@@ -17,6 +24,7 @@ type DeliveryOutcomeProps = {
   customerOffer?: boolean;
   offerAmount?: string;
   onAdjustPrice?: () => void;
+  accessToken?: string | null;
 };
 
 export default function DeliveryOutcome({
@@ -26,7 +34,22 @@ export default function DeliveryOutcome({
   customerOffer = false,
   offerAmount,
   onAdjustPrice,
+  accessToken = null,
 }: DeliveryOutcomeProps) {
+  const rider = showsOutcomeRider(delivery.status) ? delivery.rider : null;
+  const phone = rider?.phone ?? null;
+  function callRider() {
+    const url = riderDialUrl(phone);
+    if (url) {
+      void Linking.openURL(url);
+    }
+  }
+  function callWhatsApp() {
+    const url = riderWhatsAppCallUrl(phone);
+    if (url) {
+      void Linking.openURL(url);
+    }
+  }
   return (
     <SafeAreaView style={styles.screen} edges={['bottom']}>
       <ScrollView contentContainerStyle={styles.content}>
@@ -41,6 +64,32 @@ export default function DeliveryOutcome({
           </View>
         </GreenSurface>
         <View style={styles.overlap}>
+          {rider ? (
+            <View style={styles.riderCard}>
+              <RiderPortrait
+                name={rider.name}
+                initials={riderInitials(rider.name)}
+                path={rider.hasProfilePhoto ? assignedRiderPhotoPath(delivery.id) : null}
+                accessToken={accessToken}
+                style={styles.riderAvatar}
+                textStyle={styles.avatarText}
+              />
+              <View style={styles.riderCopy}>
+                <Text style={styles.riderName}>{rider.name}</Text>
+                {rider.motorcycle ? <Text style={styles.riderMeta}>{rider.motorcycle}</Text> : null}
+              </View>
+              {riderDialUrl(phone) ? (
+                <View style={styles.riderActions}>
+                  <Pressable accessibilityRole="button" accessibilityLabel={`Call ${rider.name}`} hitSlop={8} onPress={callRider}>
+                    <MaterialDesignIcons name="phone-outline" size={22} color="#000000" />
+                  </Pressable>
+                  <Pressable accessibilityRole="button" accessibilityLabel={`WhatsApp ${rider.name}`} hitSlop={8} onPress={callWhatsApp}>
+                    <MaterialDesignIcons name="whatsapp" size={22} color="#000000" />
+                  </Pressable>
+                </View>
+              ) : null}
+            </View>
+          ) : null}
           <Summary
             delivery={delivery}
             customerOffer={customerOffer}
@@ -52,6 +101,10 @@ export default function DeliveryOutcome({
       </ScrollView>
     </SafeAreaView>
   );
+}
+
+function showsOutcomeRider(status: DeliveryStatus): boolean {
+  return deliveryOutcomeTitle(status) === 'In transit' || status === 'DELIVERED';
 }
 
 export function deliveryOutcomeTitle(status: DeliveryStatus): string {
@@ -149,10 +202,48 @@ const styles = StyleSheet.create({
   overlap: {
     marginTop: -spacing.xxxl,
     marginHorizontal: spacing.lg,
+    gap: spacing.sm,
+  },
+  riderCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  riderAvatar: {
+    width: 48,
+    height: 56,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primaryLight,
+  },
+  avatarText: {
+    fontSize: typography.body,
+    fontWeight: '700',
+    color: colors.primaryDark,
+  },
+  riderCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  riderName: {
+    fontSize: typography.body,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  riderMeta: {
+    fontSize: typography.caption,
+    lineHeight: 18,
+    color: colors.textSecondary,
+  },
+  riderActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
   },
   footer: {
     gap: spacing.sm,
-    marginTop: spacing.xl,
+    marginTop: spacing.lg,
     paddingHorizontal: spacing.lg,
   },
 });

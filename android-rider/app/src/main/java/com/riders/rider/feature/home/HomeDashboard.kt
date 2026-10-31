@@ -42,6 +42,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -103,6 +104,8 @@ import java.util.Calendar
 @Composable
 fun HomeScreen(
     onOffers: () -> Unit,
+    onActiveDeliveries: () -> Unit = onOffers,
+    onNewRequests: () -> Unit = onOffers,
     onWallet: () -> Unit = {},
     onDelivery: (String) -> Unit,
     onSetup: () -> Unit = {},
@@ -153,6 +156,8 @@ fun HomeScreen(
             }
         },
         onOffers = onOffers,
+        onActiveDeliveries = onActiveDeliveries,
+        onNewRequests = onNewRequests,
         onAcceptOffer = { offer ->
             if (senderChoosesRider(offer.serviceClass)) {
                 offersModel.offerListedPrice(offer)
@@ -182,6 +187,7 @@ fun HomeScreen(
         onWallet = onWallet,
         onDelivery = onDelivery,
         onRefresh = model::refresh,
+        onRetryLocation = model::retryLocationSharing,
         onSetup = onSetup,
         includeNavigationBars = !inShell,
     )
@@ -208,12 +214,34 @@ fun HomeScreen(
 }
 
 @Composable
+private fun LocationSharingPausedNotice(onRetry: () -> Unit) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(RidersRadius.lg))
+            .background(RidersColors.dangerSurface)
+            .padding(RidersSpacing.lg),
+        verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
+    ) {
+        Text("Location sharing paused", style = RidersType.bodyStrong, color = RidersColors.text)
+        Text(
+            "We couldn't update your location. Check your connection or location permission.",
+            style = RidersType.caption,
+            color = RidersColors.textSecondary,
+        )
+        RidersSecondaryButton(label = "Retry", onClick = onRetry, compact = true)
+    }
+}
+
+@Composable
 fun HomeDashboard(
     ui: HomeUi,
     greeting: String,
     onGoOnline: () -> Unit,
     onGoOffline: () -> Unit,
     onOffers: () -> Unit,
+    onActiveDeliveries: () -> Unit = onOffers,
+    onNewRequests: () -> Unit = onOffers,
     onAcceptOffer: (OfferResponse) -> Unit = {},
     onBidOffer: (OfferResponse) -> Unit = {},
     onSubmitBid: (OfferResponse, String) -> Unit = { _, _ -> },
@@ -228,6 +256,7 @@ fun HomeDashboard(
     offerBids: List<OwnBid> = emptyList(),
     onDelivery: (String) -> Unit = { _ -> },
     onRefresh: () -> Unit = {},
+    onRetryLocation: () -> Unit = {},
     onSetup: () -> Unit = {},
     onWallet: () -> Unit = {},
     includeNavigationBars: Boolean = true,
@@ -251,7 +280,7 @@ fun HomeDashboard(
                 Column(
                     Modifier
                         .fillMaxWidth()
-                        .padding(top = RidersSpacing.lg, bottom = RidersSpacing.sm),
+                        .padding(top = RidersSpacing.lg, bottom = RidersSpacing.xl),
                     verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
                 ) {
                     Row(
@@ -311,6 +340,19 @@ fun HomeDashboard(
                         )
                     }
                     }
+                    if (readiness != null) {
+                        HomeSummaries(
+                            balance = ui.walletBalance,
+                            currency = ui.walletCurrency,
+                            restricted = ui.walletRestricted,
+                            activeCount = ui.activeDeliveryTotal,
+                            newRequestCount = ui.activeRequestCount,
+                            onWallet = onWallet,
+                            onActive = onActiveDeliveries,
+                            onNew = onNewRequests,
+                            modifier = Modifier.padding(horizontal = horizontal),
+                        )
+                    }
                 }
             }
             Box(
@@ -325,6 +367,9 @@ fun HomeDashboard(
                     Modifier.padding(horizontal = horizontal).padding(bottom = RidersSpacing.lg),
                     verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
                 ) {
+                    if (ui.locationSharingPaused) {
+                        LocationSharingPausedNotice(onRetry = onRetryLocation)
+                    }
                     val recoveryText = if (ui.shift.recoveryFailed) {
                         ui.shift.recoveryMessage ?: "Your current delivery could not be loaded. Check your connection and try again."
                     } else {
@@ -334,18 +379,10 @@ fun HomeDashboard(
                     if (pageConnection) {
                         RidersNetworkNotice(onRetry = onRefresh)
                     }
-                    HomeSummaries(
-                        balance = ui.walletBalance,
-                        currency = ui.walletCurrency,
-                        restricted = ui.walletRestricted,
-                        activeRequestCount = ui.activeRequestCount,
-                        onWallet = onWallet,
-                        onRequests = onOffers,
-                    )
                     if (!ui.assignmentsUnknown) {
                         RequestsSection(
                             ui,
-                            onOffers,
+                            onNewRequests,
                             onAcceptOffer,
                             onBidOffer,
                             onSubmitBid,
@@ -464,47 +501,45 @@ private fun HomeSummaries(
     balance: String?,
     currency: String?,
     restricted: Boolean,
-    activeRequestCount: Int?,
+    activeCount: Int?,
+    newRequestCount: Int?,
     onWallet: () -> Unit,
-    onRequests: () -> Unit,
+    onActive: () -> Unit,
+    onNew: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Column(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .background(RidersColors.canvas)
-            .padding(horizontal = RidersSpacing.md, vertical = RidersSpacing.md),
+        modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
     ) {
-    Row(
-        Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        SummaryTile(
-            icon = R.drawable.ic_nav_wallet,
-            label = "Wallet balance",
-            value = if (balance != null && currency != null) signedWalletLabel(currency, balance) else "—",
-            valueColor = if (balance != null && walletBalanceIsNegative(balance)) RidersColors.error else RidersColors.text,
-            largeValue = true,
-            onClick = onWallet,
-            modifier = Modifier.weight(1f),
-        )
-        Box(
-            Modifier
-                .padding(horizontal = RidersSpacing.md)
-                .width(1.dp)
-                .height(88.dp)
-                .background(RidersColors.textSecondary.copy(alpha = 0.35f)),
-        )
-        SummaryTile(
-            icon = R.drawable.ic_nav_deliveries,
-            label = "Active requests",
-            value = activeRequestCount?.toString() ?: "—",
-            largeValue = true,
-            onClick = onRequests,
-            modifier = Modifier.weight(1f),
-        )
-    }
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SummaryTile(
+                icon = R.drawable.ic_plus,
+                label = "New",
+                value = newRequestCount?.toString() ?: "—",
+                onClick = onNew,
+                modifier = Modifier.weight(1f),
+            )
+            SummaryTile(
+                icon = R.drawable.ic_check,
+                label = "Active",
+                value = activeCount?.toString() ?: "—",
+                onClick = onActive,
+                modifier = Modifier.weight(1f),
+            )
+            SummaryTile(
+                icon = R.drawable.ic_nav_wallet,
+                label = "Balance",
+                value = if (balance != null && currency != null) signedWalletLabel(currency, balance) else "—",
+                valueColor = if (balance != null && walletBalanceIsNegative(balance)) RidersColors.error else RidersColors.text,
+                onClick = onWallet,
+                modifier = Modifier.weight(1f),
+            )
+        }
         if (restricted) {
             Text(
                 WALLET_TOP_UP_REQUIRED,
@@ -522,66 +557,54 @@ private fun SummaryTile(
     value: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    largeValue: Boolean = false,
     valueColor: Color = RidersColors.text,
 ) {
-    val valueStyle = RidersType.heading.copy(
-        fontSize = if (largeValue) 24.sp else RidersType.heading.fontSize,
-        lineHeight = if (largeValue) 28.sp else 22.sp,
-        platformStyle = PlatformTextStyle(includeFontPadding = false),
-    )
-    Box(
+    val shape = RoundedCornerShape(18.dp)
+    Column(
         modifier
             .fillMaxWidth()
-            .clickable(role = Role.Button, onClick = onClick),
+            .shadow(elevation = 14.dp, shape = shape, ambientColor = Color(0x5917211D), spotColor = Color(0x8017211D))
+            .clip(shape)
+            .background(RidersColors.background)
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = RidersSpacing.xs, vertical = RidersSpacing.lg),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
     ) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .padding(start = RidersSpacing.xs, end = 20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
-        ) {
-            Icon(
-                painter = painterResource(icon),
-                contentDescription = null,
-                modifier = Modifier.size(26.dp),
-                tint = Color.Black,
-            )
-            Column(
-                Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs),
-            ) {
-                Text(
-                    label,
-                    maxLines = 1,
-                    softWrap = false,
-                    style = RidersType.caption.copy(
-                        fontSize = 13.sp,
-                        lineHeight = 16.sp,
-                        platformStyle = PlatformTextStyle(includeFontPadding = false),
-                    ),
-                    color = RidersColors.textSecondary,
-                    textAlign = TextAlign.Center,
-                )
-                Text(
-                    value,
-                    modifier = Modifier.fillMaxWidth(),
-                    maxLines = 1,
-                    softWrap = false,
-                    overflow = TextOverflow.Visible,
-                    style = valueStyle,
-                    color = valueColor,
-                    textAlign = TextAlign.Center,
-                )
-            }
-        }
         Icon(
-            painter = painterResource(R.drawable.ic_chevron_right),
+            painter = painterResource(icon),
             contentDescription = null,
-            modifier = Modifier.align(Alignment.CenterEnd).size(20.dp),
+            modifier = Modifier.size(22.dp),
             tint = Color.Black,
+        )
+        Text(
+            label,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
+            style = RidersType.captionStrong.copy(
+                fontSize = 12.sp,
+                lineHeight = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                platformStyle = PlatformTextStyle(includeFontPadding = false),
+            ),
+            color = RidersColors.text,
+            textAlign = TextAlign.Center,
+        )
+        Text(
+            value,
+            modifier = Modifier.fillMaxWidth(),
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
+            style = RidersType.heading.copy(
+                fontSize = 18.sp,
+                lineHeight = 22.sp,
+                fontWeight = FontWeight.Bold,
+                platformStyle = PlatformTextStyle(includeFontPadding = false),
+            ),
+            color = valueColor,
+            textAlign = TextAlign.Center,
         )
     }
 }
@@ -600,10 +623,11 @@ private fun AvailabilityCard(
     onSetup: () -> Unit,
 ) {
     RidersCard(prominent = true, modifier = Modifier.fillMaxWidth()) {
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
-            verticalAlignment = Alignment.CenterVertically,
+            verticalAlignment = Alignment.Bottom,
         ) {
             Box(
                 Modifier
@@ -720,8 +744,11 @@ private fun AvailabilityCard(
                 enabled = !loading && !changingAvailability,
                 loading = changingAvailability,
                 icon = R.drawable.ic_power,
+                bordered = false,
+                compact = true,
                 modifier = Modifier.fillMaxWidth(),
             )
+        }
         }
     }
 }
@@ -805,7 +832,7 @@ private fun RequestsSection(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                "Recent requests",
+                "New requests",
                 style = RidersType.heading.copy(
                     lineHeight = 24.sp,
                     platformStyle = PlatformTextStyle(includeFontPadding = false),

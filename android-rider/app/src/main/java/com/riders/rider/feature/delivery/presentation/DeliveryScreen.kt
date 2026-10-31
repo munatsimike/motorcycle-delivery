@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
@@ -65,16 +64,15 @@ import com.riders.rider.core.design.RidersType
 import com.riders.rider.feature.delivery.domain.V2CancellationReasons
 import com.riders.rider.feature.delivery.domain.navigationActionLabel
 import com.riders.rider.feature.delivery.domain.navigationTarget
+import com.riders.rider.feature.delivery.domain.showsRecipientOnDelivery
 import com.riders.rider.feature.delivery.domain.riderDetailsHeading
 import com.riders.rider.feature.delivery.domain.riderDetailsSupport
-import com.riders.rider.feature.delivery.domain.senderDialUri
-import com.riders.rider.feature.delivery.domain.senderInitials
-import com.riders.rider.feature.delivery.domain.senderWhatsAppUri
 
 @Composable
 fun DeliveryScreen(
     deliveryId: String,
     onFinished: () -> Unit,
+    onBack: () -> Unit = onFinished,
     completed: Boolean = false,
     model: DeliveryViewModel = hiltViewModel(),
 ) {
@@ -111,14 +109,17 @@ fun DeliveryScreen(
         }
     }
     val blocked = ui.syncing || ui.busy != DeliveryBusy.None
-    RidersPullRefresh(
-        refreshing = ui.refreshing,
-        onRefresh = { model.load(deliveryId, fromUser = true, completed = completed) },
-        modifier = Modifier
+    Box(
+        Modifier
             .fillMaxSize()
             .background(RidersColors.background)
             .statusBarsPadding()
             .navigationBarsPadding(),
+    ) {
+    RidersPullRefresh(
+        refreshing = ui.refreshing,
+        onRefresh = { model.load(deliveryId, fromUser = true, completed = completed) },
+        modifier = Modifier.fillMaxSize(),
     ) {
     Column(
         Modifier
@@ -152,25 +153,13 @@ fun DeliveryScreen(
                         .padding(bottom = RidersSpacing.lg),
                     verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
                 ) {
-                val senderName = ui.contacts?.pickupName?.trim().orEmpty()
-                val senderPhone = ui.contacts?.pickupPhone?.trim().orEmpty()
-                val dialUri = senderDialUri(senderPhone)
-                val whatsAppUri = senderWhatsAppUri(senderPhone)
-                if (senderName.isNotEmpty() || dialUri != null) {
-                    SenderContactRow(
-                        name = senderName.ifEmpty { "Sender" },
-                        onCall = dialUri?.let { uri ->
-                            {
-                                context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse(uri)))
-                            }
-                        },
-                        onWhatsApp = whatsAppUri?.let { uri ->
-                            {
-                                runCatching {
-                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(uri)))
-                                }
-                            }
-                        },
+                if (ui.status != "DELIVERED") {
+                    val recipient = showsRecipientOnDelivery(ui.status)
+                    PartyContact(
+                        role = if (recipient) "Recipient" else "Sender",
+                        name = if (recipient) ui.contacts?.dropoffName.orEmpty() else ui.contacts?.pickupName.orEmpty(),
+                        phone = if (recipient) ui.contacts?.dropoffPhone.orEmpty() else ui.contacts?.pickupPhone.orEmpty(),
+                        address = if (recipient) ui.dropoffAddress else ui.pickupAddress,
                     )
                 }
                 val target = navigationTarget(
@@ -233,13 +222,6 @@ fun DeliveryScreen(
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
-                if (ui.marketplaceParcel && !ui.cancelVisible && ui.completionMessage == null && ui.cancellationMessage == null && ui.status != "DELIVERED") {
-                    Text(
-                        "This parcel has been collected. A collected parcel cannot be cancelled from the app.",
-                        style = RidersType.caption,
-                        color = RidersColors.textSecondary,
-                    )
-                }
                 if (ui.status == "DELIVERED") {
                     DeliveryDetailsSummary(
                         description = ui.parcelDescription,
@@ -252,12 +234,10 @@ fun DeliveryScreen(
                         distanceMeters = ui.distanceMeters,
                         price = ui.agreedPrice,
                         modifier = Modifier.fillMaxWidth(),
-                        pickupDetail = {
-                            StopNotes(ui.pickupLandmark, ui.pickupInstructions)
-                        },
-                        dropoffDetail = {
-                            StopNotes(ui.dropoffLandmark, ui.dropoffInstructions)
-                        },
+                        pickupContact = { StopContactLine(ui, sender = true) },
+                        dropoffContact = { StopContactLine(ui, sender = false) },
+                        pickupDetail = { StopNotes(ui.pickupLandmark, ui.pickupInstructions) },
+                        dropoffDetail = { StopNotes(ui.dropoffLandmark, ui.dropoffInstructions) },
                     )
                 } else {
                     Row(
@@ -326,6 +306,17 @@ fun DeliveryScreen(
             },
         )
     }
+    Icon(
+        painter = painterResource(R.drawable.ic_chevron_left),
+        contentDescription = "Back",
+        modifier = Modifier
+            .align(Alignment.TopStart)
+            .padding(start = RidersSpacing.md, top = RidersSpacing.sm)
+            .size(28.dp)
+            .clickable(role = Role.Button, onClick = onBack),
+        tint = RidersColors.text,
+    )
+    }
 }
 
 @Composable
@@ -363,12 +354,10 @@ private fun ParcelDetailsSheet(
                 price = ui.agreedPrice,
                 modifier = Modifier.fillMaxWidth(),
                 framed = false,
-                pickupDetail = {
-                    StopNotes(ui.pickupLandmark, ui.pickupInstructions)
-                },
-                dropoffDetail = {
-                    StopNotes(ui.dropoffLandmark, ui.dropoffInstructions)
-                },
+                pickupContact = { StopContactLine(ui, sender = true) },
+                dropoffContact = { StopContactLine(ui, sender = false) },
+                pickupDetail = { StopNotes(ui.pickupLandmark, ui.pickupInstructions) },
+                dropoffDetail = { StopNotes(ui.dropoffLandmark, ui.dropoffInstructions) },
             )
             if (ui.marketplaceParcel && ui.cancelVisible && ui.completionMessage == null && ui.cancellationMessage == null) {
                 Box(
@@ -553,71 +542,21 @@ private fun DeliveryGreenBackdrop(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun SenderContactRow(
-    name: String,
-    onCall: (() -> Unit)?,
-    onWhatsApp: (() -> Unit)?,
-) {
-    Row(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            Modifier
-                .width(48.dp)
-                .height(56.dp)
-                .clip(RoundedCornerShape(RidersRadius.md))
-                .background(RidersColors.primaryLight),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                senderInitials(name),
-                style = RidersType.body.copy(fontWeight = FontWeight.Bold),
-                color = RidersColors.primaryDark,
-            )
-        }
-        Column(
-            Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs),
-        ) {
-            Text(
-                "Sender",
-                style = RidersType.caption,
-                color = RidersColors.textSecondary,
-            )
-            Text(
-                name,
-                style = RidersType.body.copy(fontWeight = FontWeight.Bold),
-                color = RidersColors.text,
-            )
-        }
-        if (onCall != null || onWhatsApp != null) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (onCall != null) {
-                    ContactActionIcon(R.drawable.ic_phone_outline, "Call $name", onCall)
-                }
-                if (onWhatsApp != null) {
-                    ContactActionIcon(R.drawable.ic_whatsapp, "WhatsApp $name", onWhatsApp)
-                }
-            }
-        }
+private fun StopContactLine(ui: DeliveryUi, sender: Boolean) {
+    val callable = ui.status != "DELIVERED"
+    if (sender) {
+        StopContactName(
+            name = ui.contacts?.pickupName.orEmpty(),
+            phone = ui.contacts?.pickupPhone.orEmpty(),
+            actions = callable,
+        )
+    } else {
+        StopContactName(
+            name = ui.contacts?.dropoffName.orEmpty(),
+            phone = ui.contacts?.dropoffPhone.orEmpty(),
+            actions = callable,
+        )
     }
-}
-
-@Composable
-private fun ContactActionIcon(icon: Int, label: String, onClick: () -> Unit) {
-    Icon(
-        painter = painterResource(icon),
-        contentDescription = label,
-        tint = Color.Black,
-        modifier = Modifier
-            .size(22.dp)
-            .clickable(role = Role.Button, onClick = onClick),
-    )
 }
 
 @Composable

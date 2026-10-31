@@ -59,6 +59,19 @@ describe('rider onboarding', () => {
     expect(ctx.userUpdates).toBe(0);
   });
 
+  it('changes only the rider address', async () => {
+    const ctx = context();
+    await expect(ctx.service.updateAddress(RIDER, { address: '  12   Samora Machel Avenue ' })).resolves.toEqual({
+      fullName: 'Tendai Moyo',
+      phone: '+263771234567',
+      address: '12 Samora Machel Avenue',
+      hasProfilePhoto: false,
+    });
+    expect(ctx.profile.address).toBe('12 Samora Machel Avenue');
+    expect(ctx.userUpdates).toBe(0);
+    await expect(ctx.service.updateAddress(RIDER, { address: ' ' })).rejects.toThrow('Address is required');
+  });
+
   it('returns the address saved with the rider profile', async () => {
     const ctx = context();
     ctx.profile!.address = '12 Samora Machel Avenue';
@@ -221,6 +234,14 @@ function context() {
           }
           return false;
         }) ?? null;
+      },
+      async update({ where, data }: { where: { id: string }; data: { address: string } }) {
+        const profile = profiles.find((row) => row.id === where.id);
+        if (!profile) {
+          throw new Error('missing profile');
+        }
+        profile.address = data.address;
+        return profile;
       },
     },
     riderLicenceReview: {

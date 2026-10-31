@@ -4,6 +4,7 @@ export type AssignedRider = {
   name: string;
   verified: boolean;
   motorcycle: string | null;
+  registrationNumber: string | null;
   phone: string | null;
   hasProfilePhoto: boolean;
 };
@@ -78,11 +79,15 @@ export function readAssignedRider(value: unknown): AssignedRider | null {
     return null;
   }
   const motorcycle = typeof record.motorcycle === 'string' && record.motorcycle.trim() ? record.motorcycle.trim() : null;
+  const registrationNumber = typeof record.registrationNumber === 'string' && record.registrationNumber.trim()
+    ? record.registrationNumber.trim()
+    : null;
   const phone = typeof record.phone === 'string' && record.phone.trim() ? record.phone.trim() : null;
   return {
     name,
     verified: record.verified === true,
     motorcycle,
+    registrationNumber,
     phone,
     hasProfilePhoto: record.hasProfilePhoto === true,
   };

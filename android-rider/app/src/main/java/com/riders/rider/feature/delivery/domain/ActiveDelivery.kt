@@ -163,6 +163,11 @@ fun navigationTarget(
     return NavigationTarget("geo:0,0?q=${encodeNavigationQuery(query)}")
 }
 
+fun showsRecipientOnDelivery(status: String): Boolean = when (status) {
+    "PICKED_UP", "IN_TRANSIT", "ARRIVED_AT_DROPOFF", "COLLECTED", "OUT_FOR_DELIVERY" -> true
+    else -> false
+}
+
 fun navigationQuery(address: String, landmark: String?): String? {
     val place = address.trim()
     if (place.isEmpty()) {
@@ -261,6 +266,10 @@ fun senderDialUri(phone: String): String? {
 fun senderWhatsAppUri(phone: String): String? {
     val value = phone.trim()
     return if (internationalPhone.matches(value)) "whatsapp://send?phone=${value.drop(1)}" else null
+}
+
+fun partyContactVisible(name: String, phone: String, address: String): Boolean {
+    return name.isNotBlank() || address.isNotBlank() || senderDialUri(phone) != null
 }
 
 fun loadedDelivery(stored: ActiveDelivery?, offerCache: List<OfferResponse>, deliveryId: String): ActiveDelivery? {

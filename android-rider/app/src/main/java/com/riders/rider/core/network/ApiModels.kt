@@ -149,6 +149,9 @@ data class VerifyRequest(val phone: String, val code: String)
 data class RefreshRequest(val refreshToken: String)
 
 @Serializable
+data class RiderAddressRequest(val address: String)
+
+@Serializable
 data class RiderProfileResponse(
     val fullName: String,
     val phone: String,

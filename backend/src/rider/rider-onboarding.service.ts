@@ -1,4 +1,5 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { readAddress } from '../customer/customer-profile.js';
 import {
   AccountStatus,
   AuthPurpose,
@@ -84,6 +85,19 @@ export class RiderOnboardingService {
     };
   }
 
+  async updateAddress(rider: RiderContext, body: unknown): Promise<RiderProfileResponse> {
+    const address = readProfileAddress(body);
+    const profile = await this.prisma.riderProfile.findUnique({ where: { id: rider.riderProfileId } });
+    if (!profile || profile.userId !== rider.userId) {
+      throw new ForbiddenException('Rider access is required');
+    }
+    await this.prisma.riderProfile.update({
+      where: { id: profile.id },
+      data: { address },
+    });
+    return this.profile(rider);
+  }
+
   async current(rider: RiderContext): Promise<RiderOnboardingResponse> {
     const profile = await this.prisma.riderProfile.findUnique({ where: { id: rider.riderProfileId } });
     if (!profile) {
@@ -124,6 +138,13 @@ export class RiderOnboardingService {
       ...(v2MarketplaceEnabled() ? { receiving: profile.receivingRequests === true } : {}),
     };
   }
+}
+
+function readProfileAddress(body: unknown): string {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    return readAddress(undefined);
+  }
+  return readAddress((body as { address?: unknown }).address);
 }
 
 function storedAddress(value: string | null | undefined): string | null {

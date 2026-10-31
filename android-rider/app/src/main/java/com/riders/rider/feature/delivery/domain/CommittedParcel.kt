@@ -91,7 +91,7 @@ fun agreedPriceLabel(agreedPrice: String?): String? {
     if (amount.isEmpty()) {
         return null
     }
-    return "Agreed price USD $amount"
+    return "Agreed price \$$amount"
 }
 
 fun isCommittedV2Parcel(serviceClass: String?): Boolean {

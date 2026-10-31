@@ -54,11 +54,11 @@ class RiderParcelProgressTest {
     }
 
     @Test
-    fun cancellationIsAvailableOnlyBeforeCollection() {
+    fun cancellationStaysAvailableUntilTheParcelIsDelivered() {
         assertTrue(v2CancellationVisible("RIDER_ASSIGNED"))
         assertTrue(v2CancellationVisible("COLLECTING"))
-        assertFalse(v2CancellationVisible("COLLECTED"))
-        assertFalse(v2CancellationVisible("OUT_FOR_DELIVERY"))
+        assertTrue(v2CancellationVisible("COLLECTED"))
+        assertTrue(v2CancellationVisible("OUT_FOR_DELIVERY"))
         assertFalse(v2CancellationVisible("DELIVERED"))
         assertEquals("Enter a cancellation note", cancellationNoteError("OTHER", " "))
         assertNull(cancellationNoteError("BREAKDOWN", ""))

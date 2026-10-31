@@ -154,7 +154,7 @@ fun ServiceClassBadge(serviceClass: String?, modifier: Modifier = Modifier) {
                 fontWeight = FontWeight.Medium,
                 platformStyle = noFontPadding,
             ),
-            color = RidersColors.textSecondary,
+            color = Color.Black,
         )
     }
 }
@@ -276,6 +276,8 @@ fun DeliveryDetailsSummary(
     modifier: Modifier = Modifier,
     dateCaption: String = "Date",
     framed: Boolean = true,
+    pickupContact: @Composable () -> Unit = {},
+    dropoffContact: @Composable () -> Unit = {},
     pickupDetail: @Composable () -> Unit = {},
     dropoffDetail: @Composable () -> Unit = {},
 ) {
@@ -328,6 +330,7 @@ fun DeliveryDetailsSummary(
                 connect = dropoffLine.isNotBlank(),
                 pinColumn = detailPinColumn,
                 lineHeight = 20.sp,
+                above = pickupContact,
                 below = pickupDetail,
             )
         }
@@ -339,6 +342,7 @@ fun DeliveryDetailsSummary(
                 connect = false,
                 pinColumn = detailPinColumn,
                 lineHeight = 20.sp,
+                above = dropoffContact,
                 below = dropoffDetail,
             )
         }
@@ -397,6 +401,7 @@ fun DeliveryStop(
     modifier: Modifier = Modifier,
     pinColumn: Dp = markSize,
     lineHeight: TextUnit = 18.sp,
+    above: @Composable () -> Unit = {},
     below: @Composable () -> Unit = {},
 ) {
     Row(
@@ -431,6 +436,7 @@ fun DeliveryStop(
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             StopLabel(label)
+            above()
             Text(line, style = placeText.copy(lineHeight = lineHeight), color = RidersColors.text)
             below()
         }

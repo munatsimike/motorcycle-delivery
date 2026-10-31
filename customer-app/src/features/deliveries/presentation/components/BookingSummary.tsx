@@ -9,6 +9,7 @@ import { deliveryContactPhone, type BookingDraft, type StopDraft } from '../../d
 import { deliveryCardAddress, deliveryContentKind } from '../../domain/deliveryCard';
 import { ContentIcon, LocationPin, StopLabel, deliveryIcon } from '../deliveryIcons';
 import type { DeliveryQuote } from '../../domain/deliveryQuote';
+import { currencyMark, moneyLabel } from '../../domain/moneyLabel';
 import { parcelSizeLabel, payerLabel, paymentMethodLabel } from './ParcelFields';
 
 type BookingSummaryProps = {
@@ -76,16 +77,16 @@ export default function BookingSummary({
             <View style={styles.priceRow}>
               <View style={styles.priceCopy}>
                 <Text style={styles.priceLabel}>Suggested price</Text>
-                <Text style={styles.price}>{quote.currency} {quote.suggestedPrice}</Text>
+                <Text style={styles.price}>{moneyLabel(quote.currency, quote.suggestedPrice)}</Text>
               </View>
               <View style={styles.distanceCopy}>
                 <Text style={styles.priceLabel}>Distance</Text>
                 <Text style={styles.distance}>{formatDistance(quote.distanceMeters)}</Text>
               </View>
             </View>
-            <Text style={styles.offerLabel}>Your offer (USD)</Text>
+            <Text style={styles.offerLabel}>Your offer ($)</Text>
             <View style={[styles.offerField, offerFocus.style]}>
-              <Text style={styles.offerCurrency}>{quote.currency}</Text>
+              <Text style={styles.offerCurrency}>{currencyMark(quote.currency)}</Text>
               <TextInput
                 style={styles.offerInput}
                 value={offerText}

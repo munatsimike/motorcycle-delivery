@@ -73,6 +73,9 @@ interface RiderService {
     @GET("riders/me/profile")
     suspend fun profile(): RiderProfileResponse
 
+    @PATCH("riders/me/profile")
+    suspend fun updateAddress(@Body body: RiderAddressRequest): RiderProfileResponse
+
     @Streaming
     @GET("riders/me/profile-photo")
     suspend fun profilePhoto(): ResponseBody

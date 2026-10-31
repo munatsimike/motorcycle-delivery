@@ -152,7 +152,7 @@ export default function AppNavigator() {
             <Stack.Screen
               name="EditProfile"
               component={EditProfileScreen}
-              options={{ title: 'Edit Profile' }}
+              options={{ title: 'Address' }}
             />
           </>
         ) : (

@@ -17,11 +17,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
@@ -37,19 +37,19 @@ import com.riders.rider.core.design.RidersPullRefresh
 import com.riders.rider.core.design.RidersSecondaryButton
 import com.riders.rider.core.design.RidersSpacing
 import com.riders.rider.core.design.RidersType
+import com.riders.rider.feature.bids.domain.AWAITING_CUSTOMER_RESPONSE
 import com.riders.rider.feature.bids.domain.BidBoardPhase
 import com.riders.rider.feature.bids.domain.OwnBid
 import com.riders.rider.feature.bids.domain.bidBoardPhase
 import com.riders.rider.feature.bids.domain.bidCanWithdraw
-import com.riders.rider.feature.bids.domain.bidOutcome
-import com.riders.rider.feature.bids.domain.offerListStatus
-import com.riders.rider.feature.bids.domain.visibleBids
+import com.riders.rider.feature.bids.domain.pendingBids
 import com.riders.rider.feature.delivery.domain.DeliveryListSort
-import com.riders.rider.feature.delivery.domain.destinationSuburb
 import com.riders.rider.feature.delivery.domain.sortDeliveries
 import com.riders.rider.feature.delivery.presentation.ContentIcon
 import com.riders.rider.feature.delivery.presentation.ContentLabel
+import com.riders.rider.feature.delivery.presentation.DeliveryRoute
 import com.riders.rider.feature.delivery.presentation.ServiceClassBadge
+import com.riders.rider.feature.offers.domain.OFFER_REFRESH_INTERVAL_MS
 import com.riders.rider.feature.delivery.presentation.deliveryContentMatches
 import com.riders.rider.feature.delivery.presentation.filteredContentTitle
 import com.riders.rider.feature.offers.domain.offerPriceLabel
@@ -63,7 +63,13 @@ fun BidBoardScreen(
 ) {
     val ui by model.ui.collectAsStateWithLifecycle()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    LaunchedEffect(Unit) { model.refresh() }
+    LaunchedEffect(Unit) {
+        model.refresh()
+        while (true) {
+            delay(OFFER_REFRESH_INTERVAL_MS)
+            model.refresh()
+        }
+    }
     DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
@@ -73,7 +79,8 @@ fun BidBoardScreen(
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
     }
-    val phase = bidBoardPhase(ui.loading, requestCount = 0, bidCount = ui.bids.size, error = ui.error)
+    val pending = pendingBids(ui.bids)
+    val phase = bidBoardPhase(ui.loading, requestCount = 0, bidCount = pending.size, error = ui.error)
     RidersPullRefresh(refreshing = ui.refreshing, onRefresh = model::refresh, modifier = modifier) {
         Column(
             Modifier
@@ -91,14 +98,14 @@ fun BidBoardScreen(
                     onRetry = model::refresh,
                 )
                 BidBoardPhase.Empty -> RidersEmptyState(
-                    title = filteredContentTitle(contentKind, "No offers yet"),
-                    body = "Offers you send from Home appear here.",
+                    title = filteredContentTitle(contentKind, "No pending bids"),
+                    body = "Offers awaiting customer responses will appear here.",
                     image = R.drawable.parcel_box,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 BidBoardPhase.Ready -> {
                     val shown = sortDeliveries(
-                        visibleBids(ui.bids, null).filter { deliveryContentMatches(it.parcelDescription, contentKind) },
+                        pending.filter { deliveryContentMatches(it.parcelDescription, contentKind) },
                         sort,
                         { it.createdAt },
                         { it.distanceMeters },
@@ -107,8 +114,8 @@ fun BidBoardScreen(
                     )
                     if (shown.isEmpty()) {
                         RidersEmptyState(
-                            title = filteredContentTitle(contentKind, "No offers yet"),
-                            body = "Offers you send from Home appear here.",
+                            title = filteredContentTitle(contentKind, "No pending bids"),
+                            body = "Offers awaiting customer responses will appear here.",
                             image = R.drawable.parcel_box,
                             modifier = Modifier.fillMaxWidth(),
                         )
@@ -141,7 +148,7 @@ fun BidBoardScreen(
                     }
                 }
             }
-            if (ui.error != null && ui.bids.isNotEmpty()) {
+            if (ui.error != null && pending.isNotEmpty()) {
                 RidersFailureNotice(message = ui.error.orEmpty(), onRetry = model::refresh)
             }
         }
@@ -154,7 +161,6 @@ private fun OwnBidRow(
     withdrawing: Boolean,
     onWithdraw: () -> Unit,
 ) {
-    val suburb = destinationSuburb(bid.dropoffAddress)
     val customer = bid.suggestedPrice.trim().takeIf { it.isNotEmpty() }
     Row(
         Modifier
@@ -174,25 +180,13 @@ private fun OwnBidRow(
                     ServiceClassBadge(bid.serviceClass)
                 }
             }
-            if (suburb.isNotBlank()) {
-                Text(
-                    suburb,
-                    style = RidersType.caption,
-                    color = RidersColors.textSecondary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            if (bid.status == "SUPERSEDED") {
-                bidOutcome(bid.status, bid.serviceClass)?.let { outcome ->
-                    Text(
-                        outcome,
-                        style = RidersType.caption,
-                        color = RidersColors.textSecondary,
-                        maxLines = 2,
-                    )
-                }
-            }
+            DeliveryRoute(bid.pickupAddress, bid.dropoffAddress)
+            Text(
+                AWAITING_CUSTOMER_RESPONSE,
+                style = RidersType.captionStrong,
+                color = Color(0xFFB45309),
+                maxLines = 2,
+            )
             if (customer != null) {
                 Text(
                     "Customer ${offerPriceLabel(bid.currency, customer)}",
@@ -211,12 +205,6 @@ private fun OwnBidRow(
             }
         }
         Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(
-                offerListStatus(bid.status),
-                style = RidersType.captionStrong,
-                color = offerStatusColor(bid.status),
-                maxLines = 1,
-            )
             Text("Your offer", style = RidersType.caption, color = RidersColors.textSecondary, maxLines = 1)
             Text(
                 offerPriceLabel(bid.currency, bid.amount),
@@ -226,11 +214,4 @@ private fun OwnBidRow(
             )
         }
     }
-}
-
-private fun offerStatusColor(status: String): Color = when (status) {
-    "ACCEPTED" -> RidersColors.primaryDark
-    "SUPERSEDED" -> RidersColors.error
-    "OPEN" -> Color(0xFFB45309)
-    else -> RidersColors.textSecondary
 }

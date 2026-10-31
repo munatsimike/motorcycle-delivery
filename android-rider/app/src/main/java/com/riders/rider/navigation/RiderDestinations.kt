@@ -33,16 +33,27 @@ fun deliveriesShowsBidBoard(receiving: Boolean?): Boolean = receiving != null
 
 enum class DeliveryBoardTab {
     Active,
-    Offers,
+    New,
+    Pending,
     Completed,
 }
 
-fun deliveryBoardTabs(showsOffers: Boolean): List<DeliveryBoardTab> {
-    return if (showsOffers) {
-        listOf(DeliveryBoardTab.Active, DeliveryBoardTab.Offers, DeliveryBoardTab.Completed)
-    } else {
-        listOf(DeliveryBoardTab.Active, DeliveryBoardTab.Completed)
-    }
+fun defaultDeliveryBoardTab(): DeliveryBoardTab = DeliveryBoardTab.Active
+
+fun deliveryBoardTabLabel(tab: DeliveryBoardTab): String = when (tab) {
+    DeliveryBoardTab.Active -> "Active"
+    DeliveryBoardTab.New -> "New"
+    DeliveryBoardTab.Pending -> "Pending"
+    DeliveryBoardTab.Completed -> "Completed"
+}
+
+fun deliveryBoardTabs(@Suppress("UNUSED_PARAMETER") showsOffers: Boolean = true): List<DeliveryBoardTab> {
+    return listOf(
+        DeliveryBoardTab.Active,
+        DeliveryBoardTab.New,
+        DeliveryBoardTab.Pending,
+        DeliveryBoardTab.Completed,
+    )
 }
 
 fun offersPollOnDeliveriesTab(

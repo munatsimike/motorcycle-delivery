@@ -160,7 +160,7 @@ describe('V2 bid lifecycle', () => {
     expect(page).toHaveLength(1);
     expect(page[0]).toMatchObject({
       amountCents: 1_500,
-      rider: { name: 'Tendai Moyo', verified: true, completedDeliveries: 0, distanceMeters: null, motorcycle: 'Honda Ace', hasProfilePhoto: false },
+      rider: { name: 'Tendai Moyo', verified: true, completedDeliveries: 0, distanceMeters: null, motorcycle: 'Honda Ace', registrationNumber: 'AEX1234', hasProfilePhoto: false },
     });
     expect(JSON.stringify(page)).not.toContain('+263');
     expect(JSON.stringify(page)).not.toContain('licence');
@@ -187,6 +187,8 @@ describe('V2 bid lifecycle', () => {
     expect(tendai?.rider.distanceMeters).toBeGreaterThan(0);
     expect(rudo?.rider.distanceMeters).toBeNull();
     expect(rudo?.rider.motorcycle).toBeNull();
+    expect(rudo?.rider.registrationNumber).toBe('DEF5678');
+    expect(tendai?.rider.registrationNumber).toBe('AEX1234');
     expect(tendai?.rider.hasProfilePhoto).toBe(true);
     expect(rudo?.rider.hasProfilePhoto).toBe(false);
     expect(JSON.stringify(page)).not.toContain('profile-photos');
@@ -363,8 +365,8 @@ function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?:
     { id: 'user-rider-2', accountStatus: AccountStatus.ACTIVE, phoneVerifiedAt: NOW, fullName: 'Rudo Ncube', phone: '+263777654321' },
   ];
   const motorcycles = [
-    { id: 'bike-1', riderProfileId: RIDER, verificationStatus: MotorcycleVerificationStatus.VERIFIED, isActive: true, make: 'Honda', model: 'Ace' },
-    { id: 'bike-2', riderProfileId: OTHER_RIDER, verificationStatus: MotorcycleVerificationStatus.VERIFIED, isActive: true, make: null, model: null },
+    { id: 'bike-1', riderProfileId: RIDER, verificationStatus: MotorcycleVerificationStatus.VERIFIED, isActive: true, make: 'Honda', model: 'Ace', registrationNumber: 'AEX1234' },
+    { id: 'bike-2', riderProfileId: OTHER_RIDER, verificationStatus: MotorcycleVerificationStatus.VERIFIED, isActive: true, make: null, model: null, registrationNumber: 'DEF5678' },
   ];
   const wallets = [
     { id: 'wallet-1', riderProfileId: RIDER, balance: '0.00', borrowingLimitOverride: null },

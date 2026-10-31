@@ -1,7 +1,7 @@
 import type { CustomerBid } from './customerBids';
 import { deliveryContentKind } from './deliveryCard';
 
-export type OfferSort = 'price' | 'distance';
+export type OfferSort = 'price' | 'price-high' | 'rides-low' | 'rides-high';
 
 export function showsRiderOffers(delivery: {
   status: string;
@@ -24,7 +24,7 @@ export function deliveryAwaitsRiderOffers(delivery: {
 }
 
 export function receivedOfferCountLabel(count: number): string {
-  return count === 1 ? '(1) offer received' : `(${count}) offers received`;
+  return count === 1 ? '1 offer' : `${count} offers`;
 }
 
 export function mergeIncomingOffers(previous: readonly CustomerBid[], incoming: readonly CustomerBid[]): CustomerBid[] {
@@ -58,9 +58,9 @@ export function mergeIncomingOffers(previous: readonly CustomerBid[], incoming: 
 export function sortRiderOffers(bids: readonly CustomerBid[], sort: OfferSort): CustomerBid[] {
   return [...bids].sort((left, right) => {
     const price = comparePrice(left, right);
-    const distance = compareDistance(left, right);
-    const primary = sort === 'price' ? price : distance;
-    const secondary = sort === 'price' ? distance : price;
+    const rides = left.completedDeliveries - right.completedDeliveries;
+    const primary = sort === 'rides-low' ? rides : sort === 'rides-high' ? -rides : sort === 'price-high' ? -price : price;
+    const secondary = sort === 'price' || sort === 'price-high' ? rides : price;
     return primary || secondary || left.id.localeCompare(right.id);
   });
 }
@@ -141,7 +141,7 @@ export function arrivalTimeLabel(meters: number | null): string | null {
 }
 
 export function tripCountLabel(count: number): string {
-  return count === 1 ? '1 trip' : `${count} trips`;
+  return count === 1 ? '1 ride' : `${count} rides`;
 }
 
 export function riderInitials(name: string): string {
@@ -169,17 +169,4 @@ export function offersMissingSince(previous: readonly string[], next: readonly s
 
 function comparePrice(left: CustomerBid, right: CustomerBid): number {
   return Number(left.amount) - Number(right.amount);
-}
-
-function compareDistance(left: CustomerBid, right: CustomerBid): number {
-  if (left.distanceMeters == null && right.distanceMeters == null) {
-    return 0;
-  }
-  if (left.distanceMeters == null) {
-    return 1;
-  }
-  if (right.distanceMeters == null) {
-    return -1;
-  }
-  return left.distanceMeters - right.distanceMeters;
 }

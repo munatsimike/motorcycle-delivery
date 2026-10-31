@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.riders.rider.core.network.ApiResult
 import com.riders.rider.core.network.text
 import com.riders.rider.feature.auth.data.AuthRepository
+import com.riders.rider.feature.auth.domain.normalizeRiderAddress
 import com.riders.rider.feature.availability.data.AvailabilityRepository
 import com.riders.rider.feature.delivery.data.ActiveDeliveryStore
 import com.riders.rider.feature.delivery.data.AssignmentRepository
@@ -46,6 +47,8 @@ data class ProfileUi(
     val loading: Boolean = false,
     val refreshing: Boolean = false,
     val signingOut: Boolean = false,
+    val savingAddress: Boolean = false,
+    val addressError: String? = null,
     val savingPassword: Boolean = false,
     val passwordError: String? = null,
     val passwordSaved: Boolean = false,
@@ -110,6 +113,40 @@ class ProfileViewModel @Inject constructor(
                 state.update { it.copy(loading = false, refreshing = false) }
             }
         }
+    }
+
+    fun saveAddress(raw: String, onSaved: () -> Unit) {
+        val address = try {
+            normalizeRiderAddress(raw)
+        } catch (_: IllegalArgumentException) {
+            state.update { it.copy(addressError = "Address is required") }
+            return
+        }
+        if (address == state.value.board.address) {
+            state.update { it.copy(addressError = null) }
+            onSaved()
+            return
+        }
+        viewModelScope.launch {
+            state.update { it.copy(savingAddress = true, addressError = null) }
+            when (val result = verification.updateAddress(address)) {
+                is ApiResult.Ok -> {
+                    state.update {
+                        it.copy(
+                            savingAddress = false,
+                            addressError = null,
+                            board = it.board.copy(address = result.value.address.orEmpty()),
+                        )
+                    }
+                    onSaved()
+                }
+                is ApiResult.Err -> state.update { it.copy(savingAddress = false, addressError = result.error.text()) }
+            }
+        }
+    }
+
+    fun clearAddressError() {
+        state.update { it.copy(addressError = null) }
     }
 
     fun uploadPhoto(bytes: ByteArray) {

@@ -29,6 +29,7 @@ import {
   arrivalTimeLabel,
   customerDistanceLabel,
   deliveryAwaitsRiderOffers,
+  proximityLabel,
   receivedOfferCountLabel,
   riderInitials,
   riderProfileFacts,
@@ -56,9 +57,16 @@ const TITLES = {
   details: 'Track Delivery',
 } as const;
 
+const OFFER_SORTS: { id: OfferSort; label: string; shortLabel: string; icon: 'sort-ascending' | 'sort-descending' }[] = [
+  { id: 'price', label: 'Price: lowest to highest', shortLabel: 'Price', icon: 'sort-ascending' },
+  { id: 'price-high', label: 'Price: highest to lowest', shortLabel: 'Price', icon: 'sort-descending' },
+  { id: 'rides-low', label: 'Rides: lowest to highest', shortLabel: 'Rides', icon: 'sort-ascending' },
+  { id: 'rides-high', label: 'Rides: highest to lowest', shortLabel: 'Rides', icon: 'sort-descending' },
+];
+
 export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTrackingProps) {
   const { accessToken } = useSession();
-  const { delivery, isLoading, error, reload, cancelling, cancelError, cancelSearch } = useDeliveryTracking(accessToken, route.params.deliveryId);
+  const { delivery, isLoading, isRefreshing, error, reload, cancelling, cancelError, cancelSearch } = useDeliveryTracking(accessToken, route.params.deliveryId);
   const deliveryRef = useRef(delivery);
   deliveryRef.current = delivery;
   const [confirmed, setConfirmed] = useState<{ delivery: CustomerDeliveryDetail; riderName: string } | null>(null);
@@ -75,6 +83,7 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
   const incoming = useIncomingOffers(accessToken, delivery, onAccepted);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [offerSort, setOfferSort] = useState<OfferSort>('price');
+  const [sortOpen, setSortOpen] = useState(false);
   const [profile, setProfile] = useState<CustomerBid | null>(null);
   const [searchingAgain, setSearchingAgain] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -88,6 +97,7 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
     : delivery;
   const awaitingOffers = deliveryAwaitsRiderOffers(shown);
   const offers = sortRiderOffers(incoming.offers, offerSort);
+  const selectedOfferSort = OFFER_SORTS.find((item) => item.id === offerSort) ?? OFFER_SORTS[0];
   const offerSelectionBusy = incoming.chosen || incoming.acceptingId !== null;
   const view = riderSearchView({
     hasDelivery: Boolean(delivery),
@@ -98,6 +108,7 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
   useEffect(() => {
     setDetailsOpen(false);
     setOfferSort('price');
+    setSortOpen(false);
     setConfirmed(null);
     setProfile(null);
   }, [delivery?.id]);
@@ -260,6 +271,7 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
       <>
         <DeliveryOutcome
           delivery={outcomeDelivery}
+          accessToken={accessToken}
           message={error ?? actionError ?? cancelError}
           customerOffer={showCustomerOffer}
           offerAmount={showCustomerOffer ? offerAmount : undefined}
@@ -323,6 +335,7 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
         showRiderConfirmation={route.params.riderConfirmed === true}
         onContinueConfirmation={() => navigation.setParams({ riderConfirmed: false })}
         onRefreshDelivery={reload}
+        refreshing={isRefreshing}
       />
     );
   }
@@ -361,29 +374,6 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
               </>
             ) : (
               <View style={styles.offersIntro}>
-                <Text style={[styles.title, styles.alignLeft]}>{receivedOfferCountLabel(offers.length)}</Text>
-                <Text style={[styles.support, styles.alignLeft]}>Compare offers and choose your preferred rider.</Text>
-                <View style={styles.offerFilters}>
-                  {(['price', 'distance'] as const).map((option) => {
-                    const selected = offerSort === option;
-                    const label = option === 'price' ? 'Price' : 'Distance';
-                    const icon = option === 'price' ? 'currency-usd' : 'map-marker-distance';
-                    const color = selected ? colors.primaryDark : colors.textSecondary;
-                    return (
-                      <Pressable
-                        key={option}
-                        accessibilityRole="button"
-                        accessibilityState={{ selected }}
-                        accessibilityLabel={`Sort by ${label}`}
-                        onPress={() => setOfferSort(option)}
-                        style={[styles.offerFilter, selected && styles.offerFilterSelected]}
-                      >
-                        <MaterialDesignIcons name={icon} size={16} color={color} />
-                        <Text style={[styles.offerFilterLabel, selected && styles.offerFilterLabelSelected]}>{label}</Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel="Parcel details"
@@ -393,6 +383,20 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
                   <Text style={styles.parcelDetailsText}>Parcel details</Text>
                   <MaterialDesignIcons name="chevron-up" size={18} color={colors.primary} />
                 </Pressable>
+                <View style={styles.offersHeading}>
+                  <Text style={styles.offerCount}>{receivedOfferCountLabel(offers.length)}</Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Sort offers, ${selectedOfferSort.label}`}
+                    onPress={() => setSortOpen(true)}
+                    style={styles.offerSort}
+                  >
+                    <MaterialDesignIcons name="swap-vertical" size={18} color={colors.text} />
+                    <Text style={styles.offerSortLabel}>{selectedOfferSort.shortLabel}</Text>
+                    <MaterialDesignIcons name={selectedOfferSort.icon} size={18} color={colors.text} />
+                    <MaterialDesignIcons name="chevron-down" size={18} color={colors.textSecondary} />
+                  </Pressable>
+                </View>
               </View>
             )}
             {incoming.unavailableNotice ? <Text style={styles.notice}>{incoming.unavailableNotice}</Text> : null}
@@ -476,6 +480,38 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
         onClose={() => setDetailsOpen(false)}
         onCancel={confirmCancelSearch}
       />
+      <BottomSheetModal visible={sortOpen} onClose={() => setSortOpen(false)} closeLabel="Close sort">
+        <View style={styles.sheet}>
+          <Text style={styles.sortTitle}>Sort by</Text>
+          <View accessibilityRole="radiogroup">
+            {OFFER_SORTS.map((item) => {
+              const selected = item.id === offerSort;
+              return (
+                <Pressable
+                  key={item.id}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected }}
+                  onPress={() => {
+                    setOfferSort(item.id);
+                    setSortOpen(false);
+                  }}
+                  style={[styles.sortOption, selected && styles.sortOptionSelected]}
+                >
+                  <MaterialDesignIcons
+                    name={item.icon}
+                    size={20}
+                    color={selected ? colors.primaryDark : colors.textSecondary}
+                  />
+                  <Text style={[styles.sortOptionLabel, selected && styles.sortOptionLabelSelected]}>{item.label}</Text>
+                  <View style={[styles.sortRadio, selected && styles.sortRadioSelected]}>
+                    {selected ? <MaterialDesignIcons name="check" size={14} color={colors.textInverse} /> : null}
+                  </View>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+      </BottomSheetModal>
     </SafeAreaView>
   );
 }
@@ -526,7 +562,7 @@ function OfferCard({
   onChoose: () => void;
   onProfile: () => void;
 }) {
-  const facts = riderProfileFacts(bid);
+  const distance = proximityLabel(bid.distanceMeters);
   return (
     <View style={[styles.card, styles.offerCard]}>
       <View style={styles.offerIdentity}>
@@ -540,28 +576,21 @@ function OfferCard({
             textStyle={styles.initials}
           />
         </Pressable>
-        <View style={styles.offerBody}>
-          <Pressable accessibilityRole="button" accessibilityLabel={`${bid.riderName} profile`} onPress={onProfile} disabled={busy}>
-            <View style={styles.offerTop}>
-              <View style={styles.offerCopy}>
-                <Text style={styles.offerName}>{bid.riderName}</Text>
-                {facts.map((fact) => <Text key={fact} style={styles.offerMeta}>{fact}</Text>)}
-              </View>
-              <View style={styles.offerPriceBlock}>
-                <Text style={styles.offerPriceLabel}>Offer</Text>
-                <Text style={styles.offerPrice}>${bid.amount}</Text>
-              </View>
-            </View>
-          </Pressable>
-          {bidCanAccept(bid) ? (
-            <View style={styles.offerBottom}>
-              <PrimaryButton label="Choose rider" loading={loading} disabled={busy} onPress={onChoose} />
-            </View>
-          ) : (
-            <Text style={styles.offerMeta}>This offer is no longer available.</Text>
-          )}
+        <Pressable accessibilityRole="button" accessibilityLabel={`${bid.riderName} profile`} onPress={onProfile} disabled={busy} style={styles.offerCopy}>
+          <Text numberOfLines={1} style={styles.offerName}>{bid.riderName}</Text>
+          <Text style={styles.offerMeta}>{tripCountLabel(bid.completedDeliveries)}</Text>
+          {distance ? <Text style={styles.offerMeta}>{distance}</Text> : null}
+        </Pressable>
+        <View style={styles.offerPriceBlock}>
+          <Text style={styles.offerPriceLabel}>Offer</Text>
+          <Text style={styles.offerPrice}>${bid.amount}</Text>
         </View>
       </View>
+      {bidCanAccept(bid) ? (
+        <PrimaryButton label="Choose rider" loading={loading} disabled={busy} onPress={onChoose} />
+      ) : (
+        <Text style={styles.offerMeta}>This offer is no longer available.</Text>
+      )}
     </View>
   );
 }
@@ -695,16 +724,25 @@ const styles = StyleSheet.create({
   offersIntro: {
     alignSelf: 'stretch',
     alignItems: 'flex-start',
-    gap: spacing.sm,
+    gap: spacing.xs,
   },
-  offerFilters: {
+  offersHeading: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    alignSelf: 'stretch',
     gap: spacing.sm,
   },
-  offerFilter: {
+  offerCount: {
+    flex: 1,
+    fontSize: 18,
+    fontWeight: '500',
+    color: colors.text,
+  },
+  offerSort: {
     flexDirection: 'row',
     alignItems: 'center',
+    alignSelf: 'flex-end',
     gap: spacing.xs,
     borderWidth: 1,
     borderColor: colors.border,
@@ -713,26 +751,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
   },
-  offerFilterSelected: {
-    backgroundColor: colors.primaryLight,
-    borderColor: colors.primary,
-  },
-  offerFilterLabel: {
+  offerSortLabel: {
     fontSize: typography.caption,
     fontWeight: '600',
-    color: colors.textSecondary,
-  },
-  offerFilterLabelSelected: {
-    color: colors.primaryDark,
-  },
-  alignLeft: {
-    alignSelf: 'stretch',
-    textAlign: 'left',
+    color: colors.text,
   },
   parcelDetails: {
     flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'flex-end',
     gap: spacing.xs,
   },
   parcelDetailsText: {
@@ -742,40 +768,21 @@ const styles = StyleSheet.create({
   },
   offerIdentity: {
     flexDirection: 'row',
-    alignItems: 'stretch',
+    alignItems: 'center',
+    gap: spacing.md,
   },
   offerCard: {
-    padding: 0,
     overflow: 'hidden',
-  },
-  offerBody: {
-    flex: 1,
-    gap: spacing.sm,
-    paddingTop: spacing.sm,
-    paddingRight: spacing.lg,
-    paddingBottom: spacing.lg,
-    paddingLeft: spacing.sm,
-  },
-  offerTop: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: spacing.sm,
-  },
-  offerBottom: {
-    alignItems: 'flex-end',
-    gap: spacing.xs,
+    gap: spacing.md,
   },
   offerCopy: {
     flex: 1,
     gap: 2,
   },
   offerAvatar: {
-    width: 72,
-    height: 72,
-    alignSelf: 'flex-start',
-    marginTop: spacing.sm,
-    marginLeft: spacing.sm,
-    borderRadius: radius.lg,
+    width: 48,
+    height: 48,
+    borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.primaryLight,
@@ -830,6 +837,42 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.text,
     textAlign: 'center',
+  },
+  sortTitle: {
+    fontSize: typography.heading,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  sortOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  sortOptionSelected: {
+    backgroundColor: colors.surface,
+  },
+  sortOptionLabel: {
+    flex: 1,
+    fontSize: typography.body,
+    color: colors.text,
+  },
+  sortOptionLabelSelected: {
+    fontWeight: '600',
+    color: colors.primaryDark,
+  },
+  sortRadio: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sortRadioSelected: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
   skeletonLines: {
     flex: 1,

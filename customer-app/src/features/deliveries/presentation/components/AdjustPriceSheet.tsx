@@ -8,6 +8,7 @@ import PrimaryButton from '../../../../components/PrimaryButton';
 import SecondaryButton from '../../../../components/SecondaryButton';
 import { colors, radius, spacing, typography } from '../../../../theme';
 import { customerOfferForBooking, offerFieldText } from '../../domain/deliveryQuote';
+import { currencyMark } from '../../domain/moneyLabel';
 
 type AdjustPriceSheetProps = {
   visible: boolean;
@@ -69,9 +70,9 @@ export default function AdjustPriceSheet({
   return (
     <BottomSheetModal visible={visible} onClose={onClose} closeLabel="Close adjust price">
       <View style={[styles.sheet, { marginBottom: keyboardHeight > 0 ? keyboardHeight + spacing.xl : 0, paddingBottom: spacing.lg + (keyboardHeight > 0 ? 0 : insets.bottom) }]}>
-        <Text style={styles.label}>Your offer (USD)</Text>
+        <Text style={styles.label}>Your offer ($)</Text>
         <View style={styles.field}>
-          <Text style={styles.currency}>USD</Text>
+          <Text style={styles.currency}>{currencyMark('USD')}</Text>
           <TextInput
             style={styles.input}
             value={text}

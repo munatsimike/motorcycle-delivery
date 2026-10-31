@@ -2,6 +2,8 @@
 package com.riders.rider.feature.home
 
 import com.riders.rider.core.network.ApiError
+import com.riders.rider.feature.delivery.domain.CommittedParcel
+import com.riders.rider.feature.delivery.domain.committedAssignmentsForDisplay
 
 const val MARKETPLACE_DISABLED = "Bidding is not available"
 
@@ -27,6 +29,10 @@ fun workloadCounts(serviceClasses: List<String?>): WorkloadCounts {
 const val OFFLINE_WITH_DELIVERIES_TITLE = "Go offline?"
 const val OFFLINE_WITH_DELIVERIES_MESSAGE =
     "You will stop receiving new requests. Deliveries you already accepted stay assigned to you."
+
+fun dashboardActiveCount(assignments: List<CommittedParcel>): Int {
+    return committedAssignmentsForDisplay(assignments, null, null).size
+}
 
 fun activeDeliveryCount(showActiveDelivery: Boolean, flexibleCount: Int?, expressCount: Int?): Int {
     val listed = (flexibleCount ?: 0) + (expressCount ?: 0)

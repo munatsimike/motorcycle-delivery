@@ -39,14 +39,15 @@ describe('tracking journey', () => {
   });
 
   it('reads the assigned rider and keeps the phone off the dialer until it is valid', () => {
-    expect(readAssignedRider({ name: 'Tendai Moyo', verified: true, motorcycle: 'Honda Ace', phone: '+263771000001', hasProfilePhoto: true })).toEqual({
+    expect(readAssignedRider({ name: 'Tendai Moyo', verified: true, motorcycle: 'Honda Ace', registrationNumber: 'ABC 1234', phone: '+263771000001', hasProfilePhoto: true })).toEqual({
       name: 'Tendai Moyo',
       verified: true,
       motorcycle: 'Honda Ace',
+      registrationNumber: 'ABC 1234',
       phone: '+263771000001',
       hasProfilePhoto: true,
     });
-    expect(readAssignedRider({ name: 'Tendai', verified: false })).toMatchObject({ phone: null, motorcycle: null });
+    expect(readAssignedRider({ name: 'Tendai', verified: false })).toMatchObject({ phone: null, motorcycle: null, registrationNumber: null });
     expect(readAssignedRider(null)).toBeNull();
     expect(riderInitials('Tendai Moyo')).toBe('TM');
     expect(riderDialUrl('+263771000001')).toBe('tel:+263771000001');

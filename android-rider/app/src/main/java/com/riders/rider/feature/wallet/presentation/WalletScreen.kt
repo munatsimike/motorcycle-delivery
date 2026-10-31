@@ -322,11 +322,6 @@ private fun BalanceCard(summary: WalletSummary, onTopUp: () -> Unit) {
                 modifier = Modifier.weight(1f),
             )
         }
-        Text(
-            "Remaining capacity  ${walletMoneyLabel(summary.currency, summary.availableCapacity)}",
-            style = RidersType.caption,
-            color = RidersColors.textSecondary,
-        )
         if (summary.newDeliveriesRestricted) {
             Text(WALLET_TOP_UP_REQUIRED, style = RidersType.body, color = RidersColors.error)
         }

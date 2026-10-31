@@ -95,7 +95,7 @@ const styles = StyleSheet.create({
     fontSize: typography.caption,
     lineHeight: 18,
     fontWeight: '500',
-    color: colors.textSecondary,
+    color: '#000000',
     includeFontPadding: false,
   },
 });

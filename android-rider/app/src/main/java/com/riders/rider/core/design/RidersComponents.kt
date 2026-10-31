@@ -232,6 +232,7 @@ fun RidersSecondaryButton(
     tone: RidersButtonTone = RidersButtonTone.Primary,
     @Suppress("UNUSED_PARAMETER") soft: Boolean = true,
     bordered: Boolean = true,
+    compact: Boolean = false,
     icon: Int? = null,
 ) {
     val inactive = !enabled || loading
@@ -239,7 +240,7 @@ fun RidersSecondaryButton(
     val fill = RidersColors.background
     Box(
         modifier = modifier
-            .defaultMinSize(minHeight = 56.dp)
+            .defaultMinSize(minHeight = if (compact) 36.dp else 56.dp)
             .alpha(if (inactive) 0.6f else 1f)
             .clip(RoundedCornerShape(RidersRadius.lg))
             .background(fill)
@@ -251,7 +252,10 @@ fun RidersSecondaryButton(
                 },
             )
             .clickable(enabled = !inactive, role = Role.Button, onClick = onClick)
-            .padding(horizontal = RidersSpacing.lg, vertical = RidersSpacing.md),
+            .padding(
+                horizontal = RidersSpacing.lg,
+                vertical = if (compact) 0.dp else RidersSpacing.md,
+            ),
         contentAlignment = Alignment.Center,
     ) {
         if (loading) {

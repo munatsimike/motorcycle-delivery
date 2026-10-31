@@ -77,10 +77,13 @@ describe('customer bids', () => {
     expect(bids.every((item) => item.hasProfilePhoto === false)).toBe(true);
     const withPhoto = readCustomerBids([{ ...bid('bid-1', '9.00'), rider: { ...bid('bid-1', '9.00').rider, hasProfilePhoto: true } }]);
     expect(withPhoto[0]?.hasProfilePhoto).toBe(true);
+    expect(bids.every((item) => item.registrationNumber === null)).toBe(true);
+    const withPlate = readCustomerBids([{ ...bid('bid-1', '9.00'), rider: { ...bid('bid-1', '9.00').rider, motorcycle: 'Honda Ace', registrationNumber: 'AEX1234' } }]);
+    expect(withPlate[0]).toMatchObject({ motorcycle: 'Honda Ace', registrationNumber: 'AEX1234' });
     expect(acceptableBids(bids)).toHaveLength(2);
     expect(JSON.stringify(bids)).not.toContain('+263');
     expect(JSON.stringify(bids)).not.toContain('rider-');
-    expect(acceptancePrompt(bids[0]!)).toContain('USD 9.00');
+    expect(acceptancePrompt(bids[0]!)).toContain('$9.00');
     expect(acceptancePrompt(bids[0]!)).toContain('Tendai Moyo');
   });
 

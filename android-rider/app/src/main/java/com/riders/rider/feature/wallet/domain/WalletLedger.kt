@@ -1,5 +1,7 @@
 package com.riders.rider.feature.wallet.domain
 
+import com.riders.rider.core.money.currencyMark
+import com.riders.rider.core.money.moneyLabel
 import kotlinx.coroutines.sync.Mutex
 import java.time.Instant
 import java.time.ZoneId
@@ -44,15 +46,9 @@ fun walletEntryLabel(type: String): String = when (type) {
     else -> "Wallet entry"
 }
 
-fun walletMoneyLabel(currency: String, amount: String): String = "$currency $amount"
+fun walletMoneyLabel(currency: String, amount: String): String = moneyLabel(currency, amount)
 
-fun signedWalletLabel(currency: String, amount: String): String {
-    val trimmed = amount.trim()
-    if (trimmed.startsWith("-")) {
-        return "−$currency ${trimmed.removePrefix("-")}"
-    }
-    return "$currency $trimmed"
-}
+fun signedWalletLabel(currency: String, amount: String): String = moneyLabel(currency, amount)
 
 fun walletBalanceIsNegative(amount: String): Boolean = amount.trim().startsWith("-")
 
@@ -166,7 +162,9 @@ fun statementAmount(currency: String, type: String, amount: String): String {
         "TOP_UP", "WELCOME_BONUS", "PROMOTIONAL_CREDIT", "PLATFORM_FEE_REFUND", "PLATFORM_FEE_RELEASE" -> true
         else -> !amount.trim().startsWith("-")
     }
-    return if (credit) "+$currency $digits" else "−$currency $digits"
+    val mark = currencyMark(currency)
+    val gap = if (mark == "$") "" else " "
+    return if (credit) "+$mark$gap$digits" else "−$mark$gap$digits"
 }
 
 fun statementReference(receipt: String?, reason: String?): String? {

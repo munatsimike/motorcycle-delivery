@@ -3,6 +3,7 @@ package com.riders.rider.feature.onboarding.data
 import com.riders.rider.core.network.ApiError
 import com.riders.rider.core.network.ApiResult
 import com.riders.rider.core.network.MotorcycleRequest
+import com.riders.rider.core.network.RiderAddressRequest
 import com.riders.rider.core.network.MotorcycleResponse
 import com.riders.rider.core.network.ProgressRequestBody
 import com.riders.rider.core.network.RiderService
@@ -32,6 +33,13 @@ class VerificationRepository @Inject constructor(
 ) {
     suspend fun profile(): ApiResult<RiderIdentity> {
         return when (val result = apiCall { riders.profile() }) {
+            is ApiResult.Ok -> ApiResult.Ok(RiderIdentity(result.value.fullName, result.value.phone, result.value.address, result.value.hasProfilePhoto))
+            is ApiResult.Err -> result
+        }
+    }
+
+    suspend fun updateAddress(address: String): ApiResult<RiderIdentity> {
+        return when (val result = apiCall { riders.updateAddress(RiderAddressRequest(address)) }) {
             is ApiResult.Ok -> ApiResult.Ok(RiderIdentity(result.value.fullName, result.value.phone, result.value.address, result.value.hasProfilePhoto))
             is ApiResult.Err -> result
         }

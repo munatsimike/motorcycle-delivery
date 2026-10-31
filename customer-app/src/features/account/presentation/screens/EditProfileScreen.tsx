@@ -3,8 +3,6 @@ import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import ErrorMessage from '../../../../components/ErrorMessage';
-import FormInput from '../../../../components/FormInput';
-import ZimbabwePhoneField from '../../../../components/ZimbabwePhoneField';
 import { useKeyboardLift } from '../../../../components/useKeyboardLift';
 import PrimaryButton from '../../../../components/PrimaryButton';
 import SecondaryButton from '../../../../components/SecondaryButton';
@@ -37,7 +35,7 @@ export default function EditProfileScreen({ route, navigation }: EditProfileProp
     if (!saved) {
       return;
     }
-    Alert.alert('Profile updated', 'Your changes have been saved.', [
+    Alert.alert('Address updated', 'Your address has been saved.', [
       { text: 'OK', onPress: () => navigation.goBack() },
     ]);
   }
@@ -56,18 +54,7 @@ export default function EditProfileScreen({ route, navigation }: EditProfileProp
       }}
       scrollEventThrottle={16}
     >
-      <Text style={styles.section}>Personal information</Text>
-      <FormInput
-        label="Full name"
-        value={form.fullName}
-        onChangeText={form.setFullName}
-        autoCapitalize="words"
-        autoComplete="name"
-        textContentType="name"
-        maxLength={200}
-        error={form.fieldErrors.fullName}
-        onFocus={keyboard.revealFocusedField}
-      />
+      <Text style={styles.section}>Address</Text>
       <AddressField
         stop={addressStop}
         error={form.fieldErrors.address}
@@ -82,14 +69,6 @@ export default function EditProfileScreen({ route, navigation }: EditProfileProp
           }
         }}
       />
-      <ZimbabwePhoneField
-        label="WhatsApp number"
-        value={form.phone.startsWith('+263') ? form.phone.slice(4) : form.phone.startsWith('+31') ? form.phone.slice(3) : form.phone}
-        onChangeText={() => undefined}
-        editable={false}
-        countryCode={form.phone.startsWith('+31') ? '+31' : '+263'}
-      />
-      <Text style={styles.note}>Your WhatsApp number is used to sign in and cannot be changed here.</Text>
       <ErrorMessage message={form.error} />
       <View style={styles.actions}>
         <PrimaryButton
@@ -146,13 +125,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.text,
     marginBottom: spacing.lg,
-  },
-  note: {
-    marginTop: -spacing.sm,
-    marginBottom: spacing.lg,
-    fontSize: typography.caption,
-    lineHeight: 20,
-    color: colors.textSecondary,
   },
   actions: {
     gap: spacing.md,

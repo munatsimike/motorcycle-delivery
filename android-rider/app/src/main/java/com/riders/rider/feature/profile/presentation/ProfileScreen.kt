@@ -72,6 +72,7 @@ import com.riders.rider.core.design.RidersSecondaryButton
 import com.riders.rider.core.design.RidersTextField
 import com.riders.rider.core.design.RidersSpacing
 import com.riders.rider.core.design.RidersType
+import com.riders.rider.feature.auth.presentation.RegistrationAddressField
 import com.riders.rider.feature.onboarding.domain.MotorcycleDetails
 import com.riders.rider.feature.onboarding.domain.RiderOnboarding
 import com.riders.rider.feature.onboarding.domain.approvalStatusTitle
@@ -169,6 +170,7 @@ fun ProfileScreen(
     }
     LaunchedEffect(Unit) { model.refresh(force = false) }
     var confirmRemove by rememberSaveable { mutableStateOf(false) }
+    var editingAddress by rememberSaveable { mutableStateOf(false) }
     val board = ui.board
     val hasProfile = board.fullName.isNotBlank() || board.onboarding != null
     val displayedPhoto = when {
@@ -176,7 +178,18 @@ fun ProfileScreen(
         ui.photo.showingStored || ui.photo.showingPreview -> ui.photoBitmap
         else -> null
     }
-    RidersPullRefresh(
+    if (editingAddress) {
+        AddressEditor(
+            initial = board.address,
+            saving = ui.savingAddress,
+            error = ui.addressError,
+            onCancel = {
+                model.clearAddressError()
+                editingAddress = false
+            },
+            onSave = { model.saveAddress(it) { editingAddress = false } },
+        )
+    } else RidersPullRefresh(
         refreshing = ui.refreshing,
         onRefresh = { model.refresh(force = true) },
         modifier = Modifier
@@ -205,6 +218,7 @@ fun ProfileScreen(
                     hasLicence = board.hasLicence,
                     motorcycles = board.motorcycles,
                     onMotorcycles = onMotorcycles,
+                    onEditAddress = { editingAddress = true },
                     modifier = Modifier
                         .padding(end = RidersSpacing.lg)
                         .pullUp(RidersSpacing.xxxl),
@@ -447,6 +461,50 @@ private fun ProfileAvatar(
 }
 
 @Composable
+private fun AddressEditor(
+    initial: String,
+    saving: Boolean,
+    error: String?,
+    onCancel: () -> Unit,
+    onSave: (String) -> Unit,
+) {
+    var address by rememberSaveable { mutableStateOf(initial) }
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .statusBarsPadding()
+            .padding(horizontal = RidersSpacing.lg, vertical = RidersSpacing.xl),
+        verticalArrangement = Arrangement.spacedBy(RidersSpacing.md),
+    ) {
+        Text("Address", style = RidersType.heading, color = RidersColors.text)
+        RegistrationAddressField(
+            value = address,
+            onValueChange = { address = it },
+            enabled = !saving,
+            imeAction = ImeAction.Done,
+        )
+        if (error != null) {
+            Text(error, style = RidersType.caption, color = RidersColors.error)
+        }
+        RidersPrimaryButton(
+            label = "Save address",
+            onClick = { onSave(address) },
+            enabled = !saving && address.isNotBlank(),
+            loading = saving,
+            loadingLabel = "Saving address",
+            modifier = Modifier.fillMaxWidth(),
+        )
+        RidersSecondaryButton(
+            label = "Cancel",
+            onClick = onCancel,
+            enabled = !saving,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
+
+@Composable
 private fun DetailsCard(
     phone: String,
     address: String,
@@ -454,6 +512,7 @@ private fun DetailsCard(
     hasLicence: Boolean,
     motorcycles: List<MotorcycleDetails>,
     onMotorcycles: () -> Unit,
+    onEditAddress: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val shape = RoundedCornerShape(RidersRadius.xl)
@@ -480,6 +539,7 @@ private fun DetailsCard(
             icon = R.drawable.ic_map_marker_outline,
             label = "Address",
             value = address.ifBlank { "Not added" },
+            onEdit = onEditAddress,
         )
         Hairline()
         InfoRow(
@@ -524,6 +584,7 @@ private fun InfoRow(
     value: String? = null,
     caption: String? = null,
     onClick: (() -> Unit)? = null,
+    onEdit: (() -> Unit)? = null,
     valueContent: (@Composable () -> Unit)? = null,
 ) {
         Row(
@@ -551,7 +612,16 @@ private fun InfoRow(
                 Text(caption, style = RidersType.caption, color = RidersColors.textSecondary)
             }
         }
-        if (onClick != null) {
+        if (onEdit != null) {
+            Icon(
+                painter = painterResource(R.drawable.ic_pencil_outline),
+                contentDescription = "Edit address",
+                modifier = Modifier
+                    .size(20.dp)
+                    .clickable(role = Role.Button, onClick = onEdit),
+                tint = Color.Black,
+            )
+        } else if (onClick != null) {
             Icon(
                 painter = painterResource(R.drawable.ic_chevron_right_outline),
                 contentDescription = null,

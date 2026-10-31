@@ -46,7 +46,7 @@ class RiderAssignmentListTest {
         assertEquals(1, shown.size)
         assertEquals("Flexible", serviceClassLabel(shown[0].serviceClass))
         assertEquals("Rider assigned", deliveryStatusLabel(shown[0].status))
-        assertEquals("Agreed price USD 12.50", agreedPriceLabel(shown[0].agreedPrice))
+        assertEquals("Agreed price \$12.50", agreedPriceLabel(shown[0].agreedPrice))
         assertEquals("Pickup flex-1", shown[0].pickupAddress)
         assertEquals("Documents flex-1", shown[0].parcelDescription)
     }
@@ -71,7 +71,7 @@ class RiderAssignmentListTest {
         assertEquals(listOf("flex-a", "flex-b", "express-1"), shown.map { it.deliveryId })
         assertEquals(listOf("Flexible", "Flexible", "Urgent"), shown.map { serviceClassLabel(it.serviceClass) })
         assertEquals("Collecting", deliveryStatusLabel(shown[2].status))
-        assertEquals("Agreed price USD 9.00", agreedPriceLabel(shown[2].agreedPrice))
+        assertEquals("Agreed price \$9.00", agreedPriceLabel(shown[2].agreedPrice))
     }
 
     @Test
@@ -252,7 +252,7 @@ class RiderAssignmentListTest {
             incoming = listOf(parcel("missed", "FLEXIBLE", "RIDER_ASSIGNED", "7.50", "2026-10-26T09:00:00Z")),
         )
         assertEquals("missed", recovered.single().deliveryId)
-        assertEquals("Agreed price USD 7.50", agreedPriceLabel(recovered.single().agreedPrice))
+        assertEquals("Agreed price \$7.50", agreedPriceLabel(recovered.single().agreedPrice))
     }
 
     @Test

@@ -91,7 +91,7 @@ describe('rider delivery view', () => {
   });
 
   it('adds the assigned rider only for an assigned delivery and drops a stale point', () => {
-    const rider = { name: 'Tendai Moyo', verified: true, motorcycle: 'Honda Ace', phone: '+263771000001', hasProfilePhoto: false };
+    const rider = { name: 'Tendai Moyo', verified: true, motorcycle: 'Honda Ace', registrationNumber: 'ABC 1234', phone: '+263771000001', hasProfilePhoto: false };
     expect(assignedRiderStatus(DeliveryStatus.CREATED)).toBe(false);
     expect(assignedRiderStatus(DeliveryStatus.RIDER_ASSIGNED)).toBe(true);
     expect(withAssignedRider(toCustomerDelivery(stored()), null)).not.toHaveProperty('rider');

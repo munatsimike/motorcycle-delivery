@@ -33,7 +33,12 @@ import com.riders.rider.core.network.StopResponse
 import com.riders.rider.feature.bids.domain.BID_LIST_UNAVAILABLE
 import com.riders.rider.feature.bids.domain.MARKETPLACE_DISABLED
 import com.riders.rider.feature.bids.domain.REQUEST_NO_LONGER_OPEN
+import com.riders.rider.feature.bids.domain.AWAITING_CUSTOMER_RESPONSE
 import com.riders.rider.feature.bids.domain.availableRequests
+import com.riders.rider.feature.bids.domain.homeNewRequestCount
+import com.riders.rider.feature.bids.domain.notificationBidRequest
+import com.riders.rider.feature.bids.domain.newMarketplaceOffers
+import com.riders.rider.feature.bids.domain.pendingBids
 import com.riders.rider.feature.bids.domain.bidListProblemMessage
 import com.riders.rider.feature.bids.domain.displayedBidProblem
 import com.riders.rider.feature.bids.domain.marketplaceBidButtonsVisible
@@ -54,8 +59,10 @@ import com.riders.rider.feature.offers.domain.opensDeliveriesAfterListedOffer
 import com.riders.rider.feature.delivery.domain.CommittedParcel
 import com.riders.rider.feature.delivery.domain.applyAssignmentRefresh
 import com.riders.rider.feature.delivery.domain.committedAssignmentsForDisplay
+import com.riders.rider.feature.delivery.domain.completedDeliveries
 import com.riders.rider.feature.delivery.domain.parcelRoute
 import com.riders.rider.feature.offers.domain.acceptedBidDeliveryId
+import com.riders.rider.feature.offers.domain.notificationRequestCanOpen
 import com.riders.rider.feature.offers.domain.parseRiderNotice
 import com.riders.rider.feature.offers.domain.parseRiderOffer
 import com.riders.rider.feature.offers.domain.riderOfferOpensV1Offers
@@ -81,7 +88,7 @@ class RiderBidBoardTest {
         assertNull(bidAmountCents("0.00"))
         assertNull(bidAmountCents("-1"))
         assertNull(bidAmountCents("12.345"))
-        assertEquals(BID_AMOUNT_INVALID, "Enter a bid amount in USD.")
+        assertEquals(BID_AMOUNT_INVALID, "Enter a bid amount ($).")
     }
 
     @Test
@@ -271,7 +278,7 @@ class RiderBidBoardTest {
         assertEquals(BidBoardPhase.Failed, bidBoardPhase(loading = false, requestCount = 0, bidCount = 0, error = "Requests unavailable"))
         assertEquals(BidBoardPhase.Ready, bidBoardPhase(loading = false, requestCount = 1, bidCount = 0, error = "Try again"))
         assertNull(suggestedPriceLabel(null))
-        assertEquals("Suggested price USD 9.00", suggestedPriceLabel("9.00"))
+        assertEquals("Suggested price $9.00", suggestedPriceLabel("9.00"))
         assertNull(requestDistanceLabel(null))
         assertEquals("Distance 800 m", requestDistanceLabel(800))
         assertEquals("Distance 12.4 km", requestDistanceLabel(12400))
@@ -357,6 +364,74 @@ class RiderBidBoardTest {
         assertEquals(MARKETPLACE_DISABLED, displayedBidProblem(true, MARKETPLACE_DISABLED, null))
         assertEquals(null, displayedBidProblem(false, MARKETPLACE_DISABLED, null))
         assertEquals("2.99", resolvedSubmittedAmount(server, "delivery-1", optimistic = null))
+    }
+
+    @Test
+    fun newAndPendingFollowOpenBidsWithoutTreatingThemAsAssignments() {
+        val openRequest = sampleOffer("request:delivery-1", "delivery-1", "2026-10-28T12:00:00Z", "FLEXIBLE")
+        val otherRequest = sampleOffer("request:delivery-2", "delivery-2", "2026-10-28T13:00:00Z", "EXPRESS")
+        val listedPrice = ownBid("bid-listed", "OPEN").copy(deliveryId = "delivery-1", amount = "2.99")
+        val counteroffer = ownBid("bid-counter", "OPEN").copy(deliveryId = "delivery-3", amount = "8.00")
+        val accepted = ownBid("bid-accepted", "ACCEPTED").copy(deliveryId = "delivery-4")
+        val superseded = ownBid("bid-lost", "SUPERSEDED").copy(deliveryId = "delivery-5")
+        val expired = ownBid("bid-old", "EXPIRED").copy(deliveryId = "delivery-6")
+        val bids = listOf(listedPrice, counteroffer, accepted, superseded, expired)
+
+        assertEquals(listOf("delivery-1", "delivery-2"), newMarketplaceOffers(listOf(openRequest, otherRequest), emptyList()).map { it.deliveryId })
+        assertEquals(listOf("delivery-2"), newMarketplaceOffers(listOf(openRequest, otherRequest), bids).map { it.deliveryId })
+        assertEquals(listOf("delivery-2"), newMarketplaceOffers(listOf(openRequest, otherRequest), emptyList(), mapOf("delivery-1" to "2.99")).map { it.deliveryId })
+
+        val pending = pendingBids(bids)
+        assertEquals(listOf("bid-listed", "bid-counter"), pending.map { it.bidId })
+        assertEquals(listOf("2.99", "8.00"), pending.map { it.amount })
+        assertTrue(pending.all { it.status == "OPEN" })
+        assertEquals(AWAITING_CUSTOMER_RESPONSE, "Awaiting customer response")
+        assertTrue(pending.none { it.status == "ACCEPTED" || it.status == "SUPERSEDED" || it.status == "EXPIRED" })
+
+        val assigned = CommittedParcel(
+            deliveryId = "delivery-4",
+            assignmentId = "assignment-4",
+            status = "RIDER_ASSIGNED",
+            parcelDescription = "Parcel",
+            serviceClass = "FLEXIBLE",
+        )
+        val second = assigned.copy(deliveryId = "delivery-7", assignmentId = "assignment-7", status = "COLLECTED")
+        val finished = assigned.copy(deliveryId = "delivery-8", assignmentId = "assignment-8", status = "DELIVERED")
+        val active = committedAssignmentsForDisplay(listOf(assigned, second, finished), "AVAILABLE", true)
+        assertEquals(listOf("delivery-4", "delivery-7"), active.map { it.deliveryId })
+        assertTrue(active.none { pending.any { bid -> bid.deliveryId == it.deliveryId && bid.status == "OPEN" } })
+        assertEquals(listOf("delivery-8"), completedDeliveries(listOf(assigned, second, finished)).map { it.deliveryId })
+    }
+
+    @Test
+    fun aNotificationOpensTheListedBidRequestAndSkipsClosedOnes() {
+        val open = OpenBidRequest(
+            id = "delivery-9",
+            serviceClass = "FLEXIBLE",
+            deliverBy = "2099-01-01T00:00:00Z",
+            suggestedPrice = "3.00",
+            pickupAddress = "Pickup",
+            dropoffAddress = "Drop-off",
+            parcelDescription = "Parcel",
+            parcelSize = "Small",
+        )
+        val listed = availableRequests(emptyList(), listOf(open))
+        val now = 1_700_000_000_000L
+        val byRequestId = notificationBidRequest(listed, "request:delivery-9")
+        val byDeliveryId = notificationBidRequest(listed, "delivery-9")
+        assertEquals("delivery-9", byRequestId?.deliveryId)
+        assertEquals(byRequestId?.assignmentId, byDeliveryId?.assignmentId)
+        assertTrue(notificationRequestCanOpen(byRequestId != null, byRequestId?.expiresAt, now))
+        assertNull(notificationBidRequest(listed, "assignment-1"))
+        assertNull(notificationBidRequest(emptyList(), "delivery-9"))
+        assertFalse(notificationRequestCanOpen(listed = false, expiresAt = "2099-01-01T00:00:00Z", nowMillis = now))
+        assertFalse(notificationRequestCanOpen(listed = true, expiresAt = "2020-01-01T00:00:00.000Z", nowMillis = now))
+        assertTrue(notificationRequestCanOpen(listed = true, expiresAt = "", nowMillis = now))
+
+        val alreadyBid = ownBid("bid-1", "OPEN").copy(deliveryId = "delivery-9")
+        assertEquals(1, homeNewRequestCount(listOf(open), emptyList()))
+        assertEquals(0, homeNewRequestCount(listOf(open), listOf(alreadyBid)))
+        assertEquals(0, homeNewRequestCount(emptyList(), emptyList()))
     }
 }
 

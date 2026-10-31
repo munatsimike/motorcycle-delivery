@@ -20,8 +20,10 @@ import com.riders.rider.feature.delivery.domain.loadedDelivery
 import com.riders.rider.feature.delivery.domain.MAPS_UNAVAILABLE
 import com.riders.rider.feature.delivery.domain.mapPointForStatus
 import com.riders.rider.feature.delivery.domain.navigationTarget
+import com.riders.rider.feature.delivery.domain.showsRecipientOnDelivery
 import com.riders.rider.feature.delivery.domain.riderDetailsHeading
 import com.riders.rider.feature.delivery.domain.riderDetailsSupport
+import com.riders.rider.feature.delivery.domain.partyContactVisible
 import com.riders.rider.feature.delivery.domain.senderDialUri
 import com.riders.rider.feature.delivery.domain.senderInitials
 import com.riders.rider.feature.delivery.domain.senderWhatsAppUri
@@ -52,6 +54,9 @@ class RiderDeliveryTest {
         assertEquals("whatsapp://send?phone=263771000001", senderWhatsAppUri("+263771000001"))
         assertNull(senderDialUri("0771000001"))
         assertNull(senderWhatsAppUri("0771000001"))
+        assertTrue(partyContactVisible("Tendai", "+263772222222", "9 Nelson Mandela Avenue"))
+        assertTrue(partyContactVisible("", "", "9 Nelson Mandela Avenue"))
+        assertFalse(partyContactVisible(" ", "0771000001", " "))
     }
 
     @Test
@@ -60,7 +65,12 @@ class RiderDeliveryTest {
         assertEquals("Collect the parcel from the sender.", riderDetailsSupport("RIDER_ASSIGNED"))
         assertEquals("Ready for collection", riderDetailsHeading("COLLECTING"))
         assertEquals("Parcel collected", riderDetailsHeading("COLLECTED"))
-        assertEquals("The parcel has been collected.", riderDetailsSupport("COLLECTED"))
+        assertEquals("You've collected the parcel. Finish and mark it delivered.", riderDetailsSupport("COLLECTED"))
+        assertFalse(showsRecipientOnDelivery("RIDER_ASSIGNED"))
+        assertFalse(showsRecipientOnDelivery("COLLECTING"))
+        assertTrue(showsRecipientOnDelivery("COLLECTED"))
+        assertTrue(showsRecipientOnDelivery("OUT_FOR_DELIVERY"))
+        assertFalse(showsRecipientOnDelivery("DELIVERED"))
         assertEquals("On the way", riderDetailsHeading("OUT_FOR_DELIVERY"))
         assertEquals("Take the parcel to the drop-off.", riderDetailsSupport("OUT_FOR_DELIVERY"))
         assertEquals("Ready for drop-off", riderDetailsHeading("ARRIVED_AT_DROPOFF"))
@@ -155,7 +165,7 @@ class RiderDeliveryTest {
         assertEquals("Avondale", destinationSuburb("Avondale, Harare"))
         assertEquals("Budiriro", destinationSuburb("Budiriro"))
         assertEquals("#VERY1", shortDeliveryReference("delivery-1"))
-        assertEquals("USD 12.50", deliveryPriceLabel("12.50"))
+        assertEquals("$12.50", deliveryPriceLabel("12.50"))
         assertEquals("19 Oct 2026 • 12:00", deliveryWhenLabel("2026-10-19T12:00:00.000Z", java.time.ZoneOffset.UTC))
     }
 

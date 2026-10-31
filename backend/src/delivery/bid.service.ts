@@ -58,6 +58,7 @@ export type PublicBid = {
     completedDeliveries: number;
     distanceMeters: number | null;
     motorcycle: string | null;
+    registrationNumber: string | null;
     hasProfilePhoto: boolean;
   };
 };
@@ -275,7 +276,7 @@ export class BidService {
               isActive: true,
               verificationStatus: MotorcycleVerificationStatus.VERIFIED,
             },
-            select: { riderProfileId: true, make: true, model: true },
+            select: { riderProfileId: true, make: true, model: true, registrationNumber: true },
           }),
         ]);
       const locationByRider = new Map(locations.map((row) => [row.riderProfileId, row]));
@@ -283,7 +284,10 @@ export class BidService {
       for (const row of completed) {
         completedByRider.set(row.riderProfileId, (completedByRider.get(row.riderProfileId) ?? 0) + 1);
       }
-      const motorcycleByRider = new Map(motorcycles.map((row) => [row.riderProfileId, motorcycleLabel(row.make, row.model)]));
+      const motorcycleByRider = new Map(motorcycles.map((row) => [row.riderProfileId, {
+        motorcycle: motorcycleLabel(row.make, row.model),
+        registrationNumber: registrationLabel(row.registrationNumber),
+      }]));
       const photos = riderIds.length === 0
         ? []
         : await tx.riderProfilePhoto.findMany({
@@ -300,7 +304,8 @@ export class BidService {
             locationByRider.get(row.riderProfileId) ?? null,
             now,
           ),
-          motorcycle: motorcycleByRider.get(row.riderProfileId) ?? null,
+          motorcycle: motorcycleByRider.get(row.riderProfileId)?.motorcycle ?? null,
+          registrationNumber: motorcycleByRider.get(row.riderProfileId)?.registrationNumber ?? null,
           hasProfilePhoto: photoRiders.has(row.riderProfileId),
         }));
     });
@@ -448,9 +453,15 @@ function toPublicBid(
       completedDeliveries: rider.completedDeliveries ?? 0,
       distanceMeters: rider.distanceMeters ?? null,
       motorcycle: rider.motorcycle ?? null,
+      registrationNumber: rider.registrationNumber ?? null,
       hasProfilePhoto: rider.hasProfilePhoto === true,
     },
   };
+}
+
+function registrationLabel(value: string | null | undefined): string | null {
+  const plate = value?.trim() ?? '';
+  return plate || null;
 }
 
 function motorcycleLabel(make: string | null | undefined, model: string | null | undefined): string | null {

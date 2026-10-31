@@ -208,6 +208,7 @@ private fun RiderGraph(signedIn: Boolean, notice: String?) {
             DeliveryScreen(
                 deliveryId = entry.arguments?.getString("deliveryId").orEmpty(),
                 completed = entry.arguments?.getBoolean("completed") == true,
+                onBack = { controller.popBackStack() },
                 onFinished = { controller.popBackStack(RIDER_SHELL, inclusive = false) },
             )
         }
