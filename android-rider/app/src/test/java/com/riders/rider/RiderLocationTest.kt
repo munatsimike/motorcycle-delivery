@@ -13,7 +13,10 @@ import com.riders.rider.feature.availability.domain.locationIsFresh
 import com.riders.rider.feature.availability.domain.locationSharingDecision
 import com.riders.rider.feature.availability.domain.locationStatuses
 import com.riders.rider.feature.availability.domain.locationUpdatePolicy
+import com.riders.rider.feature.availability.domain.SharingAction
+import com.riders.rider.feature.availability.domain.locationSharingPaused
 import com.riders.rider.feature.availability.domain.resumeLocationSharing
+import com.riders.rider.feature.availability.domain.sharingRecovery
 import com.riders.rider.feature.availability.domain.shouldRequestAcceptFix
 import com.riders.rider.feature.availability.domain.shouldShareLocation
 import kotlinx.coroutines.test.runTest
@@ -329,6 +332,140 @@ class RiderLocationTest {
                 receivingRequests = false,
                 deliveryStatuses = listOf("OUT_FOR_DELIVERY"),
                 locallyEnabled = false,
+            ),
+        )
+    }
+
+    @Test
+    fun visibleRecoveryDoesNotStartFromAFailedRefresh() {
+        assertEquals(
+            SharingAction.Keep,
+            sharingRecovery(
+                serverReached = false,
+                shouldShare = false,
+                permissionGranted = true,
+                serviceRunning = false,
+                uploadFresh = false,
+                userRetry = false,
+            ),
+        )
+        assertEquals(
+            SharingAction.Start,
+            sharingRecovery(
+                serverReached = true,
+                shouldShare = true,
+                permissionGranted = true,
+                serviceRunning = false,
+                uploadFresh = false,
+                userRetry = false,
+            ),
+        )
+        assertEquals(
+            SharingAction.Keep,
+            sharingRecovery(
+                serverReached = true,
+                shouldShare = true,
+                permissionGranted = true,
+                serviceRunning = true,
+                uploadFresh = false,
+                userRetry = false,
+            ),
+        )
+        assertEquals(
+            SharingAction.Start,
+            sharingRecovery(
+                serverReached = true,
+                shouldShare = true,
+                permissionGranted = true,
+                serviceRunning = true,
+                uploadFresh = false,
+                userRetry = true,
+            ),
+        )
+        assertEquals(
+            SharingAction.Stop,
+            sharingRecovery(
+                serverReached = true,
+                shouldShare = false,
+                permissionGranted = true,
+                serviceRunning = true,
+                uploadFresh = true,
+                userRetry = false,
+            ),
+        )
+        assertEquals(
+            SharingAction.Keep,
+            sharingRecovery(
+                serverReached = true,
+                shouldShare = true,
+                permissionGranted = false,
+                serviceRunning = false,
+                uploadFresh = false,
+                userRetry = true,
+            ),
+        )
+    }
+
+    @Test
+    fun locationWarningClearsOnlyWhenSharingIsHealthy() {
+        assertTrue(
+            locationSharingPaused(
+                serverReached = true,
+                shouldShare = true,
+                permissionGranted = true,
+                serviceRunning = false,
+                uploadFresh = false,
+                previouslyEnabled = true,
+            ),
+        )
+        assertTrue(
+            locationSharingPaused(
+                serverReached = true,
+                shouldShare = true,
+                permissionGranted = true,
+                serviceRunning = true,
+                uploadFresh = false,
+                previouslyEnabled = true,
+            ),
+        )
+        assertTrue(
+            locationSharingPaused(
+                serverReached = false,
+                shouldShare = false,
+                permissionGranted = true,
+                serviceRunning = false,
+                uploadFresh = false,
+                previouslyEnabled = true,
+            ),
+        )
+        assertFalse(
+            locationSharingPaused(
+                serverReached = false,
+                shouldShare = false,
+                permissionGranted = true,
+                serviceRunning = false,
+                uploadFresh = false,
+                previouslyEnabled = false,
+            ),
+        )
+        assertFalse(
+            locationSharingPaused(
+                serverReached = true,
+                shouldShare = true,
+                permissionGranted = true,
+                serviceRunning = true,
+                uploadFresh = true,
+                previouslyEnabled = true,
+            ),
+        )
+        assertFalse(
+            locationSharingPaused(
+                serverReached = true,
+                shouldShare = false,
+                permissionGranted = true,
+                serviceRunning = false,
+                uploadFresh = false,
+                previouslyEnabled = true,
             ),
         )
     }

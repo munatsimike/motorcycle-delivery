@@ -20,6 +20,7 @@ playLocation = "21.3.0"
 junit = "4.13.2"
 coreKtx = "1.17.0"
 googleServices = "4.4.2"
+crashlyticsGradle = "3.0.8"
 firebaseBom = "33.16.0"
 
 [libraries]
@@ -53,6 +54,7 @@ play-location = { module = "com.google.android.gms:play-services-location", vers
 core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
 firebase-bom = { module = "com.google.firebase:firebase-bom", version.ref = "firebaseBom" }
 firebase-messaging = { module = "com.google.firebase:firebase-messaging" }
+firebase-crashlytics = { module = "com.google.firebase:firebase-crashlytics" }
 junit = { module = "junit:junit", version.ref = "junit" }
 
 [plugins]
@@ -63,3 +65,4 @@ kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", versi
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
 google-services = { id = "com.google.gms.google-services", version.ref = "googleServices" }
+crashlytics = { id = "com.google.firebase.crashlytics", version.ref = "crashlyticsGradle" }

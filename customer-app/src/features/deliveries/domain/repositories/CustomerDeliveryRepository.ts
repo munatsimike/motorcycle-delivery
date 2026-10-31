@@ -8,7 +8,7 @@ import type { OpenBidRequest } from '../openBidRequest';
 export type CustomerDeliveryRepository = {
   quote(accessToken: string, booking: PreparedBooking): Promise<DeliveryQuote>;
   create(accessToken: string, booking: PreparedBooking, offeredPrice: string): Promise<CustomerDeliveryDetail>;
-  createOpenRequest(accessToken: string, booking: PreparedBooking, offeredPrice: string): Promise<OpenBidRequest>;
+  createOpenRequest(accessToken: string, booking: PreparedBooking, offeredPrice: string, idempotencyKey: string): Promise<OpenBidRequest>;
   getById(accessToken: string, deliveryId: string): Promise<CustomerDeliveryDetail>;
   list(accessToken: string, path: string): Promise<CustomerDeliveryPage>;
   listBids(accessToken: string, deliveryId: string): Promise<CustomerBid[]>;

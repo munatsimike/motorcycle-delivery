@@ -82,6 +82,9 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     },
     plugins: [
       ...(config.plugins ?? []),
+      ...(firebase.packageRegistered
+        ? ['@react-native-firebase/app', '@react-native-firebase/crashlytics']
+        : []),
       [
         'react-native-maps',
         googleMapsAndroidKey() ? { androidGoogleMapsApiKey: googleMapsAndroidKey() } : {},

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { ServiceUnavailableException } from '@nestjs/common';
 import { afterEach, describe, expect, it } from 'vitest';
-import { DEV_OTP_TTL_MS, OTP_COOLDOWN_MS, OTP_MAX_CHECK_ATTEMPTS, OTP_PHONE_HOURLY_LIMIT } from './auth.constants.js';
+import { DEV_OTP_TTL_MS, INFOBIP_OTP_TTL_MS, OTP_COOLDOWN_MS, OTP_MAX_CHECK_ATTEMPTS, OTP_PHONE_HOURLY_LIMIT } from './auth.constants.js';
 import type { Clock } from './clock.js';
 import {
   DevOtpConfigurationError,
@@ -40,6 +40,13 @@ const ENV_KEYS = [
   'DYNO',
   'K_SERVICE',
   'VERCEL',
+  'DEV_OTP_ALLOWLIST',
+  'INFOBIP_BASE_URL',
+  'INFOBIP_API_KEY',
+  'INFOBIP_WHATSAPP_SENDER',
+  'INFOBIP_WHATSAPP_TEMPLATE',
+  'INFOBIP_WHATSAPP_TEMPLATE_LANGUAGE',
+  'INFOBIP_OTP_HMAC_SECRET',
 ] as const;
 
 const savedEnv = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
@@ -232,7 +239,133 @@ describe('local mock OTP', () => {
     expect(notices).toEqual([]);
     expect(provider.storedOtp(PHONE)).toBeNull();
   });
+
+  it('routes one allowlisted number to local OTP and every other number to Infobip', async () => {
+    const notices: string[] = [];
+    const remotePhones: string[] = [];
+    const remote: PhoneVerificationProvider = {
+      send: (phone) => {
+        remotePhones.push(phone);
+        return Promise.resolve({ sid: 'IB' });
+      },
+      check: (phone, code) => Promise.resolve(phone === OTHER && code === '654321'),
+    };
+    const { provider: local } = providerAt(START, notices);
+    enableMixed();
+    const selected = selectPhoneVerificationProvider(process.env, stubProvider(), local, remote);
+
+    await selected.send(ALLOWED);
+    const code = readCode(notices);
+    await expect(selected.check(ALLOWED, code)).resolves.toBe(true);
+    expect(remotePhones).toEqual([]);
+    expect(devOtpAllowed(process.env)).toBe(false);
+    expect(INFOBIP_OTP_TTL_MS).toBe(DEV_OTP_TTL_MS);
+
+    notices.length = 0;
+    await selected.send(OTHER);
+    expect(notices).toEqual([]);
+    expect(remotePhones).toEqual([OTHER]);
+    await expect(selected.check(OTHER, '654321')).resolves.toBe(true);
+    await expect(selected.send('not-a-phone')).rejects.toBeInstanceOf(ServiceUnavailableException);
+    expect(remotePhones).toEqual([OTHER]);
+  });
+
+  it('keeps Infobip-only and development-only selection when the allowlist is unset', () => {
+    const twilio = stubProvider();
+    const devOtp = stubProvider();
+    const infobip = stubProvider();
+    expect(selectPhoneVerificationProvider(localEnv(), twilio, devOtp, infobip)).toBe(devOtp);
+    expect(selectPhoneVerificationProvider({ ...infobipConfig(), DEV_OTP_ALLOWLIST: '   ' }, twilio, devOtp, infobip)).toBe(infobip);
+    expect(selectPhoneVerificationProvider(infobipConfig(), twilio, devOtp, infobip)).toBe(infobip);
+  });
+
+  it('refuses a malformed allowlist, a second number, and mixed mode outside local development', () => {
+    const twilio = stubProvider();
+    const devOtp = stubProvider();
+    const infobip = stubProvider();
+    const mixed = mixedEnv();
+    expect(() => selectPhoneVerificationProvider({ ...mixed, DEV_OTP_ALLOWLIST: 'not-a-phone' }, twilio, devOtp, infobip)).toThrow(DevOtpConfigurationError);
+    expect(() => selectPhoneVerificationProvider({ ...mixed, DEV_OTP_ALLOWLIST: `${ALLOWED},${OTHER}` }, twilio, devOtp, infobip)).toThrow(DevOtpConfigurationError);
+    expect(() => selectPhoneVerificationProvider({ ...mixed, DEV_OTP_ALLOWLIST: `${ALLOWED} ${OTHER}` }, twilio, devOtp, infobip)).toThrow(DevOtpConfigurationError);
+    expect(() => selectPhoneVerificationProvider({ ...mixed, DEV_OTP_ENABLED: 'false' }, twilio, devOtp, infobip)).toThrow(DevOtpConfigurationError);
+    expect(() => selectPhoneVerificationProvider({ ...mixed, WHATSAPP_VERIFICATION_ENABLED: 'false' }, twilio, devOtp, infobip)).toThrow(DevOtpConfigurationError);
+    expect(() => selectPhoneVerificationProvider({ ...mixed, WHATSAPP_VERIFICATION_PROVIDER: 'twilio' }, twilio, devOtp, infobip)).toThrow(DevOtpConfigurationError);
+
+    for (const env of rejectedEnvironments().filter(blocksMixedMode)) {
+      expect(() => selectPhoneVerificationProvider({
+        ...infobipConfig(),
+        ...env,
+        DEV_OTP_ALLOWLIST: ALLOWED,
+      }, twilio, devOtp, infobip)).toThrow(DevOtpConfigurationError);
+    }
+
+    process.env.NODE_ENV = 'production';
+    process.env.DEV_OTP_ENABLED = 'true';
+    process.env.DEV_OTP_ALLOWLIST = ALLOWED;
+    const writes: string[] = [];
+    const original = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      writes.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      expect(() => writeDevOtpLine('[riders-dev-otp] Code: 042817')).toThrow(DevOtpConfigurationError);
+      expect(writes.join('')).not.toContain('042817');
+    } finally {
+      process.stderr.write = original;
+    }
+  });
+
+  it('does not print a local code for a number outside the allowlist', async () => {
+    enableMixed();
+    const notices: string[] = [];
+    const { provider } = providerAt(START, notices);
+    await expect(provider.send(OTHER)).rejects.toBeInstanceOf(ServiceUnavailableException);
+    expect(notices).toEqual([]);
+    expect(provider.storedOtp(OTHER)).toBeNull();
+  });
 });
+
+const ALLOWED = '+263771111111';
+const OTHER = '+263772222222';
+
+function enableMixed(): void {
+  enableLocal();
+  Object.assign(process.env, infobipConfig(), { DEV_OTP_ALLOWLIST: `  ${ALLOWED}  ` });
+}
+
+function mixedEnv(): NodeJS.ProcessEnv {
+  return { ...localEnv(), ...infobipConfig(), DEV_OTP_ALLOWLIST: ALLOWED };
+}
+
+function infobipConfig(): NodeJS.ProcessEnv {
+  return {
+    WHATSAPP_VERIFICATION_ENABLED: 'true',
+    WHATSAPP_VERIFICATION_PROVIDER: 'infobip',
+    INFOBIP_BASE_URL: 'https://example.test',
+    INFOBIP_API_KEY: 'k'.repeat(40),
+    INFOBIP_WHATSAPP_SENDER: '447860088970',
+    INFOBIP_WHATSAPP_TEMPLATE: 'authentication',
+    INFOBIP_WHATSAPP_TEMPLATE_LANGUAGE: 'en',
+    INFOBIP_OTP_HMAC_SECRET: 'h'.repeat(48),
+  };
+}
+
+function blocksMixedMode(env: NodeJS.ProcessEnv): boolean {
+  return env.NODE_ENV !== 'development'
+    || env.APP_ENV === 'staging'
+    || env.DEPLOY_ENV === 'production'
+    || env.RAILWAY_ENVIRONMENT !== undefined
+    || env.RAILWAY_PROJECT_ID !== undefined
+    || env.RENDER !== undefined
+    || env.FLY_APP_NAME !== undefined
+    || env.DYNO !== undefined
+    || env.K_SERVICE !== undefined
+    || env.VERCEL !== undefined
+    || env.TRUST_RAILWAY_EDGE_CLIENT_IP === 'true'
+    || env.PUBLIC_URL !== undefined
+    || (env.HOST !== undefined && env.HOST !== '127.0.0.1' && env.HOST !== 'localhost' && env.HOST !== '0.0.0.0');
+}
 
 function stubProvider(): PhoneVerificationProvider {
   return {

@@ -8,7 +8,7 @@ import {
   readCustomerDeliveryPage,
   replaceDeliveries,
 } from './customerDeliveryList';
-import { deliveriesInGroup, showsViewBids } from './deliveryStatus';
+import { deliveriesInGroup, deliveryListStatuses, showsViewBids } from './deliveryStatus';
 
 const payload = {
   data: [
@@ -101,6 +101,37 @@ describe('customer delivery list', () => {
       dropoffAddress: 'Drop-off',
     }]);
     expect(appended.map((delivery) => delivery.id)).toEqual(['delivery-1', 'delivery-2', 'delivery-3']);
+  });
+
+  it('loads history from the server when the first mixed page is only active', () => {
+    const activePage = Array.from({ length: 20 }, (_, index) => ({
+      id: `active-${index}`,
+      status: 'CREATED' as const,
+      createdAt: '2026-10-31T12:00:00.000Z',
+      pickupAddress: 'Pickup',
+      dropoffAddress: 'Drop-off',
+    }));
+    expect(deliveriesInGroup(activePage, 'history')).toEqual([]);
+    const historyPath = customerDeliveryListPath(1, deliveryListStatuses('history'));
+    expect(historyPath).toBe(
+      '/customers/me/deliveries?page=1&limit=20&status=DELIVERED&status=CANCELLED&status=FAILED',
+    );
+    expect(customerDeliveryListPath(2, deliveryListStatuses('active'))).toContain('status=CREATED');
+    expect(customerDeliveryListPath(2, deliveryListStatuses('active'))).not.toContain('status=DELIVERED');
+    const older = readCustomerDeliveryPage({
+      data: [
+        {
+          id: 'delivery-old',
+          reference: 'delivery-old',
+          status: 'DELIVERED',
+          createdAt: '2026-09-01T00:00:00.000Z',
+          pickup: { address: 'Old pickup' },
+          dropoff: { address: 'Old drop-off' },
+        },
+      ],
+      pagination: { page: 1, limit: 20, total: 1, totalPages: 1 },
+    });
+    expect(deliveriesInGroup(older.deliveries, 'history').map((delivery) => delivery.id)).toEqual(['delivery-old']);
   });
 
   it('asks only for the signed-in customer list', () => {

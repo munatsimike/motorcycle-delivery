@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   ForbiddenException,
@@ -13,12 +14,16 @@ import {
   StreamableFile,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiBody, ApiConflictResponse, ApiCreatedResponse, ApiForbiddenResponse, ApiNotFoundResponse, ApiOkResponse, ApiOperation, ApiParam, ApiQuery, ApiTags, ApiUnauthorizedResponse } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiBody, ApiConflictResponse, ApiCreatedResponse, ApiForbiddenResponse, ApiHeader, ApiNotFoundResponse, ApiOkResponse, ApiOperation, ApiParam, ApiQuery, ApiTags, ApiUnauthorizedResponse } from '@nestjs/swagger';
 import { CustomerAccessGuard, type CustomerRequest } from '../auth/customer-access.guard.js';
 import { CreateDeliveryBody, QuoteBody, QuoteResponse } from '../openapi/schemas.js';
 import { DeliveryService } from './delivery.service.js';
 import { DispatchService } from './dispatch.service.js';
 import { PlacesService } from './places.service.js';
+
+type DeliveryRequest = CustomerRequest & {
+  headers?: CustomerRequest['headers'] & { 'idempotency-key'?: string | string[] };
+};
 
 @ApiTags('Customer deliveries')
 @ApiBearerAuth('bearer')
@@ -47,10 +52,11 @@ export class DeliveryController {
   @Post()
   @ApiOperation({ summary: 'Create an Express or Flexible parcel delivery' })
   @ApiBody({ type: CreateDeliveryBody })
-  @ApiCreatedResponse({ description: 'The created Express or Flexible delivery.' })
-  @ApiConflictResponse({ description: 'Delivery pricing is not configured' })
-  async create(@Req() request: CustomerRequest, @Body() body: unknown) {
-    return this.deliveries.create(requiredCustomer(request), body);
+  @ApiHeader({ name: 'Idempotency-Key', required: true, description: 'Stable key for this booking. Reuse it if the response is lost.' })
+  @ApiCreatedResponse({ description: 'The created Express or Flexible delivery. A repeated key with the same details returns that delivery.' })
+  @ApiConflictResponse({ description: 'Delivery pricing is not configured, or this idempotency key was already used for a different delivery.' })
+  async create(@Req() request: DeliveryRequest, @Body() body: unknown) {
+    return this.deliveries.create(requiredCustomer(request), body, headerIdempotencyKey(request));
   }
 
   @Get()
@@ -122,6 +128,15 @@ export class DeliveryController {
   cancel(@Req() request: CustomerRequest, @Param('deliveryId') deliveryId: string) {
     return this.dispatch.cancel(requiredCustomer(request), deliveryId);
   }
+}
+
+function headerIdempotencyKey(request: DeliveryRequest): string {
+  const header = request.headers?.['idempotency-key'];
+  const value = Array.isArray(header) ? header[0] : header;
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new BadRequestException('Enter an idempotency key');
+  }
+  return value.trim();
 }
 
 function requiredCustomer(request: CustomerRequest) {

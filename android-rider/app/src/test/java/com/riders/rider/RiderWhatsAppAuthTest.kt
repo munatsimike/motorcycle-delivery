@@ -38,6 +38,7 @@ class RiderWhatsAppAuthTest {
     @Test
     fun verificationCodeMatchesTheBackendRange() {
         assertTrue(isVerificationCode("1234"))
+        assertTrue(isVerificationCode("000000"))
         assertTrue(isVerificationCode("123456"))
         assertTrue(isVerificationCode("1234567890"))
         assertFalse(isVerificationCode("123"))

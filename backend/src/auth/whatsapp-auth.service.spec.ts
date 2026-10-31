@@ -8,6 +8,7 @@ import type { Clock } from './clock.js';
 import type { PhoneVerificationProvider } from './phone-verification.provider.js';
 import type { SessionService } from './session.service.js';
 import { DEV_OTP_TTL_MS, INFOBIP_OTP_TTL_MS, OTP_CHALLENGE_TTL_MS, OTP_MAX_CHECK_ATTEMPTS } from './auth.constants.js';
+import { DevOtpVerificationProvider, selectPhoneVerificationProvider } from './dev-otp.js';
 import { hashInfobipOtp, verifyInfobipOtp } from './infobip-otp.js';
 import { TooManyRequestsException } from './too-many-requests.exception.js';
 import { WhatsAppAuthService, type RiderVerificationResult } from './whatsapp-auth.service.js';
@@ -23,6 +24,7 @@ describe('WhatsApp verification', () => {
     delete process.env.WHATSAPP_VERIFICATION_PROVIDER;
     delete process.env.WHATSAPP_VERIFICATION_SERVICE_SID;
     delete process.env.WHATSAPP_VERIFICATION_SENDER;
+    delete process.env.PRIVATE_TEST_AUTH_ENABLED;
   });
 
   it('does not create an account or call the provider when the rollout flag is off', async () => {
@@ -296,6 +298,78 @@ describe('WhatsApp verification', () => {
     }
   });
 
+  it('verifies an allowlisted rider locally and every other customer through Infobip', async () => {
+    const allowlisted = '+263771111111';
+    const customerPhone = '+263772222222';
+    const previousNodeEnv = process.env.NODE_ENV;
+    const previousDevOtp = process.env.DEV_OTP_ENABLED;
+    const previousAllowlist = process.env.DEV_OTP_ALLOWLIST;
+    const previous = infobipEnv();
+    process.env.NODE_ENV = 'development';
+    process.env.DEV_OTP_ENABLED = 'true';
+    process.env.DEV_OTP_ALLOWLIST = allowlisted;
+    const notices: string[] = [];
+    const remotePhones: string[] = [];
+    try {
+      const local = new DevOtpVerificationProvider({
+        concealmentMs: 0,
+        now: () => NOW,
+        pause: () => Promise.resolve(),
+      });
+      local.bindNotice((line) => {
+        notices.push(line);
+      });
+      const remote: PhoneVerificationProvider = {
+        async send(phone) {
+          remotePhones.push(phone);
+          return { sid: 'IB' };
+        },
+        async check() {
+          return true;
+        },
+      };
+      const router = selectPhoneVerificationProvider(process.env, remote, local, remote);
+      const ctx = harness(router);
+      process.env.WHATSAPP_VERIFICATION_PROVIDER = 'infobip';
+
+      const riderStarted = await ctx.service.startRegistration(AuthSubjectRole.RIDER, { ...riderBody(), phone: allowlisted }, '203.0.113.80');
+      const code = notices.join('\n').match(/Code: (\d{6})/)?.[1] ?? '';
+      expect(riderStarted).toEqual({ status: 'pending' });
+      expect(JSON.stringify(riderStarted)).not.toContain(code);
+      expect(code).toMatch(/^\d{6}$/);
+      expect(remotePhones).toEqual([]);
+      expect(ctx.challenges[0]?.expiresAt.getTime()).toBe(NOW.getTime() + INFOBIP_OTP_TTL_MS);
+      const proof = await ctx.service.verifyRegistration(AuthSubjectRole.RIDER, { phone: allowlisted, code });
+      expect(proof).toMatchObject({ status: 'verified' });
+      expect(JSON.stringify(proof)).not.toContain(code);
+
+      const customerStarted = await ctx.service.startRegistration(AuthSubjectRole.CUSTOMER, { ...customerBody(), phone: customerPhone }, '203.0.113.81');
+      expect(customerStarted).toEqual({ status: 'pending' });
+      expect(remotePhones).toEqual([customerPhone]);
+      expect(notices.join('\n')).not.toContain(customerPhone);
+      const tokens = asSession(await ctx.service.verifyRegistration(AuthSubjectRole.CUSTOMER, { phone: customerPhone, code: '654321' }));
+      expect(tokens.accessToken).toBe('access');
+      expect(tokens.refreshToken).toBe('refresh');
+    } finally {
+      restoreEnv(previous);
+      if (previousNodeEnv === undefined) {
+        delete process.env.NODE_ENV;
+      } else {
+        process.env.NODE_ENV = previousNodeEnv;
+      }
+      if (previousDevOtp === undefined) {
+        delete process.env.DEV_OTP_ENABLED;
+      } else {
+        process.env.DEV_OTP_ENABLED = previousDevOtp;
+      }
+      if (previousAllowlist === undefined) {
+        delete process.env.DEV_OTP_ALLOWLIST;
+      } else {
+        process.env.DEV_OTP_ALLOWLIST = previousAllowlist;
+      }
+    }
+  });
+
   it('lets only one of two simultaneous Infobip verifications create a session', async () => {
     const previous = infobipEnv();
     try {
@@ -494,6 +568,37 @@ describe('WhatsApp verification', () => {
     expect(ctx.issued).toHaveLength(1);
   });
 
+  it('keeps the registration proof when profile setup rolls back and allows one retry', async () => {
+    const ctx = harness();
+    await ctx.service.startRegistration(AuthSubjectRole.RIDER, { phone: PHONE, whatsappConsent: true }, '203.0.113.66');
+    const proof = await ctx.service.verifyRegistration(AuthSubjectRole.RIDER, { phone: PHONE, code: CODE });
+    const body = {
+      registrationToken: registrationToken(proof),
+      fullName: 'Tatenda Moyo',
+      address: '12 Samora Machel Avenue',
+    };
+    ctx.failNextWallet();
+    await expect(ctx.service.completeRiderRegistration(body)).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(ctx.users).toHaveLength(0);
+    expect(ctx.wallets).toHaveLength(0);
+    expect(ctx.issued).toHaveLength(0);
+    expect(ctx.challenges[0]?.status).toBe(AuthChallengeStatus.VERIFIED);
+
+    const tokens = await ctx.service.completeRiderRegistration(body);
+    expect(tokens.accessToken).toBe('access');
+    expect(ctx.users).toHaveLength(1);
+    expect(ctx.wallets).toHaveLength(1);
+    expect(ctx.issued).toHaveLength(1);
+    expect(ctx.challenges[0]?.status).toBe(AuthChallengeStatus.SUPERSEDED);
+    expect(ctx.users[0]?.phone).toBe(PHONE);
+    expect(ctx.users[0]?.riderProfile?.approvalStatus).toBe(RiderApprovalStatus.PENDING);
+
+    await expect(ctx.service.completeRiderRegistration({ ...body })).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(ctx.users).toHaveLength(1);
+    expect(ctx.wallets).toHaveLength(1);
+    expect(ctx.issued).toHaveLength(1);
+  });
+
   it('lets only one of two simultaneous profile completions create a rider', async () => {
     const ctx = harness();
     await ctx.service.startRegistration(AuthSubjectRole.RIDER, { phone: PHONE, whatsappConsent: true }, '203.0.113.65');
@@ -512,6 +617,292 @@ describe('WhatsApp verification', () => {
     expect(ctx.wallets).toHaveLength(1);
     expect(ctx.issued).toHaveLength(1);
     expect(ctx.users[0]?.riderProfile?.approvalStatus).toBe(RiderApprovalStatus.PENDING);
+  });
+
+  it('registers a new customer with the shared test code and does not call the provider', async () => {
+    const ctx = harness();
+    process.env.PRIVATE_TEST_AUTH_ENABLED = 'true';
+    await expect(ctx.service.startRegistration(AuthSubjectRole.CUSTOMER, customerBody(), '203.0.113.80'))
+      .resolves.toEqual({ status: 'pending' });
+    expect(ctx.sent).toEqual([]);
+    expect(ctx.checks).toEqual([]);
+    expect(ctx.users[0]).toMatchObject({
+      phone: PHONE,
+      accountStatus: AccountStatus.PENDING,
+      phoneVerifiedAt: null,
+      privateTestAccount: true,
+    });
+    expect(ctx.challenges[0]?.twilioSid?.startsWith('private-test-auth:')).toBe(true);
+    expect(JSON.stringify(ctx.challenges[0])).not.toContain('000000');
+
+    const tokens = await ctx.service.verifyRegistration(AuthSubjectRole.CUSTOMER, { phone: PHONE, code: '000000' });
+    expect(tokens).toMatchObject({ accessToken: 'access', refreshToken: 'refresh' });
+    expect(ctx.checks).toEqual([]);
+    expect(ctx.sent).toEqual([]);
+    expect(ctx.users[0]).toMatchObject({
+      accountStatus: AccountStatus.ACTIVE,
+      phoneVerifiedAt: NOW,
+      privateTestAccount: true,
+    });
+    expect(ctx.issued).toEqual([ctx.users[0]?.id]);
+  });
+
+  it('registers a new rider with the shared test code and keeps approval pending', async () => {
+    const ctx = harness();
+    process.env.PRIVATE_TEST_AUTH_ENABLED = 'true';
+    await expect(ctx.service.startRegistration(AuthSubjectRole.RIDER, { phone: PHONE, whatsappConsent: true }, '203.0.113.81'))
+      .resolves.toEqual({ status: 'pending' });
+    expect(ctx.users).toHaveLength(0);
+    expect(ctx.sent).toEqual([]);
+    const proof = await ctx.service.verifyRegistration(AuthSubjectRole.RIDER, { phone: PHONE, code: '000000' });
+    expect(proof).toMatchObject({ status: 'verified' });
+    expect(proof).not.toHaveProperty('accessToken');
+    expect(ctx.checks).toEqual([]);
+
+    const tokens = await ctx.service.completeRiderRegistration({
+      registrationToken: registrationToken(proof),
+      fullName: 'Tatenda Moyo',
+      address: '12 Samora Machel Avenue',
+    });
+    expect(tokens).toMatchObject({ accessToken: 'access', refreshToken: 'refresh' });
+    expect(ctx.users[0]).toMatchObject({
+      phone: PHONE,
+      role: UserRole.RIDER,
+      accountStatus: AccountStatus.ACTIVE,
+      privateTestAccount: true,
+    });
+    expect(ctx.users[0]?.riderProfile?.approvalStatus).toBe(RiderApprovalStatus.PENDING);
+    expect(ctx.wallets).toHaveLength(1);
+    expect(ctx.issued).toEqual([ctx.users[0]?.id]);
+  });
+
+  it('signs the same test customer in again without calling the provider', async () => {
+    const ctx = harness();
+    process.env.PRIVATE_TEST_AUTH_ENABLED = 'true';
+    const account = user({
+      role: UserRole.CUSTOMER,
+      accountStatus: AccountStatus.ACTIVE,
+      phoneVerifiedAt: NOW,
+      whatsappConsentAt: NOW,
+      privateTestAccount: true,
+      customerAccount: { id: 'test-customer' },
+      riderProfile: null,
+    });
+    ctx.users.push(account);
+    await expect(ctx.service.startLogin(AuthSubjectRole.CUSTOMER, { phone: PHONE, whatsappConsent: true }, '203.0.113.82'))
+      .resolves.toEqual({ status: 'pending' });
+    const tokens = await ctx.service.verifyLogin(AuthSubjectRole.CUSTOMER, { phone: PHONE, code: '000000' });
+    expect(tokens).toMatchObject({ accessToken: 'access', refreshToken: 'refresh' });
+    expect(ctx.sent).toEqual([]);
+    expect(ctx.checks).toEqual([]);
+    expect(ctx.issued).toEqual([account.id]);
+    expect(ctx.users).toHaveLength(1);
+    expect(ctx.users[0]?.privateTestAccount).toBe(true);
+  });
+
+  it('rejects the shared test code for an existing verified account', async () => {
+    const ctx = harness();
+    process.env.PRIVATE_TEST_AUTH_ENABLED = 'true';
+    const verifiedAt = new Date('2026-10-01T00:00:00.000Z');
+    const account = user({
+      role: UserRole.CUSTOMER,
+      accountStatus: AccountStatus.ACTIVE,
+      phoneVerifiedAt: verifiedAt,
+      whatsappConsentAt: NOW,
+      privateTestAccount: false,
+      customerAccount: { id: 'real-customer' },
+      riderProfile: null,
+    });
+    ctx.users.push(account);
+    await expect(ctx.service.startLogin(AuthSubjectRole.CUSTOMER, { phone: PHONE, whatsappConsent: true }, '203.0.113.83'))
+      .resolves.toEqual({ status: 'pending' });
+    expect(ctx.sent).toEqual([PHONE]);
+    await expect(ctx.service.verifyLogin(AuthSubjectRole.CUSTOMER, { phone: PHONE, code: '000000' }))
+      .rejects.toBeInstanceOf(UnauthorizedException);
+    expect(ctx.checks).toEqual(['000000']);
+    expect(ctx.issued).toEqual([]);
+    expect(ctx.users[0]).toMatchObject({
+      id: account.id,
+      privateTestAccount: false,
+      phoneVerifiedAt: verifiedAt,
+      accountStatus: AccountStatus.ACTIVE,
+    });
+    await expect(ctx.service.startRegistration(AuthSubjectRole.CUSTOMER, customerBody(), '203.0.113.84'))
+      .rejects.toThrow('Phone number is already registered');
+    expect(ctx.users[0]?.privateTestAccount).toBe(false);
+  });
+
+  it('does not let the shared test code finish a real pending registration', async () => {
+    const ctx = harness();
+    process.env.PRIVATE_TEST_AUTH_ENABLED = 'true';
+    ctx.users.push(user({
+      role: UserRole.CUSTOMER,
+      accountStatus: AccountStatus.PENDING,
+      phoneVerifiedAt: null,
+      whatsappConsentAt: NOW,
+      privateTestAccount: false,
+      customerAccount: { id: 'pending-customer' },
+      riderProfile: null,
+    }));
+    await expect(ctx.service.startRegistration(AuthSubjectRole.CUSTOMER, customerBody(), '203.0.113.85'))
+      .resolves.toEqual({ status: 'pending' });
+    expect(ctx.sent).toEqual([PHONE]);
+    await expect(ctx.service.verifyRegistration(AuthSubjectRole.CUSTOMER, { phone: PHONE, code: '000000' }))
+      .rejects.toBeInstanceOf(UnauthorizedException);
+    expect(ctx.users[0]).toMatchObject({
+      accountStatus: AccountStatus.PENDING,
+      phoneVerifiedAt: null,
+      privateTestAccount: false,
+    });
+    expect(ctx.issued).toEqual([]);
+  });
+
+  it('rejects a wrong test code and keeps the original challenge', async () => {
+    const ctx = harness();
+    process.env.PRIVATE_TEST_AUTH_ENABLED = 'true';
+    await ctx.service.startRegistration(AuthSubjectRole.CUSTOMER, customerBody(), '203.0.113.86');
+    const sid = ctx.challenges[0]?.twilioSid;
+    await expect(ctx.service.verifyRegistration(AuthSubjectRole.CUSTOMER, { phone: PHONE, code: '111111' }))
+      .rejects.toBeInstanceOf(UnauthorizedException);
+    expect(ctx.checks).toEqual([]);
+    expect(ctx.challenges[0]).toMatchObject({ twilioSid: sid, checkAttempts: 1, status: AuthChallengeStatus.PENDING });
+    expect(ctx.users[0]?.phoneVerifiedAt).toBeNull();
+    expect(ctx.issued).toEqual([]);
+  });
+
+  it('uses the normal provider when private test authentication is disabled', async () => {
+    const ctx = harness();
+    delete process.env.PRIVATE_TEST_AUTH_ENABLED;
+    const account = user({
+      role: UserRole.CUSTOMER,
+      accountStatus: AccountStatus.ACTIVE,
+      phoneVerifiedAt: NOW,
+      whatsappConsentAt: NOW,
+      privateTestAccount: true,
+      customerAccount: { id: 'test-customer' },
+      riderProfile: null,
+    });
+    ctx.users.push(account);
+    await ctx.service.startLogin(AuthSubjectRole.CUSTOMER, { phone: PHONE, whatsappConsent: true }, '203.0.113.87');
+    expect(ctx.sent).toEqual([PHONE]);
+    expect(ctx.challenges[0]?.twilioSid?.startsWith('private-test-auth:')).toBe(false);
+    await expect(ctx.service.verifyLogin(AuthSubjectRole.CUSTOMER, { phone: PHONE, code: '000000' }))
+      .rejects.toBeInstanceOf(UnauthorizedException);
+    expect(ctx.checks).toEqual(['000000']);
+    const tokens = await ctx.service.verifyLogin(AuthSubjectRole.CUSTOMER, { phone: PHONE, code: CODE });
+    expect(tokens).toMatchObject({ refreshToken: 'refresh' });
+    expect(ctx.users[0]?.privateTestAccount).toBe(true);
+    expect(ctx.issued).toEqual([account.id]);
+  });
+
+  it('rejects a test challenge after the switch is turned off', async () => {
+    const ctx = harness();
+    process.env.PRIVATE_TEST_AUTH_ENABLED = 'true';
+    await ctx.service.startRegistration(AuthSubjectRole.RIDER, { phone: PHONE, whatsappConsent: true }, '203.0.113.88');
+    expect(ctx.sent).toEqual([]);
+    delete process.env.PRIVATE_TEST_AUTH_ENABLED;
+    await expect(ctx.service.verifyRegistration(AuthSubjectRole.RIDER, { phone: PHONE, code: '000000' }))
+      .rejects.toBeInstanceOf(UnauthorizedException);
+    expect(ctx.checks).toEqual([]);
+    expect(ctx.users).toHaveLength(0);
+    expect(ctx.issued).toEqual([]);
+  });
+
+  it('keeps the phone and address rate limits for test codes', async () => {
+    const ctx = harness();
+    process.env.PRIVATE_TEST_AUTH_ENABLED = 'true';
+    await ctx.service.startRegistration(AuthSubjectRole.CUSTOMER, customerBody(), '203.0.113.89');
+    await expect(ctx.service.resendRegistration(AuthSubjectRole.CUSTOMER, { phone: PHONE }, '203.0.113.89'))
+      .rejects.toBeInstanceOf(TooManyRequestsException);
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      ctx.now.setTime(ctx.now.getTime() + 61_000);
+      await ctx.service.resendRegistration(AuthSubjectRole.CUSTOMER, { phone: PHONE }, '203.0.113.89');
+    }
+    ctx.now.setTime(ctx.now.getTime() + 61_000);
+    await expect(ctx.service.resendRegistration(AuthSubjectRole.CUSTOMER, { phone: PHONE }, '203.0.113.89'))
+      .rejects.toBeInstanceOf(TooManyRequestsException);
+    expect(ctx.sent).toEqual([]);
+    expect(ctx.challenges.filter((challenge) => challenge.twilioSid !== null)).toHaveLength(5);
+  });
+
+  it('locks a test challenge after repeated wrong codes', async () => {
+    const ctx = harness();
+    process.env.PRIVATE_TEST_AUTH_ENABLED = 'true';
+    await ctx.service.startRegistration(AuthSubjectRole.CUSTOMER, customerBody(), '203.0.113.90');
+    for (let attempt = 0; attempt < OTP_MAX_CHECK_ATTEMPTS; attempt += 1) {
+      await expect(ctx.service.verifyRegistration(AuthSubjectRole.CUSTOMER, { phone: PHONE, code: '111111' }))
+        .rejects.toBeInstanceOf(UnauthorizedException);
+    }
+    await expect(ctx.service.verifyRegistration(AuthSubjectRole.CUSTOMER, { phone: PHONE, code: '000000' }))
+      .rejects.toBeInstanceOf(TooManyRequestsException);
+    expect(ctx.users[0]?.phoneVerifiedAt).toBeNull();
+    expect(ctx.issued).toEqual([]);
+    expect(ctx.checks).toEqual([]);
+  });
+
+  it('refuses a suspended test account', async () => {
+    const ctx = harness();
+    process.env.PRIVATE_TEST_AUTH_ENABLED = 'true';
+    const customer = user({
+      role: UserRole.CUSTOMER,
+      accountStatus: AccountStatus.SUSPENDED,
+      phoneVerifiedAt: NOW,
+      whatsappConsentAt: NOW,
+      privateTestAccount: true,
+      customerAccount: { id: 'suspended-customer' },
+      riderProfile: null,
+    });
+    ctx.users.push(customer);
+    await expect(ctx.service.startLogin(AuthSubjectRole.CUSTOMER, { phone: PHONE, whatsappConsent: true }, '203.0.113.91'))
+      .resolves.toEqual({ status: 'unavailable' });
+    expect(ctx.sent).toEqual([]);
+    expect(ctx.issued).toEqual([]);
+
+    const rider = user({
+      id: 'suspended-rider',
+      phone: '+263773333333',
+      accountStatus: AccountStatus.SUSPENDED,
+      phoneVerifiedAt: NOW,
+      whatsappConsentAt: NOW,
+      privateTestAccount: true,
+    });
+    ctx.users.push(rider);
+    await ctx.service.startLogin(AuthSubjectRole.RIDER, { phone: '+263773333333', whatsappConsent: true }, '203.0.113.92');
+    expect(ctx.sent).toEqual([]);
+    await expect(ctx.service.verifyLogin(AuthSubjectRole.RIDER, { phone: '+263773333333', code: '000000' }))
+      .rejects.toBeInstanceOf(UnauthorizedException);
+    expect(ctx.issued).toEqual([]);
+    expect(rider.privateTestAccount).toBe(true);
+    expect(rider.accountStatus).toBe(AccountStatus.SUSPENDED);
+  });
+
+  it('keeps two test customers on separate accounts', async () => {
+    const ctx = harness();
+    process.env.PRIVATE_TEST_AUTH_ENABLED = 'true';
+    const other = '+263772222222';
+    await ctx.service.startRegistration(AuthSubjectRole.CUSTOMER, customerBody(), '203.0.113.93');
+    await ctx.service.verifyRegistration(AuthSubjectRole.CUSTOMER, { phone: PHONE, code: '000000' });
+    ctx.now.setTime(ctx.now.getTime() + 61_000);
+    await ctx.service.startRegistration(AuthSubjectRole.CUSTOMER, { ...customerBody(), phone: other }, '203.0.113.94');
+    await ctx.service.verifyRegistration(AuthSubjectRole.CUSTOMER, { phone: other, code: '000000' });
+    expect(ctx.users).toHaveLength(2);
+    expect(ctx.users[0]?.id).not.toBe(ctx.users[1]?.id);
+    expect(ctx.users[0]?.customerAccount?.id).not.toBe(ctx.users[1]?.customerAccount?.id);
+    expect(ctx.users.every((row) => row.privateTestAccount)).toBe(true);
+    expect(ctx.issued).toEqual([ctx.users[0]?.id, ctx.users[1]?.id]);
+    expect(ctx.sent).toEqual([]);
+  });
+
+  it('adds the test-account column without changing existing rows', () => {
+    const sql = readFileSync('prisma/migrations/20261031203000_private_test_accounts/migration.sql', 'utf8');
+    expect(sql).toContain('ADD COLUMN "private_test_account" BOOLEAN NOT NULL DEFAULT false');
+    expect(sql).not.toMatch(/\b(DROP|UPDATE|DELETE)\b/);
+    const infobip = readFileSync('src/auth/infobip-whatsapp.ts', 'utf8');
+    const infobipOtp = readFileSync('src/auth/infobip-otp.ts', 'utf8');
+    const devOtp = readFileSync('src/auth/dev-otp.ts', 'utf8');
+    expect(infobip).not.toContain('private-test-auth');
+    expect(infobipOtp).not.toContain('PRIVATE_TEST_AUTH');
+    expect(devOtp).not.toContain('PRIVATE_TEST_AUTH');
   });
 
   it('leaves the one-accepted rider index and historical checksums untouched', () => {
@@ -649,11 +1040,12 @@ function harness(verificationOverride?: PhoneVerificationProvider) {
   const challenges: ChallengeRow[] = [];
   const sessions: SessionRow[] = [];
   const wallets: string[] = [];
+  const walletFailure = { next: false };
   const sent: string[] = [];
   const checks: string[] = [];
   const issued: string[] = [];
   const now = new Date(NOW);
-  const db = memory(users, challenges, sessions, wallets);
+  const db = memory(users, challenges, sessions, wallets, walletFailure);
   const verification: PhoneVerificationProvider = verificationOverride ?? {
     async send(phone: string) {
       sent.push(phone);
@@ -696,6 +1088,9 @@ function harness(verificationOverride?: PhoneVerificationProvider) {
     checks,
     issued,
     now,
+    failNextWallet() {
+      walletFailure.next = true;
+    },
     service: new WhatsAppAuthService(
       db as unknown as PrismaService,
       sessionService as unknown as SessionService,
@@ -715,6 +1110,7 @@ function user(overrides: Partial<UserRow> = {}): UserRow {
     phoneVerifiedAt: null,
     passwordHash: 'stored-hash',
     whatsappConsentAt: NOW,
+    privateTestAccount: false,
     riderProfile: { id: randomUUID(), approvalStatus: RiderApprovalStatus.PENDING, address: null },
     customerAccount: null,
     ...overrides,
@@ -730,6 +1126,7 @@ type UserRow = {
   phoneVerifiedAt: Date | null;
   passwordHash: string | null;
   whatsappConsentAt: Date | null;
+  privateTestAccount: boolean;
   riderProfile: { id: string; approvalStatus: RiderApprovalStatus; address: string | null } | null;
   customerAccount: { id: string } | null;
 };
@@ -753,7 +1150,13 @@ type ChallengeRow = {
 
 type SessionRow = { userId: string; revokedAt: Date | null };
 
-function memory(users: UserRow[], challenges: ChallengeRow[], sessions: SessionRow[], wallets: string[]) {
+function memory(
+  users: UserRow[],
+  challenges: ChallengeRow[],
+  sessions: SessionRow[],
+  wallets: string[],
+  walletFailure: { next: boolean },
+) {
   const db = {
     user: {
       async create({ data }: { data: Partial<UserRow> & { phone: string } }) {
@@ -766,6 +1169,7 @@ function memory(users: UserRow[], challenges: ChallengeRow[], sessions: SessionR
           phoneVerifiedAt: data.phoneVerifiedAt ?? null,
           passwordHash: data.passwordHash ?? null,
           whatsappConsentAt: data.whatsappConsentAt ?? null,
+          privateTestAccount: data.privateTestAccount === true,
           riderProfile: null,
           customerAccount: null,
         };
@@ -821,6 +1225,10 @@ function memory(users: UserRow[], challenges: ChallengeRow[], sessions: SessionR
     },
     riderWallet: {
       async create({ data }: { data: { riderProfileId: string } }) {
+        if (walletFailure.next) {
+          walletFailure.next = false;
+          throw new Error('wallet write failed');
+        }
         wallets.push(data.riderProfileId);
         return data;
       },
@@ -881,7 +1289,21 @@ function memory(users: UserRow[], challenges: ChallengeRow[], sessions: SessionR
       },
     },
     async $transaction<T>(callback: (writer: object) => Promise<T>) {
-      return callback(db);
+      const userSnapshot = users.map((row) => ({
+        ...row,
+        riderProfile: row.riderProfile ? { ...row.riderProfile } : null,
+        customerAccount: row.customerAccount ? { ...row.customerAccount } : null,
+      }));
+      const challengeSnapshot = challenges.map((row) => ({ ...row }));
+      const walletSnapshot = [...wallets];
+      try {
+        return await callback(db);
+      } catch (error) {
+        users.splice(0, users.length, ...userSnapshot);
+        challenges.splice(0, challenges.length, ...challengeSnapshot);
+        wallets.splice(0, wallets.length, ...walletSnapshot);
+        throw error;
+      }
     },
   };
   return db;

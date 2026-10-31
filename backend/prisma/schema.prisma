@@ -320,6 +320,9 @@ model User {
   accountStatus     AccountStatus @default(PENDING) @map("account_status")
   phoneVerifiedAt   DateTime?     @map("phone_verified_at") @db.Timestamptz(6)
   whatsappConsentAt DateTime?     @map("whatsapp_consent_at") @db.Timestamptz(6)
+  // Disposable private-polishing identity. Existing rows stay false.
+  // Authentication never changes false to true, and never clears true.
+  privateTestAccount Boolean     @default(false) @map("private_test_account")
   createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -520,6 +523,9 @@ model Delivery {
  autoRetryCount Int       @default(0) @map("auto_retry_count")
  nextRetryAt    DateTime? @map("next_retry_at") @db.Timestamptz(6)
  searchStartedAt DateTime? @map("search_started_at") @db.Timestamptz(6)
+  // Null on deliveries created before booking idempotency. A key and its hash are stored together.
+  createIdempotencyKey String? @unique @map("create_idempotency_key") @db.VarChar(200)
+  createPayloadHash    String? @map("create_payload_hash") @db.Char(64)
   createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
 

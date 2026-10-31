@@ -215,6 +215,8 @@ describe('delivery tracking updates', () => {
 
     expect(seen).toEqual([
       { id: 'delivery-1', error: null },
+      { id: 'delivery-1', error: null },
+      { id: 'delivery-1', error: 'Network request failed. Check your connection and try again.' },
       { id: 'delivery-1', error: 'Network request failed. Check your connection and try again.' },
       { id: 'delivery-3', error: null },
     ]);
@@ -350,7 +352,74 @@ describe('delivery tracking updates', () => {
     await Promise.resolve();
     tracker.refresh();
     await Promise.resolve();
-    expect(seen).toEqual(['EXPRESS', 'EXPRESS']);
+    expect(seen).toEqual(['EXPRESS', 'EXPRESS', 'EXPRESS']);
     expect(calls).toBe(2);
+  });
+
+  it('shows a manual refresh until the request succeeds or fails, without a second load', async () => {
+    const timer = clock();
+    const states: boolean[] = [];
+    let calls = 0;
+    const pending = deferred<CustomerDeliveryDetail>();
+    const tracker = createDeliveryTracker({
+      load: () => {
+        calls += 1;
+        if (calls === 1) {
+          return Promise.resolve(delivery('COLLECTING', 'delivery-1', { serviceClass: 'FLEXIBLE' }));
+        }
+        return pending.promise;
+      },
+      clock: timer.tracking,
+      isAuthError: () => false,
+      errorText: () => 'offline',
+      onChange: (snapshot) => {
+        states.push(snapshot.isRefreshing);
+      },
+    });
+    tracker.setFocused(true);
+    await Promise.resolve();
+    expect(states).toContain(false);
+    expect(timer.pending()?.delayMs).toBe(TRACKING_POLL_MS);
+
+    tracker.refresh();
+    tracker.refresh();
+    await Promise.resolve();
+    expect(calls).toBe(2);
+    expect(states.at(-1)).toBe(true);
+
+    pending.resolve(delivery('COLLECTING', 'delivery-1', { serviceClass: 'FLEXIBLE' }));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(states.at(-1)).toBe(false);
+    expect(calls).toBe(2);
+    expect(timer.pending()?.delayMs).toBe(TRACKING_POLL_MS);
+  });
+
+  it('clears the refresh indicator when the manual request fails', async () => {
+    const timer = clock();
+    const states: boolean[] = [];
+    let calls = 0;
+    const tracker = createDeliveryTracker({
+      load: () => {
+        calls += 1;
+        if (calls === 1) {
+          return Promise.resolve(delivery('RIDER_ASSIGNED', 'delivery-1', { serviceClass: 'EXPRESS' }));
+        }
+        return Promise.reject(new Error('offline'));
+      },
+      clock: timer.tracking,
+      isAuthError: () => false,
+      errorText: () => 'offline',
+      onChange: (snapshot) => {
+        states.push(snapshot.isRefreshing);
+      },
+    });
+    tracker.setFocused(true);
+    await Promise.resolve();
+    tracker.refresh();
+    await Promise.resolve();
+    expect(calls).toBe(2);
+    expect(states.at(-1)).toBe(false);
+    expect(timer.pending()?.delayMs).toBe(TRACKING_POLL_MS);
   });
 });

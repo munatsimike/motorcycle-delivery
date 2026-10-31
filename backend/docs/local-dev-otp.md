@@ -2,14 +2,23 @@
 
 Customer and rider registration and sign-in still use the same screens and the same WhatsApp verification endpoints. On a local development machine, a mock provider can create the one-time code instead of calling WhatsApp. The production WhatsApp provider is unchanged and does not print codes.
 
-The mock is off unless both of these are set in `backend/.env`:
+The mock is off unless `NODE_ENV=development` and `DEV_OTP_ENABLED=true` are set in `backend/.env`.
+
+Leave `WHATSAPP_VERIFICATION_ENABLED=false` and `DEV_OTP_ALLOWLIST` empty for exclusive local mode. Every number then uses the mock, and the API refuses to start if WhatsApp verification is also enabled.
+
+Mixed mode keeps Infobip for every number except one. It requires all of these, plus the same local-only checks (no Railway or other hosted environment, no public URL, and no public bind address):
 
 ```
 NODE_ENV=development
 DEV_OTP_ENABLED=true
+WHATSAPP_VERIFICATION_ENABLED=true
+WHATSAPP_VERIFICATION_PROVIDER=infobip
+DEV_OTP_ALLOWLIST=+2637XXXXXXXX
 ```
 
-Leave `WHATSAPP_VERIFICATION_ENABLED=false` while the mock is on. The API refuses to start if the mock flag is true in production, staging, Railway, another hosted platform, or together with WhatsApp verification. The code is not included in an API response.
+`DEV_OTP_ALLOWLIST` is exactly one phone number that sign-in already accepts. That number receives the local code. Every other number, including a Dutch Infobip test number, still receives WhatsApp. An empty allowlist leaves the previous mode unchanged. More than one number, or a number the auth normalizer rejects, stops the API from starting instead of falling back to another provider.
+
+The API refuses to start if the mock flag is true in production, staging, Railway, or another hosted platform. The code is not included in an API response.
 
 No database migration is required. The process keeps a hash of the code in memory. Restarting the backend invalidates codes that have not been used.
 

@@ -13,6 +13,7 @@ const EMPTY: TrackingSnapshot = {
   delivery: null,
   error: null,
   isLoading: true,
+  isRefreshing: false,
 };
 
 export function useDeliveryTracking(accessToken: string | null, deliveryId: string) {
@@ -81,6 +82,7 @@ export function useDeliveryTracking(accessToken: string | null, deliveryId: stri
   return {
     delivery: snapshot.delivery,
     isLoading: snapshot.isLoading,
+    isRefreshing: snapshot.isRefreshing,
     error: snapshot.error,
     reload,
     cancelling,

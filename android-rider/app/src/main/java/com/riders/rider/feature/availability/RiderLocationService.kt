@@ -61,16 +61,19 @@ class RiderLocationService : Service() {
 
     override fun onStartCommand(intent: android.content.Intent?, flags: Int, startId: Int): Int {
         if (!fineLocationGranted()) {
+            LocationServiceGate.markRunning(false)
             stopSelf()
             return START_NOT_STICKY
         }
         try {
             startAsForeground()
         } catch (_: SecurityException) {
+            LocationServiceGate.markRunning(false)
             stopSelf()
             return START_NOT_STICKY
         }
         running = true
+        LocationServiceGate.markRunning(true)
         // The service is started only after sharing was already approved. Register
         // before the network re-check so a slow or hung status call cannot leave
         // the foreground service with no Fused Location request.
@@ -86,6 +89,7 @@ class RiderLocationService : Service() {
 
     override fun onDestroy() {
         running = false
+        LocationServiceGate.markRunning(false)
         prompt?.cancel()
         if (fineLocationGranted()) {
             client.removeLocationUpdates(callback)
@@ -99,7 +103,7 @@ class RiderLocationService : Service() {
         if (sessions.read() == null || !fineLocationGranted()) {
             return false
         }
-        return availability.shouldShareNow()
+        return availability.sharingStillAllowed()
     }
 
     private fun beginUpdates(): Boolean {

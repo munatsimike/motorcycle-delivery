@@ -134,6 +134,7 @@ describe('marketplace list labels', () => {
     expect(deliveryCardStatusLabel({ status: 'SEARCHING', serviceClass: null, openBidCount: 3 })).toBe('Finding a rider');
     expect(showsViewBids({ status: 'SEARCHING', serviceClass: null, openBidCount: 3 })).toBe(false);
     expect(deliveryCardStatusLabel({ status: 'RIDER_ASSIGNED', serviceClass: 'EXPRESS', openBidCount: 2 })).toBe('Rider assigned');
+    expect(deliveryCardStatusLabel({ status: 'COLLECTED', serviceClass: 'FLEXIBLE' })).toBe('In transit');
     expect(showsViewBids({ status: 'RIDER_ASSIGNED', serviceClass: 'EXPRESS', openBidCount: 2 })).toBe(false);
   });
 

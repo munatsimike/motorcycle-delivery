@@ -17,7 +17,7 @@ import DeliverySection from '../../../deliveries/presentation/components/Deliver
 import { savedDeliveryMessage } from '../../../deliveries/domain/recentDeliveryCache';
 import { useCustomerDeliveries } from '../../../deliveries/presentation/viewmodels/useCustomerDeliveries';
 import { deliveryContentKind, type DeliveryContentKind } from '../../../deliveries/domain/deliveryCard';
-import { deliveriesInGroup, type DeliveryGroup } from '../../../deliveries/domain/deliveryStatus';
+import { ACTIVE_LIST_STATUSES, HISTORY_LIST_STATUSES, type DeliveryGroup } from '../../../deliveries/domain/deliveryStatus';
 import { sortDeliveries, type DeliveryListSort } from '../../../deliveries/domain/deliveryListSort';
 
 type DeliveriesNavigation = CompositeNavigationProp<
@@ -30,13 +30,13 @@ const GROUPS: { id: DeliveryGroup; label: string }[] = [
   { id: 'history', label: 'History' },
 ];
 
-const SORTS: { id: DeliveryListSort; label: string; hint: string; icon: 'clock-outline' | 'map-marker-distance' | 'currency-usd' }[] = [
-  { id: 'newest', label: 'Newest', hint: 'Sort by newest date', icon: 'clock-outline' },
-  { id: 'oldest', label: 'Oldest', hint: 'Sort by oldest date', icon: 'clock-outline' },
-  { id: 'shortest', label: 'Shortest distance', hint: 'Sort by shortest distance', icon: 'map-marker-distance' },
-  { id: 'longest', label: 'Longest distance', hint: 'Sort by longest distance', icon: 'map-marker-distance' },
-  { id: 'highest', label: 'Highest price', hint: 'Sort by highest price', icon: 'currency-usd' },
-  { id: 'lowest', label: 'Lowest price', hint: 'Sort by lowest price', icon: 'currency-usd' },
+const SORTS: { id: DeliveryListSort; label: string; shortLabel: string; hint: string; icon: 'sort-ascending' | 'sort-descending' }[] = [
+  { id: 'oldest', label: 'Date: oldest to newest', shortLabel: 'Date', hint: 'Sort by oldest date', icon: 'sort-ascending' },
+  { id: 'newest', label: 'Date: newest to oldest', shortLabel: 'Date', hint: 'Sort by newest date', icon: 'sort-descending' },
+  { id: 'shortest', label: 'Distance: shortest to longest', shortLabel: 'Distance', hint: 'Sort by shortest distance', icon: 'sort-ascending' },
+  { id: 'longest', label: 'Distance: longest to shortest', shortLabel: 'Distance', hint: 'Sort by longest distance', icon: 'sort-descending' },
+  { id: 'lowest', label: 'Price: lowest to highest', shortLabel: 'Price', hint: 'Sort by lowest price', icon: 'sort-ascending' },
+  { id: 'highest', label: 'Price: highest to lowest', shortLabel: 'Price', hint: 'Sort by highest price', icon: 'sort-descending' },
 ];
 
 const CONTENT_FILTERS: { id: DeliveryContentKind | 'all'; label: string; icon: 'view-grid-outline' | 'package-variant-closed' | 'file-document-outline' | 'silverware-fork-knife' }[] = [
@@ -49,18 +49,23 @@ const CONTENT_FILTERS: { id: DeliveryContentKind | 'all'; label: string; icon: '
 export default function RequestsScreen() {
   const navigation = useNavigation<DeliveriesNavigation>();
   const { accessToken, customerId } = useSession();
-  const { deliveries, isLoading, isLoadingMore, isRefreshing, error, hasMore, refresh, reload, loadMore, showingSaved, savedAt } = useCustomerDeliveries(accessToken, customerId);
-  const offlineNote = showingSaved && savedAt ? savedDeliveryMessage(savedAt) : null;
   const [group, setGroup] = useState<DeliveryGroup>('active');
+  const activeList = useCustomerDeliveries(accessToken, customerId, ACTIVE_LIST_STATUSES);
+  const historyList = useCustomerDeliveries(accessToken, customerId, HISTORY_LIST_STATUSES);
+  const selectedList = group === 'active' ? activeList : historyList;
+  const { deliveries, isLoading, isLoadingMore, isRefreshing, error, hasMore, refresh, reload, loadMore, showingSaved, savedAt } = selectedList;
+  const offlineNote = showingSaved && savedAt ? savedDeliveryMessage(savedAt) : null;
   const [contentKind, setContentKind] = useState<DeliveryContentKind | null>(null);
   const [sort, setSort] = useState<DeliveryListSort>('newest');
   const [sortOpen, setSortOpen] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
   const insets = useSafeAreaInsets();
-  const grouped = deliveriesInGroup(deliveries, group);
   const visible = contentKind
-    ? grouped.filter((delivery) => deliveryContentKind(delivery.parcelDescription) === contentKind)
-    : grouped;
+    ? deliveries.filter((delivery) => deliveryContentKind(delivery.parcelDescription) === contentKind)
+    : deliveries;
   const ordered = sortDeliveries(visible, sort);
+  const selectedSort = SORTS.find((item) => item.id === sort) ?? SORTS[1];
+  const selectedFilter = CONTENT_FILTERS.find((item) => item.id === (contentKind ?? 'all')) ?? CONTENT_FILTERS[0];
   const emptyTitle = contentKind === 'food'
     ? 'No food deliveries'
     : contentKind === 'document'
@@ -92,7 +97,40 @@ export default function RequestsScreen() {
           })}
         </View>
         <View style={styles.filterRow}>
-          <View style={styles.filters} accessibilityRole="radiogroup">
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Filter deliveries, ${selectedFilter.label}`}
+            onPress={() => {
+              setSortOpen(false);
+              setFilterOpen(true);
+            }}
+            style={styles.sortButton}
+          >
+            <MaterialDesignIcons name="filter-variant" size={18} color={colors.text} />
+            <Text style={styles.sortLabel}>{selectedFilter.label}</Text>
+            <MaterialDesignIcons name={selectedFilter.icon} size={18} color={colors.text} />
+            <MaterialDesignIcons name="chevron-down" size={18} color={colors.textSecondary} />
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Sort deliveries, ${selectedSort.label}`}
+            onPress={() => {
+              setFilterOpen(false);
+              setSortOpen(true);
+            }}
+            style={styles.sortButton}
+          >
+            <MaterialDesignIcons name="swap-vertical" size={18} color={colors.text} />
+            <Text style={styles.sortLabel}>{selectedSort.shortLabel}</Text>
+            <MaterialDesignIcons name={selectedSort.icon} size={18} color={colors.text} />
+            <MaterialDesignIcons name="chevron-down" size={18} color={colors.textSecondary} />
+          </Pressable>
+        </View>
+      </View>
+      <BottomSheetModal visible={filterOpen} onClose={() => setFilterOpen(false)} closeLabel="Close filter">
+        <View style={[styles.sheet, { paddingBottom: spacing.lg + insets.bottom }]}>
+          <Text style={styles.sheetTitle}>Filter</Text>
+          <View accessibilityRole="radiogroup">
             {CONTENT_FILTERS.map((item) => {
               const selected = item.id === 'all' ? contentKind === null : item.id === contentKind;
               return (
@@ -101,72 +139,58 @@ export default function RequestsScreen() {
                   accessibilityRole="radio"
                   accessibilityState={{ selected }}
                   onPress={() => {
-                    if (item.id === 'all' || selected) {
-                      setContentKind(null);
-                      return;
-                    }
-                    setContentKind(item.id);
+                    setContentKind(item.id === 'all' || selected ? null : item.id);
+                    setFilterOpen(false);
                   }}
-                  style={[styles.filter, selected && styles.filterSelected]}
+                  style={[styles.sortOption, selected && styles.sortOptionSelected]}
                 >
                   <MaterialDesignIcons
                     name={item.icon}
-                    size={14}
+                    size={20}
                     color={selected ? colors.primaryDark : colors.textSecondary}
                   />
-                  <Text style={[styles.filterLabel, selected && styles.filterLabelSelected]}>{item.label}</Text>
+                  <Text style={[styles.sortOptionLabel, selected && styles.sortOptionLabelSelected]}>{item.label === 'Doc' ? 'Document' : item.label}</Text>
+                  <View style={[styles.radio, selected && styles.radioSelected]}>
+                    {selected ? <MaterialDesignIcons name="check" size={14} color={colors.textInverse} /> : null}
+                  </View>
                 </Pressable>
               );
             })}
           </View>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Sort"
-            onPress={() => setSortOpen(true)}
-            style={styles.sortButton}
-          >
-            <MaterialDesignIcons name="swap-vertical" size={18} color={colors.text} />
-          </Pressable>
         </View>
-      </View>
+      </BottomSheetModal>
       <BottomSheetModal visible={sortOpen} onClose={() => setSortOpen(false)} closeLabel="Close sort">
-          <View style={[styles.sheet, { paddingBottom: spacing.lg + insets.bottom }]}>
-            <View style={styles.handle} />
-            <View style={styles.sheetHeader}>
-              <Text style={styles.sheetTitle}>Sort by</Text>
-              <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={() => setSortOpen(false)} hitSlop={8}>
-                <MaterialDesignIcons name="close" size={22} color={colors.textSecondary} />
-              </Pressable>
-            </View>
-            <View accessibilityRole="radiogroup">
-              {SORTS.map((item) => {
-                const selected = item.id === sort;
-                return (
-                  <Pressable
-                    key={item.id}
-                    accessibilityRole="radio"
-                    accessibilityLabel={item.hint}
-                    accessibilityState={{ selected }}
-                    onPress={() => {
-                      setSort(item.id);
-                      setSortOpen(false);
-                    }}
-                    style={[styles.sortOption, selected && styles.sortOptionSelected]}
-                  >
-                    <MaterialDesignIcons
-                      name={item.icon}
-                      size={20}
-                      color={selected ? colors.primaryDark : colors.textSecondary}
-                    />
-                    <Text style={[styles.sortOptionLabel, selected && styles.sortOptionLabelSelected]}>{item.label}</Text>
-                    <View style={[styles.radio, selected && styles.radioSelected]}>
-                      {selected ? <MaterialDesignIcons name="check" size={14} color={colors.textInverse} /> : null}
-                    </View>
-                  </Pressable>
-                );
-              })}
-            </View>
+        <View style={[styles.sheet, { paddingBottom: spacing.lg + insets.bottom }]}>
+          <Text style={styles.sheetTitle}>Sort by</Text>
+          <View accessibilityRole="radiogroup">
+            {SORTS.map((item) => {
+              const selected = item.id === sort;
+              return (
+                <Pressable
+                  key={item.id}
+                  accessibilityRole="radio"
+                  accessibilityLabel={item.hint}
+                  accessibilityState={{ selected }}
+                  onPress={() => {
+                    setSort(item.id);
+                    setSortOpen(false);
+                  }}
+                  style={[styles.sortOption, selected && styles.sortOptionSelected]}
+                >
+                  <MaterialDesignIcons
+                    name={item.icon}
+                    size={20}
+                    color={selected ? colors.primaryDark : colors.textSecondary}
+                  />
+                  <Text style={[styles.sortOptionLabel, selected && styles.sortOptionLabelSelected]}>{item.label}</Text>
+                  <View style={[styles.radio, selected && styles.radioSelected]}>
+                    {selected ? <MaterialDesignIcons name="check" size={14} color={colors.textInverse} /> : null}
+                  </View>
+                </Pressable>
+              );
+            })}
           </View>
+        </View>
       </BottomSheetModal>
       <ScrollView
         contentContainerStyle={styles.content}
@@ -186,7 +210,7 @@ export default function RequestsScreen() {
           error={error}
           refreshing={isRefreshing}
           emptyTitle={emptyTitle}
-          emptyBody={contentKind && grouped.length > 0 ? 'None of these deliveries match this filter.' : 'All your deliveries will appear here once you book.'}
+          emptyBody={contentKind && deliveries.length > 0 ? 'None of these deliveries match this filter.' : 'All your deliveries will appear here once you book.'}
           offlineNote={offlineNote}
           cached={showingSaved}
           onOpenDetails={(deliveryId) => {
@@ -246,45 +270,32 @@ const styles = StyleSheet.create({
   filterRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
-  },
-  filters: {
-    flex: 1,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    justifyContent: 'space-between',
     gap: spacing.sm,
   },
   sortButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: spacing.xs,
     borderWidth: 1,
     borderColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderRadius: radius.pill,
     backgroundColor: colors.background,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+  },
+  sortLabel: {
+    fontSize: typography.caption,
+    fontWeight: '600',
+    color: colors.text,
   },
   sheet: {
-    overflow: 'hidden',
     backgroundColor: colors.background,
     borderTopLeftRadius: radius.xl,
     borderTopRightRadius: radius.xl,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.sm,
-  },
-  handle: {
-    alignSelf: 'center',
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: colors.border,
-    marginBottom: spacing.md,
-  },
-  sheetHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: spacing.md,
+    padding: spacing.lg,
+    gap: spacing.sm,
   },
   sheetTitle: {
     fontSize: typography.heading,
@@ -295,58 +306,32 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
-    minHeight: 52,
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.lg,
+    paddingVertical: spacing.sm,
   },
   sortOptionSelected: {
-    backgroundColor: colors.primaryLight,
+    backgroundColor: colors.surface,
   },
   sortOptionLabel: {
     flex: 1,
     fontSize: typography.body,
-    fontWeight: '500',
     color: colors.text,
   },
   sortOptionLabelSelected: {
-    fontWeight: '700',
+    fontWeight: '600',
     color: colors.primaryDark,
   },
   radio: {
     width: 22,
     height: 22,
     borderRadius: 11,
-    borderWidth: 1.5,
+    borderWidth: 1,
     borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
   radioSelected: {
-    borderWidth: 0,
     backgroundColor: colors.primary,
-  },
-  filter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.pill,
-    backgroundColor: colors.background,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-  },
-  filterSelected: {
-    backgroundColor: colors.primaryLight,
     borderColor: colors.primary,
-  },
-  filterLabel: {
-    fontSize: typography.small,
-    fontWeight: '600',
-    color: colors.textSecondary,
-  },
-  filterLabelSelected: {
-    color: colors.primaryDark,
   },
   switch: {
     flex: 1,

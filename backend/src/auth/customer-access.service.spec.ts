@@ -30,6 +30,35 @@ describe('CustomerAccessService', () => {
     });
   });
 
+  it('binds each private test customer to that customer account only', async () => {
+    const accessTokens = new AccessTokenService();
+    const users = [
+      { id: 'user-a', role: UserRole.CUSTOMER, accountStatus: AccountStatus.ACTIVE, phoneVerifiedAt: NOW, customerAccount: { id: 'account-a' } },
+      { id: 'user-b', role: UserRole.CUSTOMER, accountStatus: AccountStatus.ACTIVE, phoneVerifiedAt: NOW, customerAccount: { id: 'account-b' } },
+    ];
+    const sessions = [
+      { id: 'session-a', userId: 'user-a', revokedAt: null, replacedBySessionId: null, expiresAt: new Date(NOW.getTime() + 60_000) },
+      { id: 'session-b', userId: 'user-b', revokedAt: null, replacedBySessionId: null, expiresAt: new Date(NOW.getTime() + 60_000) },
+    ];
+    const db = {
+      refreshSession: {
+        async findUnique({ where }: { where: { id: string } }) {
+          return sessions.find((session) => session.id === where.id) ?? null;
+        },
+      },
+      user: {
+        async findUnique({ where }: { where: { id: string } }) {
+          return users.find((user) => user.id === where.id) ?? null;
+        },
+      },
+    };
+    const service = new CustomerAccessService(db as unknown as PrismaService, accessTokens);
+    const tokenA = `Bearer ${accessTokens.sign({ sub: 'user-a', role: UserRole.CUSTOMER, sid: 'session-a' }, NOW).token}`;
+    const tokenB = `Bearer ${accessTokens.sign({ sub: 'user-b', role: UserRole.CUSTOMER, sid: 'session-b' }, NOW).token}`;
+    await expect(service.authenticateAccount(tokenA, NOW)).resolves.toMatchObject({ userId: 'user-a', customerAccountId: 'account-a' });
+    await expect(service.authenticateAccount(tokenB, NOW)).resolves.toMatchObject({ userId: 'user-b', customerAccountId: 'account-b' });
+  });
+
   it('rejects an admin and a customer token whose stored role does not match', async () => {
     const admin = context(UserRole.ADMIN);
     await expect(admin.service.authenticate(admin.token(), NOW)).rejects.toBeInstanceOf(ForbiddenException);

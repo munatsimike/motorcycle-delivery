@@ -100,6 +100,58 @@ fun shouldShareLocation(
     return receivingRequests == null && availability == "AVAILABLE"
 }
 
+enum class SharingAction {
+    Start,
+    Keep,
+    Stop,
+}
+
+/**
+ * Visible-activity recovery. A failed server read never starts sharing, and a
+ * service that is already running is left alone unless the rider taps Retry
+ * while the last upload is stale.
+ */
+fun sharingRecovery(
+    serverReached: Boolean,
+    shouldShare: Boolean,
+    permissionGranted: Boolean,
+    serviceRunning: Boolean,
+    uploadFresh: Boolean,
+    userRetry: Boolean,
+): SharingAction {
+    if (serverReached && !shouldShare) {
+        return SharingAction.Stop
+    }
+    if (!serverReached || !permissionGranted) {
+        return SharingAction.Keep
+    }
+    if (!serviceRunning || (userRetry && !uploadFresh)) {
+        return SharingAction.Start
+    }
+    return SharingAction.Keep
+}
+
+fun locationSharingPaused(
+    serverReached: Boolean,
+    shouldShare: Boolean,
+    permissionGranted: Boolean,
+    serviceRunning: Boolean,
+    uploadFresh: Boolean,
+    previouslyEnabled: Boolean,
+): Boolean {
+    if (serverReached && !shouldShare) {
+        return false
+    }
+    val unhealthy = !permissionGranted || !serviceRunning || !uploadFresh
+    if (!unhealthy) {
+        return false
+    }
+    if (serverReached && shouldShare) {
+        return true
+    }
+    return !serverReached && previouslyEnabled
+}
+
 fun resumeLocationSharing(
     hasSession: Boolean,
     permissionGranted: Boolean,

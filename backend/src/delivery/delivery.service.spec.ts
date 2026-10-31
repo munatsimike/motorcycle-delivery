@@ -1,4 +1,4 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { afterEach, describe, expect, it } from 'vitest';
 import { DeliveryStatus, PricingModel, PricingWindowKind, ServiceClass, UserRole } from '../generated/prisma/client.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
@@ -244,7 +244,24 @@ function context(options?: { metres?: number; now?: Date }) {
       },
     },
     delivery: {
+      async findUnique({ where }: { where: { id?: string; createIdempotencyKey?: string | null } }) {
+        const row = deliveryRows.find((item) => {
+          if (where.createIdempotencyKey) {
+            return item.createIdempotencyKey === where.createIdempotencyKey;
+          }
+          return where.id !== undefined && item.id === where.id;
+        });
+        return row ?? null;
+      },
       async create({ data }: { data: Record<string, unknown> }) {
+        if (
+          typeof data.createIdempotencyKey === 'string'
+          && deliveryRows.some((item) => item.createIdempotencyKey === data.createIdempotencyKey)
+        ) {
+          const error = new Error('Unique constraint failed on create_idempotency_key');
+          Object.assign(error, { code: 'P2002' });
+          throw error;
+        }
         const row = { id: `delivery-${deliveryRows.length + 1}`, ...data };
         deliveryRows.push(row as { id: string; customerId: string });
         return row;
@@ -431,7 +448,7 @@ describe('flagged service-class quotes', () => {
       payer: undefined,
       paymentMethod: undefined,
       suggestedPrice: '0.01',
-    });
+    }, 'offer-unchanged');
     expect(unchanged).toMatchObject({ suggestedPrice: '9.00', offeredPrice: null });
     expect(ctx.deliveryRows[0]).toMatchObject({ suggestedPrice: '9.00', customerOffer: '9.00', price: null });
 
@@ -441,7 +458,7 @@ describe('flagged service-class quotes', () => {
       payer: undefined,
       paymentMethod: undefined,
       suggestedPrice: '12.00',
-    });
+    }, 'offer-edited');
     expect(edited).toMatchObject({ suggestedPrice: '9.00', offeredPrice: null });
     expect(ctx.deliveryRows[1]).toMatchObject({ suggestedPrice: '9.00', customerOffer: '4.00', price: null });
   });
@@ -477,7 +494,7 @@ describe('flagged service-class quotes', () => {
       suggestedPrice: '0.01',
       pricingVersion: 1,
       pricingModel: 'FIXED',
-    });
+    }, 'included-distance');
     expect(created).toMatchObject({
       suggestedPrice: '5.80',
       pricingVersion: 9,
@@ -518,7 +535,7 @@ describe('flagged service-class quotes', () => {
       serviceClass: 'FLEXIBLE',
       payer: undefined,
       paymentMethod: undefined,
-    });
+    }, 'flexible-open');
     expect(undated).toMatchObject({ serviceClass: 'FLEXIBLE', deliverBy: null, suggestedPrice: '9.00' });
     expect(ctx.deliveryRows[0]).toMatchObject({
       deliverBy: null,
@@ -528,7 +545,7 @@ describe('flagged service-class quotes', () => {
       searchGeneration: 0,
     });
 
-    const created = await ctx.deliveries.create(CUSTOMER, { ...body, payer: undefined, paymentMethod: undefined });
+    const created = await ctx.deliveries.create(CUSTOMER, { ...body, payer: undefined, paymentMethod: undefined }, 'express-open');
     expect(created).toMatchObject({
       status: 'CREATED',
       payer: null,
@@ -554,6 +571,53 @@ describe('flagged service-class quotes', () => {
     });
     expect(ctx.assignments).toHaveLength(0);
     expect(ctx.audits).toHaveLength(1);
+  });
+
+  it('replays a lost create and rejects a different payload or a second winner', async () => {
+    process.env.V2_MARKETPLACE_ENABLED = 'true';
+    const ctx = context({ metres: 1_500, now: new Date('2026-10-24T08:00:00.000Z') });
+    ctx.configs.unshift(published('express', ServiceClass.EXPRESS, PricingModel.FIXED, '9.00'));
+    const body = {
+      ...deliveryBody('4.00'),
+      serviceClass: 'EXPRESS' as const,
+      payer: undefined,
+      paymentMethod: undefined,
+    };
+
+    await expect(ctx.deliveries.create(CUSTOMER, body, ' ')).rejects.toBeInstanceOf(BadRequestException);
+    expect(ctx.deliveryRows).toHaveLength(0);
+
+    const created = await ctx.deliveries.create(CUSTOMER, body, 'booking-1');
+    ctx.configs.find((row) => row.id === 'express')!.baseFee = '40.00';
+    const replayed = await ctx.deliveries.create(CUSTOMER, body, 'booking-1');
+    expect(replayed).toMatchObject({ id: created.id, suggestedPrice: '9.00', status: 'CREATED' });
+    expect(ctx.deliveryRows).toHaveLength(1);
+    expect(ctx.events).toHaveLength(1);
+    expect(ctx.deliveryRows[0]).toMatchObject({
+      createIdempotencyKey: 'booking-1',
+      searchGeneration: 0,
+      searchStartedAt: new Date('2026-10-24T08:00:00.000Z'),
+    });
+    expect(String(ctx.deliveryRows[0]?.createPayloadHash)).toMatch(/^[a-f0-9]{64}$/);
+
+    await expect(ctx.deliveries.create(CUSTOMER, { ...body, offeredPrice: '5.00' }, 'booking-1'))
+      .rejects.toBeInstanceOf(ConflictException);
+    await expect(ctx.deliveries.create(
+      { ...CUSTOMER, customerAccountId: 'account-other' },
+      body,
+      'booking-1',
+    )).rejects.toBeInstanceOf(ConflictException);
+    expect(ctx.deliveryRows).toHaveLength(1);
+    expect(ctx.events).toHaveLength(1);
+
+    const [first, second] = await Promise.all([
+      ctx.deliveries.create(CUSTOMER, body, 'booking-2'),
+      ctx.deliveries.create(CUSTOMER, body, 'booking-2'),
+    ]);
+    expect(first.id).toBe(second.id);
+    expect(ctx.deliveryRows).toHaveLength(2);
+    expect(ctx.events).toHaveLength(2);
+    expect(JSON.stringify(replayed)).not.toContain('booking-1');
   });
 });
 

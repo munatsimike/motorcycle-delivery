@@ -30,7 +30,14 @@ import {
   OTP_MAX_CHECK_ATTEMPTS,
   OTP_PHONE_HOURLY_LIMIT,
 } from './auth.constants.js';
-import { devOtpAllowed, rejectDevOtpUnlessLocal } from './dev-otp.js';
+import { devOtpAllowed, devOtpMode } from './dev-otp.js';
+import {
+  isPrivateTestChallenge,
+  privateTestAuthEnabled,
+  privateTestChallengeAllowed,
+  privateTestCodeMatches,
+  stampPrivateTestChallenge,
+} from './private-test-auth.js';
 import { Clock } from './clock.js';
 import { InvalidPersonNameError, normalizePersonName } from './person-name.js';
 import { InvalidPhoneNumberError, normalizeAuthPhone } from './phone-number.js';
@@ -137,7 +144,7 @@ export class WhatsAppAuthService {
     if (!challenge) {
       throw new UnauthorizedException('Verification code is invalid');
     }
-    const approved = await this.verification.check(phone, code, verificationContext(challenge));
+    const approved = await this.approveCode(phone, code, challenge);
     if (!approved) {
       await this.recordCheckFailure(challenge.id, challenge.checkAttempts, now);
       throw new UnauthorizedException('Verification code is invalid');
@@ -216,7 +223,7 @@ export class WhatsAppAuthService {
     if (!challenge) {
       throw new UnauthorizedException('Verification code is invalid');
     }
-    const approved = await this.verification.check(phone, code, verificationContext(challenge));
+    const approved = await this.approveCode(phone, code, challenge);
     if (!approved) {
       await this.recordCheckFailure(challenge.id, challenge.checkAttempts, now);
       throw new UnauthorizedException('Verification code is invalid');
@@ -233,6 +240,10 @@ export class WhatsAppAuthService {
       if (!canSignIn(user, role)) {
         throw new UnauthorizedException('Verification code is invalid');
       }
+      const challengeRow = await tx.authChallenge.findFirst({ where: { id: challenge.id } });
+      if (challengeRow && isPrivateTestChallenge(challengeRow.twilioSid) && !user.privateTestAccount) {
+        throw new UnauthorizedException('Verification code is invalid');
+      }
       return this.sessions.issue(tx, user.id, user.role, now);
     });
   }
@@ -247,15 +258,29 @@ export class WhatsAppAuthService {
     if (!usableRiderProof(challenge, claims.phone)) {
       throw new UnauthorizedException(GENERIC_FAILURE);
     }
-    const consumed = await this.prisma.authChallenge.updateMany({
-      where: { id: challenge.id, status: AuthChallengeStatus.VERIFIED },
-      data: { status: AuthChallengeStatus.SUPERSEDED },
-    });
-    if (consumed.count !== 1) {
-      throw new UnauthorizedException(GENERIC_FAILURE);
-    }
     try {
-      return await this.prisma.$transaction((tx) => this.attachRiderProfile(tx, claims.phone, details, now));
+      const outcome = await this.prisma.$transaction(async (tx) => {
+        const consumed = await tx.authChallenge.updateMany({
+          where: { id: challenge.id, phone: claims.phone, status: AuthChallengeStatus.VERIFIED },
+          data: { status: AuthChallengeStatus.SUPERSEDED },
+        });
+        if (consumed.count !== 1) {
+          return { kind: 'invalid' as const };
+        }
+        try {
+          const tokens = await this.attachRiderProfile(tx, claims.phone, details, now, isPrivateTestChallenge(challenge.twilioSid));
+          return { kind: 'created' as const, tokens };
+        } catch (error) {
+          if (error instanceof UnauthorizedException || error instanceof BadRequestException) {
+            return { kind: 'rejected' as const, error };
+          }
+          throw error;
+        }
+      });
+      if (outcome.kind === 'created') {
+        return outcome.tokens;
+      }
+      throw outcome.kind === 'rejected' ? outcome.error : new UnauthorizedException(GENERIC_FAILURE);
     } catch (error) {
       if (error instanceof UnauthorizedException || error instanceof BadRequestException) {
         throw error;
@@ -330,7 +355,7 @@ export class WhatsAppAuthService {
     if (!challenge) {
       throw new UnauthorizedException('Verification code is invalid');
     }
-    const approved = await this.verification.check(phone, code, verificationContext(challenge));
+    const approved = await this.approveCode(phone, code, challenge);
     if (!approved) {
       await this.recordCheckFailure(challenge.id, challenge.checkAttempts, now);
       throw new UnauthorizedException('Verification code is invalid');
@@ -344,6 +369,13 @@ export class WhatsAppAuthService {
         return { kind: 'invalid' as const };
       }
       const user = await tx.user.findUnique({ where: { phone }, include: accountInclude });
+      if (isPrivateTestChallenge(challenge.twilioSid) && user && !user.privateTestAccount) {
+        await tx.authChallenge.updateMany({
+          where: { id: challenge.id, status: AuthChallengeStatus.VERIFIED },
+          data: { status: AuthChallengeStatus.SUPERSEDED },
+        });
+        return { kind: 'denied' as const };
+      }
       if (riderAccessClosed(user)) {
         await tx.authChallenge.updateMany({
           where: { id: challenge.id, status: AuthChallengeStatus.VERIFIED },
@@ -395,6 +427,7 @@ export class WhatsAppAuthService {
     phone: string,
     details: { fullName: string; address: string },
     now: Date,
+    privateTestAccount: boolean,
   ): Promise<AuthTokens> {
     await tx.$queryRaw`SELECT "id" FROM "users" WHERE "phone" = ${phone} FOR UPDATE`;
     const existing = await tx.user.findUnique({ where: { phone }, include: accountInclude });
@@ -412,11 +445,15 @@ export class WhatsAppAuthService {
           accountStatus: AccountStatus.ACTIVE,
           phoneVerifiedAt: now,
           whatsappConsentAt: now,
+          privateTestAccount,
         },
       });
       userId = created.id;
       role = UserRole.RIDER;
     } else {
+      if (privateTestAccount && !existing.privateTestAccount) {
+        throw new UnauthorizedException(GENERIC_FAILURE);
+      }
       const data: Prisma.UserUpdateInput = {};
       if (!existing.phoneVerifiedAt) {
         data.phoneVerifiedAt = now;
@@ -447,16 +484,18 @@ export class WhatsAppAuthService {
   }
 
   private assertConfigured(): void {
-    if (process.env.DEV_OTP_ENABLED === 'true') {
-      try {
-        rejectDevOtpUnlessLocal();
-      } catch {
-        throw new ServiceUnavailableException('WhatsApp verification is unavailable');
-      }
-      if (devOtpAllowed()) {
-        return;
-      }
+    let mode: ReturnType<typeof devOtpMode>;
+    try {
+      mode = devOtpMode();
+    } catch {
       throw new ServiceUnavailableException('WhatsApp verification is unavailable');
+    }
+    if (mode === 'mixed') {
+      readInfobipWhatsAppConfig();
+      return;
+    }
+    if (mode === 'exclusive') {
+      return;
     }
     if (process.env.WHATSAPP_VERIFICATION_PROVIDER === 'infobip') {
       readInfobipWhatsAppConfig();
@@ -521,6 +560,7 @@ export class WhatsAppAuthService {
             accountStatus: AccountStatus.PENDING,
             phoneVerifiedAt: null,
             whatsappConsentAt: now,
+            privateTestAccount: privateTestAuthEnabled(),
           },
         });
         if (role === AuthSubjectRole.RIDER) {
@@ -574,6 +614,10 @@ export class WhatsAppAuthService {
         if (!user || !isPendingRegistration(user, role) || !user.whatsappConsentAt) {
           throw new UnauthorizedException('Verification code is invalid');
         }
+        const challenge = await tx.authChallenge.findFirst({ where: { id: challengeId } });
+        if (challenge && isPrivateTestChallenge(challenge.twilioSid) && !user.privateTestAccount) {
+          throw new UnauthorizedException('Verification code is invalid');
+        }
         await tx.user.update({
           where: { id: user.id },
           data: {
@@ -624,6 +668,22 @@ export class WhatsAppAuthService {
       data: { status: AuthChallengeStatus.SUPERSEDED },
     });
     try {
+      const account = await this.prisma.user.findUnique({
+        where: { phone: input.phone },
+        select: { privateTestAccount: true },
+      });
+      if (privateTestChallengeAllowed(input.purpose, account)) {
+        const stamped = stampPrivateTestChallenge({
+          challengeId: created.id,
+          phone: input.phone,
+          purpose: input.purpose,
+        });
+        await this.prisma.authChallenge.update({
+          where: { id: created.id },
+          data: { twilioSid: stamped.sid, codeHash: stamped.codeHash },
+        });
+        return;
+      }
       const verification = await this.verification.send(input.phone, {
         challengeId: created.id,
         phone: input.phone,
@@ -647,6 +707,27 @@ export class WhatsAppAuthService {
       }
       throw error;
     }
+  }
+
+  private async approveCode(
+    phone: string,
+    code: string,
+    challenge: { id: string; phone: string; purpose: AuthPurpose; twilioSid: string | null; codeHash: string | null },
+  ): Promise<boolean> {
+    if (isPrivateTestChallenge(challenge.twilioSid)) {
+      if (!privateTestAuthEnabled() || !privateTestCodeMatches(code, challenge)) {
+        return false;
+      }
+      const user = await this.prisma.user.findUnique({
+        where: { phone },
+        select: { privateTestAccount: true },
+      });
+      if (user) {
+        return user.privateTestAccount === true;
+      }
+      return challenge.purpose === AuthPurpose.WHATSAPP_REGISTRATION;
+    }
+    return this.verification.check(phone, code, verificationContext(challenge));
   }
 
   private async pendingChallenge(phone: string, role: AuthSubjectRole, purpose: AuthPurpose, now: Date) {

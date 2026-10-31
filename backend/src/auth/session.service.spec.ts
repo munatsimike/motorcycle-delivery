@@ -375,6 +375,23 @@ describe('SessionService', () => {
     expect(store.sessions.filter((session) => session.revokedAt === null)).toHaveLength(1);
   });
 
+  it('refreshes and logs out a private test customer without closing another account', async () => {
+    const first = account(UserRole.CUSTOMER);
+    const second = account(UserRole.CUSTOMER);
+    const store = memoryStore(first);
+    store.users.push(second);
+    const service = new SessionService(store.db as unknown as PrismaService, tokens);
+    const issued = await service.issue(store.db as unknown as Prisma.TransactionClient, first.id, UserRole.CUSTOMER);
+    const other = await service.issue(store.db as unknown as Prisma.TransactionClient, second.id, UserRole.CUSTOMER);
+    const refreshed = await service.refresh(issued.refreshToken);
+    expect(tokens.verify(refreshed.accessToken).sub).toBe(first.id);
+    await service.revokeCurrent(tokens.verify(refreshed.accessToken).sid, first.id);
+    expect(store.sessions.find((session) => session.userId === second.id)?.revokedAt).toBeNull();
+    await expect(service.refresh(issued.refreshToken)).rejects.toBeInstanceOf(UnauthorizedException);
+    const continued = await service.refresh(other.refreshToken);
+    expect(tokens.verify(continued.accessToken).sub).toBe(second.id);
+  });
+
   it('logout revokes one session and logout-all revokes every session for the user', async () => {
     const user = account(UserRole.CUSTOMER);
     const store = memoryStore(user);

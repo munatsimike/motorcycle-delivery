@@ -28,19 +28,23 @@ describe('open bid booking', () => {
 
   it('reads an open request and does not start search or rider confirmation', async () => {
     const calls: string[] = [];
+    const keys: string[] = [];
     const repository: CustomerDeliveryRepository = {
       quote: () => Promise.reject(new Error('unused')),
       create: () => Promise.reject(new Error('unused')),
-      createOpenRequest: async () => readOpenBidRequest({
-        id: 'delivery-1',
-        status: 'CREATED',
-        serviceClass: 'FLEXIBLE',
-        deliverBy: '2026-10-24T16:30:00.000Z',
-        suggestedPrice: '8.00',
-        currency: 'USD',
-        offeredPrice: null,
-        searchGeneration: 0,
-      }),
+      createOpenRequest: async (_token, _booking, _price, idempotencyKey) => {
+        keys.push(idempotencyKey);
+        return readOpenBidRequest({
+          id: 'delivery-1',
+          status: 'CREATED',
+          serviceClass: 'FLEXIBLE',
+          deliverBy: '2026-10-24T16:30:00.000Z',
+          suggestedPrice: '8.00',
+          currency: 'USD',
+          offeredPrice: null,
+          searchGeneration: 0,
+        });
+      },
       getById: () => Promise.reject(new Error('unused')),
       list: () => Promise.reject(new Error('unused')),
       listBids: () => Promise.reject(new Error('unused')),
@@ -51,10 +55,14 @@ describe('open bid booking', () => {
       adjustOffer: () => Promise.reject(new Error('unused')),
       cancel: () => Promise.reject(new Error('unused')),
     };
+    await expect(createOpenRequest(repository, 'token', {
+      serviceClass: 'FLEXIBLE',
+      deliverBy: '2026-10-24T16:30:00.000Z',
+    } as PreparedBooking, '8.00', ' ')).rejects.toThrow('The delivery could not be booked.');
     const created = await createOpenRequest(repository, 'token', {
       serviceClass: 'FLEXIBLE',
       deliverBy: '2026-10-24T16:30:00.000Z',
-    } as PreparedBooking, '8.00');
+    } as PreparedBooking, '8.00', 'booking-1');
     expect(created.id).toBe('delivery-1');
     expect(openBidConfirmation(created)).toBe('Open for rider bids');
     expect(startsRiderSearch()).toBe(false);
@@ -64,7 +72,8 @@ describe('open bid booking', () => {
     await expect(createOpenRequest(repository, 'token', {
       serviceClass: 'EXPRESS',
       deliverBy: null,
-    } as PreparedBooking, '8.00')).resolves.toMatchObject({ id: 'delivery-1', status: 'CREATED' });
+    } as PreparedBooking, '8.00', 'booking-1')).resolves.toMatchObject({ id: 'delivery-1', status: 'CREATED' });
+    expect(keys).toEqual(['booking-1', 'booking-1']);
   });
 
   it('reads a deadline-free Express or Flexible request', () => {

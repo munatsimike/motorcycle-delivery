@@ -10,7 +10,7 @@ import {
   saveRecentDeliveries,
 } from '../../data/recentDeliveryStore';
 import { appendDeliveries, replaceDeliveries } from '../../domain/customerDeliveryList';
-import type { CustomerDelivery, DeliveryStatus } from '../../domain/deliveryStatus';
+import { ACTIVE_LIST_STATUSES, type CustomerDelivery, type DeliveryStatus } from '../../domain/deliveryStatus';
 import { loadCustomerDeliveries } from '../../domain/loadCustomerDeliveries';
 import {
   applyDeliveryRefresh,
@@ -20,6 +20,22 @@ import {
   shouldRefreshDeliveriesOnForeground,
   type SyncClock,
 } from '../../domain/recentDeliveryCache';
+
+function cachesDeliveryList(requested: readonly DeliveryStatus[] | undefined): boolean {
+  return requested === undefined || sameStatuses(requested, ACTIVE_LIST_STATUSES);
+}
+
+function sameStatuses(left: readonly DeliveryStatus[], right: readonly DeliveryStatus[]): boolean {
+  return left.length === right.length && left.every((status, index) => status === right[index]);
+}
+
+function deliveriesMatching(deliveries: CustomerDelivery[], requested: readonly DeliveryStatus[] | undefined): CustomerDelivery[] {
+  if (!requested) {
+    return deliveries;
+  }
+  const allowed = new Set(requested);
+  return deliveries.filter((delivery) => allowed.has(delivery.status));
+}
 
 export function useCustomerDeliveries(accessToken: string | null, customerId: string | null, statuses?: readonly DeliveryStatus[]) {
   const [deliveries, setDeliveries] = useState<CustomerDelivery[]>([]);
@@ -79,7 +95,7 @@ export function useCustomerDeliveries(accessToken: string | null, customerId: st
     const requested = statusKey.length === 0 ? undefined : statusKey.split(',') as DeliveryStatus[];
     void (async () => {
       let generation = 0;
-      if (nextPage === 1 && requestedCustomerId && requested === undefined) {
+      if (nextPage === 1 && requestedCustomerId && cachesDeliveryList(requested)) {
         try {
           const snapshot = await loadRecentDeliveries(requestedCustomerId);
           if (request.current !== current) {
@@ -91,9 +107,12 @@ export function useCustomerDeliveries(accessToken: string | null, customerId: st
               committed: Math.max(clock.current.committed, snapshot.syncGeneration),
             };
             if (source.current !== 'network') {
-              source.current = 'cache';
-              setDeliveries(snapshot.deliveries);
-              setSavedAt(snapshot.savedAt);
+              const cached = deliveriesMatching(snapshot.deliveries, requested);
+              if (!requested || cached.length > 0) {
+                source.current = 'cache';
+                setDeliveries(cached);
+                setSavedAt(snapshot.savedAt);
+              }
             }
           }
         } catch {
@@ -111,7 +130,7 @@ export function useCustomerDeliveries(accessToken: string | null, customerId: st
         if (request.current !== current) {
           return;
         }
-        if (nextPage === 1 && requestedCustomerId && requested === undefined) {
+        if (nextPage === 1 && requestedCustomerId && cachesDeliveryList(requested)) {
           if (!commitSyncGeneration(clock.current, generation)) {
             return;
           }

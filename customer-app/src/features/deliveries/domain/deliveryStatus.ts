@@ -51,13 +51,19 @@ const ACTIVE_DELIVERY_STATUSES = new Set<DeliveryStatus>([
   'OUT_FOR_DELIVERY',
 ]);
 
-const ACTIVE_LIST_STATUSES: readonly DeliveryStatus[] = [...ACTIVE_DELIVERY_STATUSES];
+export const ACTIVE_LIST_STATUSES: readonly DeliveryStatus[] = [...ACTIVE_DELIVERY_STATUSES];
 
 const HISTORY_DELIVERY_STATUSES = new Set<DeliveryStatus>([
   'DELIVERED',
   'CANCELLED',
   'FAILED',
 ]);
+
+export const HISTORY_LIST_STATUSES: readonly DeliveryStatus[] = [...HISTORY_DELIVERY_STATUSES];
+
+export function deliveryListStatuses(group: DeliveryGroup): readonly DeliveryStatus[] {
+  return group === 'active' ? ACTIVE_LIST_STATUSES : HISTORY_LIST_STATUSES;
+}
 
 const STATUS_LABELS: Record<DeliveryStatus, string> = {
   CREATED: 'Pending',
@@ -124,6 +130,9 @@ export function deliveryCardStatusLabel(delivery: Pick<CustomerDelivery, 'status
   if (count > 1) {
     return `${count} bids received`;
   }
+  if (delivery.status === 'COLLECTED') {
+    return 'In transit';
+  }
   return deliveryListLabel(delivery);
 }
 
@@ -169,4 +178,4 @@ export function isKnownDeliveryStatus(status: string): status is DeliveryStatus 
   return (DELIVERY_STATUSES as readonly string[]).includes(status);
 }
 
-export { ACTIVE_DELIVERY_STATUSES, ACTIVE_LIST_STATUSES, HISTORY_DELIVERY_STATUSES };
+export { ACTIVE_DELIVERY_STATUSES, HISTORY_DELIVERY_STATUSES };

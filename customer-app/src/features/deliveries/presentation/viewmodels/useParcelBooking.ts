@@ -1,6 +1,8 @@
 import { useRef, useState } from 'react';
 
 import { errorMessage } from '../../../auth/presentation/errorMessage';
+import { ApiError } from '../../../../services/api/apiClient';
+import { bookingAttempts, createBookingKey } from '../../data/bookingAttemptStore';
 import { customerDeliveryRepository } from '../../data/CustomerDeliveryApiRepository';
 import { createPlaceSessionToken } from '../../domain/placeSession';
 import { expoAddressGeocoder, expoDeviceAddressAccess } from '../../data/expoAddressGeocoder';
@@ -9,6 +11,7 @@ import {
   emptyBookingDraft,
   parcelError,
   prepareBooking,
+  v2CreateBody,
   quoteIdentity,
   stopEntryError,
   stopError,
@@ -263,9 +266,21 @@ export function useParcelBooking(accessToken: string | null, marketplace = false
         setError(submitted.error);
         return;
       }
-      const created = await createOpenRequest(customerDeliveryRepository, accessToken, prepared.booking, submitted.offeredPrice);
+      const fingerprint = JSON.stringify(v2CreateBody(prepared.booking, submitted.offeredPrice));
+      const idempotencyKey = await bookingAttempts.keyFor(fingerprint, createBookingKey);
+      const created = await createOpenRequest(
+        customerDeliveryRepository,
+        accessToken,
+        prepared.booking,
+        submitted.offeredPrice,
+        idempotencyKey,
+      );
+      await bookingAttempts.clear();
       onCreated({ mode: 'v2', request: created });
     } catch (caught: unknown) {
+      if (caught instanceof ApiError && caught.status === 409) {
+        await bookingAttempts.clear();
+      }
       setError(errorMessage(caught, 'The delivery could not be booked.'));
     } finally {
       creating.current = false;

@@ -2,8 +2,10 @@ import { createHmac, randomBytes, randomInt, timingSafeEqual } from 'node:crypto
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { DEV_OTP_TTL_MS, OTP_COOLDOWN_MS, OTP_MAX_CHECK_ATTEMPTS, OTP_PHONE_HOURLY_LIMIT } from './auth.constants.js';
 import { Clock } from './clock.js';
-import { PhoneVerificationProvider } from './phone-verification.provider.js';
+import { normalizeAuthPhone } from './phone-number.js';
+import { PhoneVerificationProvider, type PhoneVerificationContext, type PhoneVerificationSendResult } from './phone-verification.provider.js';
 import { TooManyRequestsException } from './too-many-requests.exception.js';
+import { readInfobipWhatsAppConfig } from './whatsapp-verification.js';
 
 const HOUR_MS = 60 * 60 * 1000;
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
@@ -51,6 +53,14 @@ export function devOtpRejectionReasons(env: NodeJS.ProcessEnv): string[] {
   if (env.DEV_OTP_ENABLED !== 'true') {
     return [];
   }
+  const reasons = hostedDevOtpRejectionReasons(env);
+  if (env.WHATSAPP_VERIFICATION_ENABLED === 'true') {
+    reasons.push('WHATSAPP_VERIFICATION_ENABLED');
+  }
+  return reasons;
+}
+
+function hostedDevOtpRejectionReasons(env: NodeJS.ProcessEnv): string[] {
   const reasons: string[] = [];
   if (env.NODE_ENV !== 'development') {
     reasons.push('NODE_ENV must be development');
@@ -77,9 +87,6 @@ export function devOtpRejectionReasons(env: NodeJS.ProcessEnv): string[] {
   if (env.TRUST_RAILWAY_EDGE_CLIENT_IP === 'true') {
     reasons.push('TRUST_RAILWAY_EDGE_CLIENT_IP');
   }
-  if (env.WHATSAPP_VERIFICATION_ENABLED === 'true') {
-    reasons.push('WHATSAPP_VERIFICATION_ENABLED');
-  }
   const bindHost = env.HOST ?? env.BIND_HOST;
   if (bindHost && !LOCAL_BIND_HOSTS.has(bindHost)) {
     reasons.push('public bind address');
@@ -103,14 +110,95 @@ export function rejectDevOtpUnlessLocal(env: NodeJS.ProcessEnv = process.env): v
   }
 }
 
+export function readDevOtpAllowlist(env: NodeJS.ProcessEnv = process.env): string | null {
+  const raw = env.DEV_OTP_ALLOWLIST;
+  if (raw === undefined || raw.trim() === '') {
+    return null;
+  }
+  const trimmed = raw.trim();
+  if (/[,;]/.test(trimmed)) {
+    const parts = trimmed.split(/[,;]+/).map((part) => part.trim()).filter((part) => part.length > 0);
+    if (parts.length !== 1) {
+      throw new DevOtpConfigurationError('DEV_OTP_ALLOWLIST must contain exactly one phone number');
+    }
+    return normalizeAllowlistedPhone(parts[0] ?? '');
+  }
+  try {
+    return normalizeAuthPhone(trimmed);
+  } catch {
+    const parts = trimmed.split(/\s+/).filter((part) => part.length > 0);
+    if (parts.length !== 1) {
+      throw new DevOtpConfigurationError('DEV_OTP_ALLOWLIST must contain exactly one phone number');
+    }
+    throw new DevOtpConfigurationError('DEV_OTP_ALLOWLIST must contain exactly one valid phone number');
+  }
+}
+
+export function assertMixedDevOtp(env: NodeJS.ProcessEnv = process.env): string {
+  const phone = readDevOtpAllowlist(env);
+  if (!phone) {
+    throw new DevOtpConfigurationError('DEV_OTP_ALLOWLIST must contain exactly one phone number');
+  }
+  const reasons = hostedDevOtpRejectionReasons(env);
+  if (env.DEV_OTP_ENABLED !== 'true') {
+    reasons.push('DEV_OTP_ENABLED');
+  }
+  if (env.WHATSAPP_VERIFICATION_ENABLED !== 'true') {
+    reasons.push('WHATSAPP_VERIFICATION_ENABLED must be true');
+  }
+  if (env.WHATSAPP_VERIFICATION_PROVIDER !== 'infobip') {
+    reasons.push('WHATSAPP_VERIFICATION_PROVIDER must be infobip');
+  }
+  if (reasons.length > 0) {
+    throw new DevOtpConfigurationError(`Mock OTP is refused outside local development: ${reasons.join('; ')}`);
+  }
+  return phone;
+}
+
+export function devOtpMode(env: NodeJS.ProcessEnv = process.env): 'off' | 'exclusive' | 'mixed' {
+  if (devOtpAllowlistConfigured(env)) {
+    assertMixedDevOtp(env);
+    return 'mixed';
+  }
+  if (env.DEV_OTP_ENABLED === 'true') {
+    rejectDevOtpUnlessLocal(env);
+    if (!devOtpAllowed(env)) {
+      throw new DevOtpConfigurationError('Mock OTP output is refused');
+    }
+    return 'exclusive';
+  }
+  return 'off';
+}
+
+function devOtpAllowlistConfigured(env: NodeJS.ProcessEnv): boolean {
+  const raw = env.DEV_OTP_ALLOWLIST;
+  return raw !== undefined && raw.trim() !== '';
+}
+
+function normalizeAllowlistedPhone(input: string): string {
+  try {
+    return normalizeAuthPhone(input);
+  } catch {
+    throw new DevOtpConfigurationError('DEV_OTP_ALLOWLIST must contain exactly one valid phone number');
+  }
+}
+
 export function selectPhoneVerificationProvider(
   env: NodeJS.ProcessEnv,
   twilio: PhoneVerificationProvider,
   devOtp: PhoneVerificationProvider,
   infobip?: PhoneVerificationProvider,
 ): PhoneVerificationProvider {
-  rejectDevOtpUnlessLocal(env);
-  if (devOtpAllowed(env)) {
+  const mode = devOtpMode(env);
+  if (mode === 'mixed') {
+    readInfobipWhatsAppConfig(env);
+    const allowlist = readDevOtpAllowlist(env);
+    if (!allowlist || !infobip) {
+      throw new ServiceUnavailableException('WhatsApp verification is unavailable');
+    }
+    return new AllowlistedPhoneVerificationProvider(allowlist, devOtp, infobip);
+  }
+  if (mode === 'exclusive') {
     return devOtp;
   }
   const provider = env.WHATSAPP_VERIFICATION_PROVIDER ?? 'twilio';
@@ -140,11 +228,19 @@ export function formatDevOtpNotice(input: { phone: string; code: string; expires
 }
 
 export function writeDevOtpLine(line: string): void {
-  rejectDevOtpUnlessLocal();
-  if (!devOtpAllowed()) {
+  assertDevOtpOutputAllowed();
+  process.stderr.write(line.endsWith('\n') ? line : `${line}\n`);
+}
+
+function assertDevOtpOutputAllowed(env: NodeJS.ProcessEnv = process.env): void {
+  if (devOtpAllowlistConfigured(env)) {
+    assertMixedDevOtp(env);
+    return;
+  }
+  rejectDevOtpUnlessLocal(env);
+  if (!devOtpAllowed(env)) {
     throw new DevOtpConfigurationError('Mock OTP output is refused');
   }
-  process.stderr.write(line.endsWith('\n') ? line : `${line}\n`);
 }
 
 @Injectable()
@@ -177,7 +273,7 @@ export class DevOtpVerificationProvider extends PhoneVerificationProvider {
   }
 
   async send(phone: string): Promise<{ sid: string }> {
-    this.assertLocal();
+    this.assertIssuedFor(phone);
     const now = this.clock.now().getTime();
     this.prune(now);
     const history = this.sentAt.get(phone) ?? [];
@@ -205,7 +301,7 @@ export class DevOtpVerificationProvider extends PhoneVerificationProvider {
   }
 
   async check(phone: string, code: string): Promise<boolean> {
-    this.assertLocal();
+    this.assertIssuedFor(phone);
     const stored = this.challenges.get(phone);
     const now = this.clock.now().getTime();
     if (!stored || stored.used || stored.expiresAt <= now || stored.attempts >= OTP_MAX_CHECK_ATTEMPTS) {
@@ -219,13 +315,26 @@ export class DevOtpVerificationProvider extends PhoneVerificationProvider {
     return true;
   }
 
-  private assertLocal(): void {
+  private assertIssuedFor(phone: string): void {
+    this.assertLocal();
+    if (!devOtpAllowlistConfigured(process.env)) {
+      return;
+    }
+    let normalized: string;
     try {
-      rejectDevOtpUnlessLocal();
+      normalized = normalizeAuthPhone(phone);
     } catch {
       throw new ServiceUnavailableException('WhatsApp verification is unavailable');
     }
-    if (!devOtpAllowed()) {
+    if (normalized !== readDevOtpAllowlist()) {
+      throw new ServiceUnavailableException('WhatsApp verification is unavailable');
+    }
+  }
+
+  private assertLocal(): void {
+    try {
+      assertDevOtpOutputAllowed();
+    } catch {
       throw new ServiceUnavailableException('WhatsApp verification is unavailable');
     }
   }
@@ -239,6 +348,34 @@ export class DevOtpVerificationProvider extends PhoneVerificationProvider {
         this.sentAt.set(phone, recent);
       }
     }
+  }
+}
+
+class AllowlistedPhoneVerificationProvider extends PhoneVerificationProvider {
+  constructor(
+    private readonly allowlistedPhone: string,
+    private readonly local: PhoneVerificationProvider,
+    private readonly remote: PhoneVerificationProvider,
+  ) {
+    super();
+  }
+
+  async send(phone: string, context?: PhoneVerificationContext): Promise<PhoneVerificationSendResult> {
+    return this.choose(phone).send(phone, context);
+  }
+
+  async check(phone: string, code: string, context?: PhoneVerificationContext): Promise<boolean> {
+    return this.choose(phone).check(phone, code, context);
+  }
+
+  private choose(phone: string): PhoneVerificationProvider {
+    let normalized: string;
+    try {
+      normalized = normalizeAuthPhone(phone);
+    } catch {
+      throw new ServiceUnavailableException('WhatsApp verification is unavailable');
+    }
+    return normalized === this.allowlistedPhone ? this.local : this.remote;
   }
 }
 

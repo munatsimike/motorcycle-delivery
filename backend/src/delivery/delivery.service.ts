@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
 import {
   AssignmentStatus,
@@ -15,7 +16,7 @@ import {
 import type { CustomerContext } from '../auth/customer-access.service.js';
 import { v2MarketplaceEnabled } from '../auth/v2-flags.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { readDeliveryDraft, readQuoteRequest, readV2DeliveryDraft, type QuotePins, type QuoteRequest } from './delivery-request.js';
+import { readDeliveryDraft, readQuoteRequest, readV2DeliveryDraft, type QuotePins, type QuoteRequest, type V2DeliveryDraft } from './delivery-request.js';
 import { assignedRiderStatus, customerSharesRiderLocation, freshRiderPoint, toCustomerDelivery, toCustomerDeliverySummary, withAssignedRider, withCollectingRiderLocation, withPickupApproach, type AssignedRiderView, type PickupApproachView, type RiderPoint, type StoredDelivery } from './delivery-view.js';
 import { PICKUP_APPROACH, type PickupApproachLookup } from './pickup-approach.js';
 import { centsFromDecimal, formatCents } from './money.js';
@@ -23,6 +24,7 @@ import { lockActiveClassPricing } from './pricing-lock.js';
 import { calculateTariffPrice, PricingCalculationError, type TariffSnapshot } from './pricing-calculator.js';
 import { ROAD_DISTANCE, geoapifyRoadDistance, type RoadDistance } from './geoapify.js';
 import { V2_SEARCH_WINDOW_MS } from './v2-search.js';
+import { IDEMPOTENCY_CONFLICT } from '../rider/wallet-ledger.js';
 
 export const PRICING_CLOCK = Symbol('PRICING_CLOCK');
 
@@ -144,7 +146,7 @@ export class DeliveryService {
             user: { select: { fullName: true, phone: true } },
             motorcycles: {
               where: { isActive: true, verificationStatus: 'VERIFIED' },
-              select: { make: true, model: true },
+              select: { make: true, model: true, registrationNumber: true },
               take: 1,
             },
           },
@@ -158,6 +160,7 @@ export class DeliveryService {
     }
     const bike = profile.motorcycles[0];
     const motorcycle = [bike?.make, bike?.model].map((part) => part?.trim() ?? '').filter((part) => part.length > 0).join(' ');
+    const registrationNumber = bike?.registrationNumber?.trim() ?? '';
     const phone = profile.user.phone?.trim() ?? '';
     const photo = await this.prisma.riderProfilePhoto.findFirst({
       where: { riderProfileId: profile.id, status: ProfilePhotoStatus.STORED },
@@ -167,6 +170,7 @@ export class DeliveryService {
       name,
       verified: profile.verificationStatus === 'VERIFIED',
       motorcycle: motorcycle || null,
+      registrationNumber: registrationNumber || null,
       phone: phone || null,
       hasProfilePhoto: photo !== null,
     };
@@ -222,95 +226,134 @@ export class DeliveryService {
     return this.quoteServiceClass(request);
   }
 
-  async create(customer: CustomerContext, body: unknown) {
+  async create(customer: CustomerContext, body: unknown, idempotencyKey?: string) {
     if (!v2MarketplaceEnabled()) {
       readDeliveryDraft(body);
       throw new NotFoundException('Bidding is not available');
     }
-    return this.createV2Request(customer, body);
+    return this.createV2Request(customer, body, readIdempotencyKey(idempotencyKey));
   }
 
-  private async createV2Request(customer: CustomerContext, body: unknown) {
+  private async createV2Request(customer: CustomerContext, body: unknown, key: string) {
     const now = this.clock();
     const draft = readV2DeliveryDraft(body, now);
+    const hash = creationHash(customer.customerAccountId, draft);
+    const replayed = await this.replayCreate(this.prisma, key, hash, customer.customerAccountId);
+    if (replayed) {
+      return replayed;
+    }
     const metres = await this.roadMetres(draft);
-    return this.prisma.$transaction(async (tx) => {
-      await lockActiveClassPricing(tx, draft.serviceClass);
-      const active = await tx.deliveryPricingConfig.findFirst({
-        where: { isActive: true, serviceClass: draft.serviceClass },
-        include: {
-          tiers: { orderBy: { position: 'asc' } },
-          windows: true,
-        },
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const raced = await this.replayCreate(tx, key, hash, customer.customerAccountId);
+        if (raced) {
+          return raced;
+        }
+        await lockActiveClassPricing(tx, draft.serviceClass);
+        const active = await tx.deliveryPricingConfig.findFirst({
+          where: { isActive: true, serviceClass: draft.serviceClass },
+          include: {
+            tiers: { orderBy: { position: 'asc' } },
+            windows: true,
+          },
+        });
+        if (!active) {
+          throw classPricingUnavailable(draft.serviceClass);
+        }
+        let priced;
+        try {
+          priced = calculateTariffPrice(toClassSnapshot(active), metres, now);
+        } catch (error) {
+          throw quotedPriceError(error);
+        }
+        const retrievedAt = new Date();
+        const created = await tx.delivery.create({
+          data: {
+            customerId: customer.customerAccountId,
+            deliveryType: DeliveryType.PARCEL,
+            pickupAddress: draft.pickupAddress,
+            pickupLatitude: draft.pickupLatitude,
+            pickupLongitude: draft.pickupLongitude,
+            pickupPlaceId: draft.pickupPlaceId,
+            pickupCoordinateSource: draft.pickupCoordinateSource,
+            pickupCoordinateRetrievedAt: retrievedAt,
+            pickupLandmark: draft.pickupLandmark,
+            pickupInstructions: draft.pickupInstructions,
+            pickupContactName: draft.pickupContactName,
+            pickupContactPhone: draft.pickupContactPhone,
+            dropoffAddress: draft.dropoffAddress,
+            dropoffLatitude: draft.dropoffLatitude,
+            dropoffLongitude: draft.dropoffLongitude,
+            dropoffPlaceId: draft.dropoffPlaceId,
+            dropoffCoordinateSource: draft.dropoffCoordinateSource,
+            dropoffCoordinateRetrievedAt: retrievedAt,
+            dropoffLandmark: draft.dropoffLandmark,
+            dropoffInstructions: draft.dropoffInstructions,
+            parcelDescription: draft.parcelDescription,
+            parcelSize: draft.parcelSize,
+            parcelInstructions: draft.parcelInstructions,
+            recipientName: draft.dropoffContactName,
+            recipientPhone: draft.dropoffContactPhone,
+            price: null,
+            suggestedPrice: formatCents(priced.suggestedPriceCents),
+            customerOffer: formatCents(draft.offeredPriceCents),
+            distanceMeters: priced.distanceMetres,
+            pricingVersion: priced.pricingVersion,
+            pricingModel: priced.pricingModel,
+            pricingBasisPoints: priced.basisPoints,
+            pricingWindowId: priced.pricingWindow?.id ?? null,
+            payer: null,
+            currency: Currency.USD,
+            paymentMethod: draft.paymentMethod,
+            serviceClass: draft.serviceClass,
+            deliverBy: draft.deliverBy,
+            status: DeliveryStatus.CREATED,
+            searchGeneration: 0,
+            searchStartedAt: now,
+            nextRetryAt: new Date(now.getTime() + V2_SEARCH_WINDOW_MS),
+            autoRetryCount: 0,
+            createIdempotencyKey: key,
+            createPayloadHash: hash,
+          },
+        });
+        await tx.deliveryStatusEvent.create({
+          data: {
+            deliveryId: created.id,
+            previousStatus: null,
+            newStatus: DeliveryStatus.CREATED,
+            actorId: customer.userId,
+            actorType: DeliveryActorType.CUSTOMER,
+          },
+        });
+        return toCustomerDelivery(created as StoredDelivery);
       });
-      if (!active) {
-        throw classPricingUnavailable(draft.serviceClass);
+    } catch (error) {
+      if (!isUniqueViolation(error)) {
+        throw error;
       }
-      let priced;
-      try {
-        priced = calculateTariffPrice(toClassSnapshot(active), metres, now);
-      } catch (error) {
-        throw quotedPriceError(error);
+      const existing = await this.replayCreate(this.prisma, key, hash, customer.customerAccountId);
+      if (existing) {
+        return existing;
       }
-      const retrievedAt = new Date();
-      const created = await tx.delivery.create({
-        data: {
-          customerId: customer.customerAccountId,
-          deliveryType: DeliveryType.PARCEL,
-          pickupAddress: draft.pickupAddress,
-          pickupLatitude: draft.pickupLatitude,
-          pickupLongitude: draft.pickupLongitude,
-          pickupPlaceId: draft.pickupPlaceId,
-          pickupCoordinateSource: draft.pickupCoordinateSource,
-          pickupCoordinateRetrievedAt: retrievedAt,
-          pickupLandmark: draft.pickupLandmark,
-          pickupInstructions: draft.pickupInstructions,
-          pickupContactName: draft.pickupContactName,
-          pickupContactPhone: draft.pickupContactPhone,
-          dropoffAddress: draft.dropoffAddress,
-          dropoffLatitude: draft.dropoffLatitude,
-          dropoffLongitude: draft.dropoffLongitude,
-          dropoffPlaceId: draft.dropoffPlaceId,
-          dropoffCoordinateSource: draft.dropoffCoordinateSource,
-          dropoffCoordinateRetrievedAt: retrievedAt,
-          dropoffLandmark: draft.dropoffLandmark,
-          dropoffInstructions: draft.dropoffInstructions,
-          parcelDescription: draft.parcelDescription,
-          parcelSize: draft.parcelSize,
-          parcelInstructions: draft.parcelInstructions,
-          recipientName: draft.dropoffContactName,
-          recipientPhone: draft.dropoffContactPhone,
-          price: null,
-          suggestedPrice: formatCents(priced.suggestedPriceCents),
-          customerOffer: formatCents(draft.offeredPriceCents),
-          distanceMeters: priced.distanceMetres,
-          pricingVersion: priced.pricingVersion,
-          pricingModel: priced.pricingModel,
-          pricingBasisPoints: priced.basisPoints,
-          pricingWindowId: priced.pricingWindow?.id ?? null,
-          payer: null,
-          currency: Currency.USD,
-          paymentMethod: draft.paymentMethod,
-          serviceClass: draft.serviceClass,
-          deliverBy: draft.deliverBy,
-          status: DeliveryStatus.CREATED,
-          searchGeneration: 0,
-          searchStartedAt: now,
-          nextRetryAt: new Date(now.getTime() + V2_SEARCH_WINDOW_MS),
-          autoRetryCount: 0,
-        },
-      });
-      await tx.deliveryStatusEvent.create({
-        data: {
-          deliveryId: created.id,
-          previousStatus: null,
-          newStatus: DeliveryStatus.CREATED,
-          actorId: customer.userId,
-          actorType: DeliveryActorType.CUSTOMER,
-        },
-      });
-      return toCustomerDelivery(created as StoredDelivery);
-    });
+      throw new ConflictException(IDEMPOTENCY_CONFLICT);
+    }
+  }
+
+  private async replayCreate(
+    db: { delivery: { findUnique(args: { where: { createIdempotencyKey: string } }): Promise<unknown> } },
+    key: string,
+    hash: string,
+    customerAccountId: string,
+  ) {
+    const existing = await db.delivery.findUnique({ where: { createIdempotencyKey: key } });
+    if (!existing) {
+      return null;
+    }
+    const row = existing as StoredDelivery & { customerId?: string; createPayloadHash?: string | null };
+    if (row.createPayloadHash !== hash || row.customerId !== customerAccountId) {
+      throw new ConflictException(IDEMPOTENCY_CONFLICT);
+    }
+    return toCustomerDelivery(row);
   }
 
   private async quoteServiceClass(request: QuoteRequest) {
@@ -518,6 +561,53 @@ function coordinateNumber(value: string | null | undefined): number | null {
 
 function pointText(value: string | { toFixed(digits: number): string }): string {
   return typeof value === 'string' ? value : value.toFixed(7);
+}
+
+function readIdempotencyKey(value: string | undefined): string {
+  const key = typeof value === 'string' ? value.trim() : '';
+  if (!key || key.length > 200) {
+    throw new BadRequestException('Enter an idempotency key');
+  }
+  return key;
+}
+
+function creationHash(customerAccountId: string, draft: V2DeliveryDraft): string {
+  return createHash('sha256')
+    .update(JSON.stringify({
+      kind: 'v2-delivery-create',
+      customerAccountId,
+      pickupAddress: draft.pickupAddress,
+      pickupLatitude: draft.pickupLatitude,
+      pickupLongitude: draft.pickupLongitude,
+      pickupPlaceId: draft.pickupPlaceId,
+      pickupCoordinateSource: draft.pickupCoordinateSource,
+      pickupLandmark: draft.pickupLandmark,
+      pickupInstructions: draft.pickupInstructions,
+      pickupContactName: draft.pickupContactName,
+      pickupContactPhone: draft.pickupContactPhone,
+      dropoffAddress: draft.dropoffAddress,
+      dropoffLatitude: draft.dropoffLatitude,
+      dropoffLongitude: draft.dropoffLongitude,
+      dropoffPlaceId: draft.dropoffPlaceId,
+      dropoffCoordinateSource: draft.dropoffCoordinateSource,
+      dropoffLandmark: draft.dropoffLandmark,
+      dropoffInstructions: draft.dropoffInstructions,
+      dropoffContactName: draft.dropoffContactName,
+      dropoffContactPhone: draft.dropoffContactPhone,
+      parcelDescription: draft.parcelDescription,
+      parcelSize: draft.parcelSize,
+      parcelInstructions: draft.parcelInstructions,
+      serviceClass: draft.serviceClass,
+      deliverBy: draft.deliverBy?.toISOString() ?? null,
+      paymentMethod: draft.paymentMethod,
+      offeredPriceCents: draft.offeredPriceCents,
+      currency: Currency.USD,
+    }))
+    .digest('hex');
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && (error as { code: string }).code === 'P2002';
 }
 
 

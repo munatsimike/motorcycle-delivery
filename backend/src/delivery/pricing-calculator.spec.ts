@@ -331,7 +331,7 @@ describe('pricing calculator', () => {
     const quoteClass = source.slice(source.indexOf('private async quoteServiceClass'), source.indexOf('private async roadMetres'));
     expect(quote).toContain('return this.quoteServiceClass(request)');
     expect(quote).not.toContain('priceMetres');
-    expect(create).toContain('return this.createV2Request(customer, body)');
+    expect(create).toContain('return this.createV2Request(customer, body, readIdempotencyKey(idempotencyKey))');
     expect(create).not.toContain('priceMetres');
     expect(createV2).toContain('calculateTariffPrice');
     expect(quoteClass).toContain('calculateTariffPrice');

@@ -57,8 +57,11 @@ export class CustomerDeliveryApiRepository implements CustomerDeliveryRepository
     return readCustomerDeliveryDetail(body);
   }
 
-  async createOpenRequest(accessToken: string, booking: PreparedBooking, offeredPrice: string): Promise<OpenBidRequest> {
-    const body = await apiPost<unknown>('/customers/me/deliveries', v2CreateBody(booking, offeredPrice), { accessToken });
+  async createOpenRequest(accessToken: string, booking: PreparedBooking, offeredPrice: string, idempotencyKey: string): Promise<OpenBidRequest> {
+    const body = await apiPost<unknown>('/customers/me/deliveries', v2CreateBody(booking, offeredPrice), {
+      accessToken,
+      headers: { 'Idempotency-Key': idempotencyKey },
+    });
     return readOpenBidRequest(body);
   }
 

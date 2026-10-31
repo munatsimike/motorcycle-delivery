@@ -1,4 +1,4 @@
-import { ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 import { UserRole } from '../generated/prisma/client.js';
 import { DeliveryController } from './delivery.controller.js';
@@ -6,13 +6,14 @@ import { DeliveryController } from './delivery.controller.js';
 const CUSTOMER = { userId: 'user-1', role: UserRole.CUSTOMER, customerAccountId: 'account-1' };
 
 describe('DeliveryController', () => {
-  const seen: { accountId?: string; deliveryId?: string } = {};
+  const seen: { accountId?: string; deliveryId?: string; idempotencyKey?: string } = {};
   const controller = new DeliveryController({
     async quote() {
       return { suggestedPrice: '2.00' };
     },
-    async create(customer: { customerAccountId: string }) {
+    async create(customer: { customerAccountId: string }, _body: unknown, idempotencyKey: string) {
       seen.accountId = customer.customerAccountId;
+      seen.idempotencyKey = idempotencyKey;
       return { id: 'delivery-1', status: 'CREATED', customerAccountId: customer.customerAccountId };
     },
     async list(customer: { customerAccountId: string }, query: { customerId?: string }) {
@@ -39,7 +40,7 @@ describe('DeliveryController', () => {
 
   it('requires an authenticated customer account', async () => {
     expect(() => controller.quote({}, {})).toThrow(ForbiddenException);
-    await expect(controller.create({}, {})).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(controller.create({ headers: { 'idempotency-key': 'booking-1' } }, {})).rejects.toBeInstanceOf(ForbiddenException);
     expect(() => controller.list({}, {})).toThrow(ForbiddenException);
     expect(() => controller.getById({}, 'delivery-1')).toThrow(ForbiddenException);
     expect(() => controller.search({}, 'delivery-1')).toThrow(ForbiddenException);
@@ -61,14 +62,17 @@ describe('DeliveryController', () => {
       },
     } as never, {} as never);
     delete process.env.V2_MARKETPLACE_ENABLED;
-    await expect(flagged.create({ customer: CUSTOMER }, {})).resolves.toEqual(created);
+    const booking = { customer: CUSTOMER, headers: { 'idempotency-key': ' booking-1 ' } };
+    await expect(flagged.create(booking, {})).resolves.toEqual(created);
     process.env.V2_MARKETPLACE_ENABLED = 'true';
-    await expect(flagged.create({ customer: CUSTOMER }, {})).resolves.toEqual(created);
+    await expect(flagged.create(booking, {})).resolves.toEqual(created);
     delete process.env.V2_MARKETPLACE_ENABLED;
     expect(searched).toBe(false);
+    await expect(flagged.create({ customer: CUSTOMER }, {})).rejects.toBeInstanceOf(BadRequestException);
 
-    const response = await controller.create({ customer: CUSTOMER }, { customerId: 'other-account' });
+    const response = await controller.create({ customer: CUSTOMER, headers: { 'idempotency-key': ' booking-1 ' } }, { customerId: 'other-account' });
     expect(seen.accountId).toBe('account-1');
+    expect(seen.idempotencyKey).toBe('booking-1');
     expect(seen.deliveryId).toBeUndefined();
     expect(response).toEqual({ id: 'delivery-1', status: 'CREATED', customerAccountId: 'account-1' });
   });
