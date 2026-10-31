@@ -90,7 +90,7 @@ export function readWalletConfig(body: unknown): ConfigInput {
   }
   return {
     welcomeBonusCents: readMoneyCents(record.welcomeBonus, true, 'Enter the welcome bonus'),
-    defaultBorrowingLimitCents: readMoneyCents(record.defaultBorrowingLimit, true, 'Enter the default borrowing limit'),
+    defaultBorrowingLimitCents: readMoneyCents(record.defaultBorrowingLimit, true, 'Enter the default negative wallet limit'),
     platformFeeCents: readMoneyCents(record.platformFee, true, 'Enter the platform fee'),
   };
 }

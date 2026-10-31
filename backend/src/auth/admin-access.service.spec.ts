@@ -62,7 +62,7 @@ function context() {
     replacedBySessionId: null,
     expiresAt: new Date(NOW.getTime() + 60_000),
   };
-  const user = {
+  const user: { id: string; role: UserRole; accountStatus: AccountStatus } = {
     id: 'admin-1',
     role: UserRole.ADMIN,
     accountStatus: AccountStatus.ACTIVE,
@@ -84,7 +84,7 @@ function context() {
     service: new AdminAccessService(db as unknown as PrismaService, accessTokens),
     session,
     user,
-    token(role = UserRole.ADMIN) {
+    token(role: UserRole = UserRole.ADMIN) {
       return `Bearer ${accessTokens.sign({ sub: user.id, role, sid: session.id }, NOW).token}`;
     },
   };

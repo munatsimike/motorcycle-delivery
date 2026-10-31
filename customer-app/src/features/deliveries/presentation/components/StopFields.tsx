@@ -1,3 +1,5 @@
+import { type ReactNode } from 'react';
+
 import FormInput from '../../../../components/FormInput';
 import ZimbabwePhoneField from '../../../../components/ZimbabwePhoneField';
 import type { StopDraft } from '../../domain/bookingDraft';
@@ -11,7 +13,7 @@ type StopFieldsProps = {
   resolvePlace: (placeId: string, sessionToken: string) => Promise<ResolvedPlace>;
   areaChoices?: PlaceSuggestion[];
   showLandmark?: boolean;
-  showInstructions?: boolean;
+  locationAction?: ReactNode;
 };
 
 export default function StopFields({
@@ -21,7 +23,7 @@ export default function StopFields({
   resolvePlace,
   areaChoices = [],
   showLandmark = true,
-  showInstructions = true,
+  locationAction = null,
 }: StopFieldsProps) {
   const dutch = stop.contactPhone.replace(/[\s()-]/g, '').startsWith('+31');
   const national = dutch ? stop.contactPhone.replace(/[\s()-]/g, '').slice(3) : stop.contactPhone;
@@ -34,6 +36,7 @@ export default function StopFields({
         searchPlaces={searchPlaces}
         resolvePlace={resolvePlace}
         areaChoices={areaChoices}
+        locationAction={locationAction}
       />
       {showLandmark ? (
         <FormInput
@@ -59,14 +62,6 @@ export default function StopFields({
           onChange({ contactPhone: dutch ? `+31${digits}` : digits });
         }}
       />
-      {showInstructions ? (
-        <FormInput
-          label="Instructions for the rider (optional)"
-          value={stop.instructions}
-          onChangeText={(instructions) => onChange({ instructions })}
-          maxLength={500}
-        />
-      ) : null}
     </>
   );
 }

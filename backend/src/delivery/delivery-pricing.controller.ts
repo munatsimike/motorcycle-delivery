@@ -1,9 +1,8 @@
-import { Body, Controller, ForbiddenException, Get, HttpCode, Param, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, HttpCode, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiForbiddenResponse, ApiNotFoundResponse, ApiOkResponse, ApiOperation, ApiParam, ApiQuery, ApiTags, ApiUnauthorizedResponse } from '@nestjs/swagger';
 import { AdminAccessGuard, type AdminRequest } from '../auth/admin-access.guard.js';
-import { ClassTariffBody, ClassTariffResponse, ClassTariffsResponse, DeliveryPricingBody, DeliveryPricingResponse, PricingAuditPage, WindowEnabledBody } from '../openapi/schemas.js';
+import { ClassTariffBody, ClassTariffResponse, ClassTariffsResponse, PricingAuditPage, WindowEnabledBody } from '../openapi/schemas.js';
 import { ClassPricingService } from './class-pricing.service.js';
-import { DeliveryPricingService } from './delivery-pricing.service.js';
 
 @ApiTags('Admin delivery pricing')
 @ApiBearerAuth('bearer')
@@ -12,29 +11,7 @@ import { DeliveryPricingService } from './delivery-pricing.service.js';
 @Controller('admin/delivery-pricing')
 @UseGuards(AdminAccessGuard)
 export class DeliveryPricingController {
-  constructor(
-    private readonly pricing: DeliveryPricingService,
-    private readonly classPricing: ClassPricingService,
-  ) {}
-
-  @Get()
-  @ApiOperation({ summary: 'Read the active delivery tariff' })
-  @ApiOkResponse({ type: DeliveryPricingResponse })
-  @ApiNotFoundResponse({ description: 'Delivery pricing is not configured' })
-  current(@Req() request: AdminRequest) {
-    requiredAdmin(request);
-    return this.pricing.current();
-  }
-
-  @Put()
-  @HttpCode(200)
-  @ApiOperation({ summary: 'Replace the active delivery tariff' })
-  @ApiBody({ type: DeliveryPricingBody })
-  @ApiOkResponse({ type: DeliveryPricingResponse, description: 'The new active tariff, or the current tariff when the submitted values are unchanged.' })
-  replace(@Req() request: AdminRequest, @Body() body: unknown) {
-    const admin = requiredAdmin(request);
-    return this.pricing.replace(admin, body);
-  }
+  constructor(private readonly classPricing: ClassPricingService) {}
 
   @Get('classes')
   @ApiOperation({ summary: 'Read the active Express and Flexible tariffs' })

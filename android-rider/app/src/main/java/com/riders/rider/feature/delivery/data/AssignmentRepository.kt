@@ -6,6 +6,7 @@ import com.riders.rider.core.network.apiCall
 import com.riders.rider.feature.delivery.domain.AssignmentLookup
 import com.riders.rider.feature.delivery.domain.CommittedParcel
 import com.riders.rider.feature.delivery.domain.toActiveDelivery
+import com.riders.rider.feature.delivery.domain.completedDeliveries
 import com.riders.rider.feature.delivery.domain.toCommittedParcel
 import com.riders.rider.feature.delivery.domain.toContacts
 import javax.inject.Inject
@@ -16,6 +17,7 @@ class AssignmentRepository @Inject constructor(
     private val riders: RiderService,
     private val committed: AssignmentListStore,
 ) {
+    private var completedParcels: List<CommittedParcel> = emptyList()
     suspend fun lookup(): AssignmentLookup {
         return when (val result = apiCall { riders.activeAssignment() }) {
             is ApiResult.Ok -> {
@@ -52,8 +54,24 @@ class AssignmentRepository @Inject constructor(
 
     fun lastRefreshApplied(): Boolean = committed.lastRefreshApplied()
 
+    suspend fun refreshCompleted(): ApiResult<List<CommittedParcel>> {
+        return when (val result = apiCall { riders.completedAssignments() }) {
+            is ApiResult.Ok -> {
+                val parcels = completedDeliveries(result.value.assignments.map { it.toCommittedParcel() })
+                completedParcels = parcels
+                ApiResult.Ok(parcels)
+            }
+            is ApiResult.Err -> result
+        }
+    }
+
+    fun completedParcel(deliveryId: String): CommittedParcel? {
+        return completedParcels.firstOrNull { it.deliveryId == deliveryId }
+    }
+
     fun clearSession() {
         committed.clearSession()
+        completedParcels = emptyList()
     }
 
     fun confirmStatus(deliveryId: String, status: String) {

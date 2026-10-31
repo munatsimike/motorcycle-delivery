@@ -148,13 +148,12 @@ it('cancels a V2 delivery for the customer immediately after acceptance', async 
 
 it('cancels after arrival and refuses cancellation after pickup', async () => {
   const arrived = await acceptedJob();
-  await dispatch.progress(arrived.rider, arrived.deliveryId, { status: 'COLLECTING' }, NOW, `collect-${arrived.deliveryId}`);
+  await prisma.delivery.update({ where: { id: arrived.deliveryId }, data: { status: 'COLLECTING' } });
   await dispatch.cancel(customer, arrived.deliveryId, NOW);
   expect((await prisma.deliveryAssignment.findUnique({ where: { id: arrived.assignmentId } }))?.cancellationStage).toBe('COLLECTING');
   expect((await prisma.delivery.findUnique({ where: { id: arrived.deliveryId } }))?.status).toBe('CANCELLED');
 
   const picked = await acceptedJob();
-  await dispatch.progress(picked.rider, picked.deliveryId, { status: 'COLLECTING' }, NOW, `collect-${picked.deliveryId}`);
   await dispatch.progress(picked.rider, picked.deliveryId, { status: 'COLLECTED' }, NOW, `collected-${picked.deliveryId}`);
   await expect(dispatch.cancel(customer, picked.deliveryId, NOW)).rejects.toThrow('This delivery cannot be cancelled');
   expect((await prisma.deliveryAssignment.findUnique({ where: { id: picked.assignmentId } }))?.status).toBe('ACCEPTED');

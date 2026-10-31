@@ -4,7 +4,7 @@ export type OpenBidRequest = {
   id: string;
   status: 'CREATED';
   serviceClass: ServiceClass;
-  deliverBy: string;
+  deliverBy: string | null;
   suggestedPrice: string;
   currency: 'USD';
 };
@@ -21,7 +21,10 @@ export function readOpenBidRequest(value: unknown): OpenBidRequest {
   if (value.serviceClass !== 'EXPRESS' && value.serviceClass !== 'FLEXIBLE') {
     throw new Error('Delivery details are unavailable.');
   }
-  if (typeof value.deliverBy !== 'string' || Number.isNaN(new Date(value.deliverBy).getTime())) {
+  const deliverBy = value.deliverBy == null || value.deliverBy === ''
+    ? null
+    : value.deliverBy;
+  if (deliverBy !== null && (typeof deliverBy !== 'string' || Number.isNaN(new Date(deliverBy).getTime()))) {
     throw new Error('Delivery details are unavailable.');
   }
   if (value.currency !== 'USD' || typeof value.suggestedPrice !== 'string' || !/^\d{1,10}\.\d{2}$/.test(value.suggestedPrice)) {
@@ -37,7 +40,7 @@ export function readOpenBidRequest(value: unknown): OpenBidRequest {
     id: value.id,
     status: 'CREATED',
     serviceClass: value.serviceClass,
-    deliverBy: value.deliverBy,
+    deliverBy,
     suggestedPrice: value.suggestedPrice,
     currency: 'USD',
   };

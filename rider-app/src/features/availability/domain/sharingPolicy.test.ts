@@ -30,7 +30,8 @@ describe('rider location sharing policy', () => {
     expect(canGoOnline({ ...ready, availability: 'BUSY' })).toBe(false);
     expect(canGoOnline({ ...ready, availability: 'AVAILABLE' })).toBe(false);
     expect(canGoOffline({ ...ready, availability: 'AVAILABLE' })).toBe(true);
-    expect(canGoOffline({ ...ready, availability: 'BUSY' })).toBe(false);
+    expect(canGoOffline({ ...ready, availability: 'BUSY' })).toBe(true);
+    expect(canGoOffline({ ...ready, availability: 'OFFLINE' })).toBe(false);
   });
 
   it('follows the server when a rider becomes busy or the app is backgrounded', () => {

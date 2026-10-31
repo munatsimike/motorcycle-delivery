@@ -4,11 +4,17 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { AuthModule } from '../auth/auth.module.js';
 import { DeliveryModule } from '../delivery/delivery.module.js';
 import { DispatchWorker } from '../delivery/dispatch.worker.js';
-import { RiderOfferNotificationWorker } from '../delivery/rider-offer-notification.worker.js';
 import { V2NoticeWorker } from '../delivery/v2-notice.worker.js';
 import { CoordinateRetentionWorker } from '../delivery/coordinate-retention.worker.js';
 import { RiderAvailabilityAlertWorker } from '../delivery/rider-availability-alert.worker.js';
 import { LicenceImageCleanup } from './licence-image.cleanup.js';
+import { CustomerAccountProfilePhotoController } from './customer-account-profile-photo.controller.js';
+import { CustomerAccountProfilePhotoService } from './customer-account-profile-photo.service.js';
+import { CustomerProfilePhotoController } from './customer-profile-photo.controller.js';
+import { CustomerProfilePhotoService } from './customer-profile-photo.service.js';
+import { ProfilePhotoCleanup } from './profile-photo.cleanup.js';
+import { ProfilePhotoController } from './profile-photo.controller.js';
+import { ProfilePhotoService } from './profile-photo.service.js';
 import { LicenceImageController } from './licence-image.controller.js';
 import { LicenceImageService } from './licence-image.service.js';
 import { LicenceReviewService } from './licence-review.service.js';
@@ -29,8 +35,6 @@ import { RiderPushDeviceController } from './rider-push-device.controller.js';
 import { RiderPushDeviceService } from './rider-push-device.service.js';
 import { RiderOnboardingService } from './rider-onboarding.service.js';
 import { RiderWalletController } from './rider-wallet.controller.js';
-import { CommissionPolicyController } from './commission-policy.controller.js';
-import { CommissionPolicyService } from './commission-policy.service.js';
 import { V2CommissionRateController } from './v2-commission-rate.controller.js';
 import { V2CommissionRateService } from './v2-commission-rate.service.js';
 import { WalletConfigController } from './wallet-config.controller.js';
@@ -43,6 +47,9 @@ import { createS3Client, S3_CLIENT_FACTORY, S3ObjectStorage } from './s3-object-
   imports: [AuthModule, DeliveryModule, ScheduleModule.forRoot()],
   controllers: [
     LicenceImageController,
+    ProfilePhotoController,
+    CustomerProfilePhotoController,
+    CustomerAccountProfilePhotoController,
     MotorcycleController,
     MotorcycleReviewController,
     RiderAdminController,
@@ -52,13 +59,16 @@ import { createS3Client, S3_CLIENT_FACTORY, S3ObjectStorage } from './s3-object-
     RiderOnboardingController,
     RiderPushDeviceController,
     RiderWalletController,
-    CommissionPolicyController,
     V2CommissionRateController,
     WalletConfigController,
   ],
   providers: [
     LicenceImageService,
     LicenceImageCleanup,
+    ProfilePhotoService,
+    ProfilePhotoCleanup,
+    CustomerProfilePhotoService,
+    CustomerAccountProfilePhotoService,
     LicenceReviewService,
     MotorcycleService,
     MotorcycleListService,
@@ -69,12 +79,10 @@ import { createS3Client, S3_CLIENT_FACTORY, S3ObjectStorage } from './s3-object-
     RiderLocationService,
     RiderOnboardingService,
     DispatchWorker,
-    RiderOfferNotificationWorker,
     V2NoticeWorker,
     RiderPushDeviceService,
     CoordinateRetentionWorker,
     RiderAvailabilityAlertWorker,
-    CommissionPolicyService,
     V2CommissionRateService,
     WalletConfigService,
     WalletService,

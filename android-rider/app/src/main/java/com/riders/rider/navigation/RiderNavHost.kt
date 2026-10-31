@@ -1,6 +1,8 @@
 package com.riders.rider.navigation
 
 import android.net.Uri
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.ContentTransform
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -10,45 +12,69 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.riders.rider.core.design.RiderTransition
+import com.riders.rider.core.design.rememberRidersMotion
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.riders.rider.feature.offers.notification.rememberOfferInbox
 import com.riders.rider.feature.auth.presentation.AccountScreen
 import com.riders.rider.feature.auth.presentation.OtpScreen
 import com.riders.rider.feature.auth.presentation.RegisterScreen
 import com.riders.rider.feature.auth.presentation.SignInScreen
+import com.riders.rider.feature.auth.domain.signedOutStart
 import com.riders.rider.feature.auth.presentation.WelcomeScreen
 import com.riders.rider.feature.delivery.domain.parcelRoute
 import com.riders.rider.feature.delivery.presentation.DeliveryScreen
 import com.riders.rider.feature.onboarding.presentation.OnboardingScreen
 
 @Composable
-fun RiderNavHost(signedIn: Boolean) {
-    key(signedIn) {
-        RiderGraph(signedIn)
+fun RiderNavHost(signedIn: Boolean, notice: String? = null) {
+    val motion = rememberRidersMotion()
+    val sessionMs = motion.millis(RiderTransition.DeliveryForward)
+    AnimatedContent(
+        targetState = signedIn,
+        transitionSpec = {
+            val opening = targetState
+            ContentTransform(
+                targetContentEnter = if (opening) deliveryForwardEnter(sessionMs) else deliveryBackEnter(sessionMs),
+                initialContentExit = if (opening) deliveryForwardExit(sessionMs) else deliveryBackExit(sessionMs),
+                sizeTransform = null,
+            )
+        },
+        label = "rider-session",
+    ) { signed ->
+        key(signed) {
+            RiderGraph(signed, notice)
+        }
     }
 }
 
 @Composable
-private fun RiderGraph(signedIn: Boolean) {
+private fun RiderGraph(signedIn: Boolean, notice: String?) {
     val controller = rememberNavController()
+    val motion = rememberRidersMotion()
+    val deliveryMs = motion.millis(RiderTransition.DeliveryForward)
     if (signedIn) {
         val pending = rememberOfferInbox()
-        val offerTap by pending.taps.collectAsStateWithLifecycle()
         val acceptedDelivery by pending.acceptedTaps.collectAsStateWithLifecycle()
         LaunchedEffect(acceptedDelivery) {
             val deliveryId = acceptedDelivery ?: return@LaunchedEffect
             controller.navigate(parcelRoute(deliveryId))
             pending.clearAccepted()
         }
-        LaunchedEffect(offerTap) {
-            if (offerTap != null && controller.currentDestination?.route?.startsWith("delivery/") == true) {
-                controller.popBackStack(RIDER_SHELL, inclusive = false)
-            }
-        }
     }
     NavHost(
         navController = controller,
-        startDestination = if (signedIn) RIDER_SHELL else "welcome",
+        startDestination = if (signedIn) {
+            RIDER_SHELL
+        } else if (signedOutStart(notice) == "sign-in") {
+            "sign-in?notice=${Uri.encode(notice)}"
+        } else {
+            "welcome"
+        },
+        enterTransition = { deliveryForwardEnter(deliveryMs) },
+        exitTransition = { deliveryForwardExit(deliveryMs) },
+        popEnterTransition = { deliveryBackEnter(deliveryMs) },
+        popExitTransition = { deliveryBackExit(deliveryMs) },
     ) {
         composable("welcome") {
             WelcomeScreen(
@@ -137,10 +163,11 @@ private fun RiderGraph(signedIn: Boolean) {
         ) {
             AccountScreen()
         }
-        composable(RIDER_SHELL) { entry ->
+        composable(route = RIDER_SHELL) { entry ->
             RiderShell(
                 entry = entry,
-                onDelivery = { deliveryId -> controller.navigate("delivery/$deliveryId") },
+                onDelivery = { deliveryId -> controller.navigate(parcelRoute(deliveryId)) },
+                onCompleted = { deliveryId -> controller.navigate(parcelRoute(deliveryId, completed = true)) },
                 onAccepted = { deliveryId ->
                     controller.navigate("delivery/$deliveryId") {
                         popUpTo(RIDER_SHELL)
@@ -169,11 +196,18 @@ private fun RiderGraph(signedIn: Boolean) {
             )
         }
         composable(
-            route = "delivery/{deliveryId}",
-            arguments = listOf(navArgument("deliveryId") { type = NavType.StringType }),
+            route = "delivery/{deliveryId}?completed={completed}",
+            arguments = listOf(
+                navArgument("deliveryId") { type = NavType.StringType },
+                navArgument("completed") {
+                    type = NavType.BoolType
+                    defaultValue = false
+                },
+            ),
         ) { entry ->
             DeliveryScreen(
                 deliveryId = entry.arguments?.getString("deliveryId").orEmpty(),
+                completed = entry.arguments?.getBoolean("completed") == true,
                 onFinished = { controller.popBackStack(RIDER_SHELL, inclusive = false) },
             )
         }

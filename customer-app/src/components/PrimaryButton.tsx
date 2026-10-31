@@ -12,6 +12,7 @@ type PrimaryButtonProps = {
   loadingLabel?: string;
   icon?: ComponentProps<typeof MaterialDesignIcons>['name'];
   trailingIcon?: ComponentProps<typeof MaterialDesignIcons>['name'];
+  compact?: boolean;
 };
 
 export default function PrimaryButton({
@@ -22,6 +23,7 @@ export default function PrimaryButton({
   loadingLabel,
   icon,
   trailingIcon,
+  compact = false,
 }: PrimaryButtonProps) {
   const inactive = disabled || loading;
 
@@ -32,6 +34,7 @@ export default function PrimaryButton({
       onPress={onPress}
       style={({ pressed }) => [
         styles.button,
+        compact && styles.compact,
         inactive && styles.inactive,
         pressed && !inactive && styles.pressed,
       ]}
@@ -69,6 +72,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: spacing.lg,
+  },
+  compact: {
+    minHeight: 40,
+    alignSelf: 'flex-end',
+    paddingHorizontal: spacing.md,
   },
   inactive: {
     opacity: 0.6,

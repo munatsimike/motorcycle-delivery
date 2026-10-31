@@ -6,13 +6,13 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-const val WALLET_BALANCE_EXPLANATION = "This is your wallet balance. A negative balance is an amount owed to the platform."
+const val WALLET_BALANCE_EXPLANATION = "This is the cash balance. A negative amount is owed to the platform."
 const val WALLET_CAPACITY_EXPLANATION = "This is the amount available to cover platform fees."
-const val WALLET_BORROWING_EXPLANATION = "This is permission to owe the platform up to this limit. It is not cash, earnings, or money received."
+const val WALLET_TOP_UP_REQUIRED = "Top up your wallet to take new deliveries."
+const val WALLET_BORROWING_EXPLANATION = "Platform fees can be deducted while the balance is below zero."
 const val WALLET_BORROWING_OVERRIDE = "This limit was set for your account."
 const val WALLET_RESERVED_EXPLANATION = "These platform fees are held for accepted deliveries and are not yet deducted."
 const val WALLET_CUSTOMER_PAYMENT = "Customers pay you directly. The wallet does not confirm that you have received that payment."
-const val WALLET_PROMOTIONAL_EXPLANATION = "Promotional credits and welcome bonuses appear in the history and increase this balance."
 
 data class WalletEntry(
     val id: String,
@@ -46,11 +46,23 @@ fun walletEntryLabel(type: String): String = when (type) {
 
 fun walletMoneyLabel(currency: String, amount: String): String = "$currency $amount"
 
+fun signedWalletLabel(currency: String, amount: String): String {
+    val trimmed = amount.trim()
+    if (trimmed.startsWith("-")) {
+        return "−$currency ${trimmed.removePrefix("-")}"
+    }
+    return "$currency $trimmed"
+}
+
 fun walletBalanceIsNegative(amount: String): Boolean = amount.trim().startsWith("-")
 
 fun walletBorrowingSourceLabel(source: String): String = when (source) {
-    "OVERRIDE" -> "Account limit"
+    "OVERRIDE" -> "Account-specific limit"
     else -> "Standard limit"
+}
+
+fun walletLimitCaption(summary: WalletSummary): String {
+    return "${walletBorrowingSourceLabel(summary.borrowingLimitSource)}. $WALLET_BORROWING_EXPLANATION"
 }
 
 fun walletWhenLabel(createdAt: String): String = formatWalletInstant(createdAt, WHEN)
@@ -90,6 +102,9 @@ data class WalletSummary(
     val reservedFees: String,
     val availableCapacity: String,
     val currency: String,
+    val promotionalBalance: String = "0.00",
+    val availablePromotionalCredit: String = "0.00",
+    val newDeliveriesRestricted: Boolean = false,
 )
 
 data class WalletBoard(
@@ -142,7 +157,22 @@ fun shouldLoadWalletPage(nextCursor: String?, busy: Boolean): Boolean {
     return !nextCursor.isNullOrBlank() && !busy
 }
 
-fun displayedBalance(summary: WalletSummary): String = walletMoneyLabel(summary.currency, summary.balance)
+fun displayedBalance(summary: WalletSummary): String = signedWalletLabel(summary.currency, summary.balance)
+
+fun statementAmount(currency: String, type: String, amount: String): String {
+    val digits = amount.trim().removePrefix("-").removePrefix("+")
+    val credit = when (type) {
+        "PLATFORM_FEE" -> false
+        "TOP_UP", "WELCOME_BONUS", "PROMOTIONAL_CREDIT", "PLATFORM_FEE_REFUND", "PLATFORM_FEE_RELEASE" -> true
+        else -> !amount.trim().startsWith("-")
+    }
+    return if (credit) "+$currency $digits" else "−$currency $digits"
+}
+
+fun statementReference(receipt: String?, reason: String?): String? {
+    receipt?.takeIf { it.isNotBlank() }?.let { return it }
+    return reason?.takeIf { it.isNotBlank() }
+}
 
 fun displayedCapacity(summary: WalletSummary): String = walletMoneyLabel(summary.currency, summary.availableCapacity)
 

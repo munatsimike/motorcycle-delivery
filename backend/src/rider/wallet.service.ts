@@ -78,13 +78,13 @@ export class WalletService {
 
 export function readBorrowingLimit(body: unknown): number | null {
   if (typeof body !== 'object' || body === null || Array.isArray(body) || !('borrowingLimit' in body)) {
-    throw new BadRequestException('Enter the borrowing limit');
+    throw new BadRequestException('Enter the negative wallet limit');
   }
   const value = (body as { borrowingLimit: unknown }).borrowingLimit;
   if (value === null) {
     return null;
   }
-  return readMoneyCents(value, true, 'Enter the borrowing limit');
+  return readMoneyCents(value, true, 'Enter the negative wallet limit');
 }
 
 function toWalletView(wallet: {

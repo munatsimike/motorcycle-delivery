@@ -84,10 +84,11 @@ beforeAll(async () => {
           AND "accepted_fee_config_version" >= 1
         )
       );
-    CREATE UNIQUE INDEX "delivery_assignments_one_accepted_per_rider_idx"
-      ON "delivery_assignments" ("rider_profile_id") WHERE "status" = 'ACCEPTED';
     CREATE UNIQUE INDEX "delivery_assignments_one_accepted_per_delivery_idx"
       ON "delivery_assignments" ("delivery_id") WHERE "status" = 'ACCEPTED';
+    CREATE UNIQUE INDEX "delivery_assignments_one_open_offer_per_rider_idx"
+      ON "delivery_assignments" ("delivery_id", "rider_profile_id")
+      WHERE "status" IN ('OFFERED', 'ACCEPTED');
     CREATE TABLE "bids" (
       "id" UUID PRIMARY KEY,
       "delivery_id" UUID NOT NULL REFERENCES "deliveries"("id"),
@@ -148,7 +149,9 @@ it('stores a V2 accepted assignment with a null platform fee and keeps the snaps
   const statuses = await observer.query("SELECT enumlabel FROM pg_enum JOIN pg_type ON pg_type.oid = enumtypid WHERE typname = 'delivery_status'");
   expect(statuses.rows.map((row) => row.enumlabel)).toContain('RIDER_ASSIGNED');
   const indexes = await observer.query("SELECT indexname FROM pg_indexes WHERE indexname = 'delivery_assignments_one_accepted_per_rider_idx'");
-  expect(indexes.rows).toHaveLength(1);
+  expect(indexes.rows).toHaveLength(0);
+  const perDelivery = await observer.query("SELECT indexname FROM pg_indexes WHERE indexname = 'delivery_assignments_one_accepted_per_delivery_idx'");
+  expect(perDelivery.rows).toHaveLength(1);
   const express = await observer.query("SELECT indexname FROM pg_indexes WHERE indexname LIKE '%live_express%'");
   expect(express.rows).toHaveLength(0);
 
@@ -187,14 +190,21 @@ it('stores a V2 accepted assignment with a null platform fee and keeps the snaps
   });
 });
 
-it('rejects a second accepted assignment, a second accepted bid, a zero reservation, and a second open reservation', async () => {
-  await expect(observer.query(
+it('allows a second accepted assignment for the same rider and rejects a second one on the same delivery', async () => {
+  await observer.query(
     `INSERT INTO delivery_assignments (
        id, delivery_id, rider_profile_id, status, offer_expires_at, service_class,
        accepted_bid_amount, accepted_commission_basis_points, accepted_v2_commission_rate_version, accepted_commission_amount
      ) VALUES ($1, $2, $3, 'ACCEPTED', NOW(), 'FLEXIBLE', 8.00, 1000, 4, 0.80)`,
     ['00000000-0000-7000-8000-000000000021', DELIVERY_E, RIDER_A],
-  )).rejects.toMatchObject({ code: '23505', constraint: 'delivery_assignments_one_accepted_per_rider_idx' });
+  );
+  await expect(observer.query(
+    `INSERT INTO delivery_assignments (
+       id, delivery_id, rider_profile_id, status, offer_expires_at, service_class,
+       accepted_bid_amount, accepted_commission_basis_points, accepted_v2_commission_rate_version, accepted_commission_amount
+     ) VALUES ($1, $2, $3, 'ACCEPTED', NOW(), 'EXPRESS', 9.00, 1000, 4, 0.90)`,
+    ['00000000-0000-7000-8000-000000000022', DELIVERY_A, RIDER_B],
+  )).rejects.toMatchObject({ code: '23505', constraint: 'delivery_assignments_one_accepted_per_delivery_idx' });
 
   await observer.query(
     `INSERT INTO bids (id, delivery_id, rider_profile_id, amount, status) VALUES ($1, $2, $3, 10.00, 'ACCEPTED')`,
@@ -232,7 +242,7 @@ it('rejects a second accepted assignment, a second accepted bid, a zero reservat
   expect(stored.rows[0]?.count).toBe(1);
 });
 
-it('lets one of two concurrent accepted inserts win for the same rider', async () => {
+it('lets one rider hold two accepted marketplace assignments at once', async () => {
   const first = observer.query(
     `INSERT INTO delivery_assignments (
        id, delivery_id, rider_profile_id, status, offer_expires_at, service_class,
@@ -248,14 +258,9 @@ it('lets one of two concurrent accepted inserts win for the same rider', async (
     ['00000000-0000-7000-8000-000000000032', DELIVERY_D, RIDER_C],
   );
   const results = await Promise.allSettled([first, second]);
-  expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
-  const rejected = results.find((result) => result.status === 'rejected');
-  expect(rejected?.status === 'rejected' ? rejected.reason : null).toMatchObject({
-    code: '23505',
-    constraint: 'delivery_assignments_one_accepted_per_rider_idx',
-  });
+  expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(2);
   const rows = await observer.query("SELECT count(*)::int AS count FROM delivery_assignments WHERE rider_profile_id = $1 AND status = 'ACCEPTED'", [RIDER_C]);
-  expect(rows.rows[0]?.count).toBe(1);
+  expect(rows.rows[0]?.count).toBe(2);
 });
 
 async function applySql(client: pg.Client, path: string) {

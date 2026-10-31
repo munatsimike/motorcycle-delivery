@@ -34,4 +34,19 @@ describe('rider wallet migration', () => {
     expect(statements).not.toContain('rider_licence_reviews_image_owner_fkey');
     expect(statements).not.toContain('deliveries_price_nonnegative_chk');
   });
+
+  it('separates future promotional credit without rewriting historical wallet rows', () => {
+    const statements = readFileSync('prisma/migrations/20261029180000_promotional_wallet_balance/migration.sql', 'utf8')
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('--'))
+      .join('\n');
+    expect(statements).toContain('CREATE TABLE "rider_promotional_entries"');
+    expect(statements).toContain('promotional_balance');
+    expect(statements).toContain('500.00');
+    expect(statements).toContain('default_borrowing_limit" = 500.00');
+    expect(statements).not.toContain('UPDATE "rider_wallets"');
+    expect(statements).not.toContain('UPDATE "rider_wallet_entries"');
+    expect(statements).not.toContain('welcome_bonus_awarded_at');
+    expect(statements).not.toContain('20261014100000');
+  });
 });

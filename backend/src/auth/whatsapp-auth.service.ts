@@ -22,6 +22,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { createEmptyWallet } from '../rider/wallet-ledger.js';
 import {
   DEV_OTP_TTL_MS,
+  INFOBIP_OTP_TTL_MS,
   OTP_CHALLENGE_TTL_MS,
   OTP_COOLDOWN_MS,
   OTP_IP_HOURLY_LIMIT,
@@ -37,8 +38,9 @@ import { PhoneVerificationProvider } from './phone-verification.provider.js';
 import { readAddress } from '../customer/customer-profile.js';
 import { SessionService, type AuthTokens } from './session.service.js';
 import { TooManyRequestsException } from './too-many-requests.exception.js';
+import { readRegistrationProof, signRegistrationProof } from './registration-proof.js';
 import { hashSecret } from './token-hash.js';
-import { readWhatsAppVerificationConfig } from './whatsapp-verification.js';
+import { readInfobipWhatsAppConfig, readWhatsAppVerificationConfig } from './whatsapp-verification.js';
 
 const HOUR_MS = 60 * 60 * 1000;
 const ALREADY_REGISTERED = 'Phone number is already registered';
@@ -50,6 +52,15 @@ const accountInclude = {
 } satisfies Prisma.UserInclude;
 
 type AccountRecord = Prisma.UserGetPayload<{ include: typeof accountInclude }>;
+
+export type RiderRegistrationProof = {
+  status: 'verified';
+  registrationToken: string;
+  fullName?: string;
+  readOnly?: Array<'fullName'>;
+};
+
+export type RiderVerificationResult = AuthTokens | RiderRegistrationProof;
 
 @Injectable()
 export class WhatsAppAuthService {
@@ -63,12 +74,15 @@ export class WhatsAppAuthService {
   async startRegistration(role: AuthSubjectRole, body: unknown, remoteAddress: string): Promise<{ status: 'pending' }> {
     const phone = readPhone(body);
     assertConsent(body);
-    const profile = role === AuthSubjectRole.CUSTOMER ? readCustomerProfile(body) : null;
-    const rider = role === AuthSubjectRole.RIDER ? readRiderAccount(body) : null;
+    if (role === AuthSubjectRole.RIDER) {
+      await this.sendRiderCode(phone, AuthPurpose.WHATSAPP_REGISTRATION, remoteAddress);
+      return { status: 'pending' };
+    }
+    const profile = readCustomerProfile(body);
     this.assertConfigured();
     const now = this.clock.now();
     await this.assertRegistrationSendAllowed(phone, role, hashSecret(remoteAddress), now);
-    const user = await this.savePendingAccount(role, phone, profile, rider, now);
+    const user = await this.savePendingAccount(role, phone, profile, null, now);
     await this.sendChallenge({
       phone,
       role,
@@ -85,6 +99,10 @@ export class WhatsAppAuthService {
 
   async resendRegistration(role: AuthSubjectRole, body: unknown, remoteAddress: string): Promise<{ status: 'pending' }> {
     const phone = readPhone(body);
+    if (role === AuthSubjectRole.RIDER) {
+      await this.resendRiderCode(phone, AuthPurpose.WHATSAPP_REGISTRATION, remoteAddress);
+      return { status: 'pending' };
+    }
     this.assertConfigured();
     const now = this.clock.now();
     await this.assertRegistrationSendAllowed(phone, role, hashSecret(remoteAddress), now);
@@ -104,7 +122,10 @@ export class WhatsAppAuthService {
     return { status: 'pending' };
   }
 
-  async verifyRegistration(role: AuthSubjectRole, body: unknown): Promise<AuthTokens> {
+  async verifyRegistration(role: AuthSubjectRole, body: unknown): Promise<RiderVerificationResult> {
+    if (role === AuthSubjectRole.RIDER) {
+      return this.finishRiderVerification(AuthPurpose.WHATSAPP_REGISTRATION, body);
+    }
     const phone = readPhone(body);
     const code = readCode(body, 'Verification code is invalid');
     this.assertConfigured();
@@ -116,7 +137,7 @@ export class WhatsAppAuthService {
     if (!challenge) {
       throw new UnauthorizedException('Verification code is invalid');
     }
-    const approved = await this.verification.check(phone, code);
+    const approved = await this.verification.check(phone, code, verificationContext(challenge));
     if (!approved) {
       await this.recordCheckFailure(challenge.id, challenge.checkAttempts, now);
       throw new UnauthorizedException('Verification code is invalid');
@@ -127,6 +148,10 @@ export class WhatsAppAuthService {
   async startLogin(role: AuthSubjectRole, body: unknown, remoteAddress: string): Promise<LoginStart> {
     const phone = readPhone(body);
     assertConsent(body);
+    if (role === AuthSubjectRole.RIDER) {
+      await this.sendRiderCode(phone, AuthPurpose.LOGIN, remoteAddress);
+      return { status: 'pending' };
+    }
     this.assertConfigured();
     const now = this.clock.now();
     if (await this.loginSendBlocked(phone, role, hashSecret(remoteAddress), now)) {
@@ -152,6 +177,10 @@ export class WhatsAppAuthService {
 
   async resendLogin(role: AuthSubjectRole, body: unknown, remoteAddress: string): Promise<LoginStart> {
     const phone = readPhone(body);
+    if (role === AuthSubjectRole.RIDER) {
+      await this.resendRiderCode(phone, AuthPurpose.LOGIN, remoteAddress);
+      return { status: 'pending' };
+    }
     this.assertConfigured();
     const now = this.clock.now();
     if (await this.loginSendBlocked(phone, role, hashSecret(remoteAddress), now)) {
@@ -172,7 +201,10 @@ export class WhatsAppAuthService {
     return { status: 'pending' };
   }
 
-  async verifyLogin(role: AuthSubjectRole, body: unknown): Promise<AuthTokens> {
+  async verifyLogin(role: AuthSubjectRole, body: unknown): Promise<RiderVerificationResult> {
+    if (role === AuthSubjectRole.RIDER) {
+      return this.finishRiderVerification(AuthPurpose.LOGIN, body);
+    }
     const phone = readPhone(body);
     const code = readCode(body, 'Verification code is invalid');
     this.assertConfigured();
@@ -184,7 +216,7 @@ export class WhatsAppAuthService {
     if (!challenge) {
       throw new UnauthorizedException('Verification code is invalid');
     }
-    const approved = await this.verification.check(phone, code);
+    const approved = await this.verification.check(phone, code, verificationContext(challenge));
     if (!approved) {
       await this.recordCheckFailure(challenge.id, challenge.checkAttempts, now);
       throw new UnauthorizedException('Verification code is invalid');
@@ -205,6 +237,215 @@ export class WhatsAppAuthService {
     });
   }
 
+  async completeRiderRegistration(body: unknown): Promise<AuthTokens> {
+    const details = readRiderAccount(body);
+    const token = readRegistrationToken(body);
+    this.assertConfigured();
+    const now = this.clock.now();
+    const claims = readRiderProof(token, now);
+    const challenge = await this.prisma.authChallenge.findFirst({ where: { id: claims.challengeId } });
+    if (!usableRiderProof(challenge, claims.phone)) {
+      throw new UnauthorizedException(GENERIC_FAILURE);
+    }
+    const consumed = await this.prisma.authChallenge.updateMany({
+      where: { id: challenge.id, status: AuthChallengeStatus.VERIFIED },
+      data: { status: AuthChallengeStatus.SUPERSEDED },
+    });
+    if (consumed.count !== 1) {
+      throw new UnauthorizedException(GENERIC_FAILURE);
+    }
+    try {
+      return await this.prisma.$transaction((tx) => this.attachRiderProfile(tx, claims.phone, details, now));
+    } catch (error) {
+      if (error instanceof UnauthorizedException || error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new UnauthorizedException(GENERIC_FAILURE);
+    }
+  }
+
+  private async sendRiderCode(phone: string, purpose: AuthPurpose, remoteAddress: string): Promise<void> {
+    this.assertConfigured();
+    const now = this.clock.now();
+    if (purpose === AuthPurpose.LOGIN) {
+      if (await this.loginSendBlocked(phone, AuthSubjectRole.RIDER, hashSecret(remoteAddress), now)) {
+        throw new TooManyRequestsException();
+      }
+    } else {
+      await this.assertRegistrationSendAllowed(phone, AuthSubjectRole.RIDER, hashSecret(remoteAddress), now);
+    }
+    await this.sendChallenge({
+      phone,
+      role: AuthSubjectRole.RIDER,
+      purpose,
+      remoteAddress,
+      now,
+      concealFailure: false,
+    });
+  }
+
+  private async resendRiderCode(phone: string, purpose: AuthPurpose, remoteAddress: string): Promise<void> {
+    this.assertConfigured();
+    const now = this.clock.now();
+    if (purpose === AuthPurpose.LOGIN) {
+      if (await this.loginSendBlocked(phone, AuthSubjectRole.RIDER, hashSecret(remoteAddress), now)) {
+        throw new TooManyRequestsException();
+      }
+    } else {
+      await this.assertRegistrationSendAllowed(phone, AuthSubjectRole.RIDER, hashSecret(remoteAddress), now);
+    }
+    const prior = await this.prisma.authChallenge.findFirst({
+      where: {
+        phone,
+        subjectRole: AuthSubjectRole.RIDER,
+        purpose,
+        channel: VerificationChannel.WHATSAPP,
+        sendCount: { gt: 0 },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!prior) {
+      await this.recordConcealed(phone, AuthSubjectRole.RIDER, purpose, hashSecret(remoteAddress), now);
+      return;
+    }
+    await this.sendChallenge({
+      phone,
+      role: AuthSubjectRole.RIDER,
+      purpose,
+      remoteAddress,
+      now,
+      concealFailure: false,
+    });
+  }
+
+  private async finishRiderVerification(purpose: AuthPurpose, body: unknown): Promise<RiderVerificationResult> {
+    const phone = readPhone(body);
+    const code = readCode(body, 'Verification code is invalid');
+    this.assertConfigured();
+    const now = this.clock.now();
+    if (await this.locked(phone, AuthSubjectRole.RIDER, now)) {
+      throw new TooManyRequestsException();
+    }
+    const challenge = await this.pendingChallenge(phone, AuthSubjectRole.RIDER, purpose, now);
+    if (!challenge) {
+      throw new UnauthorizedException('Verification code is invalid');
+    }
+    const approved = await this.verification.check(phone, code, verificationContext(challenge));
+    if (!approved) {
+      await this.recordCheckFailure(challenge.id, challenge.checkAttempts, now);
+      throw new UnauthorizedException('Verification code is invalid');
+    }
+    const outcome = await this.prisma.$transaction(async (tx) => {
+      const consumed = await tx.authChallenge.updateMany({
+        where: { id: challenge.id, status: AuthChallengeStatus.PENDING },
+        data: { status: AuthChallengeStatus.VERIFIED },
+      });
+      if (consumed.count !== 1) {
+        return { kind: 'invalid' as const };
+      }
+      const user = await tx.user.findUnique({ where: { phone }, include: accountInclude });
+      if (riderAccessClosed(user)) {
+        await tx.authChallenge.updateMany({
+          where: { id: challenge.id, status: AuthChallengeStatus.VERIFIED },
+          data: { status: AuthChallengeStatus.SUPERSEDED },
+        });
+        return { kind: 'denied' as const };
+      }
+      if (user?.riderProfile) {
+        if (user.accountStatus !== AccountStatus.ACTIVE || user.phoneVerifiedAt === null || !user.whatsappConsentAt) {
+          await tx.user.update({
+            where: { id: user.id },
+            data: {
+              accountStatus: AccountStatus.ACTIVE,
+              phoneVerifiedAt: user.phoneVerifiedAt ?? now,
+              whatsappConsentAt: user.whatsappConsentAt ?? now,
+            },
+          });
+        }
+        const tokens = await this.sessions.issue(tx, user.id, user.role, now, { riderMembership: true });
+        return { kind: 'session' as const, tokens };
+      }
+      return {
+        kind: 'proof' as const,
+        fullName: user && user.fullName.trim() !== '' ? user.fullName : undefined,
+      };
+    });
+    if (outcome.kind === 'invalid') {
+      throw new UnauthorizedException('Verification code is invalid');
+    }
+    if (outcome.kind === 'denied') {
+      throw new UnauthorizedException(GENERIC_FAILURE);
+    }
+    if (outcome.kind === 'session') {
+      return outcome.tokens;
+    }
+    const proof: RiderRegistrationProof = {
+      status: 'verified',
+      registrationToken: signRegistrationProof(challenge.id, phone, now, 'rider-registration'),
+    };
+    if (outcome.fullName) {
+      proof.fullName = outcome.fullName;
+      proof.readOnly = ['fullName'];
+    }
+    return proof;
+  }
+
+  private async attachRiderProfile(
+    tx: Prisma.TransactionClient,
+    phone: string,
+    details: { fullName: string; address: string },
+    now: Date,
+  ): Promise<AuthTokens> {
+    await tx.$queryRaw`SELECT "id" FROM "users" WHERE "phone" = ${phone} FOR UPDATE`;
+    const existing = await tx.user.findUnique({ where: { phone }, include: accountInclude });
+    if (riderAccessClosed(existing) || existing?.riderProfile) {
+      throw new UnauthorizedException(GENERIC_FAILURE);
+    }
+    let userId: string;
+    let role: UserRole;
+    if (!existing) {
+      const created = await tx.user.create({
+        data: {
+          fullName: details.fullName,
+          phone,
+          role: UserRole.RIDER,
+          accountStatus: AccountStatus.ACTIVE,
+          phoneVerifiedAt: now,
+          whatsappConsentAt: now,
+        },
+      });
+      userId = created.id;
+      role = UserRole.RIDER;
+    } else {
+      const data: Prisma.UserUpdateInput = {};
+      if (!existing.phoneVerifiedAt) {
+        data.phoneVerifiedAt = now;
+      }
+      if (existing.accountStatus === AccountStatus.PENDING) {
+        data.accountStatus = AccountStatus.ACTIVE;
+      }
+      if (!existing.whatsappConsentAt) {
+        data.whatsappConsentAt = now;
+      }
+      if (Object.keys(data).length > 0) {
+        await tx.user.update({ where: { id: existing.id }, data });
+      }
+      userId = existing.id;
+      role = existing.role;
+    }
+    const riderProfile = await tx.riderProfile.create({
+      data: {
+        userId,
+        address: details.address,
+        verificationStatus: RiderVerificationStatus.PENDING,
+        approvalStatus: RiderApprovalStatus.PENDING,
+        availability: RiderAvailability.OFFLINE,
+      },
+    });
+    await createEmptyWallet(tx, riderProfile.id, now);
+    return this.sessions.issue(tx, userId, role, now, { riderMembership: true });
+  }
+
   private assertConfigured(): void {
     if (process.env.DEV_OTP_ENABLED === 'true') {
       try {
@@ -216,6 +457,10 @@ export class WhatsAppAuthService {
         return;
       }
       throw new ServiceUnavailableException('WhatsApp verification is unavailable');
+    }
+    if (process.env.WHATSAPP_VERIFICATION_PROVIDER === 'infobip') {
+      readInfobipWhatsAppConfig();
+      return;
     }
     readWhatsAppVerificationConfig();
   }
@@ -362,7 +607,7 @@ export class WhatsAppAuthService {
         channel: VerificationChannel.WHATSAPP,
         status: AuthChallengeStatus.PENDING,
         sendCount: 1,
-        expiresAt: new Date(input.now.getTime() + (devOtpAllowed() ? DEV_OTP_TTL_MS : OTP_CHALLENGE_TTL_MS)),
+        expiresAt: new Date(input.now.getTime() + challengeTtlMs()),
         ipHash: hashSecret(input.remoteAddress),
         createdAt: input.now,
       },
@@ -379,10 +624,18 @@ export class WhatsAppAuthService {
       data: { status: AuthChallengeStatus.SUPERSEDED },
     });
     try {
-      const verification = await this.verification.send(input.phone);
+      const verification = await this.verification.send(input.phone, {
+        challengeId: created.id,
+        phone: input.phone,
+        purpose: input.purpose,
+        codeHash: null,
+      });
       await this.prisma.authChallenge.update({
         where: { id: created.id },
-        data: { twilioSid: verification.sid },
+        data: {
+          twilioSid: verification.sid,
+          codeHash: verification.codeHash ?? null,
+        },
       });
     } catch (error) {
       await this.prisma.authChallenge.update({
@@ -497,14 +750,33 @@ export class WhatsAppAuthService {
 
 type LoginStart = { status: 'pending' } | { status: 'unavailable' };
 
+function challengeTtlMs(): number {
+  if (devOtpAllowed()) {
+    return DEV_OTP_TTL_MS;
+  }
+  if (process.env.WHATSAPP_VERIFICATION_PROVIDER === 'infobip') {
+    return INFOBIP_OTP_TTL_MS;
+  }
+  return OTP_CHALLENGE_TTL_MS;
+}
+
+function verificationContext(challenge: { id: string; phone: string; purpose: string; codeHash?: string | null }) {
+  return {
+    challengeId: challenge.id,
+    phone: challenge.phone,
+    purpose: challenge.purpose,
+    codeHash: challenge.codeHash ?? null,
+  };
+}
+
 function canSignIn(user: AccountRecord | null, role: AuthSubjectRole): user is AccountRecord {
   if (!user || user.phoneVerifiedAt === null || user.accountStatus !== AccountStatus.ACTIVE) {
     return false;
   }
   if (role === AuthSubjectRole.RIDER) {
-    return user.role === UserRole.RIDER && user.riderProfile !== null;
+    return (user.role === UserRole.RIDER || user.role === UserRole.CUSTOMER) && user.riderProfile !== null;
   }
-  return user.role === UserRole.CUSTOMER && user.customerAccount !== null;
+  return (user.role === UserRole.CUSTOMER || user.role === UserRole.RIDER) && user.customerAccount !== null;
 }
 
 function isPendingRegistration(user: AccountRecord, role: AuthSubjectRole): boolean {
@@ -513,6 +785,44 @@ function isPendingRegistration(user: AccountRecord, role: AuthSubjectRole): bool
     && user.accountStatus === AccountStatus.PENDING
     && user.phoneVerifiedAt === null
     && user.whatsappConsentAt !== null;
+}
+
+function readRiderProof(token: string, now: Date) {
+  try {
+    return readRegistrationProof(token, now, 'rider-registration');
+  } catch (error) {
+    if (error instanceof UnauthorizedException) {
+      throw new UnauthorizedException(GENERIC_FAILURE);
+    }
+    throw error;
+  }
+}
+
+function readRegistrationToken(body: unknown): string {
+  if (!isRecord(body) || typeof body.registrationToken !== 'string' || body.registrationToken.length < 20) {
+    throw new UnauthorizedException(GENERIC_FAILURE);
+  }
+  return body.registrationToken;
+}
+
+function usableRiderProof(
+  challenge: { id: string; phone: string; subjectRole: AuthSubjectRole; purpose: AuthPurpose; status: AuthChallengeStatus } | null,
+  phone: string,
+): challenge is { id: string; phone: string; subjectRole: AuthSubjectRole; purpose: AuthPurpose; status: AuthChallengeStatus } {
+  return !!challenge
+    && challenge.phone === phone
+    && challenge.subjectRole === AuthSubjectRole.RIDER
+    && challenge.status === AuthChallengeStatus.VERIFIED
+    && (challenge.purpose === AuthPurpose.LOGIN || challenge.purpose === AuthPurpose.WHATSAPP_REGISTRATION);
+}
+
+function riderAccessClosed(user: AccountRecord | null): boolean {
+  if (!user) {
+    return false;
+  }
+  return user.role === UserRole.ADMIN
+    || user.accountStatus === AccountStatus.SUSPENDED
+    || user.accountStatus === AccountStatus.DEACTIVATED;
 }
 
 function assertConsent(body: unknown): void {

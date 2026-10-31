@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { needsAvailabilityRequest } from './customerLocation';
-import { nearbyActionLabel, nearbyCardContent } from './nearbyCard';
+import { nearbyActionLabel, nearbyCardContent, nearbyHomeCountLabel } from './nearbyCard';
 import { resolveNearbyAvailability } from './nearbyAvailability';
 import { readNearbyRiderCount } from './nearbyRiderCount';
 
@@ -71,6 +71,14 @@ describe('nearby rider availability', () => {
       message: 'Check your connection and try again.',
     });
     expect(nearbyCardContent({ status: 'ready', count: 2 })?.message).toBe('2 riders are available near you.');
+    expect(nearbyHomeCountLabel({ status: 'loading' })).toBe('Checking');
+    expect(nearbyHomeCountLabel({ status: 'services-off' })).toBe('Location is off');
+    expect(nearbyHomeCountLabel({ status: 'permission-denied', canAskAgain: true })).toBe('Location needed');
+    expect(nearbyHomeCountLabel({ status: 'position-unavailable' })).toBe('Location unavailable');
+    expect(nearbyHomeCountLabel({ status: 'check-failed', message: 'Check your connection and try again.' })).toBe('Unable to check');
+    expect(nearbyHomeCountLabel({ status: 'ready', count: 0 })).toBe('0 riders nearby');
+    expect(nearbyHomeCountLabel({ status: 'ready', count: 1 })).toBe('1');
+    expect(nearbyHomeCountLabel({ status: 'ready', count: 4 })).toBe('4');
     expect(nearbyCardContent({ status: 'services-off' })?.message).not.toContain('No riders nearby');
     expect(nearbyActionLabel('turn-on-location')).toBe('Turn On Location');
     expect(nearbyActionLabel('allow-location')).toBe('Allow Location');

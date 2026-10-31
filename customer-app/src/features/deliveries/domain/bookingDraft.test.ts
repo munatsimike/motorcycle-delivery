@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   createBody,
-  deadlineError,
   deadlineTimestamp,
   emptyBookingDraft,
   formatDeadline,
@@ -166,11 +165,11 @@ describe('V2 booking', () => {
     const flexible = withBookingPatch(express, { serviceClass: 'FLEXIBLE' });
     expect(flexible.pickup.address).toBe(express.pickup.address);
     expect(parcelError(express, true)).toBeNull();
-    expect(parcelError({ ...express, serviceClass: null }, true)).toBe('Choose Express or Flexible');
+    expect(parcelError({ ...express, serviceClass: null }, true)).toBe('Choose Urgent or Flexible');
     expect(formatDeadline(deadline)).toBe('24 Oct 2026, 18:30');
     expect(new Date(deadline).getHours()).toBe(18);
     expect(new Date(deadline).getMinutes()).toBe(30);
-    expect(deadlineError(null)).toBe('Enter the delivery deadline');
+    expect(parcelError(marketplaceDraft('EXPRESS', null), true)).toBeNull();
 
     const preparedExpress = prepareBooking(express, { marketplace: true });
     const preparedFlexible = prepareBooking(flexible, { marketplace: true });
@@ -194,16 +193,19 @@ describe('V2 booking', () => {
     expectMarketplaceCreate('FLEXIBLE', deadline);
   });
 
-  it('rejects a deadline that is not after the test clock', () => {
-    const expired = deadlineTimestamp({ year: 2026, month: 10, day: 24, hour: 9, minute: 0 });
-    expect(deadlineError(expired)).toBe('Enter a deadline in the future');
-    expect(parcelError(marketplaceDraft('EXPRESS', expired), true)).toBe('Enter a deadline in the future');
-    expect(prepareBooking(marketplaceDraft('FLEXIBLE', expired), { marketplace: true })).toEqual({
-      ok: false,
-      error: 'Enter a deadline in the future',
-    });
-    expect(deadlineError(now.toISOString())).toBe('Enter a deadline in the future');
-    expect(deadlineError(deadline)).toBeNull();
+  it('creates Express and Flexible requests without a delivery date', () => {
+    const express = prepareBooking(marketplaceDraft('EXPRESS', null), { marketplace: true });
+    const flexible = prepareBooking(marketplaceDraft('FLEXIBLE', deadline), { marketplace: true });
+    expect(express.ok && flexible.ok).toBe(true);
+    if (!express.ok || !flexible.ok) {
+      return;
+    }
+    expect(express.booking.deliverBy).toBeNull();
+    expect(flexible.booking.deliverBy).toBeNull();
+    expect(createBody(express.booking, '9.00')).not.toHaveProperty('deliverBy');
+    expect(createBody(flexible.booking, '9.00')).not.toHaveProperty('deliverBy');
+    expect(quoteBody(express.booking)).toMatchObject({ serviceClass: 'EXPRESS' });
+    expect(quoteBody(flexible.booking)).toMatchObject({ serviceClass: 'FLEXIBLE' });
   });
 
   it('keeps the V1 quote and create payload when the marketplace is off', () => {
@@ -213,26 +215,31 @@ describe('V2 booking', () => {
       return;
     }
     expect(prepared.booking.serviceClass).toBeNull();
+    expect(prepared.booking.deliverBy).toBeNull();
     expect(quoteBody(prepared.booking)).not.toHaveProperty('serviceClass');
-    expect(createBody(prepared.booking, '2.50')).toMatchObject({
+    const created = createBody(prepared.booking, '2.50');
+    expect(created).toMatchObject({
       offeredPrice: '2.50',
       payer: 'SENDER',
       paymentMethod: 'CASH',
     });
+    expect(created).not.toHaveProperty('serviceClass');
+    expect(created).not.toHaveProperty('deliverBy');
   });
 });
 
-function expectMarketplaceCreate(serviceClass: 'EXPRESS' | 'FLEXIBLE', deliverBy: string) {
+function expectMarketplaceCreate(serviceClass: 'EXPRESS' | 'FLEXIBLE', deliverBy: string | null) {
   const prepared = prepareBooking(marketplaceDraft(serviceClass, deliverBy), { marketplace: true });
   expect(prepared.ok).toBe(true);
   if (!prepared.ok) {
     return;
   }
-  const body = v2CreateBody(prepared.booking);
+  const body = v2CreateBody(prepared.booking, '9.99');
+  expect(prepared.booking.deliverBy).toBeNull();
   expect(body).toMatchObject({
     serviceClass,
-    deliverBy,
     currency: 'USD',
+    offeredPrice: '9.99',
     parcel: { description: 'Documents', size: 'SMALL', instructions: null },
     pickup: {
       address: '12 Samora Machel Avenue',
@@ -247,14 +254,14 @@ function expectMarketplaceCreate(serviceClass: 'EXPRESS' | 'FLEXIBLE', deliverBy
       contactPhone: '+263777654321',
     },
   });
-  expect(Object.keys(body).sort()).toEqual(['currency', 'deliverBy', 'dropoff', 'parcel', 'pickup', 'serviceClass']);
-  expect(body).not.toHaveProperty('offeredPrice');
+  expect(Object.keys(body).sort()).toEqual(['currency', 'dropoff', 'offeredPrice', 'parcel', 'pickup', 'serviceClass']);
+  expect(body).not.toHaveProperty('deliverBy');
   expect(body).not.toHaveProperty('payer');
   expect(body).not.toHaveProperty('paymentMethod');
   expect(createBody(prepared.booking, '9.99')).toEqual(body);
 }
 
-function marketplaceDraft(serviceClass: 'EXPRESS' | 'FLEXIBLE', deliverBy: string): BookingDraft {
+function marketplaceDraft(serviceClass: 'EXPRESS' | 'FLEXIBLE', deliverBy: string | null): BookingDraft {
   return {
     ...draft(),
     serviceClass,

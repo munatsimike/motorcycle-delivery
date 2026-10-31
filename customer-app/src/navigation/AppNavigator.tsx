@@ -5,15 +5,19 @@ import {
   createNativeStackNavigator,
   type NativeStackScreenProps,
 } from '@react-navigation/native-stack';
-import { useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
+  Animated,
+  Easing,
   Image,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { useReduceMotion } from '../components/useMotion';
 import BrandLogo from '../components/BrandLogo';
 import ErrorMessage from '../components/ErrorMessage';
 import LoadingIndicator from '../components/LoadingIndicator';
@@ -23,13 +27,13 @@ import SignUpScreen from '../features/auth/SignupScreen';
 import CustomerTabs from './CustomerTabs';
 import EditProfileScreen from '../features/account/presentation/screens/EditProfileScreen';
 import ParcelRequestScreen from '../features/deliveries/presentation/screens/ParcelRequestScreen';
-import RequestOpenScreen from '../features/deliveries/presentation/screens/RequestOpenScreen';
 import DeliveryTrackingScreen from '../features/deliveries/presentation/screens/DeliveryTrackingScreen';
 import OtpVerificationScreen from '../features/auth/presentation/screens/OtpVerificationScreen';
 import SignInScreen from '../features/auth/presentation/screens/SignInScreen';
 import { useSession } from '../features/auth/presentation/viewmodels/useSession';
 import { publishCustomerPush, useCustomerPush } from '../features/notifications/presentation/useCustomerPush';
 import { navigationRef } from './navigationRef';
+import { FORWARD_MS, motionDuration, STACK_ANIMATION } from './screenMotion';
 import type { RootStackParamList } from './types';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -120,7 +124,14 @@ export default function AppNavigator() {
 
   return (
     <NavigationContainer ref={navigationRef} onReady={publishCustomerPush}>
-      <Stack.Navigator>
+      <SessionSlide signedIn={signedIn}>
+      <Stack.Navigator
+        screenOptions={{
+          animation: STACK_ANIMATION,
+          animationDuration: FORWARD_MS,
+          gestureEnabled: true,
+        }}
+      >
         {status === 'signedIn' ? (
           <>
             <Stack.Screen
@@ -132,11 +143,6 @@ export default function AppNavigator() {
               name="ParcelRequest"
               component={ParcelRequestScreen}
               options={{ title: 'Send a Parcel' }}
-            />
-            <Stack.Screen
-              name="RequestOpen"
-              component={RequestOpenScreen}
-              options={{ title: 'Open for rider bids' }}
             />
             <Stack.Screen
               name="DeliveryTracking"
@@ -174,7 +180,53 @@ export default function AppNavigator() {
           </>
         )}
       </Stack.Navigator>
+      </SessionSlide>
     </NavigationContainer>
+  );
+}
+
+function SessionSlide({
+  signedIn,
+  children,
+}: {
+  signedIn: boolean;
+  children: ReactNode;
+}) {
+  const reduce = useReduceMotion();
+  const { width } = useWindowDimensions();
+  const progress = useRef(new Animated.Value(1)).current;
+  const direction = useRef(1);
+  const previous = useRef(signedIn);
+
+  if (previous.current !== signedIn) {
+    direction.current = signedIn ? 1 : -1;
+    previous.current = signedIn;
+    progress.setValue(motionDuration(FORWARD_MS, reduce) === 0 ? 1 : 0);
+  }
+
+  useEffect(() => {
+    const duration = motionDuration(FORWARD_MS, reduce);
+    if (duration === 0) {
+      progress.setValue(1);
+      return;
+    }
+    Animated.timing(progress, {
+      toValue: 1,
+      duration,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [progress, reduce, signedIn]);
+
+  const translateX = progress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [direction.current * width, 0],
+  });
+
+  return (
+    <Animated.View style={[styles.session, { opacity: progress, transform: [{ translateX }] }]}>
+      {children}
+    </Animated.View>
   );
 }
 
@@ -202,6 +254,9 @@ function ConnectionScreen() {
 }
 
 const styles = StyleSheet.create({
+  session: {
+    flex: 1,
+  },
   loading: {
     flex: 1,
     alignItems: 'center',
@@ -211,7 +266,7 @@ const styles = StyleSheet.create({
   connection: {
     flex: 1,
     backgroundColor: colors.background,
-    paddingHorizontal: spacing.xl,
+    paddingHorizontal: spacing.lg,
     paddingTop: spacing.xxl,
     gap: spacing.lg,
   },
@@ -268,7 +323,7 @@ const styles = StyleSheet.create({
   },
 
   panelBlend: {
-    paddingHorizontal: spacing.xl,
+    paddingHorizontal: spacing.lg,
     paddingTop: spacing.xl,
     paddingBottom: spacing.md,
   },
@@ -283,7 +338,7 @@ const styles = StyleSheet.create({
 
   description: {
     marginTop: spacing.sm,
-    paddingHorizontal: spacing.xl,
+    paddingHorizontal: spacing.lg,
     fontSize: typography.caption,
     lineHeight: 22,
     color: colors.textSecondary,
@@ -293,7 +348,7 @@ const styles = StyleSheet.create({
   bottom: {
     width: '100%',
     marginTop: spacing.xl,
-    paddingHorizontal: spacing.xl,
+    paddingHorizontal: spacing.lg,
     gap: spacing.md,
   },
 });

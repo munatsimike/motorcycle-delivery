@@ -1,7 +1,6 @@
 package com.riders.rider.feature.offers.domain
 
 import java.time.Instant
-import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 
@@ -25,15 +24,115 @@ fun offerBoardAfterLoad(previous: OfferBoard, count: Int?, error: String?): Offe
 
 fun offerPriceLabel(currency: String, offeredPrice: String): String = "$currency $offeredPrice"
 
+fun acceptOfferLabel(currency: String, offeredPrice: String): String {
+    val amount = if (currency == "USD") "\$$offeredPrice" else offerPriceLabel(currency, offeredPrice)
+    return "Accept for $amount"
+}
+
+fun senderChoosesRider(serviceClass: String?): Boolean {
+    return serviceClass == "EXPRESS" || serviceClass == "FLEXIBLE"
+}
+
+fun opensDeliveriesAfterListedOffer(serviceClass: String?): Boolean {
+    return !senderChoosesRider(serviceClass)
+}
+
+@Suppress("UNUSED_PARAMETER")
+fun offerSentConfirmation(currency: String, amount: String): String {
+    return "Offer sent. Waiting for the customer to choose a rider."
+}
+
+fun submittedOfferAmount(sent: Map<String, String>, deliveryId: String): String? = sent[deliveryId]
+
+fun requestNeedsAnotherOffer(deliveryId: String, sent: Map<String, String>): Boolean {
+    return submittedOfferAmount(sent, deliveryId) == null
+}
+
+fun canStartBidSubmit(submittingBid: Boolean, accepting: Boolean): Boolean {
+    return !submittingBid && !accepting
+}
+
+fun sentOffersAfterRefresh(sent: Map<String, String>): Map<String, String> = sent
+
+data class BidSubmissionUi(
+    val submitting: Boolean,
+    val amount: String?,
+    val error: String?,
+)
+
+fun bidSubmissionAfterResult(amount: String, error: String?): BidSubmissionUi {
+    return if (error == null) {
+        BidSubmissionUi(submitting = false, amount = amount, error = null)
+    } else {
+        BidSubmissionUi(submitting = false, amount = null, error = error)
+    }
+}
+
+const val OFFER_YOUR_PRICE = "Your offer"
+const val AWAITING_CUSTOMER = "Awaiting customer"
+
+fun deliveryCategoryTitle(description: String): String = when (description.trim().lowercase()) {
+    "food" -> "Food delivery"
+    "document", "documents", "doc" -> "Doc delivery"
+    else -> "Parcel delivery"
+}
+
+fun offerDistanceLabel(meters: Int): String {
+    if (meters < 1000) {
+        return "$meters m"
+    }
+    val kilometres = meters / 1000.0
+    val text = if (kilometres >= 10.0) {
+        kilometres.toInt().toString()
+    } else {
+        String.format(java.util.Locale.US, "%.1f", kilometres)
+    }
+    return "$text km"
+}
+
+fun offerStopLine(address: String, landmark: String?): String {
+    val place = address.trim()
+    val mark = landmark?.trim().orEmpty()
+    if (mark.isEmpty()) {
+        return place
+    }
+    val placeKey = normalizePlace(place)
+    val markKey = normalizePlace(mark)
+    if (markKey.isEmpty() || placeKey == markKey || placeKey.contains(markKey) || markKey.contains(placeKey)) {
+        return place.ifBlank { mark }
+    }
+    return if (place.isEmpty()) mark else "$place, $mark"
+}
+
+private fun normalizePlace(value: String): String {
+    return value.lowercase().replace(Regex("[^a-z0-9]+"), " ").trim()
+}
+
 fun shouldPollOffers(resumed: Boolean): Boolean = resumed
 
 fun offerUnavailableAfterRefresh(hadSelection: Boolean, stillPresent: Boolean, refreshSucceeded: Boolean): Boolean {
     return refreshSucceeded && hadSelection && !stillPresent
 }
 
+fun matchingOfferIndex(
+    selectedAssignmentId: String,
+    selectedDeliveryId: String,
+    assignmentIds: List<String>,
+    deliveryIds: List<String>,
+): Int {
+    val exact = assignmentIds.indexOf(selectedAssignmentId)
+    if (exact >= 0) {
+        return exact
+    }
+    return deliveryIds.indexOf(selectedDeliveryId)
+}
+
 fun canAcceptOffer(expiresAt: String, nowMillis: Long, accepting: Boolean, unavailable: Boolean): Boolean {
     if (accepting || unavailable) {
         return false
+    }
+    if (expiresAt.isBlank()) {
+        return true
     }
     return !offerIsExpired(expiresAt, nowMillis)
 }
@@ -66,14 +165,13 @@ fun offerIsExpired(expiresAt: String, nowMillis: Long): Boolean {
 fun offerExpiryLabel(expiresAt: String, nowMillis: Long): String {
     val expiry = parseExpiry(expiresAt) ?: return "Expiry time is unavailable"
     if (expiry <= nowMillis) {
-        return "This offer has expired"
+        return "Expired"
     }
-    val time = Instant.ofEpochMilli(expiry).atZone(ZoneId.systemDefault()).format(CLOCK)
     val remainingSeconds = ((expiry - nowMillis) + 999L) / 1_000L
-    return "Expires at $time · ${remainingSeconds}s"
+    val minutes = remainingSeconds / 60L
+    val seconds = remainingSeconds % 60L
+    return "$minutes:${seconds.toString().padStart(2, '0')}"
 }
-
-private val CLOCK: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 
 private fun parseExpiry(expiresAt: String): Long? {
     return try {

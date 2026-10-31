@@ -21,15 +21,29 @@ fun tabAfterBack(selected: RiderDestination): RiderDestination? {
 
 fun openedRootTabs(visits: List<RiderDestination>): Set<RiderDestination> = visits.toSet()
 
-fun deliveriesShowsOffers(availability: String?): Boolean = availability == "AVAILABLE"
+fun deliveriesShowsOffers(@Suppress("UNUSED_PARAMETER") availability: String?): Boolean = false
 
-fun deliveriesShowsActiveDelivery(availability: String?): Boolean = availability == "BUSY"
+fun deliveriesShowsActiveDelivery(@Suppress("UNUSED_PARAMETER") availability: String?): Boolean = false
 
 fun deliveriesShowsAssignmentList(receiving: Boolean?, committedV2: Boolean = false): Boolean {
     return receiving != null || committedV2
 }
 
 fun deliveriesShowsBidBoard(receiving: Boolean?): Boolean = receiving != null
+
+enum class DeliveryBoardTab {
+    Active,
+    Offers,
+    Completed,
+}
+
+fun deliveryBoardTabs(showsOffers: Boolean): List<DeliveryBoardTab> {
+    return if (showsOffers) {
+        listOf(DeliveryBoardTab.Active, DeliveryBoardTab.Offers, DeliveryBoardTab.Completed)
+    } else {
+        listOf(DeliveryBoardTab.Active, DeliveryBoardTab.Completed)
+    }
+}
 
 fun offersPollOnDeliveriesTab(
     tab: RiderDestination,

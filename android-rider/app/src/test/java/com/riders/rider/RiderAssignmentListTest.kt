@@ -5,7 +5,6 @@ import com.riders.rider.feature.delivery.domain.DeliveryContacts
 import com.riders.rider.feature.delivery.domain.agreedPriceLabel
 import com.riders.rider.feature.delivery.domain.applyAssignmentRefresh
 import com.riders.rider.feature.delivery.domain.committedAssignmentsForDisplay
-import com.riders.rider.feature.delivery.domain.deadlineLabel
 import com.riders.rider.feature.delivery.domain.deliveryStatusLabel
 import com.riders.rider.feature.delivery.domain.navigationTarget
 import com.riders.rider.feature.delivery.domain.parcelRoute
@@ -23,12 +22,10 @@ import com.riders.rider.feature.delivery.domain.hasCommittedV2
 import com.riders.rider.feature.delivery.domain.parcelActionsAllowed
 import com.riders.rider.feature.delivery.domain.recoverAssignments
 import com.riders.rider.feature.delivery.domain.retryWhenConnectivityReturns
-import com.riders.rider.feature.delivery.domain.staleAssignmentHintAuthorizes
-import com.riders.rider.feature.home.receivingControl
+import com.riders.rider.feature.home.showsReceivingControl
 import com.riders.rider.feature.home.receivingAfterRefresh
 import com.riders.rider.navigation.deliveriesShowsBidBoard
 import com.riders.rider.navigation.deliveriesShowsOffers
-import java.time.ZoneOffset
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -49,7 +46,6 @@ class RiderAssignmentListTest {
         assertEquals(1, shown.size)
         assertEquals("Flexible", serviceClassLabel(shown[0].serviceClass))
         assertEquals("Rider assigned", deliveryStatusLabel(shown[0].status))
-        assertEquals("Deliver by 25 Oct 2026, 16:00", deadlineLabel(shown[0].deliverBy, ZoneOffset.UTC))
         assertEquals("Agreed price USD 12.50", agreedPriceLabel(shown[0].agreedPrice))
         assertEquals("Pickup flex-1", shown[0].pickupAddress)
         assertEquals("Documents flex-1", shown[0].parcelDescription)
@@ -73,7 +69,7 @@ class RiderAssignmentListTest {
         )
         val shown = committedAssignmentsForDisplay(assignments, "AVAILABLE", true)
         assertEquals(listOf("flex-a", "flex-b", "express-1"), shown.map { it.deliveryId })
-        assertEquals(listOf("Flexible", "Flexible", "Express"), shown.map { serviceClassLabel(it.serviceClass) })
+        assertEquals(listOf("Flexible", "Flexible", "Urgent"), shown.map { serviceClassLabel(it.serviceClass) })
         assertEquals("Collecting", deliveryStatusLabel(shown[2].status))
         assertEquals("Agreed price USD 9.00", agreedPriceLabel(shown[2].agreedPrice))
     }
@@ -107,7 +103,7 @@ class RiderAssignmentListTest {
         )
         assertEquals(listOf("flex-a", "express-1"), remaining.map { it.deliveryId })
         assertEquals("Flexible", serviceClassLabel(remaining[0].serviceClass))
-        assertEquals("Express", serviceClassLabel(remaining[1].serviceClass))
+        assertEquals("Urgent", serviceClassLabel(remaining[1].serviceClass))
     }
 
     @Test
@@ -156,7 +152,7 @@ class RiderAssignmentListTest {
         assertEquals(DeliveriesPane.Committed, deliveriesPane(receiving = null, recovered))
         assertTrue(parcelActionsAllowed(recovered.certainty))
         assertFalse(deliveriesShowsBidBoard(null))
-        assertFalse(receivingControl(receiving = null, canAcceptDeliveries = true, changing = false).visible)
+        assertFalse(showsReceivingControl())
     }
 
     @Test
@@ -173,7 +169,6 @@ class RiderAssignmentListTest {
         assertTrue(recovered.parcels.isEmpty())
         assertEquals(DeliveriesPane.Recover, deliveriesPane(receiving = null, recovered))
         assertFalse(parcelActionsAllowed(recovered.certainty))
-        assertFalse(staleAssignmentHintAuthorizes(staleCommittedHint = true))
         assertFalse(deliveriesShowsOffers("AVAILABLE") && recovered.certainty == AssignmentCertainty.Confirmed)
         assertTrue(retryWhenConnectivityReturns(refreshPending = true, networkAvailable = true))
         assertFalse(retryWhenConnectivityReturns(refreshPending = false, networkAvailable = true))
@@ -226,8 +221,8 @@ class RiderAssignmentListTest {
             failureUncertain = false,
         )
         assertEquals(DeliveriesPane.V1, deliveriesPane(receiving = null, recovered))
-        assertTrue(deliveriesShowsOffers("AVAILABLE"))
-        assertTrue(deliveriesShowsActiveDelivery("BUSY"))
+        assertFalse(deliveriesShowsOffers("AVAILABLE"))
+        assertFalse(deliveriesShowsActiveDelivery("BUSY"))
     }
 
     @Test
@@ -263,8 +258,8 @@ class RiderAssignmentListTest {
     @Test
     fun theMarketplaceFlagOffKeepsTheSingularDeliveryNavigation() {
         assertFalse(deliveriesShowsAssignmentList(null))
-        assertTrue(deliveriesShowsOffers("AVAILABLE"))
-        assertTrue(deliveriesShowsActiveDelivery("BUSY"))
+        assertFalse(deliveriesShowsOffers("AVAILABLE"))
+        assertFalse(deliveriesShowsActiveDelivery("BUSY"))
         assertEquals("delivery/delivery-1", parcelRoute("delivery-1"))
     }
 
@@ -276,6 +271,21 @@ class RiderAssignmentListTest {
         val dropoff = navigationTarget("COLLECTED", collected.contacts, collected.pickupAddress, null, collected.dropoffAddress, null)
         assertTrue(pickup?.uri?.contains("-17.1000000,31.1000000") == true)
         assertTrue(dropoff?.uri?.contains("-17.2000000,31.2000000") == true)
+    }
+
+    @Test
+    fun legacyAssignmentsStayOffTheMarketplaceList() {
+        val shown = committedAssignmentsForDisplay(
+            listOf(
+                parcel("legacy", "LEGACY", "ASSIGNED", "", null),
+                parcel("odd", "FLEXIBLE", "ASSIGNED", "", null),
+                parcel("flex", "FLEXIBLE", "RIDER_ASSIGNED", "4.00", null),
+                parcel("express", "EXPRESS", "COLLECTED", "9.00", null),
+            ),
+            "AVAILABLE",
+            true,
+        )
+        assertEquals(listOf("flex", "express"), shown.map { it.deliveryId })
     }
 
     private fun parcel(

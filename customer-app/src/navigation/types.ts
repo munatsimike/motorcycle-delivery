@@ -13,16 +13,9 @@ export type RootStackParamList = {
   };
   CustomerHome: NavigatorScreenParams<CustomerTabParamList>;
   ParcelRequest: undefined;
-  RequestOpen: {
-    id: string;
-    status: 'CREATED';
-    serviceClass: 'EXPRESS' | 'FLEXIBLE';
-    deliverBy: string;
-    suggestedPrice: string;
-    currency: 'USD';
-  };
   DeliveryTracking: {
     deliveryId: string;
+    riderConfirmed?: boolean;
   };
   EditProfile: {
     account: CustomerAccount;

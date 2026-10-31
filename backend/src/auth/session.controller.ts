@@ -35,7 +35,7 @@ export class SessionController {
     const claims = this.accessTokens.verify(readBearerToken(singleHeader(authorization)), new Date(), {
       ignoreExpiration: true,
     });
-    await this.sessions.revoke(claims.sid, claims.sub);
+    await this.sessions.revokeCurrent(claims.sid, claims.sub);
   }
 
   @Post('logout-all')
@@ -48,7 +48,7 @@ export class SessionController {
     const claims = this.accessTokens.verify(readBearerToken(singleHeader(authorization)), new Date(), {
       ignoreExpiration: true,
     });
-    await this.sessions.revokeAll(claims.sub);
+    await this.sessions.revokeAllCurrent(claims.sid, claims.sub);
   }
 }
 

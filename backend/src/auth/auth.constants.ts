@@ -3,6 +3,7 @@ export const OTP_PHONE_HOURLY_LIMIT = 5;
 export const OTP_IP_HOURLY_LIMIT = 20;
 export const OTP_MAX_CHECK_ATTEMPTS = 5;
 export const OTP_CHALLENGE_TTL_MS = 10 * 60_000;
+export const INFOBIP_OTP_TTL_MS = 5 * 60_000;
 // Local mock OTP codes expire sooner than a WhatsApp challenge. The WhatsApp
 // provider does not use this value.
 export const DEV_OTP_TTL_MS = 5 * 60_000;

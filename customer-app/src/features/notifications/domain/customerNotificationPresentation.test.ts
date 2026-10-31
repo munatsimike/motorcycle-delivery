@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
-const setNotificationHandler = vi.fn();
-const scheduleNotificationAsync = vi.fn();
+const setNotificationHandler = vi.hoisted(() => vi.fn());
+const scheduleNotificationAsync = vi.hoisted(() => vi.fn());
 
 vi.mock('expo-notifications', () => ({
   setNotificationHandler: (...args: unknown[]) => setNotificationHandler(...args),
@@ -43,11 +43,31 @@ vi.mock('@react-navigation/native', () => ({
   createNavigationContainerRef: () => ({ isReady: () => true, navigate: vi.fn() }),
 }));
 
+vi.mock('react', () => ({
+  useEffect: () => undefined,
+  useCallback: (callback: unknown) => callback,
+  useRef: (value: unknown) => ({ current: value }),
+  useState: (value: unknown) => [value, () => undefined],
+}));
+
+vi.mock('../../../services/api/apiClient', () => ({
+  ApiError: class ApiError extends Error {},
+  SERVICE_UNAVAILABLE_MESSAGE: 'This service is not available right now.',
+  apiGet: vi.fn(),
+  apiPost: vi.fn(),
+  apiPut: vi.fn(),
+  apiDelete: vi.fn(),
+}));
+
 import { foregroundNotificationBehavior } from './customerPush';
 import {
   createCustomerNotificationPresentation,
   installCustomerNotificationHandler,
 } from './customerNotificationPresentation';
+import '../../riders/data/riderAlertNotifications';
+import '../../riders/presentation/viewmodels/useRiderAvailabilityAlert';
+import '../../riders/presentation/viewmodels/useRiderAlertNotificationNavigation';
+import '../presentation/useCustomerPush';
 
 describe('customer notification presentation', () => {
   it('installs one foreground handler and ignores a later install', async () => {
@@ -70,10 +90,6 @@ describe('customer notification presentation', () => {
   });
 
   it('keeps the app handler when rider alert screens are imported', async () => {
-    await import('../../riders/data/riderAlertNotifications');
-    await import('../../riders/presentation/viewmodels/useRiderAvailabilityAlert');
-    await import('../../riders/presentation/viewmodels/useRiderAlertNotificationNavigation');
-    await import('../presentation/useCustomerPush');
     expect(scheduleNotificationAsync).not.toHaveBeenCalled();
     expect(setNotificationHandler).toHaveBeenCalledTimes(1);
     const handler = setNotificationHandler.mock.calls[0]?.[0] as {

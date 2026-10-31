@@ -101,7 +101,7 @@ it('deducts the snapshotted commission once when the delivery is completed', asy
   });
   await prisma.delivery.update({ where: { id: world.deliveryId }, data: { suggestedPrice: '99.00' } });
   const completed = await progress.progress(world.rider, world.deliveryId, { status: 'DELIVERED' }, NOW, nextProgressKey(world.deliveryId));
-  expect(completed).toMatchObject({ status: 'DELIVERED', availability: 'AVAILABLE' });
+  expect(completed).toMatchObject({ status: 'DELIVERED', availability: 'BUSY' });
   const assignment = await prisma.deliveryAssignment.findUniqueOrThrow({ where: { id: world.assignmentId } });
   const reservation = await prisma.walletFeeReservation.findFirstOrThrow({ where: { assignmentId: world.assignmentId } });
   const entries = await prisma.riderWalletEntry.findMany({ where: { riderWalletId: world.walletId } });
@@ -219,7 +219,7 @@ it('completes a 0% snapshot with no wallet and does not charge after a later rat
     reservation: false,
   });
   const completed = await progress.progress(world.rider, world.deliveryId, { status: 'DELIVERED' }, NOW, nextProgressKey(world.deliveryId));
-  expect(completed).toMatchObject({ status: 'DELIVERED', availability: 'AVAILABLE' });
+  expect(completed).toMatchObject({ status: 'DELIVERED', availability: 'BUSY' });
   expect(await prisma.riderWallet.count({ where: { riderProfileId: world.rider.riderProfileId } })).toBe(0);
   expect(await prisma.walletFeeReservation.count({ where: { assignmentId: world.assignmentId } })).toBe(0);
   expect(await prisma.riderWalletEntry.count({ where: { idempotencyKey: `platform-fee:assignment:${world.assignmentId}` } })).toBe(0);
@@ -339,6 +339,8 @@ async function readyDelivery(options?: {
         deliveryId: delivery.id,
         assignmentId: assignment.id,
         amount: (reserved / 100).toFixed(2),
+        promotionalAmount: '0.00',
+        walletAmount: (reserved / 100).toFixed(2),
         currency: 'USD',
         configVersion: rateVersion,
         status: 'OPEN',

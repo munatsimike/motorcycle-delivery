@@ -54,6 +54,7 @@ describe('rider onboarding', () => {
       fullName: 'Tendai Moyo',
       phone: '+263771234567',
       address: null,
+      hasProfilePhoto: false,
     });
     expect(ctx.userUpdates).toBe(0);
   });
@@ -65,6 +66,7 @@ describe('rider onboarding', () => {
       fullName: 'Tendai Moyo',
       phone: '+263771234567',
       address: '12 Samora Machel Avenue',
+      hasProfilePhoto: false,
     });
   });
 
@@ -76,6 +78,7 @@ describe('rider onboarding', () => {
       fullName: 'Tendai Moyo',
       phone: '+263771234567',
       address: '1 First Street',
+      hasProfilePhoto: false,
     });
   });
 
@@ -167,7 +170,13 @@ function context() {
   }];
   const reviews: ReviewRow[] = [];
   const motorcycles: Array<{ riderProfileId: string; verificationStatus: MotorcycleVerificationStatus; isActive: boolean }> = [];
-  const user = {
+  const user: {
+    id: string;
+    fullName: string;
+    phone: string;
+    role: UserRole;
+    accountStatus: AccountStatus;
+  } = {
     id: 'user-1',
     fullName: 'Tendai Moyo',
     phone: '+263771234567',
@@ -194,6 +203,11 @@ function context() {
       async update() {
         userUpdates += 1;
         return user;
+      },
+    },
+    riderProfilePhoto: {
+      async findFirst() {
+        return null;
       },
     },
     riderProfile: {

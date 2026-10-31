@@ -13,6 +13,7 @@ export type ClassTariffInput = {
   pricePerKilometreCents: number;
   minimumTripMetres: number;
   maximumTripMetres: number;
+  includedMetres: number | null;
   tiers: Array<{ position: number; upToMetres: number | null; amountCents: number }>;
   windows: Array<{
     kind: PricingWindowKind;
@@ -50,6 +51,7 @@ export function readClassTariff(body: unknown): ClassTariffInput {
     pricePerKilometreCents: readModelMoney(record, pricingModel, 'pricePerKilometre', 'Enter the price per kilometre', 'Price per kilometre does not apply to this model'),
     minimumTripMetres,
     maximumTripMetres,
+    includedMetres: readIncludedMetres(record.includedMetres, pricingModel, minimumTripMetres, maximumTripMetres),
     tiers,
     windows,
   };
@@ -72,8 +74,12 @@ function readModelMoney(
   requiredMessage: string,
   rejectedMessage: string,
 ): number {
-  const usesBase = pricingModel === PricingModel.FIXED || pricingModel === PricingModel.BASE_PLUS_PER_KILOMETRE;
-  const usesDistance = pricingModel === PricingModel.PER_KILOMETRE || pricingModel === PricingModel.BASE_PLUS_PER_KILOMETRE;
+  const usesBase = pricingModel === PricingModel.FIXED
+    || pricingModel === PricingModel.BASE_PLUS_PER_KILOMETRE
+    || pricingModel === PricingModel.INCLUDED_DISTANCE;
+  const usesDistance = pricingModel === PricingModel.PER_KILOMETRE
+    || pricingModel === PricingModel.BASE_PLUS_PER_KILOMETRE
+    || pricingModel === PricingModel.INCLUDED_DISTANCE;
   const used = field === 'baseFee' ? usesBase : usesDistance;
   if (!used) {
     if (record[field] !== undefined) {
@@ -82,6 +88,27 @@ function readModelMoney(
     return 0;
   }
   return readMoneyCents(record[field], true, requiredMessage);
+}
+
+function readIncludedMetres(
+  value: unknown,
+  pricingModel: PricingModel,
+  minimumTripMetres: number,
+  maximumTripMetres: number,
+): number | null {
+  if (pricingModel !== PricingModel.INCLUDED_DISTANCE) {
+    if (value !== undefined) {
+      throw new BadRequestException('Included distance does not apply to this model');
+    }
+    return null;
+  }
+  if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0 || value > 2_000_000_000) {
+    throw new BadRequestException('Enter the included distance');
+  }
+  if (value < minimumTripMetres || value > maximumTripMetres) {
+    throw new BadRequestException('Included distance must be inside the trip range');
+  }
+  return value;
 }
 
 function readTiers(value: unknown, pricingModel: PricingModel): ClassTariffInput['tiers'] {
@@ -234,6 +261,7 @@ function toProbe(input: ClassTariffInput, windows: TariffSnapshot['windows']): T
     pricePerKilometreCents: input.pricePerKilometreCents,
     minimumTripMetres: input.minimumTripMetres,
     maximumTripMetres: input.maximumTripMetres,
+    includedMetres: input.includedMetres,
     tiers: input.tiers,
     windows,
   };

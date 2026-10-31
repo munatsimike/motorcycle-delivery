@@ -5,7 +5,7 @@ import { BOOKING_STEPS, type BookingStep } from '../viewmodels/useParcelBooking'
 
 const STEP_LABELS: Record<BookingStep, string> = {
   pickup: 'Pickup',
-  destination: 'Destination',
+  destination: 'Drop-off',
   parcel: 'Parcel details',
   review: 'Review',
   confirm: 'Confirm',

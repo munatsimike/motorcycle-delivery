@@ -24,8 +24,33 @@ import com.riders.rider.feature.bids.domain.formatBidDollars
 import com.riders.rider.feature.bids.domain.keepsBidAttempt
 import com.riders.rider.feature.bids.domain.newBidsUnavailable
 import com.riders.rider.feature.bids.domain.nextBidAttempt
+import com.riders.rider.feature.bids.domain.requestDistanceLabel
 import com.riders.rider.feature.bids.domain.suggestedPriceLabel
+import com.riders.rider.feature.bids.domain.OpenBidRequest
+import com.riders.rider.core.network.OfferResponse
+import com.riders.rider.core.network.ParcelResponse
+import com.riders.rider.core.network.StopResponse
+import com.riders.rider.feature.bids.domain.BID_LIST_UNAVAILABLE
+import com.riders.rider.feature.bids.domain.MARKETPLACE_DISABLED
+import com.riders.rider.feature.bids.domain.REQUEST_NO_LONGER_OPEN
+import com.riders.rider.feature.bids.domain.availableRequests
+import com.riders.rider.feature.bids.domain.bidListProblemMessage
+import com.riders.rider.feature.bids.domain.displayedBidProblem
+import com.riders.rider.feature.bids.domain.marketplaceBidButtonsVisible
+import com.riders.rider.feature.bids.domain.bidOutcome
+import com.riders.rider.feature.bids.domain.homeAndMyOffersMatch
+import com.riders.rider.feature.bids.domain.offerListStatus
+import com.riders.rider.feature.bids.domain.offerServiceLabel
+import com.riders.rider.feature.bids.domain.opensAcceptedDelivery
+import com.riders.rider.feature.bids.domain.optimisticAmountsAfterServerRefresh
+import com.riders.rider.feature.bids.domain.requestStillNeedsOffer
+import com.riders.rider.feature.bids.domain.resolvedSubmittedAmount
+import com.riders.rider.feature.bids.domain.viewDetailsOpensActiveDeliveries
 import com.riders.rider.feature.bids.domain.visibleBids
+import com.riders.rider.feature.offers.domain.bidSubmissionAfterResult
+import com.riders.rider.feature.offers.domain.canAcceptOffer
+import com.riders.rider.feature.offers.domain.canStartBidSubmit
+import com.riders.rider.feature.offers.domain.opensDeliveriesAfterListedOffer
 import com.riders.rider.feature.delivery.domain.CommittedParcel
 import com.riders.rider.feature.delivery.domain.applyAssignmentRefresh
 import com.riders.rider.feature.delivery.domain.committedAssignmentsForDisplay
@@ -87,7 +112,7 @@ class RiderBidBoardTest {
         assertEquals("Open", bidStatusLabel("OPEN"))
         assertEquals("Accepted", bidStatusLabel("ACCEPTED"))
         assertEquals("Withdrawn", bidStatusLabel("WITHDRAWN"))
-        assertEquals("Superseded", bidStatusLabel("SUPERSEDED"))
+        assertEquals("Not selected", bidStatusLabel("SUPERSEDED"))
         assertEquals("Expired", bidStatusLabel("EXPIRED"))
     }
 
@@ -97,6 +122,26 @@ class RiderBidBoardTest {
         val pending = BidAttempt("delivery-1", 1000, "key-1")
         assertEquals(server, visibleBids(server, pending))
         assertNull(bidAttemptAfterRefresh(pending, server))
+        val now = java.time.Instant.parse("2026-10-26T12:00:00.000Z").toEpochMilli()
+        val recent = ownBid("bid-2", "SUPERSEDED").copy(updatedAt = "2026-10-26T10:00:00.000Z")
+        val older = ownBid("bid-3", "EXPIRED").copy(updatedAt = "2026-10-24T10:00:00.000Z")
+        val open = ownBid("bid-4", "OPEN").copy(updatedAt = "2026-10-20T10:00:00.000Z")
+        val shown = visibleBids(listOf(recent, older, open), null, now)
+        assertEquals(listOf(recent, open), shown)
+        assertEquals("Your bid was accepted.", bidOutcome("ACCEPTED"))
+        assertEquals("Another rider was chosen.", bidOutcome("SUPERSEDED"))
+        assertEquals("You've been selected!", bidOutcome("ACCEPTED", "EXPRESS"))
+        assertEquals("Not selected — another rider was chosen.", bidOutcome("SUPERSEDED", "EXPRESS"))
+        assertEquals("This offer has expired.", bidOutcome("EXPIRED"))
+        assertEquals(
+            "Offer sent. Waiting for the customer to choose a rider.",
+            bidOutcome("OPEN", "EXPRESS", "USD", "2.99"),
+        )
+        assertEquals(
+            "Offer sent. Waiting for the customer to choose a rider.",
+            bidOutcome("OPEN", "FLEXIBLE", "USD", "4.50"),
+        )
+        assertEquals("Awaiting customer", bidOutcome("OPEN"))
     }
 
     @Test
@@ -110,11 +155,11 @@ class RiderBidBoardTest {
     }
 
     @Test
-    fun expressBlocksNewBidsAndLeavesFlexibleParcelsActionable() {
+    fun anExpressAssignmentDoesNotBlockNewBids() {
         val flexible = parcel("delivery-1", "FLEXIBLE")
         val express = parcel("delivery-2", "EXPRESS")
         val live = listOf(flexible, express)
-        assertTrue(newBidsUnavailable(live.map { it.serviceClass }))
+        assertFalse(newBidsUnavailable(live.map { it.serviceClass }))
         assertEquals(live, committedAssignmentsForDisplay(live, "BUSY", true))
         assertFalse(newBidsUnavailable(listOf(flexible.serviceClass)))
     }
@@ -187,17 +232,17 @@ class RiderBidBoardTest {
     }
 
     @Test
-    fun aRiderOfferStillOpensTheV1OfferScreen() {
+    fun aRiderOfferDoesNotOpenTheOfferInbox() {
         val offer = parseRiderNotice(mapOf(
             "type" to "rider_offer",
             "assignmentId" to "assignment-1",
             "deliveryId" to "delivery-1",
             "expiresAt" to "2026-10-24T08:05:00.000Z",
         ))
-        assertTrue(riderOfferOpensV1Offers(offer!!))
+        assertFalse(riderOfferOpensV1Offers(offer!!))
         assertNull(acceptedBidDeliveryId(offer))
         assertFalse(deliveriesShowsBidBoard(null))
-        assertTrue(deliveriesShowsOffers("AVAILABLE"))
+        assertFalse(deliveriesShowsOffers("AVAILABLE"))
     }
 
     @Test
@@ -227,8 +272,108 @@ class RiderBidBoardTest {
         assertEquals(BidBoardPhase.Ready, bidBoardPhase(loading = false, requestCount = 1, bidCount = 0, error = "Try again"))
         assertNull(suggestedPriceLabel(null))
         assertEquals("Suggested price USD 9.00", suggestedPriceLabel("9.00"))
+        assertNull(requestDistanceLabel(null))
+        assertEquals("Distance 800 m", requestDistanceLabel(800))
+        assertEquals("Distance 12.4 km", requestDistanceLabel(12400))
         assertEquals("10.00", formatBidDollars(1000))
     }
+
+    @Test
+    fun homeAndMyOffersShareTheServerBid() {
+        val listed = bidSubmissionAfterResult("2.99", null)
+        val custom = bidSubmissionAfterResult("4.50", null)
+        val interest = bidSubmissionAfterResult("2.99", null)
+        val failed = bidSubmissionAfterResult("2.99", "This delivery is not open for bids")
+        assertEquals("2.99", listed.amount)
+        assertEquals("4.50", custom.amount)
+        assertEquals("2.99", interest.amount)
+        assertNull(failed.amount)
+        assertEquals("This delivery is not open for bids", failed.error)
+        assertTrue(requestStillNeedsOffer("delivery-1", emptyList(), emptyMap()))
+        assertFalse(canStartBidSubmit(submittingBid = true, accepting = false))
+        assertTrue(canStartBidSubmit(submittingBid = false, accepting = false))
+
+        val server = listOf(ownBid("bid-1", "OPEN").copy(amount = "2.99"))
+        assertEquals("2.99", resolvedSubmittedAmount(server, "delivery-1", optimistic = null))
+        assertEquals("4.50", resolvedSubmittedAmount(emptyList(), "delivery-1", "4.50"))
+        assertEquals(emptyMap<String, String>(), optimisticAmountsAfterServerRefresh(mapOf("delivery-1" to "2.99"), server))
+        assertFalse(requestStillNeedsOffer("delivery-1", server))
+        assertTrue(homeAndMyOffersMatch(server.first(), server.first()))
+        assertFalse(viewDetailsOpensActiveDeliveries("OPEN"))
+        assertFalse(viewDetailsOpensActiveDeliveries(null))
+        assertFalse(viewDetailsOpensActiveDeliveries("ACCEPTED"))
+        assertFalse(opensAcceptedDelivery("ACCEPTED"))
+        assertFalse(opensAcceptedDelivery("OPEN"))
+        assertEquals("Accepted", offerListStatus("ACCEPTED"))
+        assertEquals("Not selected", offerListStatus("SUPERSEDED"))
+        assertEquals("Waiting", offerListStatus("OPEN"))
+        assertEquals("Urgent", offerServiceLabel("EXPRESS"))
+        assertEquals("Flexible", offerServiceLabel("FLEXIBLE"))
+        assertTrue(opensDeliveriesAfterListedOffer(null))
+        assertFalse(opensDeliveriesAfterListedOffer("FLEXIBLE"))
+        assertFalse(opensDeliveriesAfterListedOffer("EXPRESS"))
+
+        val request = OpenBidRequest(
+            id = "delivery-9",
+            serviceClass = "FLEXIBLE",
+            deliverBy = "2026-10-28T12:00:00Z",
+            suggestedPrice = "3.00",
+            pickupAddress = "Pickup",
+            dropoffAddress = "Drop-off",
+            parcelDescription = "Parcel",
+            parcelSize = "Small",
+            distanceMeters = 800,
+            currency = "USD",
+        )
+        val shown = availableRequests(emptyList(), listOf(request))
+        assertEquals("delivery-9", shown.single().deliveryId)
+        assertEquals("request:delivery-9", shown.single().assignmentId)
+        assertEquals("2026-10-28T12:00:00Z", shown.single().expiresAt)
+        assertEquals("3.00", shown.single().offeredPrice)
+        val customerPriced = availableRequests(emptyList(), listOf(request.copy(offeredPrice = "4.50"))).single()
+        assertEquals("4.50", customerPriced.offeredPrice)
+        assertEquals("USD", shown.single().currency)
+
+        val legacy = sampleOffer(assignmentId = "assignment-1", deliveryId = "legacy-1", expiresAt = "2026-10-27T12:05:00Z", serviceClass = null)
+        val classed = sampleOffer(assignmentId = "assignment-2", deliveryId = "classed-1", expiresAt = "2026-10-27T12:05:00Z", serviceClass = "FLEXIBLE")
+        val merged = availableRequests(listOf(legacy, classed), listOf(request, request.copy(id = "legacy-1")))
+        assertEquals(listOf("delivery-9", "legacy-1"), merged.map { it.deliveryId })
+        assertTrue(merged.all { it.assignmentId.startsWith("request:") })
+        assertTrue(merged.none { it.assignmentId == "assignment-1" || it.assignmentId == "assignment-2" })
+        val openEnded = availableRequests(emptyList(), listOf(request.copy(deliverBy = null))).single()
+        assertEquals("delivery-9", openEnded.deliveryId)
+        assertEquals("", openEnded.expiresAt)
+        assertEquals("3.00", openEnded.offeredPrice)
+        assertTrue(canAcceptOffer(openEnded.expiresAt, System.currentTimeMillis(), accepting = false, unavailable = false))
+
+        assertFalse(marketplaceBidButtonsVisible("FLEXIBLE", ownBidsKnown = false, failure = null))
+        assertFalse(marketplaceBidButtonsVisible("EXPRESS", ownBidsKnown = true, failure = MARKETPLACE_DISABLED))
+        assertFalse(marketplaceBidButtonsVisible("FLEXIBLE", ownBidsKnown = true, failure = "This delivery is not open for bids"))
+        assertTrue(marketplaceBidButtonsVisible("FLEXIBLE", ownBidsKnown = true, failure = "Network request failed. Check your connection and try again."))
+        assertTrue(marketplaceBidButtonsVisible(null, ownBidsKnown = false, failure = MARKETPLACE_DISABLED))
+        assertEquals(MARKETPLACE_DISABLED, bidListProblemMessage(ApiError.Unexpected(MARKETPLACE_DISABLED)))
+        assertEquals(BID_LIST_UNAVAILABLE, bidListProblemMessage(ApiError.Network))
+        assertEquals(REQUEST_NO_LONGER_OPEN, displayedBidProblem(true, null, "The bidding window has closed"))
+        assertEquals(MARKETPLACE_DISABLED, displayedBidProblem(true, MARKETPLACE_DISABLED, null))
+        assertEquals(null, displayedBidProblem(false, MARKETPLACE_DISABLED, null))
+        assertEquals("2.99", resolvedSubmittedAmount(server, "delivery-1", optimistic = null))
+    }
+}
+
+private fun sampleOffer(assignmentId: String, deliveryId: String, expiresAt: String, serviceClass: String?): OfferResponse {
+    return OfferResponse(
+        assignmentId = assignmentId,
+        deliveryId = deliveryId,
+        expiresAt = expiresAt,
+        offeredPrice = "2.99",
+        currency = "USD",
+        payer = "SENDER",
+        paymentMethod = "CASH",
+        parcel = ParcelResponse("Parcel", "Small"),
+        pickup = StopResponse("Pickup", contactName = "", contactPhone = ""),
+        dropoff = StopResponse("Drop-off", contactName = "", contactPhone = ""),
+        serviceClass = serviceClass,
+    )
 }
 
 private fun ownBid(id: String, status: String) = OwnBid(

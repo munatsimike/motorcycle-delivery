@@ -87,6 +87,19 @@ describe('active rider assignment', () => {
     ]);
   });
 
+  it('selects the earliest live assignment using the list order', async () => {
+    const service = serviceFor([
+      row('later', 'profile-1', AssignmentStatus.ACCEPTED, DeliveryStatus.COLLECTING, 'Later road', FRESH, {}, new Date('2026-10-20T12:00:00.000Z')),
+      row('earlier', 'profile-1', AssignmentStatus.ACCEPTED, DeliveryStatus.RIDER_ASSIGNED, 'Earlier road', FRESH, {}, new Date('2026-10-18T12:00:00.000Z')),
+    ]);
+
+    const active = await service.activeAssignment(rider('profile-1'), NOW);
+    const listed = await service.liveAssignments(rider('profile-1'), NOW);
+
+    expect(active.assignment?.assignmentId).toBe('earlier');
+    expect(listed.assignments.map((assignment) => assignment.assignmentId)).toEqual(['earlier', 'later']);
+  });
+
   it('returns assignment null when nothing is resumable', async () => {
     const service = serviceFor([
       row('delivered', 'profile-1', AssignmentStatus.ACCEPTED, DeliveryStatus.DELIVERED, 'Finished road'),
@@ -137,6 +150,8 @@ describe('active rider assignment', () => {
     expect(listed.assignments[0]).toMatchObject({
       deliverBy: '2026-10-25T16:00:00.000Z',
       agreedPrice: '12.50',
+      distanceMeters: 1_500,
+      createdAt: FRESH.toISOString(),
     });
     expect(listed.assignments[1]?.agreedPrice).toBe('8.00');
     expect(listed.assignments[2]).toMatchObject({ deliverBy: null, agreedPrice: null, serviceClass: null });
@@ -144,6 +159,52 @@ describe('active rider assignment', () => {
     expect(encoded).not.toContain('9.99');
     expect(encoded).not.toContain('20.00');
     expect(encoded).not.toContain('suggestedPrice');
+  });
+
+  it('returns this rider completed marketplace and V1 deliveries newest first', async () => {
+    expect(Reflect.getMetadata(PATH_METADATA, RiderAssignmentController.prototype.completed)).toBe('completed');
+    expect(Reflect.getMetadata(METHOD_METADATA, RiderAssignmentController.prototype.completed)).toBe(RequestMethod.GET);
+    const service = serviceFor([
+      row('older-market', 'profile-1', AssignmentStatus.COMPLETED, DeliveryStatus.DELIVERED, 'Older market road', FRESH, {
+        serviceClass: 'FLEXIBLE',
+        acceptedBidAmount: '10.00',
+        completedAt: new Date('2026-10-18T08:00:00.000Z'),
+      }),
+      row('newer-v1', 'profile-1', AssignmentStatus.COMPLETED, DeliveryStatus.DELIVERED, 'Newer legacy road', FRESH, {
+        completedAt: new Date('2026-10-20T08:00:00.000Z'),
+      }),
+      row('active', 'profile-1', AssignmentStatus.ACCEPTED, DeliveryStatus.PICKED_UP, 'Active road'),
+      row('pending', 'profile-1', AssignmentStatus.OFFERED, DeliveryStatus.SEARCHING, 'Pending road'),
+      row('accepted-delivered', 'profile-1', AssignmentStatus.ACCEPTED, DeliveryStatus.DELIVERED, 'Unclosed road'),
+      row('cancelled', 'profile-1', AssignmentStatus.COMPLETED, DeliveryStatus.CANCELLED, 'Cancelled road'),
+      row('failed', 'profile-1', AssignmentStatus.COMPLETED, DeliveryStatus.FAILED, 'Failed road'),
+      row('released', 'profile-1', AssignmentStatus.RELEASED, DeliveryStatus.DELIVERED, 'Released road'),
+      row('other', 'other-profile', AssignmentStatus.COMPLETED, DeliveryStatus.DELIVERED, 'Other rider road', FRESH, {
+        completedAt: new Date('2026-10-21T08:00:00.000Z'),
+      }),
+    ]);
+
+    const listed = await service.completedAssignments(rider('profile-1'), NOW);
+
+    expect(listed.assignments.map((assignment) => assignment.assignmentId)).toEqual(['newer-v1', 'older-market']);
+    expect(listed.assignments[0]).toMatchObject({
+      status: DeliveryStatus.DELIVERED,
+      serviceClass: null,
+      completedAt: '2026-10-20T08:00:00.000Z',
+      pickup: { address: 'Newer legacy road' },
+    });
+    expect(listed.assignments[1]).toMatchObject({
+      serviceClass: 'FLEXIBLE',
+      agreedPrice: '10.00',
+      completedAt: '2026-10-18T08:00:00.000Z',
+    });
+    const encoded = JSON.stringify(listed);
+    expect(encoded).not.toContain('other-profile');
+    expect(encoded).not.toContain('Active road');
+    expect(encoded).not.toContain('Cancelled road');
+    expect(encoded).not.toContain('Failed road');
+    expect(encoded).not.toContain('Pending road');
+    expect((await service.liveAssignments(rider('profile-1'), NOW)).assignments.map((assignment) => assignment.assignmentId)).toEqual(['active']);
   });
 });
 
@@ -156,10 +217,23 @@ function rider(riderProfileId: string) {
 }
 
 function serviceFor(rows: ReturnType<typeof row>[]) {
+  const indexed = rows.map((entry, index) => ({
+    ...entry,
+    createdAt: entry.createdAt ?? new Date(index),
+  }));
   const prisma = {
     deliveryAssignment: {
-      async findMany() {
-        return rows;
+      async findMany(args?: { orderBy?: unknown }) {
+        if (!args?.orderBy) {
+          return indexed;
+        }
+        return [...indexed].sort((left, right) => {
+          const byTime = left.createdAt.getTime() - right.createdAt.getTime();
+          if (byTime !== 0) {
+            return byTime;
+          }
+          return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
+        });
       },
     },
   };
@@ -178,12 +252,15 @@ function row(
     deliverBy?: Date | null;
     acceptedBidAmount?: string | { toFixed(digits: number): string } | null;
     price?: string;
+    completedAt?: Date;
   } = {},
+  assignmentCreatedAt?: Date,
 ) {
   return {
     id,
     riderProfileId,
     status,
+    createdAt: assignmentCreatedAt,
     idempotencyKey: `key-${id}`,
     acceptedPlatformFee: '0.50',
     acceptedBidAmount: read.acceptedBidAmount ?? null,
@@ -212,6 +289,11 @@ function row(
       recipientName: 'Recipient Person',
       recipientPhone: '+263772222222',
       createdAt: retrievedAt,
+      updatedAt: read.completedAt,
+      statusEvents: read.completedAt
+        ? [{ newStatus: DeliveryStatus.DELIVERED, occurredAt: read.completedAt }]
+        : [],
+      distanceMeters: 1_500,
       price: read.price ?? '3.00',
       serviceClass: read.serviceClass ?? null,
       deliverBy: read.deliverBy ?? null,

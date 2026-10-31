@@ -63,6 +63,6 @@ class RiderOfferNoticeTest {
         assertTrue(notificationTapCanOpen(listed = true, expiresAt = "2099-01-01T00:00:00.000Z", nowMillis = now))
         assertEquals("New delivery request", OFFER_NOTICE_TITLE)
         assertEquals("Open the app to respond. This request expires soon.", OFFER_NOTICE_BODY)
-        assertEquals("This request is no longer available.", REQUEST_UNAVAILABLE)
+        assertEquals("Offer no longer available", REQUEST_UNAVAILABLE)
     }
 }

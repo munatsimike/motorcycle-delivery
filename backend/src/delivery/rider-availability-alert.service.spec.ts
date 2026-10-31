@@ -196,6 +196,7 @@ describe('rider availability alerts', () => {
     expect(db.calls[0]?.sql).toContain('ST_DWithin');
     expect(db.calls[0]?.sql).toContain('updated_at');
     expect(db.calls[0]?.sql).toContain(`'AVAILABLE'`);
+    expect(db.calls[0]?.sql).toContain(`'ACCEPTED'`);
     expect(db.calls[0]?.values).toContainEqual(new Date(NOW.getTime() - GPS_FRESH_MS));
   });
 
@@ -281,9 +282,5 @@ function fakeSql(rows: unknown[] = []) {
 }
 
 function fakeFetch(response: { status: number; body: unknown }): typeof fetch {
-  return (async () => ({
-    status: response.status,
-    ok: response.status >= 200 && response.status < 300,
-    json: async () => response.body,
-  })) as typeof fetch;
+  return async () => new Response(JSON.stringify(response.body), { status: response.status });
 }

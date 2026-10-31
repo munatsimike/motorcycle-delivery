@@ -19,7 +19,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
@@ -169,7 +168,7 @@ fun RegistrationAddressField(
                 color = RidersColors.text,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFFFFF1E0), RoundedCornerShape(RidersRadius.md))
+                    .background(RidersColors.primaryLight, RoundedCornerShape(RidersRadius.md))
                     .clickable { model.select(suggestion, onValueChange) }
                     .padding(horizontal = RidersSpacing.lg, vertical = RidersSpacing.sm),
             )

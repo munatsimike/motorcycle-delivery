@@ -5,6 +5,7 @@ const logger = new Logger('Geoapify');
 
 export type RoadRoute = {
   metres: number;
+  seconds: number | null;
   line: Array<[number, number]>;
 };
 
@@ -25,6 +26,7 @@ export function readRoadRoute(body: unknown): RoadRoute | null {
   }
   const properties = isRecord(feature.properties) ? feature.properties : null;
   const metres = properties ? finite(properties.distance) : null;
+  const seconds = properties ? finite(properties.time) : null;
   const geometry = isRecord(feature.geometry) ? feature.geometry : null;
   const coordinates = geometry && Array.isArray(geometry.coordinates) ? geometry.coordinates : [];
   const line: Array<[number, number]> = [];
@@ -42,7 +44,11 @@ export function readRoadRoute(body: unknown): RoadRoute | null {
   if (metres === null || metres < 0 || !Number.isFinite(metres)) {
     return null;
   }
-  return { metres, line };
+  return {
+    metres,
+    seconds: seconds !== null && seconds >= 0 ? seconds : null,
+    line,
+  };
 }
 
 export function encodePolyline(line: Array<[number, number]>): string {
@@ -98,7 +104,7 @@ export class GeoapifyClient {
     url.searchParams.append('marker', `lonlat:${pickupLongitude},${pickupLatitude};color:#169b62;size:medium`);
     url.searchParams.append('marker', `lonlat:${dropoffLongitude},${dropoffLatitude};color:#087a4a;size:medium`);
     url.searchParams.set('apiKey', this.key());
-    const sampled = sampleLine(line, 25);
+    const sampled = sampleRoadLine(line, 25);
     const geometry = sampled.length > 1 ? `polyline:${encodePolyline(sampled)}` : '';
     if (geometry && geometry.length < 1800) {
       const withRoute = new URL(url);
@@ -206,7 +212,7 @@ export function geoapifyRoadDistance(): RoadDistance {
   };
 }
 
-function sampleLine(line: Array<[number, number]>, maximum: number): Array<[number, number]> {
+export function sampleRoadLine(line: Array<[number, number]>, maximum: number): Array<[number, number]> {
   if (line.length <= maximum) {
     return line;
   }

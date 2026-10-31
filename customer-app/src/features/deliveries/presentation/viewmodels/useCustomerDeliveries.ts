@@ -15,8 +15,9 @@ import { loadCustomerDeliveries } from '../../domain/loadCustomerDeliveries';
 import {
   applyDeliveryRefresh,
   commitSyncGeneration,
+  deliveryListFailure,
   issueSyncGeneration,
-  shouldRefreshSavedDeliveries,
+  shouldRefreshDeliveriesOnForeground,
   type SyncClock,
 } from '../../domain/recentDeliveryCache';
 
@@ -35,6 +36,7 @@ export function useCustomerDeliveries(accessToken: string | null, customerId: st
   const clock = useRef<SyncClock>({ issued: 0, committed: 0 });
   const source = useRef<'cache' | 'network' | 'none'>('none');
   const showingSavedRef = useRef(false);
+  const focusedRef = useRef(false);
   const statusKey = statuses?.join(',') ?? '';
 
   if (boundCustomerId !== customerId) {
@@ -144,6 +146,12 @@ export function useCustomerDeliveries(accessToken: string | null, customerId: st
         if (request.current !== current) {
           return;
         }
+        if (deliveryListFailure(caught) === 'authentication') {
+          showingSavedRef.current = false;
+          setShowingSaved(false);
+          setError(errorMessage(caught, 'Sign in again.'));
+          return;
+        }
         if (nextPage === 1 && source.current !== 'none') {
           showingSavedRef.current = true;
           setShowingSaved(true);
@@ -171,15 +179,17 @@ export function useCustomerDeliveries(accessToken: string | null, customerId: st
   }, [accessToken, customerId, statusKey]);
 
   useFocusEffect(useCallback(() => {
+    focusedRef.current = true;
     load(1);
     return () => {
+      focusedRef.current = false;
       request.current += 1;
     };
   }, [load]));
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState) => {
-      if (shouldRefreshSavedDeliveries(nextState, showingSavedRef.current)) {
+      if (shouldRefreshDeliveriesOnForeground(nextState, focusedRef.current)) {
         load(1);
       }
     });

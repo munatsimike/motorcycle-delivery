@@ -24,6 +24,13 @@ export class RiderAssignmentController {
     return this.dispatch.liveAssignments(requiredRider(request));
   }
 
+  @Get('completed')
+  @ApiOperation({ summary: 'Read deliveries this rider has completed' })
+  @ApiOkResponse({ description: 'Delivered marketplace and V1 assignments for this rider, newest first.' })
+  completed(@Req() request: RiderRequest) {
+    return this.dispatch.completedAssignments(requiredRider(request));
+  }
+
   @Get('active')
   @ApiOperation({ summary: 'Read the rider active assignment' })
   @ApiOkResponse({ description: 'The accepted delivery, or assignment null when the rider has none.' })

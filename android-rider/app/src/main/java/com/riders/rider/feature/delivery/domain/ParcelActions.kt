@@ -3,7 +3,7 @@ package com.riders.rider.feature.delivery.domain
 import com.riders.rider.core.network.ApiError
 import kotlinx.serialization.Serializable
 
-const val DELIVERY_COMPLETED = "Delivery completed."
+const val DELIVERY_COMPLETED = "Delivery completed!"
 const val IDEMPOTENCY_CONFLICT_MESSAGE = "This idempotency key was already used"
 
 val V2CancellationReasons = listOf(
@@ -37,10 +37,22 @@ fun progressAttempt(
     targetStatus: String,
     newKey: String,
 ): TransitionAttempt {
-    if (existing?.deliveryId == deliveryId) {
+    if (existing?.deliveryId == deliveryId && !v2StoredTargetSkipsAhead(existing.targetStatus, targetStatus)) {
         return existing
     }
     return TransitionAttempt(deliveryId, targetStatus, newKey)
+}
+
+private fun v2StoredTargetSkipsAhead(storedTarget: String, requestedTarget: String): Boolean {
+    if (storedTarget == requestedTarget) {
+        return false
+    }
+    val stored = V2DeliveryProgress.indexOf(storedTarget)
+    val requested = V2DeliveryProgress.indexOf(requestedTarget)
+    if (stored < 0 || requested < 0) {
+        return true
+    }
+    return stored > requested
 }
 
 fun progressAttemptAfterRefresh(existing: TransitionAttempt?, serverStatus: String?): TransitionAttempt? {

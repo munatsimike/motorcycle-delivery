@@ -114,7 +114,7 @@ class RiderOnboardingTest {
         assertFalse(rejected.canAcceptDeliveries)
         val busy = riderReadiness(approved().copy(availability = "BUSY"))
         assertFalse(busy.canGoOnline)
-        assertFalse(busy.canAcceptDeliveries)
+        assertTrue(busy.canAcceptDeliveries)
     }
 
     @Test

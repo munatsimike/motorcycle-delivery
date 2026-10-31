@@ -60,6 +60,18 @@ describe('V2 bid lifecycle', () => {
     expect(ctx.assignmentWrites).toBe(0);
   });
 
+  it('rejects a new bid when receiving requests is paused and keeps the existing rows', async () => {
+    process.env.V2_MARKETPLACE_ENABLED = 'true';
+    const ctx = store();
+    ctx.profiles[0]!.receivingRequests = false;
+    const bids = new BidService(ctx.prisma);
+    await expect(bids.submit(RIDER_CONTEXT, bidBody(1_000), 'key-paused', NOW)).rejects.toThrow('You are not receiving requests');
+    expect(ctx.bids).toHaveLength(0);
+    ctx.profiles[0]!.receivingRequests = true;
+    await expect(bids.submit(RIDER_CONTEXT, bidBody(1_000), 'key-paused', NOW)).resolves.toMatchObject({ status: 'OPEN' });
+    expect(ctx.bids).toHaveLength(1);
+  });
+
   it('lets a second eligible rider bid on the same delivery', async () => {
     process.env.V2_MARKETPLACE_ENABLED = 'true';
     const ctx = store();
@@ -83,13 +95,12 @@ describe('V2 bid lifecycle', () => {
     expect(ctx.bids.filter((bid) => bid.status === BidStatus.OPEN)).toHaveLength(1);
   });
 
-  it('accepts a bid when wallet capacity is short and still requires a published rate', async () => {
+  it('rejects a bid whose commission exceeds wallet capacity and still requires a published rate', async () => {
     process.env.V2_MARKETPLACE_ENABLED = 'true';
     const short = store({ basisPoints: 10_000, borrowingLimit: '0.00' });
     short.wallets.splice(0, short.wallets.length);
-    const submitted = await new BidService(short.prisma).submit(RIDER_CONTEXT, bidBody(5_000), 'short', NOW);
-    expect(submitted).toMatchObject({ amountCents: 5_000, status: 'OPEN' });
-    expect(short.bids).toHaveLength(1);
+    await expect(new BidService(short.prisma).submit(RIDER_CONTEXT, bidBody(5_000), 'short', NOW)).rejects.toThrow('Wallet capacity is not enough for this bid');
+    expect(short.bids).toHaveLength(0);
     expect(short.reservationWrites).toBe(0);
     expect(short.ledgerWrites).toBe(0);
     expect(short.assignmentWrites).toBe(0);
@@ -147,26 +158,55 @@ describe('V2 bid lifecycle', () => {
     await bids.submit(RIDER_CONTEXT, bidBody(1_500), 'key-1', NOW);
     const page = await bids.listForCustomer(CUSTOMER, DELIVERY, NOW);
     expect(page).toHaveLength(1);
-    expect(page[0]).toMatchObject({ amountCents: 1_500, rider: { name: 'Tendai Moyo' } });
+    expect(page[0]).toMatchObject({
+      amountCents: 1_500,
+      rider: { name: 'Tendai Moyo', verified: true, completedDeliveries: 0, distanceMeters: null, motorcycle: 'Honda Ace', hasProfilePhoto: false },
+    });
     expect(JSON.stringify(page)).not.toContain('+263');
     expect(JSON.stringify(page)).not.toContain('licence');
     await expect(bids.listForCustomer({ ...CUSTOMER, customerAccountId: 'other' }, DELIVERY, NOW)).rejects.toBeInstanceOf(NotFoundException);
   });
 
-  it('keeps an open bid hidden and rejects a new bid while Express is live', async () => {
+  it('adds a fresh pickup distance and completed count, and omits a stale location', async () => {
+    process.env.V2_MARKETPLACE_ENABLED = 'true';
+    const ctx = store();
+    Object.assign(ctx.deliveries[0]!, { pickupLatitude: -17.8292, pickupLongitude: 31.0522 });
+    ctx.locations.push(
+      { riderProfileId: RIDER, latitude: -17.824, longitude: 31.05, updatedAt: NOW },
+      { riderProfileId: OTHER_RIDER, latitude: -17.8, longitude: 31.04, updatedAt: new Date(NOW.getTime() - 61_000) },
+    );
+    ctx.completedAssignments.push({ riderProfileId: RIDER }, { riderProfileId: RIDER });
+    ctx.profilePhotos.push({ riderProfileId: RIDER });
+    const bids = new BidService(ctx.prisma);
+    await bids.submit(RIDER_CONTEXT, bidBody(1_500), 'key-1', NOW);
+    await bids.submit({ userId: 'user-rider-2', riderProfileId: OTHER_RIDER }, bidBody(900), 'key-2', NOW);
+    const page = await bids.listForCustomer(CUSTOMER, DELIVERY, NOW);
+    const tendai = page.find((bid) => bid.rider.name === 'Tendai Moyo');
+    const rudo = page.find((bid) => bid.rider.name === 'Rudo Ncube');
+    expect(tendai?.rider.completedDeliveries).toBe(2);
+    expect(tendai?.rider.distanceMeters).toBeGreaterThan(0);
+    expect(rudo?.rider.distanceMeters).toBeNull();
+    expect(rudo?.rider.motorcycle).toBeNull();
+    expect(tendai?.rider.hasProfilePhoto).toBe(true);
+    expect(rudo?.rider.hasProfilePhoto).toBe(false);
+    expect(JSON.stringify(page)).not.toContain('profile-photos');
+    expect(JSON.stringify(page)).not.toContain('latitude');
+  });
+
+  it('keeps an open bid visible and accepts another bid while Express is live', async () => {
     process.env.V2_MARKETPLACE_ENABLED = 'true';
     const ctx = store();
     const bids = new BidService(ctx.prisma);
     const open = await bids.submit(RIDER_CONTEXT, bidBody(1_500), 'key-1', NOW);
     ctx.expressRiders.add(RIDER);
-    await expect(bids.listForCustomer(CUSTOMER, DELIVERY, NOW)).resolves.toEqual([]);
+    const listed = await bids.listForCustomer(CUSTOMER, DELIVERY, NOW);
+    expect(listed.map((bid) => bid.id)).toEqual([open.id]);
     expect(ctx.bids.find((bid) => bid.id === open.id)?.status).toBe(BidStatus.OPEN);
     const other = '00000000-0000-7000-8000-0000000000d9';
     ctx.deliveries.push({ ...ctx.deliveries[0]!, id: other });
-    await expect(bids.submit(RIDER_CONTEXT, { ...bidBody(900), deliveryId: other }, 'key-2', NOW)).rejects.toThrow(
-      'You cannot submit a bid while an Express delivery is active',
-    );
-    expect(ctx.bids.filter((bid) => bid.deliveryId === other)).toHaveLength(0);
+    const second = await bids.submit(RIDER_CONTEXT, { ...bidBody(900), deliveryId: other }, 'key-2', NOW);
+    expect(second.deliveryId).toBe(other);
+    expect(ctx.bids.filter((bid) => bid.riderProfileId === RIDER && bid.status === BidStatus.OPEN)).toHaveLength(2);
   });
 
   it('lists an open request without contact phones and hides it after the deadline', async () => {
@@ -176,13 +216,81 @@ describe('V2 bid lifecycle', () => {
     const open = await bids.listOpenRequests(NOW);
     expect(open).toEqual([expect.objectContaining({
       id: DELIVERY,
-      serviceClass: 'EXPRESS',
+      serviceClass: 'FLEXIBLE',
       suggestedPrice: '9.00',
+      offeredPrice: '7.50',
       pickupAddress: '12 Samora Machel Avenue',
     })]);
     expect(JSON.stringify(open)).not.toContain('+263');
     ctx.deliveries[0]!.deliverBy = new Date(NOW.getTime() - 1_000);
     await expect(bids.listOpenRequests(NOW)).resolves.toEqual([]);
+    ctx.deliveries[0]!.status = DeliveryStatus.CREATED;
+    ctx.deliveries[0]!.deliverBy = null;
+    const openEnded = await bids.listOpenRequests(NOW);
+    expect(openEnded.map((request) => request.id)).toEqual([DELIVERY]);
+    expect(openEnded[0]?.deliverBy).toBeNull();
+    const submitted = await bids.submit(RIDER_CONTEXT, bidBody(900), 'open-ended', NOW);
+    expect(submitted.deliveryId).toBe(DELIVERY);
+    expect(ctx.bids.filter((bid) => bid.status === BidStatus.OPEN)).toHaveLength(1);
+  });
+
+  it('records Express interest and a different offer without assigning the rider', async () => {
+    process.env.V2_MARKETPLACE_ENABLED = 'true';
+    const ctx = store();
+    ctx.deliveries[0]!.serviceClass = ServiceClass.EXPRESS;
+    const bids = new BidService(ctx.prisma);
+    const counteroffer = await bids.submit(RIDER_CONTEXT, bidBody(1_000), 'wrong-price', NOW);
+    expect(counteroffer).toMatchObject({ amount: '10.00', status: 'OPEN' });
+    expect(ctx.deliveries[0]?.status).toBe(DeliveryStatus.CREATED);
+    const interest = await bids.submit(
+      { userId: 'user-rider-2', riderProfileId: OTHER_RIDER },
+      bidBody(900),
+      'interest-2',
+      NOW,
+    );
+    expect(interest).toMatchObject({ amount: '9.00', status: 'OPEN' });
+    expect(ctx.deliveries[0]?.status).toBe(DeliveryStatus.CREATED);
+    expect(ctx.reservationWrites).toBe(0);
+    await expect(bids.submit(RIDER_CONTEXT, bidBody(900), 'interest-3', NOW)).rejects.toThrow(
+      'This rider already has an open bid',
+    );
+  });
+
+  it('keeps acceptance of the customer price and a counteroffer open without assignment', async () => {
+    process.env.V2_MARKETPLACE_ENABLED = 'true';
+    const ctx = store();
+    const bids = new BidService(ctx.prisma);
+    const accepted = await bids.submit(RIDER_CONTEXT, bidBody(750), 'customer-price', NOW);
+    const counteroffer = await bids.submit(
+      { userId: 'user-rider-2', riderProfileId: OTHER_RIDER },
+      bidBody(800),
+      'counteroffer',
+      NOW,
+    );
+    expect(accepted).toMatchObject({ amount: '7.50', status: 'OPEN' });
+    expect(counteroffer).toMatchObject({ amount: '8.00', status: 'OPEN' });
+    expect(ctx.bids.map((bid) => bid.status)).toEqual([BidStatus.OPEN, BidStatus.OPEN]);
+    expect(ctx.deliveries[0]?.status).toBe(DeliveryStatus.CREATED);
+    expect(ctx.assignmentWrites).toBe(0);
+    expect(ctx.reservationWrites).toBe(0);
+  });
+
+  it('records a Flexible bid without assigning the rider', async () => {
+    process.env.V2_MARKETPLACE_ENABLED = 'true';
+    const ctx = store();
+    const bids = new BidService(ctx.prisma);
+    const first = await bids.submit(RIDER_CONTEXT, bidBody(1_200), 'flex-1', NOW);
+    const second = await bids.submit(
+      { userId: 'user-rider-2', riderProfileId: OTHER_RIDER },
+      bidBody(1_400),
+      'flex-2',
+      NOW,
+    );
+    expect(first).toMatchObject({ amount: '12.00', status: 'OPEN' });
+    expect(second).toMatchObject({ amount: '14.00', status: 'OPEN' });
+    expect(ctx.deliveries[0]?.status).toBe(DeliveryStatus.CREATED);
+    expect(ctx.reservationWrites).toBe(0);
+    expect(ctx.bids.filter((bid) => bid.status === BidStatus.OPEN)).toHaveLength(2);
   });
 });
 
@@ -207,19 +315,38 @@ type Profile = {
   userId: string;
   approvalStatus: RiderApprovalStatus;
   verificationStatus: RiderVerificationStatus;
+  receivingRequests: boolean | null;
 };
 
 function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?: boolean }) {
   const bids: BidRow[] = [];
-  const deliveries = [{
+  const flexibleClass: ServiceClass = ServiceClass.FLEXIBLE;
+  const deliveries: Array<{
+    id: string;
+    customerId: string;
+    status: DeliveryStatus;
+    serviceClass: ServiceClass;
+    deliverBy: Date | null;
+    searchGeneration: number;
+    currency: Currency;
+    suggestedPrice: string;
+    customerOffer: string;
+    distanceMeters: number;
+    pickupAddress: string;
+    dropoffAddress: string;
+    parcelDescription: string;
+    parcelSize: string;
+    pickupContactPhone: string;
+  }> = [{
     id: DELIVERY,
     customerId: 'account-1',
     status: DeliveryStatus.CREATED,
-    serviceClass: ServiceClass.EXPRESS,
-    deliverBy: DEADLINE,
+    serviceClass: flexibleClass,
+    deliverBy: DEADLINE as Date | null,
     searchGeneration: 0,
     currency: Currency.USD,
     suggestedPrice: '9.00',
+    customerOffer: '7.50',
     distanceMeters: 1_200,
     pickupAddress: '12 Samora Machel Avenue',
     dropoffAddress: '4 Jason Moyo Avenue',
@@ -228,22 +355,25 @@ function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?:
     pickupContactPhone: '+263771234567',
   }];
   const profiles: Profile[] = [
-    { id: RIDER, userId: 'user-rider', approvalStatus: RiderApprovalStatus.APPROVED, verificationStatus: RiderVerificationStatus.VERIFIED },
-    { id: OTHER_RIDER, userId: 'user-rider-2', approvalStatus: RiderApprovalStatus.APPROVED, verificationStatus: RiderVerificationStatus.VERIFIED },
+    { id: RIDER, userId: 'user-rider', approvalStatus: RiderApprovalStatus.APPROVED, verificationStatus: RiderVerificationStatus.VERIFIED, receivingRequests: true },
+    { id: OTHER_RIDER, userId: 'user-rider-2', approvalStatus: RiderApprovalStatus.APPROVED, verificationStatus: RiderVerificationStatus.VERIFIED, receivingRequests: true },
   ];
   const users = [
     { id: 'user-rider', accountStatus: AccountStatus.ACTIVE, phoneVerifiedAt: NOW, fullName: 'Tendai Moyo', phone: '+263771234567' },
     { id: 'user-rider-2', accountStatus: AccountStatus.ACTIVE, phoneVerifiedAt: NOW, fullName: 'Rudo Ncube', phone: '+263777654321' },
   ];
   const motorcycles = [
-    { id: 'bike-1', riderProfileId: RIDER, verificationStatus: MotorcycleVerificationStatus.VERIFIED, isActive: true },
-    { id: 'bike-2', riderProfileId: OTHER_RIDER, verificationStatus: MotorcycleVerificationStatus.VERIFIED, isActive: true },
+    { id: 'bike-1', riderProfileId: RIDER, verificationStatus: MotorcycleVerificationStatus.VERIFIED, isActive: true, make: 'Honda', model: 'Ace' },
+    { id: 'bike-2', riderProfileId: OTHER_RIDER, verificationStatus: MotorcycleVerificationStatus.VERIFIED, isActive: true, make: null, model: null },
   ];
   const wallets = [
     { id: 'wallet-1', riderProfileId: RIDER, balance: '0.00', borrowingLimitOverride: null },
     { id: 'wallet-2', riderProfileId: OTHER_RIDER, balance: '0.00', borrowingLimitOverride: null },
   ];
-  const expressRiders = new Set<string>();
+    const expressRiders = new Set<string>();
+    const locations: Array<{ riderProfileId: string; latitude: number; longitude: number; updatedAt: Date }> = [];
+    const completedAssignments: Array<{ riderProfileId: string }> = [];
+    const profilePhotos: Array<{ riderProfileId: string }> = [];
   const rates = options?.rate === false ? [] : [{ isActive: true, basisPoints: options?.basisPoints ?? 1_000, rateVersion: 1 }];
   const config = { isActive: true, defaultBorrowingLimit: options?.borrowingLimit ?? '50.00' };
   let reservationWrites = 0;
@@ -252,7 +382,7 @@ function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?:
   let nextBid = 1;
   let queue = Promise.resolve();
   const db = {
-    async $transaction<T>(fn: (tx: typeof db) => Promise<T>): Promise<T> {
+    async $transaction<T>(fn: (tx: object) => Promise<T>): Promise<T> {
       const previous = queue;
       let release = () => {};
       queue = new Promise((resolve) => {
@@ -285,13 +415,18 @@ function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?:
       async findFirst({ where }: { where: { id: string; customerId: string } }) {
         return deliveries.find((delivery) => delivery.id === where.id && delivery.customerId === where.customerId) ?? null;
       },
-      async findMany({ where }: { where: { status: DeliveryStatus; deliverBy: { gt?: Date; lte?: Date }; searchGeneration: number } }) {
+      async findMany({ where }: { where: { status: DeliveryStatus; deliverBy?: { gt?: Date; lte?: Date }; searchGeneration: number; OR?: Array<{ deliverBy: null | { gt?: Date } }> } }) {
         return deliveries.filter((delivery) => (
           delivery.status === where.status
           && delivery.serviceClass != null
           && delivery.searchGeneration === where.searchGeneration
-          && (where.deliverBy.gt ? delivery.deliverBy > where.deliverBy.gt : true)
-          && (where.deliverBy.lte ? delivery.deliverBy.getTime() <= where.deliverBy.lte.getTime() : true)
+          && (where.deliverBy?.gt ? delivery.deliverBy != null && delivery.deliverBy > where.deliverBy.gt : true)
+          && (where.deliverBy?.lte ? delivery.deliverBy != null && delivery.deliverBy.getTime() <= where.deliverBy.lte.getTime() : true)
+          && (where.OR ? where.OR.some((clause) => (
+            clause.deliverBy === null
+              ? delivery.deliverBy == null
+              : delivery.deliverBy != null && clause.deliverBy.gt != null && delivery.deliverBy > clause.deliverBy.gt
+          )) : true)
         ));
       },
     },
@@ -316,7 +451,7 @@ function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?:
       async updateMany({ where, data }: { where: { status: BidStatus; deliveryId?: string; delivery?: { deliverBy: { lte: Date } } }; data: { status: BidStatus } }) {
         for (const bid of bids) {
           const delivery = deliveries.find((item) => item.id === bid.deliveryId);
-          const due = !where.delivery || (delivery != null && delivery.deliverBy.getTime() <= where.delivery.deliverBy.lte.getTime());
+          const due = !where.delivery || (delivery?.deliverBy != null && delivery.deliverBy.getTime() <= where.delivery.deliverBy.lte.getTime());
           if (
             bid.status === where.status
             && (!where.deliveryId || bid.deliveryId === where.deliveryId)
@@ -348,6 +483,18 @@ function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?:
         return row;
       },
     },
+    riderProfilePhoto: {
+      async findMany({ where }: { where: { riderProfileId: { in: string[] } } }) {
+        const ids = new Set(where.riderProfileId.in);
+        return profilePhotos.filter((row) => ids.has(row.riderProfileId));
+      },
+    },
+    riderLocation: {
+      async findMany({ where }: { where: { riderProfileId: { in: string[] } } }) {
+        const ids = new Set(where.riderProfileId.in);
+        return locations.filter((row) => ids.has(row.riderProfileId));
+      },
+    },
     riderProfile: {
       async findUnique({ where }: { where: { id: string } }) {
         const profile = profiles.find((item) => item.id === where.id);
@@ -364,8 +511,13 @@ function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?:
       },
     },
     motorcycle: {
-      async findMany({ where }: { where: { riderProfileId: string } }) {
-        return motorcycles.filter((motorcycle) => motorcycle.riderProfileId === where.riderProfileId);
+      async findMany({ where }: { where: { riderProfileId: string | { in?: string[] }; isActive?: boolean; verificationStatus?: MotorcycleVerificationStatus } }) {
+        const ids = typeof where.riderProfileId === 'string' ? [where.riderProfileId] : where.riderProfileId.in ?? [];
+        return motorcycles.filter((motorcycle) => (
+          ids.includes(motorcycle.riderProfileId)
+          && (where.isActive === undefined || motorcycle.isActive === where.isActive)
+          && (where.verificationStatus === undefined || motorcycle.verificationStatus === where.verificationStatus)
+        ));
       },
     },
     v2CommissionRate: {
@@ -408,8 +560,11 @@ function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?:
         }
         return null;
       },
-      async findMany({ where }: { where?: { riderProfileId?: { in?: string[] }; serviceClass?: ServiceClass } }) {
+      async findMany({ where }: { where?: { riderProfileId?: { in?: string[] }; serviceClass?: ServiceClass; delivery?: { status: DeliveryStatus } } }) {
         const ids = where?.riderProfileId?.in ?? [];
+        if (where?.delivery?.status === DeliveryStatus.DELIVERED) {
+          return completedAssignments.filter((row) => ids.includes(row.riderProfileId));
+        }
         if (where?.serviceClass !== ServiceClass.EXPRESS) return [];
         return ids.filter((id) => expressRiders.has(id)).map((riderProfileId) => ({ riderProfileId }));
       },
@@ -435,12 +590,15 @@ function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?:
       return assignmentWrites;
     },
     expressRiders,
+    locations,
+    completedAssignments,
+    profilePhotos,
   };
 
   function withRider(bid: BidRow) {
     const profile = profiles.find((item) => item.id === bid.riderProfileId);
     const user = users.find((item) => item.id === profile?.userId);
-    return { ...bid, riderProfile: { user: { fullName: user?.fullName ?? '' } } };
+    return { ...bid, riderProfile: { verificationStatus: profile?.verificationStatus, user: { fullName: user?.fullName ?? '' } } };
   }
 }
 

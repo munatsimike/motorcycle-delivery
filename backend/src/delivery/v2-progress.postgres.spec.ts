@@ -19,7 +19,7 @@ const DISPOSABLE_URL = `postgresql://postgres:postgres@${HOST}:${PORT}/${DATABAS
 const NOW = new Date('2026-10-24T08:00:00.000Z');
 const DEADLINE = new Date('2026-10-24T18:00:00.000Z');
 const PRISMA_CLI = resolve(process.cwd(), 'node_modules/prisma/build/index.js');
-const STEPS = ['COLLECTING', 'COLLECTED', 'OUT_FOR_DELIVERY', 'DELIVERED'] as const;
+const STEPS = ['COLLECTED', 'DELIVERED'] as const;
 
 let prisma: PrismaService;
 let acceptance: BidAcceptanceService;
@@ -127,19 +127,17 @@ it('progresses an accepted V2 delivery through the native chain and deducts the 
     status: 'RIDER_ASSIGNED',
   });
 
-  await expect(dispatch.progress(world.otherRider, world.deliveryId, { status: 'COLLECTING' }, NOW))
+  await expect(dispatch.progress(world.otherRider, world.deliveryId, { status: 'COLLECTED' }, NOW))
     .rejects.toThrow('Delivery not found');
   await expect(dispatch.progress(
     { userId: world.otherRider.userId, riderProfileId: world.rider.riderProfileId },
     world.deliveryId,
-    { status: 'COLLECTING' },
+    { status: 'COLLECTED' },
     NOW,
     'wrong-user',
   )).rejects.toThrow('Rider access is required');
-  await expect(dispatch.progress(world.rider, world.deliveryId, { status: 'COLLECTED' }, NOW, 'skip'))
+  await expect(dispatch.progress(world.rider, world.deliveryId, { status: 'COLLECTING' }, NOW, 'collect'))
     .rejects.toThrow('This delivery status cannot be changed');
-  await expect(dispatch.release(world.rider, world.assignmentId, { reason: 'RIDER_CANCELLED' }, NOW))
-    .rejects.toThrow('This delivery cannot be released');
   expect((await prisma.delivery.findUnique({ where: { id: world.deliveryId } }))?.status).toBe('RIDER_ASSIGNED');
   expect(await prisma.riderWalletEntry.count({ where: { entryType: WalletEntryType.PLATFORM_FEE } })).toBe(0);
 
@@ -162,6 +160,43 @@ it('progresses an accepted V2 delivery through the native chain and deducts the 
 
   await expect(dispatch.progress(world.rider, world.deliveryId, { status: 'DELIVERED' }, NOW, 'again')).rejects.toThrow('Delivery not found');
   expect(await prisma.riderWalletEntry.count({ where: { riderWalletId: world.walletId, entryType: 'PLATFORM_FEE' } })).toBe(1);
+});
+
+it('still collects a delivery that is already collecting', async () => {
+  const world = await acceptedDelivery();
+  await prisma.delivery.update({ where: { id: world.deliveryId }, data: { status: 'COLLECTING' } });
+  await expect(dispatch.progress(world.rider, world.deliveryId, { status: 'COLLECTING' }, NOW, `again-${world.deliveryId}`))
+    .rejects.toThrow('This delivery status cannot be changed');
+  const collected = await dispatch.progress(world.rider, world.deliveryId, { status: 'COLLECTED' }, NOW, `picked-${world.deliveryId}`);
+  expect(collected.status).toBe('COLLECTED');
+  expect(await prisma.riderWalletEntry.count({ where: { riderWalletId: world.walletId, entryType: 'PLATFORM_FEE' } })).toBe(0);
+});
+
+it('delivers a collected parcel in one step and still finishes a parcel already out for delivery', async () => {
+  const world = await acceptedDelivery();
+  await dispatch.progress(world.rider, world.deliveryId, { status: 'COLLECTED' }, NOW, `collected-${world.deliveryId}`);
+  await expect(dispatch.progress(world.rider, world.deliveryId, { status: 'OUT_FOR_DELIVERY' }, NOW, `start-${world.deliveryId}`))
+    .rejects.toThrow('This delivery status cannot be changed');
+  expect((await prisma.delivery.findUnique({ where: { id: world.deliveryId } }))?.status).toBe('COLLECTED');
+  expect(await prisma.riderWalletEntry.count({ where: { riderWalletId: world.walletId, entryType: 'PLATFORM_FEE' } })).toBe(0);
+  expect(await prisma.v2OutboxEvent.count({ where: { assignmentId: world.assignmentId, eventType: 'OUT_FOR_DELIVERY' } })).toBe(0);
+
+  const delivered = await dispatch.progress(world.rider, world.deliveryId, { status: 'DELIVERED' }, NOW, `delivered-${world.deliveryId}`);
+  expect(delivered.status).toBe('DELIVERED');
+  const replay = await dispatch.progress(world.rider, world.deliveryId, { status: 'DELIVERED' }, NOW, `delivered-${world.deliveryId}`);
+  expect(replay).toEqual(delivered);
+  expect(await prisma.riderWalletEntry.count({ where: { riderWalletId: world.walletId, entryType: 'PLATFORM_FEE' } })).toBe(1);
+  expect(await prisma.deliveryStatusEvent.count({ where: { deliveryId: world.deliveryId, newStatus: 'DELIVERED' } })).toBe(1);
+  expect((await prisma.deliveryAssignment.findUnique({ where: { id: world.assignmentId } }))?.status).toBe('COMPLETED');
+
+  const legacy = await acceptedDelivery();
+  await prisma.delivery.update({ where: { id: legacy.deliveryId }, data: { status: 'OUT_FOR_DELIVERY' } });
+  const finished = await dispatch.progress(legacy.rider, legacy.deliveryId, { status: 'DELIVERED' }, NOW, `legacy-${legacy.deliveryId}`);
+  expect(finished.status).toBe('DELIVERED');
+  expect(await prisma.riderWalletEntry.count({ where: { riderWalletId: legacy.walletId, entryType: 'PLATFORM_FEE' } })).toBe(1);
+  await expect(dispatch.progress(legacy.rider, legacy.deliveryId, { status: 'DELIVERED' }, NOW, `legacy-again-${legacy.deliveryId}`))
+    .rejects.toThrow('Delivery not found');
+  expect(await prisma.riderWalletEntry.count({ where: { riderWalletId: legacy.walletId, entryType: 'PLATFORM_FEE' } })).toBe(1);
 });
 
 async function acceptedDelivery() {

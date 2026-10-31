@@ -4,6 +4,7 @@ import com.riders.rider.core.network.ApiError
 import com.riders.rider.core.network.ApiResult
 import com.riders.rider.core.network.MotorcycleRequest
 import com.riders.rider.core.network.MotorcycleResponse
+import com.riders.rider.core.network.ProgressRequestBody
 import com.riders.rider.core.network.RiderService
 import com.riders.rider.core.network.apiCall
 import com.riders.rider.core.network.text
@@ -17,13 +18,12 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
-import okhttp3.RequestBody
-import okio.BufferedSink
 
 data class RiderIdentity(
     val fullName: String,
     val phone: String,
     val address: String? = null,
+    val hasProfilePhoto: Boolean = false,
 )
 
 @Singleton
@@ -32,7 +32,7 @@ class VerificationRepository @Inject constructor(
 ) {
     suspend fun profile(): ApiResult<RiderIdentity> {
         return when (val result = apiCall { riders.profile() }) {
-            is ApiResult.Ok -> ApiResult.Ok(RiderIdentity(result.value.fullName, result.value.phone, result.value.address))
+            is ApiResult.Ok -> ApiResult.Ok(RiderIdentity(result.value.fullName, result.value.phone, result.value.address, result.value.hasProfilePhoto))
             is ApiResult.Err -> result
         }
     }
@@ -143,23 +143,3 @@ private fun MotorcycleResponse.toDomain(): MotorcycleDetails {
     )
 }
 
-private class ProgressRequestBody(
-    private val bytes: ByteArray,
-    private val mediaType: okhttp3.MediaType,
-    private val onProgress: (Int) -> Unit,
-) : RequestBody() {
-    override fun contentType(): okhttp3.MediaType = mediaType
-
-    override fun contentLength(): Long = bytes.size.toLong()
-
-    override fun writeTo(sink: BufferedSink) {
-        var sent = 0
-        val chunk = 8 * 1024
-        while (sent < bytes.size) {
-            val end = minOf(sent + chunk, bytes.size)
-            sink.write(bytes, sent, end - sent)
-            sent = end
-            onProgress(((sent * 100L) / bytes.size).toInt())
-        }
-    }
-}

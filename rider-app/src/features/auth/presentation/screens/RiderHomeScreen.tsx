@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import ErrorMessage from '../../../../components/ErrorMessage';
@@ -90,7 +90,20 @@ export default function RiderHomeScreen() {
               <SecondaryButton
                 label={availability.working ? 'Going offline' : 'Go Offline'}
                 disabled={availability.working || signingOut !== null}
-                onPress={() => { void availability.offline(); }}
+                onPress={() => {
+                  if (onboarding.availability === 'BUSY') {
+                    Alert.alert(
+                      'Go offline?',
+                      'You will stop receiving new requests. Deliveries you already accepted stay assigned to you.',
+                      [
+                        { text: 'Stay online', style: 'cancel' },
+                        { text: 'Go offline', onPress: () => { void availability.offline(); } },
+                      ],
+                    );
+                    return;
+                  }
+                  void availability.offline();
+                }}
               />
             ) : null}
             {availability.snapshot.access === 'services-off' ? (

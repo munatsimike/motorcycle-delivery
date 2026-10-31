@@ -34,5 +34,7 @@ private val Type = Typography(
 
 @Composable
 fun RiderTheme(content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = Colors, typography = Type, content = content)
+    MaterialTheme(colorScheme = Colors, typography = Type) {
+        NetworkNoticeHost(content)
+    }
 }

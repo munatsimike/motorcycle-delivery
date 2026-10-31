@@ -43,8 +43,8 @@ describe('rider onboarding status', () => {
       activeVerifiedMotorcycle: true,
       availability: 'BUSY',
     });
-    expect(readiness.availabilityLabel).toBe('On a delivery');
-    expect(readiness.message).toContain('on a delivery');
+    expect(readiness.availabilityLabel).toBe('Online');
+    expect(readiness.message).toContain('online');
   });
 
   it('explains a ready rider who is still offline', () => {

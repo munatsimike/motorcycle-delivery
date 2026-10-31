@@ -17,6 +17,8 @@ import { WhatsAppAuthService } from '../auth/whatsapp-auth.service.js';
 import { RiderAuthController } from '../auth/rider-auth.controller.js';
 import { SessionController } from '../auth/session.controller.js';
 import { SessionService } from '../auth/session.service.js';
+import { AdminCustomerController } from '../customer/admin-customer.controller.js';
+import { AdminCustomerListService } from '../customer/admin-customer-list.service.js';
 import { CustomerAccountController } from '../customer/customer-account.controller.js';
 import { CustomerAccountService } from '../customer/customer-account.service.js';
 import { CustomerFcmDeviceController } from '../customer/customer-fcm-device.controller.js';
@@ -30,7 +32,6 @@ import { BidService } from '../delivery/bid.service.js';
 import { RiderBidController } from '../delivery/rider-bid.controller.js';
 import { ClassPricingService } from '../delivery/class-pricing.service.js';
 import { DeliveryPricingController } from '../delivery/delivery-pricing.controller.js';
-import { DeliveryPricingService } from '../delivery/delivery-pricing.service.js';
 import { DeliveryService } from '../delivery/delivery.service.js';
 import { DispatchService } from '../delivery/dispatch.service.js';
 import { NearbyRidersController } from '../delivery/nearby-riders.controller.js';
@@ -44,15 +45,18 @@ import { RiderAssignmentController } from '../delivery/rider-assignment.controll
 import { RiderAvailabilityAlertController } from '../delivery/rider-availability-alert.controller.js';
 import { RiderAvailabilityAlertService } from '../delivery/rider-availability-alert.service.js';
 import { RiderDeliveryController } from '../delivery/rider-delivery.controller.js';
-import { RiderOfferController } from '../delivery/rider-offer.controller.js';
 import { RiderPushDeviceController } from '../rider/rider-push-device.controller.js';
 import { RiderPushDeviceService } from '../rider/rider-push-device.service.js';
-import { CommissionPolicyController } from '../rider/commission-policy.controller.js';
-import { CommissionPolicyService } from '../rider/commission-policy.service.js';
 import { V2CommissionRateController } from '../rider/v2-commission-rate.controller.js';
 import { V2CommissionRateService } from '../rider/v2-commission-rate.service.js';
 import { LicenceImageController } from '../rider/licence-image.controller.js';
 import { LicenceImageService } from '../rider/licence-image.service.js';
+import { CustomerAccountProfilePhotoController } from '../rider/customer-account-profile-photo.controller.js';
+import { CustomerAccountProfilePhotoService } from '../rider/customer-account-profile-photo.service.js';
+import { CustomerProfilePhotoController } from '../rider/customer-profile-photo.controller.js';
+import { CustomerProfilePhotoService } from '../rider/customer-profile-photo.service.js';
+import { ProfilePhotoController } from '../rider/profile-photo.controller.js';
+import { ProfilePhotoService } from '../rider/profile-photo.service.js';
 import { LicenceReviewService } from '../rider/licence-review.service.js';
 import { MotorcycleController } from '../rider/motorcycle.controller.js';
 import { MotorcycleListService } from '../rider/motorcycle-list.service.js';
@@ -89,6 +93,7 @@ describe('OpenAPI document', () => {
         AdminAuthController,
         SessionController,
         CustomerAccountController,
+        AdminCustomerController,
         CustomerFcmDeviceController,
         CustomerBidController,
         DeliveryController,
@@ -100,7 +105,6 @@ describe('OpenAPI document', () => {
         RiderAvailabilityAlertController,
         AdminDeliveryController,
         DeliveryPricingController,
-        RiderOfferController,
         RiderPushDeviceController,
         RiderDeliveryController,
         RiderAssignmentController,
@@ -110,10 +114,12 @@ describe('OpenAPI document', () => {
         RiderLocationController,
         MotorcycleController,
         LicenceImageController,
+        ProfilePhotoController,
+        CustomerProfilePhotoController,
+        CustomerAccountProfilePhotoController,
         RiderWalletController,
         RiderAdminController,
         MotorcycleReviewController,
-        CommissionPolicyController,
         V2CommissionRateController,
         WalletConfigController,
         AdminDashboardController,
@@ -128,6 +134,7 @@ describe('OpenAPI document', () => {
         { provide: RiderAccessService, useValue: unused },
         { provide: AdminAccessService, useValue: unused },
         { provide: CustomerAccountService, useValue: unused },
+        { provide: AdminCustomerListService, useValue: unused },
         { provide: CustomerFcmDeviceService, useValue: unused },
         { provide: BidAcceptanceService, useValue: unused },
         { provide: BidService, useValue: unused },
@@ -138,7 +145,6 @@ describe('OpenAPI document', () => {
         { provide: NearbyRidersService, useValue: unused },
         { provide: RiderAvailabilityAlertService, useValue: unused },
         { provide: AdminDeliveryListService, useValue: unused },
-        { provide: DeliveryPricingService, useValue: unused },
         { provide: ClassPricingService, useValue: unused },
         { provide: RiderOnboardingService, useValue: unused },
         { provide: RiderAvailabilityService, useValue: unused },
@@ -146,13 +152,15 @@ describe('OpenAPI document', () => {
         { provide: RiderLocationService, useValue: unused },
         { provide: MotorcycleService, useValue: unused },
         { provide: LicenceImageService, useValue: unused },
+        { provide: ProfilePhotoService, useValue: unused },
+        { provide: CustomerProfilePhotoService, useValue: unused },
+        { provide: CustomerAccountProfilePhotoService, useValue: unused },
         { provide: WalletService, useValue: unused },
         { provide: LicenceReviewService, useValue: unused },
         { provide: RiderApprovalService, useValue: unused },
         { provide: RiderListService, useValue: unused },
         { provide: MotorcycleReviewService, useValue: unused },
         { provide: MotorcycleListService, useValue: unused },
-        { provide: CommissionPolicyService, useValue: unused },
         { provide: V2CommissionRateService, useValue: unused },
         { provide: WalletConfigService, useValue: unused },
         { provide: AdminDashboardService, useValue: unused },
@@ -186,23 +194,9 @@ describe('OpenAPI document', () => {
     expect(verify?.responses?.['200']).toBeTruthy();
     expect(verify?.responses?.['401']).toBeTruthy();
 
-    const pricingGet = document.paths?.['/admin/delivery-pricing']?.get;
-    const pricingPut = document.paths?.['/admin/delivery-pricing']?.put;
-    expect(pricingGet?.security).toEqual([{ bearer: [] }]);
-    expect(pricingPut?.security).toEqual([{ bearer: [] }]);
-    const pricingSchema = schemaOf(document, pricingPut?.requestBody);
-    expect(pricingSchema.required).toEqual(expect.arrayContaining([
-      'baseFee',
-      'pricePerKilometre',
-      'minimumTripMetres',
-      'maximumTripMetres',
-    ]));
-    expect(pricingSchema.properties?.currency?.enum).toEqual(['USD']);
-    expect(document.paths?.['/admin/delivery-pricing']?.get?.responses?.['404']).toBeTruthy();
-    const v1Response = schemaOf(document, pricingGet?.responses?.['200']);
-    expect(v1Response.properties?.baseFee).toBeTruthy();
-    expect(v1Response.properties?.pricingModel).toBeUndefined();
-    expect(v1Response.properties?.serviceClass).toBeUndefined();
+    expect(document.paths?.['/admin/delivery-pricing']?.get).toBeUndefined();
+    expect(document.paths?.['/admin/delivery-pricing']?.put).toBeUndefined();
+    expect(document.paths?.['/admin/commission-policy']).toBeUndefined();
 
     const classes = document.paths?.['/admin/delivery-pricing/classes']?.get;
     const publish = document.paths?.['/admin/delivery-pricing/classes/{serviceClass}']?.post;
@@ -224,6 +218,7 @@ describe('OpenAPI document', () => {
       'PER_KILOMETRE',
       'BASE_PLUS_PER_KILOMETRE',
       'DISTANCE_TIERS',
+      'INCLUDED_DISTANCE',
     ]);
     const classList = schemaOf(document, classes?.responses?.['200']);
     expect(classList.required).toEqual(expect.arrayContaining(['express', 'flexible']));
@@ -244,7 +239,6 @@ describe('OpenAPI document', () => {
     expect(v2Audits?.security).toEqual([{ bearer: [] }]);
     const v2Body = schemaOf(document, v2Publish?.requestBody);
     expect(v2Body.required).toEqual(['percentage']);
-    expect(document.paths?.['/admin/commission-policy']?.put).toBeTruthy();
 
     const operations = Object.values(document.paths ?? {}).flatMap((path) =>
       Object.keys(path ?? {}).filter((method) => ['get', 'post', 'put', 'patch', 'delete'].includes(method)),

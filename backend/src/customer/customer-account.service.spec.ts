@@ -36,13 +36,21 @@ describe('customer account marketplace signal', () => {
       kind: 'INDIVIDUAL',
       name: 'Rudo Ncube',
       phone: '+263771234567',
+      hasProfilePhoto: false,
     });
+    expect(JSON.stringify(enabled)).not.toContain('profile-photos');
+    expect(JSON.stringify(enabled)).not.toContain('objectKey');
     expect(JSON.stringify(enabled)).not.toContain('V2_MARKETPLACE_ENABLED');
 
     delete process.env.V2_MARKETPLACE_ENABLED;
     const disabled = await new CustomerAccountService(prisma(USER) as never).current({ userId: USER.id });
     expect(disabled.marketplaceEnabled).toBe(false);
     expect(disabled.phone).toBe('+263771234567');
+    expect(disabled.hasProfilePhoto).toBe(false);
+
+    const withPhoto = await new CustomerAccountService(prisma(USER, true) as never).current({ userId: USER.id });
+    expect(withPhoto.hasProfilePhoto).toBe(true);
+    expect(JSON.stringify(withPhoto)).not.toContain('objectKey');
   });
 
   it('requires an authenticated customer profile', async () => {
@@ -53,11 +61,16 @@ describe('customer account marketplace signal', () => {
   });
 });
 
-function prisma(user: typeof USER | { customerAccount: null } | null) {
+function prisma(user: typeof USER | { customerAccount: null } | null, hasPhoto = false) {
   return {
     user: {
       async findUnique() {
         return user;
+      },
+    },
+    customerProfilePhoto: {
+      async findFirst() {
+        return hasPhoto ? { id: 'photo-1' } : null;
       },
     },
   };

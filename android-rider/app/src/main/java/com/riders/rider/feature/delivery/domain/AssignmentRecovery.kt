@@ -52,10 +52,9 @@ fun parcelActionsAllowed(certainty: AssignmentCertainty): Boolean {
     return certainty == AssignmentCertainty.Confirmed
 }
 
-fun staleAssignmentHintAuthorizes(@Suppress("UNUSED_PARAMETER") staleCommittedHint: Boolean): Boolean = false
-
 fun assignmentFailureIsUncertain(error: ApiError): Boolean = when (error) {
     ApiError.SessionEnded,
+    ApiError.SignedInElsewhere,
     ApiError.Forbidden,
     -> false
     else -> true

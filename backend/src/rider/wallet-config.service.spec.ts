@@ -133,7 +133,7 @@ function context() {
     async $queryRaw() {
       return [];
     },
-    async $transaction<T>(callback: (tx: typeof db) => Promise<T>) {
+    async $transaction<T>(callback: (tx: object) => Promise<T>) {
       return callback(db);
     },
   };

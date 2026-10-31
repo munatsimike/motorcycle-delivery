@@ -11,15 +11,20 @@ import com.riders.rider.feature.delivery.domain.DeliveryActionGate
 import com.riders.rider.feature.delivery.domain.DeliveryContacts
 import com.riders.rider.feature.delivery.domain.DeliveryRecoveryCoordinator
 import com.riders.rider.feature.delivery.domain.DeliverySyncKind
-import com.riders.rider.feature.delivery.domain.applyDeliveryTransition
-import com.riders.rider.feature.delivery.domain.deliveryActionLabel
+import com.riders.rider.feature.delivery.domain.deliveryCardAddress
+import com.riders.rider.feature.delivery.domain.destinationSuburb
+import com.riders.rider.feature.delivery.domain.deliveryPriceLabel
+import com.riders.rider.feature.delivery.domain.deliveryWhenLabel
+import com.riders.rider.feature.delivery.domain.shortDeliveryReference
 import com.riders.rider.feature.delivery.domain.loadedDelivery
 import com.riders.rider.feature.delivery.domain.MAPS_UNAVAILABLE
 import com.riders.rider.feature.delivery.domain.mapPointForStatus
 import com.riders.rider.feature.delivery.domain.navigationTarget
-import com.riders.rider.feature.delivery.domain.nextDeliveryStatus
-import com.riders.rider.feature.delivery.domain.progressDecision
-import com.riders.rider.feature.delivery.domain.releaseActionVisible
+import com.riders.rider.feature.delivery.domain.riderDetailsHeading
+import com.riders.rider.feature.delivery.domain.riderDetailsSupport
+import com.riders.rider.feature.delivery.domain.senderDialUri
+import com.riders.rider.feature.delivery.domain.senderInitials
+import com.riders.rider.feature.delivery.domain.senderWhatsAppUri
 import com.riders.rider.feature.delivery.domain.syncOpenDelivery
 import com.riders.rider.feature.delivery.domain.toActiveDelivery
 import com.riders.rider.feature.home.homeShift
@@ -38,6 +43,31 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RiderDeliveryTest {
+    @Test
+    fun senderContactUsesAnAvatarNameAndTheSameCallLinks() {
+        assertEquals("NM", senderInitials("Nyasha Moyo"))
+        assertEquals("N", senderInitials("Nyasha"))
+        assertEquals("S", senderInitials(" "))
+        assertEquals("tel:+263771000001", senderDialUri("+263771000001"))
+        assertEquals("whatsapp://send?phone=263771000001", senderWhatsAppUri("+263771000001"))
+        assertNull(senderDialUri("0771000001"))
+        assertNull(senderWhatsAppUri("0771000001"))
+    }
+
+    @Test
+    fun detailsHeadingFollowsTheDeliveryStage() {
+        assertEquals("Ready for collection", riderDetailsHeading("RIDER_ASSIGNED"))
+        assertEquals("Collect the parcel from the sender.", riderDetailsSupport("RIDER_ASSIGNED"))
+        assertEquals("Ready for collection", riderDetailsHeading("COLLECTING"))
+        assertEquals("Parcel collected", riderDetailsHeading("COLLECTED"))
+        assertEquals("The parcel has been collected.", riderDetailsSupport("COLLECTED"))
+        assertEquals("On the way", riderDetailsHeading("OUT_FOR_DELIVERY"))
+        assertEquals("Take the parcel to the drop-off.", riderDetailsSupport("OUT_FOR_DELIVERY"))
+        assertEquals("Ready for drop-off", riderDetailsHeading("ARRIVED_AT_DROPOFF"))
+        assertEquals("Delivered", riderDetailsHeading("DELIVERED"))
+        assertEquals("This delivery is complete.", riderDetailsSupport("DELIVERED"))
+    }
+
     @Test
     fun acceptIgnoresASecondTapWhileTheFirstIsRunning() = runTest {
         val started = CompletableDeferred<Unit>()
@@ -116,6 +146,20 @@ class RiderDeliveryTest {
     }
 
     @Test
+    fun acceptedDeliveryKeepsUrgentOrFlexible() {
+        val stored = offer().copy(serviceClass = "EXPRESS").toActiveDelivery("delivery-1", "assignment-1", "RIDER_ASSIGNED")
+        assertEquals("EXPRESS", stored.serviceClass)
+        assertEquals("12 Samora Machel Ave", deliveryCardAddress("12 Samora Machel Avenue, Harare, Zimbabwe"))
+        assertEquals("9 Nelson Mandela Ave", deliveryCardAddress("9 Nelson Mandela Avenue"))
+        assertEquals("Mufakose", destinationSuburb("66 Mungongoma Road, Mufakose, Harare, Zimbabwe"))
+        assertEquals("Avondale", destinationSuburb("Avondale, Harare"))
+        assertEquals("Budiriro", destinationSuburb("Budiriro"))
+        assertEquals("#VERY1", shortDeliveryReference("delivery-1"))
+        assertEquals("USD 12.50", deliveryPriceLabel("12.50"))
+        assertEquals("19 Oct 2026 • 12:00", deliveryWhenLabel("2026-10-19T12:00:00.000Z", java.time.ZoneOffset.UTC))
+    }
+
+    @Test
     fun busyWithoutALocalAssignmentRequiresRecovery() {
         val shift = homeShift("BUSY", canAcceptDeliveries = true, active = null)
         assertFalse(shift.showGoOnline)
@@ -157,10 +201,12 @@ class RiderDeliveryTest {
         assertEquals("delivery-1", result.visible?.deliveryId)
         assertEquals("ASSIGNED", store.value?.status)
         assertEquals(0, accepts)
-        val shift = homeShift("BUSY", canAcceptDeliveries = false, active = result.visible)
+        val shift = homeShift("BUSY", canAcceptDeliveries = true, active = result.visible)
         assertTrue(shift.showActiveDelivery)
+        assertTrue(shift.showOffers)
         assertFalse(shift.recoveryRequired)
         assertFalse(shift.showGoOnline)
+        assertTrue(shift.showGoOffline)
     }
 
     @Test
@@ -179,7 +225,6 @@ class RiderDeliveryTest {
         val result = coordinator(store) { AssignmentLookup.Found(delivery(status = "PICKED_UP")) }.reconcile()
         assertEquals("PICKED_UP", result.visible?.status)
         assertEquals("PICKED_UP", store.value?.status)
-        assertFalse(releaseActionVisible(onAcceptedDelivery = true, result.visible?.status.orEmpty()))
     }
 
     @Test
@@ -218,76 +263,12 @@ class RiderDeliveryTest {
     }
 
     @Test
-    fun releaseActionsAreVisibleOnlyForAnAcceptedReleasableDelivery() {
-        assertFalse(releaseActionVisible(onAcceptedDelivery = false, "ASSIGNED"))
-        assertFalse(releaseActionVisible(onAcceptedDelivery = false, "ARRIVED_AT_PICKUP"))
-        assertTrue(releaseActionVisible(onAcceptedDelivery = true, "ASSIGNED"))
-        assertTrue(releaseActionVisible(onAcceptedDelivery = true, "ARRIVED_AT_PICKUP"))
-        assertFalse(releaseActionVisible(onAcceptedDelivery = true, "PICKED_UP"))
-        assertFalse(releaseActionVisible(onAcceptedDelivery = true, "IN_TRANSIT"))
-        assertFalse(releaseActionVisible(onAcceptedDelivery = true, "DELIVERED"))
-    }
-
-    @Test
-    fun deliveryStateTransitionsFollowTheBackendOrder() {
-        val steps = listOf(
-            "ASSIGNED",
-            "ARRIVED_AT_PICKUP",
-            "PICKED_UP",
-            "IN_TRANSIT",
-            "ARRIVED_AT_DROPOFF",
-            "DELIVERED",
-        )
-        var status = steps.first()
-        for (next in steps.drop(1)) {
-            assertEquals(next, nextDeliveryStatus(status))
-            assertEquals(next, applyDeliveryTransition(status, next))
-            status = next
-        }
-        assertNull(nextDeliveryStatus("DELIVERED"))
-        assertNull(applyDeliveryTransition("ASSIGNED", "PICKED_UP"))
-        assertNull(applyDeliveryTransition("ASSIGNED", "DELIVERED"))
-        assertNull(applyDeliveryTransition("DELIVERED", "ASSIGNED"))
-    }
-
-    @Test
-    fun deliveryActionsFollowTheCurrentStatus() {
-        assertEquals("Arrived at pickup", deliveryActionLabel("ASSIGNED"))
-        assertEquals("Confirm pickup", deliveryActionLabel("ARRIVED_AT_PICKUP"))
-        assertEquals("Start the trip", deliveryActionLabel("PICKED_UP"))
-        assertEquals("Arrived at drop-off", deliveryActionLabel("IN_TRANSIT"))
-        assertEquals("Confirm delivery", deliveryActionLabel("ARRIVED_AT_DROPOFF"))
-        assertNull(deliveryActionLabel("DELIVERED"))
-        assertNull(deliveryActionLabel("FAILED"))
-    }
-
-    @Test
     fun aSecondProgressTapIsIgnoredWhileTheFirstIsRunning() {
         val gate = DeliveryActionGate()
         assertTrue(gate.tryStart())
         assertFalse(gate.tryStart())
         gate.finish()
         assertTrue(gate.tryStart())
-    }
-
-    @Test
-    fun aFailedProgressKeepsTheCurrentStatus() {
-        val skipped = progressDecision("ASSIGNED", "DELIVERED")
-        assertEquals("ASSIGNED", skipped.status)
-        assertFalse(skipped.finished)
-        val conflict = progressDecision("PICKED_UP", "PICKED_UP")
-        assertEquals("PICKED_UP", conflict.status)
-        assertFalse(conflict.finished)
-    }
-
-    @Test
-    fun completionClearsTheDeliveryOnlyAfterTheBackendConfirmsIt() {
-        val earlier = progressDecision("IN_TRANSIT", "ARRIVED_AT_DROPOFF")
-        assertEquals("ARRIVED_AT_DROPOFF", earlier.status)
-        assertFalse(earlier.finished)
-        val delivered = progressDecision("ARRIVED_AT_DROPOFF", "DELIVERED")
-        assertEquals("DELIVERED", delivered.status)
-        assertTrue(delivered.finished)
     }
 
     @Test

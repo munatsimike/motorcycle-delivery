@@ -1,119 +1,56 @@
-import { BadRequestException, ConflictException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { afterEach, describe, expect, it } from 'vitest';
 import { DeliveryStatus, PricingModel, PricingWindowKind, ServiceClass, UserRole } from '../generated/prisma/client.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import type { RoadDistance } from './geoapify.js';
-import { DeliveryPricingService } from './delivery-pricing.service.js';
 import { DeliveryService } from './delivery.service.js';
 
-const ADMIN = { userId: 'admin-1' };
-const CUSTOMER = { userId: 'user-customer', role: UserRole.CUSTOMER as const, customerAccountId: 'account-customer' };
-const RIDER = { userId: 'user-rider', role: UserRole.RIDER as const, customerAccountId: 'account-rider' };
+const CUSTOMER = { userId: 'user-customer', role: UserRole.CUSTOMER, customerAccountId: 'account-customer' };
+const RIDER = { userId: 'user-rider', role: UserRole.RIDER, customerAccountId: 'account-rider' };
 
 describe('DeliveryService', () => {
-  it('quotes and creates from the active tariff without assigning a rider', async () => {
+  it('does not quote or create a V1 delivery when the marketplace flag is off', async () => {
     const ctx = context();
-    await expect(ctx.deliveries.quote(pins())).rejects.toBeInstanceOf(ConflictException);
-    await expect(ctx.deliveries.create(CUSTOMER, deliveryBody('1.00'))).rejects.toBeInstanceOf(ConflictException);
+    await expect(ctx.deliveries.quote(pins())).rejects.toBeInstanceOf(NotFoundException);
+    await expect(ctx.deliveries.create(CUSTOMER, deliveryBody('1.00'))).rejects.toThrow('Bidding is not available');
     expect(ctx.deliveryRows).toHaveLength(0);
 
-    await ctx.pricing.replace(ADMIN, tariff('2.00', '1.00', 0, 100_000));
-    const quote = await ctx.deliveries.quote(pins());
-    expect(quote).toEqual({
-      distanceMeters: 0,
-      pricingVersion: 1,
-      currency: 'USD',
-      suggestedPrice: '2.00',
-    });
+    seedLegacyTariff(ctx, tariff('2.00', '1.00', 0, 100_000));
+    await expect(ctx.deliveries.quote(pins())).rejects.toThrow('Bidding is not available');
+    await expect(ctx.deliveries.create(CUSTOMER, deliveryBody('0.50'))).rejects.toThrow('Bidding is not available');
+    await expect(ctx.deliveries.create(RIDER, deliveryBody('2.00'))).rejects.toThrow('Bidding is not available');
     expect(ctx.deliveryRows).toHaveLength(0);
-
-    const individual = await ctx.deliveries.create(CUSTOMER, deliveryBody('0.50'));
-    const business = await ctx.deliveries.create(
-      { ...CUSTOMER, userId: 'user-business', customerAccountId: 'account-business' },
-      deliveryBody('20.00'),
-    );
-    const rider = await ctx.deliveries.create(RIDER, deliveryBody('2.00'));
-
-    expect(individual).toMatchObject({
-      status: 'CREATED',
-      currency: 'USD',
-      payer: 'RECIPIENT',
-      paymentMethod: 'CASH',
-      pricingVersion: 1,
-      suggestedPrice: '2.00',
-      offeredPrice: '0.50',
-      distanceMeters: 0,
-    });
-    expect(individual.pickup.contactPhone).toBe('+263771234567');
-    expect(individual.dropoff.contactName).toBe('Rudo Ncube');
-    expect(business.offeredPrice).toBe('20.00');
-    expect(ctx.deliveryRows.map((row) => row.customerId)).toEqual(['account-customer', 'account-business', 'account-rider']);
-    expect(ctx.deliveryRows.every((row) => row.suggestedPrice === '2.00')).toBe(true);
-    expect(ctx.events).toEqual([
-      expect.objectContaining({ newStatus: 'CREATED', previousStatus: null, actorId: 'user-customer', actorType: 'CUSTOMER' }),
-      expect.objectContaining({ actorId: 'user-business', actorType: 'CUSTOMER' }),
-      expect.objectContaining({ actorId: 'user-rider', actorType: 'CUSTOMER' }),
-    ]);
+    expect(ctx.events).toHaveLength(0);
     expect(ctx.assignments).toHaveLength(0);
-    expect(ctx.users.map((user) => user.role)).toEqual([UserRole.CUSTOMER, UserRole.CUSTOMER, UserRole.RIDER]);
-    expect(rider.offeredPrice).toBe('2.00');
   });
 
-  it('keeps the existing quote and delivery when Express and Flexible tariffs are also active', async () => {
+  it('leaves Express and Flexible tariffs active when a V1 quote is refused', async () => {
     const ctx = context();
-    await ctx.pricing.replace(ADMIN, tariff('2.00', '1.00', 0, 100_000));
+    seedLegacyTariff(ctx, tariff('2.00', '1.00', 0, 100_000));
     ctx.configs.unshift(
       classTariff('express', 'EXPRESS', '9.00'),
       classTariff('flexible', 'FLEXIBLE', '1.00'),
     );
 
-    const quote = await ctx.deliveries.quote(pins());
-    expect(quote).toEqual({
-      distanceMeters: 0,
-      pricingVersion: 1,
-      currency: 'USD',
-      suggestedPrice: '2.00',
-    });
-    const created = await ctx.deliveries.create(CUSTOMER, deliveryBody('1.00'));
-    expect(created).toMatchObject({
-      status: 'CREATED',
-      currency: 'USD',
-      payer: 'RECIPIENT',
-      paymentMethod: 'CASH',
-      pricingVersion: 1,
-      suggestedPrice: '2.00',
-      offeredPrice: '1.00',
-      distanceMeters: 0,
-    });
+    await expect(ctx.deliveries.quote(pins())).rejects.toThrow('Bidding is not available');
+    await expect(ctx.deliveries.create(CUSTOMER, deliveryBody('1.00'))).rejects.toThrow('Bidding is not available');
+    expect(ctx.deliveryRows).toHaveLength(0);
     expect(ctx.configs.filter((row) => row.serviceClass === 'EXPRESS' || row.serviceClass === 'FLEXIBLE')
       .every((row) => row.isActive)).toBe(true);
   });
 
-  it('keeps a delivery snapshot when the admin changes the tariff', async () => {
+  it('does not store a V1 price when the marketplace flag is off', async () => {
     const ctx = context();
-    await ctx.pricing.replace(ADMIN, tariff('2.00', '1.00', 0, 100_000));
-    const created = await ctx.deliveries.create(RIDER, deliveryBody('4.00'));
-    await ctx.pricing.replace(ADMIN, tariff('9.00', '2.00', 0, 100_000));
-
-    expect(ctx.deliveryRows[0]).toMatchObject({
-      id: created.id,
-      price: '4.00',
-      suggestedPrice: '2.00',
-      distanceMeters: 0,
-      currency: 'USD',
-      pricingVersion: 1,
-    });
-    await expect(ctx.deliveries.quote(pins())).resolves.toMatchObject({
-      pricingVersion: 2,
-      suggestedPrice: '9.00',
-    });
+    seedLegacyTariff(ctx, tariff('2.00', '1.00', 0, 100_000));
+    await expect(ctx.deliveries.create(RIDER, deliveryBody('4.00'))).rejects.toThrow('Bidding is not available');
+    seedLegacyTariff(ctx, tariff('9.00', '2.00', 0, 100_000));
+    expect(ctx.deliveryRows).toHaveLength(0);
+    await expect(ctx.deliveries.quote(pins())).rejects.toThrow('Bidding is not available');
   });
 
-  it('rejects a trip outside the configured range and an invalid offer', async () => {
+  it('rejects an invalid offer before a delivery is stored', async () => {
     const ctx = context();
-    await ctx.pricing.replace(ADMIN, tariff('2.00', '1.00', 100, 1_000));
-    await expect(ctx.deliveries.create(CUSTOMER, deliveryBody('1.00'))).rejects.toBeInstanceOf(BadRequestException);
-    await ctx.pricing.replace(ADMIN, tariff('2.00', '1.00', 0, 100_000));
+    seedLegacyTariff(ctx, tariff('2.00', '1.00', 0, 100_000));
     const invalid = deliveryBody('1.500');
     await expect(ctx.deliveries.create(CUSTOMER, invalid)).rejects.toBeInstanceOf(BadRequestException);
     await expect(ctx.deliveries.create(CUSTOMER, deliveryBody('1000.01'))).rejects.toBeInstanceOf(BadRequestException);
@@ -125,20 +62,31 @@ describe('DeliveryService', () => {
       .rejects.toBeInstanceOf(BadRequestException);
     await expect(ctx.deliveries.create(CUSTOMER, { ...deliveryBody('1.00'), pickup: { ...stop('123', 'Tendai Moyo', '12 Samora Machel Avenue') } }))
       .rejects.toBeInstanceOf(BadRequestException);
+    await expect(ctx.deliveries.create(CUSTOMER, deliveryBody('1000.00'))).rejects.toThrow('Bidding is not available');
     expect(ctx.deliveryRows).toHaveLength(0);
-  });
-
-  it('stores the customer offer at the limit and keeps the server suggestion', async () => {
-    const ctx = context();
-    await ctx.pricing.replace(ADMIN, tariff('2.00', '1.00', 0, 100_000));
-    const created = await ctx.deliveries.create(CUSTOMER, deliveryBody('1000.00'));
-    expect(created).toMatchObject({ offeredPrice: '1000.00', suggestedPrice: '2.00' });
-    expect(ctx.deliveryRows[0]).toMatchObject({ price: '1000.00', suggestedPrice: '2.00' });
   });
 });
 
 function tariff(baseFee: string, pricePerKilometre: string, minimumTripMetres: number, maximumTripMetres: number) {
   return { baseFee, pricePerKilometre, minimumTripMetres, maximumTripMetres };
+}
+
+function seedLegacyTariff(ctx: { configs: Array<Record<string, unknown> & { id: string; isActive: boolean; serviceClass?: string | null }>; audits: unknown[] }, values: ReturnType<typeof tariff>) {
+  for (const row of ctx.configs) {
+    if ((row.serviceClass ?? null) === null && row.isActive) {
+      row.isActive = false;
+    }
+  }
+  const pricingVersion = ctx.configs.reduce((highest, row) => Math.max(highest, Number(row.pricingVersion ?? 0)), 0) + 1;
+  ctx.configs.push({
+    id: `legacy-${pricingVersion}`,
+    isActive: true,
+    serviceClass: null,
+    currency: 'USD',
+    pricingVersion,
+    ...values,
+  });
+  ctx.audits.push({ pricingVersion });
 }
 
 function matchesV1Pricing(
@@ -150,6 +98,15 @@ function matchesV1Pricing(
     return false;
   }
   return true;
+}
+
+function includedPublished() {
+  return published('included', ServiceClass.EXPRESS, PricingModel.INCLUDED_DISTANCE, '5.00', {
+    pricePerKilometre: '0.80',
+    includedMetres: 5_000,
+    minimumTripMetres: 100,
+    maximumTripMetres: 100_000,
+  });
 }
 
 function published(
@@ -321,7 +278,7 @@ function context(options?: { metres?: number; now?: Date }) {
     async $queryRaw() {
       return [];
     },
-    async $transaction<T>(callback: (tx: typeof db) => Promise<T>) {
+    async $transaction<T>(callback: (tx: object) => Promise<T>) {
       return callback(db);
     },
   };
@@ -332,7 +289,6 @@ function context(options?: { metres?: number; now?: Date }) {
     },
   };
   return {
-    pricing: new DeliveryPricingService(prisma),
     deliveries: new DeliveryService(prisma, roads, options?.now ? () => options.now as Date : undefined),
     configs,
     audits,
@@ -353,44 +309,26 @@ describe('flagged service-class quotes', () => {
     }
   });
 
-  it('keeps the V1 quote when the flag is absent or not exactly true', async () => {
+  it('refuses a quote and a delivery when the flag is absent or not exactly true', async () => {
     const ctx = context();
-    await ctx.pricing.replace(ADMIN, tariff('2.00', '1.00', 0, 100_000));
+    seedLegacyTariff(ctx, tariff('2.00', '1.00', 0, 100_000));
     ctx.configs.unshift(classTariff('express', 'EXPRESS', '9.00'), classTariff('flexible', 'FLEXIBLE', '1.00'));
     const body = { ...pins(), serviceClass: 'EXPRESS', suggestedPrice: '0.01', pricingVersion: 99, basisPoints: 5_000 };
 
     delete process.env.V2_MARKETPLACE_ENABLED;
-    await expect(ctx.deliveries.quote(body)).resolves.toEqual({
-      distanceMeters: 0,
-      pricingVersion: 1,
-      currency: 'USD',
-      suggestedPrice: '2.00',
-    });
+    await expect(ctx.deliveries.quote(body)).rejects.toThrow('Bidding is not available');
 
     process.env.V2_MARKETPLACE_ENABLED = 'false';
-    await expect(ctx.deliveries.quote(body)).resolves.toEqual({
-      distanceMeters: 0,
-      pricingVersion: 1,
-      currency: 'USD',
-      suggestedPrice: '2.00',
-    });
-    const created = await ctx.deliveries.create(CUSTOMER, {
+    await expect(ctx.deliveries.quote(body)).rejects.toThrow('Bidding is not available');
+    await expect(ctx.deliveries.create(CUSTOMER, {
       ...deliveryBody('4.00'),
       serviceClass: 'FLEXIBLE',
       suggestedPrice: '0.01',
       pricingModel: 'FIXED',
       basisPoints: 5_000,
-    });
-    expect(created).toMatchObject({
-      status: 'CREATED',
-      payer: 'RECIPIENT',
-      paymentMethod: 'CASH',
-      pricingVersion: 1,
-      suggestedPrice: '2.00',
-      offeredPrice: '4.00',
-    });
-    expect(ctx.deliveryRows[0]).not.toHaveProperty('serviceClass');
-    expect(ctx.events).toHaveLength(1);
+    })).rejects.toThrow('Bidding is not available');
+    expect(ctx.deliveryRows).toHaveLength(0);
+    expect(ctx.events).toHaveLength(0);
     expect(ctx.assignments).toHaveLength(0);
     expect(ctx.audits).toHaveLength(1);
   });
@@ -399,7 +337,7 @@ describe('flagged service-class quotes', () => {
     process.env.V2_MARKETPLACE_ENABLED = 'true';
     const now = new Date('2026-01-05T10:00:00.000Z');
     const ctx = context({ metres: 1_500, now });
-    await ctx.pricing.replace(ADMIN, tariff('2.00', '1.00', 0, 100_000));
+    seedLegacyTariff(ctx, tariff('2.00', '1.00', 0, 100_000));
     ctx.configs.unshift(
       published('express', ServiceClass.EXPRESS, PricingModel.FIXED, '9.00'),
       published('flexible-old', ServiceClass.FLEXIBLE, PricingModel.FIXED, '1.00', { isActive: false, pricingVersion: 4 }),
@@ -483,11 +421,85 @@ describe('flagged service-class quotes', () => {
     expect(ctx.audits).toHaveLength(0);
   });
 
+  it('stores an unchanged customer offer and an edited offer apart from the agreed price', async () => {
+    process.env.V2_MARKETPLACE_ENABLED = 'true';
+    const ctx = context({ now: new Date('2026-10-24T08:00:00.000Z') });
+    ctx.configs.unshift(published('express', ServiceClass.EXPRESS, PricingModel.FIXED, '9.00'));
+    const unchanged = await ctx.deliveries.create(CUSTOMER, {
+      ...deliveryBody('9.00'),
+      serviceClass: 'EXPRESS',
+      payer: undefined,
+      paymentMethod: undefined,
+      suggestedPrice: '0.01',
+    });
+    expect(unchanged).toMatchObject({ suggestedPrice: '9.00', offeredPrice: null });
+    expect(ctx.deliveryRows[0]).toMatchObject({ suggestedPrice: '9.00', customerOffer: '9.00', price: null });
+
+    const edited = await ctx.deliveries.create(CUSTOMER, {
+      ...deliveryBody('4.00'),
+      serviceClass: 'EXPRESS',
+      payer: undefined,
+      paymentMethod: undefined,
+      suggestedPrice: '12.00',
+    });
+    expect(edited).toMatchObject({ suggestedPrice: '9.00', offeredPrice: null });
+    expect(ctx.deliveryRows[1]).toMatchObject({ suggestedPrice: '9.00', customerOffer: '4.00', price: null });
+  });
+
+  it('quotes and stores an included-distance price without using the client snapshot', async () => {
+    process.env.V2_MARKETPLACE_ENABLED = 'true';
+    const quoted = context({ metres: 3_000, now: new Date('2026-10-27T10:00:00.000Z') });
+    quoted.configs.push(includedPublished());
+    await expect(quoted.deliveries.quote({ ...pins(), serviceClass: 'EXPRESS' })).resolves.toMatchObject({
+      distanceMeters: 3_000,
+      pricingVersion: 9,
+      pricingModel: 'INCLUDED_DISTANCE',
+      serviceClass: 'EXPRESS',
+      basisPoints: 0,
+      pricingWindow: null,
+      suggestedPrice: '5.00',
+    });
+
+    const ctx = context({ metres: 6_000, now: new Date('2026-10-27T10:00:00.000Z') });
+    seedLegacyTariff(ctx, tariff('2.00', '0.50', 100, 100_000));
+    ctx.configs.unshift(includedPublished());
+    await expect(ctx.deliveries.quote({ ...pins(), serviceClass: 'EXPRESS' })).resolves.toMatchObject({
+      suggestedPrice: '5.80',
+      pricingModel: 'INCLUDED_DISTANCE',
+      pricingVersion: 9,
+    });
+    const created = await ctx.deliveries.create(CUSTOMER, {
+      ...deliveryBody('4.00'),
+      serviceClass: 'EXPRESS',
+      deliverBy: '2026-10-27T18:00:00.000Z',
+      payer: undefined,
+      paymentMethod: undefined,
+      suggestedPrice: '0.01',
+      pricingVersion: 1,
+      pricingModel: 'FIXED',
+    });
+    expect(created).toMatchObject({
+      suggestedPrice: '5.80',
+      pricingVersion: 9,
+      pricingModel: 'INCLUDED_DISTANCE',
+      serviceClass: 'EXPRESS',
+      offeredPrice: null,
+    });
+    expect(ctx.deliveryRows[0]).toMatchObject({ suggestedPrice: '5.80', customerOffer: '4.00', price: null, pricingVersion: 9 });
+    expect(ctx.configs.find((row) => row.serviceClass === null)).toMatchObject({
+      isActive: true,
+      baseFee: '2.00',
+      pricePerKilometre: '0.50',
+      pricingVersion: 1,
+    });
+  });
+
   it('opens a V2 request from the class tariff when the flag is on and ignores the client snapshot', async () => {
     process.env.V2_MARKETPLACE_ENABLED = 'true';
     const ctx = context({ now: new Date('2026-10-24T08:00:00.000Z') });
-    await ctx.pricing.replace(ADMIN, tariff('2.00', '1.00', 0, 100_000));
+    seedLegacyTariff(ctx, tariff('2.00', '1.00', 0, 100_000));
     ctx.configs.unshift(published('express', ServiceClass.EXPRESS, PricingModel.FIXED, '9.00'));
+    ctx.configs.unshift(published('flexible', ServiceClass.FLEXIBLE, PricingModel.FIXED, '9.00'));
     const body = {
       ...deliveryBody('4.00'),
       serviceClass: 'EXPRESS',
@@ -500,10 +512,23 @@ describe('flagged service-class quotes', () => {
       distanceMeters: 1_500,
     };
 
-    await expect(ctx.deliveries.create(CUSTOMER, { ...body, deliverBy: undefined })).rejects.toBeInstanceOf(BadRequestException);
-    expect(ctx.deliveryRows).toHaveLength(0);
+    const undated = await ctx.deliveries.create(CUSTOMER, {
+      ...body,
+      deliverBy: undefined,
+      serviceClass: 'FLEXIBLE',
+      payer: undefined,
+      paymentMethod: undefined,
+    });
+    expect(undated).toMatchObject({ serviceClass: 'FLEXIBLE', deliverBy: null, suggestedPrice: '9.00' });
+    expect(ctx.deliveryRows[0]).toMatchObject({
+      deliverBy: null,
+      searchStartedAt: new Date('2026-10-24T08:00:00.000Z'),
+      nextRetryAt: new Date('2026-10-24T08:06:00.000Z'),
+      autoRetryCount: 0,
+      searchGeneration: 0,
+    });
 
-    const created = await ctx.deliveries.create(CUSTOMER, { ...body, payer: undefined, paymentMethod: undefined, offeredPrice: undefined });
+    const created = await ctx.deliveries.create(CUSTOMER, { ...body, payer: undefined, paymentMethod: undefined });
     expect(created).toMatchObject({
       status: 'CREATED',
       payer: null,
@@ -517,12 +542,15 @@ describe('flagged service-class quotes', () => {
       offeredPrice: null,
       searchGeneration: 0,
     });
-    expect(ctx.deliveryRows[0]).toMatchObject({
+    expect(ctx.deliveryRows[1]).toMatchObject({
       price: null,
       suggestedPrice: '9.00',
       pricingVersion: 9,
       serviceClass: 'EXPRESS',
+      deliverBy: new Date('2026-10-24T18:00:00.000Z'),
       searchGeneration: 0,
+      searchStartedAt: new Date('2026-10-24T08:00:00.000Z'),
+      nextRetryAt: new Date('2026-10-24T08:06:00.000Z'),
     });
     expect(ctx.assignments).toHaveLength(0);
     expect(ctx.audits).toHaveLength(1);
@@ -553,6 +581,8 @@ describe('DeliveryService list', () => {
       currency: null,
       suggestedPrice: null,
       offeredPrice: null,
+      distanceMeters: null,
+      openBidCount: 0,
       pickup: { address: 'High pickup' },
       dropoff: { address: 'High drop-off' },
     });
@@ -601,12 +631,87 @@ describe('DeliveryService list', () => {
       offeredPrice: '9.50',
     });
     expect(JSON.stringify(page)).not.toContain('+263');
+    expect(page.data[0]?.openBidCount).toBe(0);
+  });
+
+  it('counts only open unexpired bids for each waiting delivery on the page', async () => {
+    const future = new Date('2099-01-01T00:00:00.000Z');
+    const past = new Date('2020-01-01T00:00:00.000Z');
+    const waiting = {
+      ...row('waiting', 'account-a', 'CREATED', sameTime, 'Pickup', 'Drop-off'),
+      serviceClass: 'FLEXIBLE' as const,
+      deliverBy: future,
+    };
+    const another = {
+      ...row('another', 'account-a', 'CREATED', older, 'Second pickup', 'Second drop-off'),
+      serviceClass: 'EXPRESS' as const,
+      deliverBy: future,
+    };
+    const expiredRequest = {
+      ...row('closed-window', 'account-a', 'CREATED', older, 'Late pickup', 'Late drop-off'),
+      serviceClass: 'FLEXIBLE' as const,
+      deliverBy: past,
+    };
+    const assigned = {
+      ...row('assigned', 'account-a', 'RIDER_ASSIGNED', sameTime, 'Assigned pickup', 'Assigned drop-off'),
+      serviceClass: 'FLEXIBLE' as const,
+      deliverBy: future,
+    };
+    const openEnded = {
+      ...row('open-ended', 'account-a', 'CREATED', older, 'Open pickup', 'Open drop-off'),
+      serviceClass: 'FLEXIBLE' as const,
+      deliverBy: null,
+    };
+    const searching = row('searching', 'account-a', 'SEARCHING', sameTime, 'Search pickup', 'Search drop-off');
+    const prisma = listPrisma(
+      [waiting, another, expiredRequest, assigned, openEnded, searching],
+      [
+        { deliveryId: 'waiting', status: 'OPEN' },
+        { deliveryId: 'waiting', status: 'WITHDRAWN' },
+        { deliveryId: 'waiting', status: 'EXPIRED' },
+        { deliveryId: 'waiting', status: 'ACCEPTED' },
+        { deliveryId: 'waiting', status: 'SUPERSEDED' },
+        { deliveryId: 'another', status: 'OPEN' },
+        { deliveryId: 'another', status: 'OPEN' },
+        { deliveryId: 'another', status: 'OPEN' },
+        { deliveryId: 'closed-window', status: 'OPEN' },
+        { deliveryId: 'open-ended', status: 'OPEN' },
+        { deliveryId: 'assigned', status: 'OPEN' },
+        { deliveryId: 'searching', status: 'OPEN' },
+      ],
+    );
+    const service = new DeliveryService(prisma as never);
+    const page = await service.list(customer('account-a'), {});
+    const counts = new Map(page.data.map((delivery) => [delivery.id, delivery.openBidCount]));
+
+    expect(counts.get('waiting')).toBe(1);
+    expect(counts.get('another')).toBe(3);
+    expect(counts.get('closed-window')).toBe(0);
+    expect(counts.get('open-ended')).toBe(1);
+    expect(counts.get('assigned')).toBe(0);
+    expect(counts.get('searching')).toBe(0);
+    expect(prisma.bidCalls).toEqual({ groupBy: 1, updateMany: 0 });
   });
 });
 
 function customer(customerAccountId: string) {
-  return { userId: 'user-1', role: UserRole.CUSTOMER as const, customerAccountId };
+  return { userId: 'user-1', role: UserRole.CUSTOMER, customerAccountId };
 }
+
+type ListedDelivery = {
+  id: string;
+  customerId: string;
+  status: DeliveryStatus;
+  createdAt: Date;
+  pickupAddress: string;
+  dropoffAddress: string;
+  pickupContactPhone: string;
+  serviceClass?: string;
+  deliverBy?: Date | null;
+  currency?: string;
+  suggestedPrice?: string;
+  price?: string | null;
+};
 
 function row(
   id: string,
@@ -616,12 +721,38 @@ function row(
   pickupAddress: string,
   dropoffAddress: string,
   pickupContactPhone = '+263771234567',
-) {
+): ListedDelivery {
   return { id, customerId, status, createdAt, pickupAddress, dropoffAddress, pickupContactPhone };
 }
 
-function listPrisma(rows: ReturnType<typeof row>[]) {
+function listPrisma(rows: ListedDelivery[], bids: Array<{ deliveryId: string; status: string }> = []) {
+  const bidCalls = { groupBy: 0, updateMany: 0 };
   return {
+    bidCalls,
+    bid: {
+      async updateMany() {
+        bidCalls.updateMany += 1;
+        return { count: 0 };
+      },
+      async groupBy({ where }: { where: BidCountWhere }) {
+        bidCalls.groupBy += 1;
+        const counts = new Map<string, number>();
+        for (const bid of bids) {
+          const delivery = rows.find((item) => item.id === bid.deliveryId);
+          if (!delivery || !where.deliveryId.in.includes(bid.deliveryId) || bid.status !== where.status) {
+            continue;
+          }
+          if (!deadlineStillOpen(delivery, where.delivery)) {
+            continue;
+          }
+          counts.set(bid.deliveryId, (counts.get(bid.deliveryId) ?? 0) + 1);
+        }
+        return [...counts.entries()].map(([deliveryId, count]) => ({
+          deliveryId,
+          _count: { _all: count },
+        }));
+      },
+    },
     delivery: {
       async count({ where }: { where: ListWhere }) {
         return rows.filter((item) => matches(item, where)).length;
@@ -651,7 +782,29 @@ function listPrisma(rows: ReturnType<typeof row>[]) {
 
 type ListWhere = { customerId: string; status?: { in: DeliveryStatus[] } };
 
-function matches(item: ReturnType<typeof row>, where: ListWhere): boolean {
+type BidCountWhere = {
+  deliveryId: { in: string[] };
+  status: string;
+  delivery?: { OR?: Array<{ deliverBy: Date | null } | { deliverBy: { gt: Date } }> };
+};
+
+function deadlineStillOpen(delivery: { deliverBy?: Date | null }, filter: BidCountWhere['delivery']): boolean {
+  const clauses = filter?.OR ?? [];
+  return clauses.some((clause) => {
+    if (!('deliverBy' in clause)) {
+      return false;
+    }
+    if (clause.deliverBy === null) {
+      return delivery.deliverBy == null;
+    }
+    if (!('gt' in clause.deliverBy)) {
+      return false;
+    }
+    return delivery.deliverBy instanceof Date && delivery.deliverBy.getTime() > clause.deliverBy.gt.getTime();
+  });
+}
+
+function matches(item: ListedDelivery, where: ListWhere): boolean {
   if (item.customerId !== where.customerId) {
     return false;
   }

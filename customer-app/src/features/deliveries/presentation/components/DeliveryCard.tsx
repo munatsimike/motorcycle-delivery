@@ -1,22 +1,21 @@
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
-import type { ComponentProps } from 'react';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
+
+import { usePressScale } from '../../../../components/useMotion';
 
 import ErrorMessage from '../../../../components/ErrorMessage';
 import { colors, radius, spacing, typography } from '../../../../theme';
 import { errorMessage } from '../../../auth/presentation/errorMessage';
-import { formatDeadline } from '../../domain/bookingDraft';
-import { deliveryCardAddress } from '../../domain/deliveryCard';
+import { deliveryCardAddress, deliveryContentKind } from '../../domain/deliveryCard';
+import { ContentIcon, ContentLabel, LocationPin, ServiceClassBadge, StopLabel, deliveryIcon } from '../deliveryIcons';
 import {
   deliveryCanSearchAgain,
-  deliveryListLabel,
-  deliveryUsesPackageIcon,
+  deliveryCardStatusLabel,
+  showsViewBids,
   type CustomerDelivery,
   type DeliveryStatus,
 } from '../../domain/deliveryStatus';
-
-type IconName = ComponentProps<typeof MaterialDesignIcons>['name'];
 
 type DeliveryCardProps = {
   delivery: CustomerDelivery;
@@ -26,30 +25,29 @@ type DeliveryCardProps = {
 };
 
 type StatusTone = {
-  icon: IconName;
   background: string;
   color: string;
 };
 
 const STATUS_TONES: Record<DeliveryStatus, StatusTone> = {
-  CREATED: { icon: 'clock-outline', background: '#EEF2F6', color: '#475569' },
-  SEARCHING: { icon: 'clock-outline', background: '#EEF2F6', color: '#475569' },
-  NO_RIDER_FOUND: { icon: 'clock-outline', background: '#FFF4E5', color: '#C56A12' },
-  ASSIGNED: { icon: 'motorbike', background: '#E9F8EF', color: '#087A4A' },
-  ARRIVED_AT_PICKUP: { icon: 'motorbike', background: '#E9F8EF', color: '#087A4A' },
-  PICKED_UP: { icon: 'motorbike', background: '#E9F8EF', color: '#087A4A' },
-  IN_TRANSIT: { icon: 'motorbike', background: '#E9F8EF', color: '#087A4A' },
-  ARRIVED_AT_DROPOFF: { icon: 'motorbike', background: '#E9F8EF', color: '#087A4A' },
-  RIDER_ASSIGNED: { icon: 'motorbike', background: '#E9F8EF', color: '#087A4A' },
-  COLLECTING: { icon: 'motorbike', background: '#E9F8EF', color: '#087A4A' },
-  COLLECTED: { icon: 'package-variant', background: '#E9F8EF', color: '#087A4A' },
-  OUT_FOR_DELIVERY: { icon: 'motorbike', background: '#E9F8EF', color: '#087A4A' },
-  DELIVERED: { icon: 'check', background: '#E9F8EF', color: '#087A4A' },
-  CANCELLED: { icon: 'close', background: '#FDECEC', color: '#D92D20' },
-  FAILED: { icon: 'alert-circle-outline', background: '#FDECEC', color: '#D92D20' },
+  CREATED: { background: '#EEF2F6', color: '#475569' },
+  SEARCHING: { background: '#EEF2F6', color: '#475569' },
+  NO_RIDER_FOUND: { background: '#FFF4E5', color: '#C56A12' },
+  ASSIGNED: { background: '#E9F8EF', color: '#087A4A' },
+  ARRIVED_AT_PICKUP: { background: '#E9F8EF', color: '#087A4A' },
+  PICKED_UP: { background: '#E9F8EF', color: '#087A4A' },
+  IN_TRANSIT: { background: '#E9F8EF', color: '#087A4A' },
+  ARRIVED_AT_DROPOFF: { background: '#E9F8EF', color: '#087A4A' },
+  RIDER_ASSIGNED: { background: '#E9F8EF', color: '#087A4A' },
+  COLLECTING: { background: '#E9F8EF', color: '#087A4A' },
+  COLLECTED: { background: '#E9F8EF', color: '#087A4A' },
+  OUT_FOR_DELIVERY: { background: '#E9F8EF', color: '#087A4A' },
+  DELIVERED: { background: '#E9F8EF', color: '#087A4A' },
+  CANCELLED: { background: '#FDECEC', color: '#D92D20' },
+  FAILED: { background: '#FDECEC', color: '#D92D20' },
 };
 
-const PIN_SIZE = 32;
+const ICON_SIZE = deliveryIcon.size;
 const DOT_SIZE = 3;
 const DOT_STEP = 7;
 
@@ -59,11 +57,13 @@ export default function DeliveryCard({
   onOpenDetails,
   onSearchAgain,
 }: DeliveryCardProps) {
+  const press = usePressScale();
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const tone = STATUS_TONES[delivery.status];
-  const packageIcon = deliveryUsesPackageIcon(delivery.status);
+  const contentKind = deliveryContentKind(delivery.parcelDescription);
   const canSearch = deliveryCanSearchAgain(delivery) && Boolean(onSearchAgain);
+  const canViewBids = showsViewBids(delivery) && Boolean(onOpenDetails);
 
   async function searchAgain() {
     if (!onSearchAgain || searching) {
@@ -81,66 +81,70 @@ export default function DeliveryCard({
   }
 
   return (
-    <View style={styles.card}>
+    <Animated.View style={{ transform: [{ scale: press.scale }] }}>
+    <Pressable
+      accessibilityRole={onOpenDetails ? 'button' : undefined}
+      accessibilityLabel={onOpenDetails ? `View details for delivery ${delivery.id}` : undefined}
+      onPress={onOpenDetails ? () => onOpenDetails(delivery.id) : undefined}
+      onPressIn={press.onPressIn}
+      onPressOut={press.onPressOut}
+      style={styles.card}
+    >
       <View style={styles.body}>
-        {packageIcon ? (
-          <View style={styles.packageIcon}>
-            <MaterialDesignIcons name="package-variant" color={colors.primary} size={20} />
+        <View style={styles.summary}>
+          <View style={styles.summaryBody}>
+            <View style={styles.badgeRow}>
+              <View style={styles.contentBadge}>
+                <ContentIcon kind={contentKind} />
+                <ContentLabel kind={contentKind} />
+              </View>
+              <ServiceClassBadge serviceClass={delivery.serviceClass} />
+            </View>
+            <RouteStops
+              pickup={delivery.pickupAddress}
+              dropoff={delivery.dropoffAddress}
+            />
           </View>
-        ) : null}
-        <RouteStops
-          pickup={delivery.pickupAddress}
-          dropoff={delivery.dropoffAddress}
-          status={(
+          <View pointerEvents="none" style={styles.statusFloat}>
             <StatusPill
               tone={tone}
-              label={deliveryListLabel(delivery)}
-              pulse={!cached && delivery.status === 'SEARCHING'}
+              label={deliveryCardStatusLabel(delivery)}
+              pulse={!cached && delivery.serviceClass != null && delivery.status === 'CREATED'}
             />
-          )}
-        />
-        {delivery.serviceClass ? (
-          <Text style={styles.marketplace}>
-            {[
-              delivery.serviceClass === 'EXPRESS' ? 'Express' : 'Flexible',
-              delivery.deliverBy ? formatDeadline(delivery.deliverBy) : null,
-              delivery.suggestedPrice ? `${delivery.currency ?? 'USD'} ${delivery.suggestedPrice}` : null,
-            ].filter((part) => part).join(' · ')}
-          </Text>
-        ) : null}
-        {onOpenDetails ? (
-          <View style={styles.actions}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`View details for delivery ${delivery.id}`}
-              onPress={() => onOpenDetails(delivery.id)}
-              style={styles.detailsButton}
-            >
-              <MaterialDesignIcons name="information-outline" color={colors.textSecondary} size={16} />
-              <Text style={styles.detailsText}>View details</Text>
-              <MaterialDesignIcons name="chevron-right" color={colors.textSecondary} size={18} />
-            </Pressable>
-            {canSearch ? <View style={styles.actionDivider} /> : null}
-            {canSearch ? (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`Search again for delivery ${delivery.id}`}
-                disabled={searching}
-                onPress={() => {
-                  void searchAgain();
-                }}
-                style={styles.searchButton}
-              >
-                <MaterialDesignIcons name="refresh" color={colors.primary} size={16} />
-                <Text style={styles.searchText}>{searching ? 'Searching' : 'Search again'}</Text>
-              </Pressable>
-            ) : null}
           </View>
+        </View>
+        {canViewBids ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`View bids for delivery ${delivery.id}`}
+            onPress={(event) => {
+              event.stopPropagation();
+              onOpenDetails?.(delivery.id);
+            }}
+            style={styles.searchButton}
+          >
+            <Text style={styles.searchText}>View bids</Text>
+          </Pressable>
+        ) : null}
+        {canSearch ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Search again for delivery ${delivery.id}`}
+            disabled={searching}
+            onPress={() => {
+              void searchAgain();
+            }}
+            style={styles.searchButton}
+          >
+            <MaterialDesignIcons name="refresh" color={colors.primary} size={16} />
+            <Text style={styles.searchText}>{searching ? 'Searching' : 'Search again'}</Text>
+          </Pressable>
         ) : null}
         {searchError ? <ErrorMessage message={searchError} /> : null}
       </View>
       <View style={styles.divider} />
-    </View>
+    </Pressable>
+    </Animated.View>
   );
 }
 
@@ -175,8 +179,7 @@ function StatusPill({ tone, label, pulse }: { tone: StatusTone; label: string; p
 
   return (
     <Animated.View style={[styles.pill, { backgroundColor: tone.background, opacity }]}>
-      <MaterialDesignIcons name={tone.icon} color={tone.color} size={14} />
-      <Text style={[styles.pillText, { color: tone.color }]}>{label}</Text>
+      <Text numberOfLines={1} style={[styles.pillText, { color: tone.color }]}>{label}</Text>
     </Animated.View>
   );
 }
@@ -184,16 +187,14 @@ function StatusPill({ tone, label, pulse }: { tone: StatusTone; label: string; p
 function RouteStops({
   pickup,
   dropoff,
-  status,
 }: {
   pickup: string;
   dropoff: string;
-  status: ReactNode;
 }) {
   return (
     <View style={styles.route}>
-      <Stop label="Pickup" address={pickup} pin={colors.primary} badge={colors.primaryLight} connect aside={status} />
-      <Stop label="Drop-off" address={dropoff} pin={colors.error} badge="#FDECEC" />
+      <Stop label="Pickup" address={pickup} connect />
+      <Stop label="Drop-off" address={dropoff} dropoff />
     </View>
   );
 }
@@ -201,31 +202,24 @@ function RouteStops({
 function Stop({
   label,
   address,
-  pin,
-  badge,
+  dropoff = false,
   connect = false,
-  aside = null,
 }: {
   label: string;
   address: string;
-  pin: string;
-  badge: string;
+  dropoff?: boolean;
   connect?: boolean;
-  aside?: ReactNode;
 }) {
   return (
     <View style={styles.stop}>
       <View style={styles.markerColumn}>
-        <View style={[styles.pinCircle, { backgroundColor: badge }]}>
-          <MaterialDesignIcons name="map-marker" color={pin} size={18} />
+        <View style={styles.pinCircle}>
+          <LocationPin dropoff={dropoff} />
         </View>
         {connect ? <DottedConnector /> : null}
       </View>
       <View style={styles.placeText}>
-        <View style={styles.placeHead}>
-          <Text style={styles.placeLabel}>{label}</Text>
-          {aside}
-        </View>
+        <StopLabel>{label}</StopLabel>
         <Text style={styles.placeValue}>{deliveryCardAddress(address)}</Text>
       </View>
     </View>
@@ -257,19 +251,39 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,
-    boxShadow: '0 4px 16px rgba(23, 33, 29, 0.08)',
+    boxShadow: '0 2px 8px rgba(23, 33, 29, 0.14)',
   },
   body: {
-    padding: spacing.lg,
-    gap: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    gap: spacing.sm,
   },
-  packageIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: radius.md,
+  summary: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.primaryLight,
+    gap: spacing.sm,
+  },
+  summaryBody: {
+    flex: 1,
+    gap: spacing.xs,
+  },
+  statusFloat: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+  },
+  contentBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: spacing.sm,
+  },
+  badgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: spacing.sm,
+    paddingRight: 96,
   },
   divider: {
     height: StyleSheet.hairlineWidth,
@@ -277,21 +291,17 @@ const styles = StyleSheet.create({
     backgroundColor: colors.border,
   },
   pill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
+    flexShrink: 0,
     borderRadius: radius.pill,
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
-    maxWidth: '48%',
   },
   pillText: {
-    flexShrink: 1,
     fontSize: typography.small,
     fontWeight: '700',
   },
   route: {
-    gap: spacing.md,
+    gap: spacing.sm,
   },
   stop: {
     flexDirection: 'row',
@@ -299,21 +309,20 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   markerColumn: {
-    width: PIN_SIZE,
-    alignItems: 'center',
+    width: ICON_SIZE,
+    alignItems: 'flex-start',
   },
   pinCircle: {
-    width: PIN_SIZE,
-    height: PIN_SIZE,
-    borderRadius: PIN_SIZE / 2,
-    alignItems: 'center',
+    width: ICON_SIZE,
+    height: ICON_SIZE,
+    alignItems: 'flex-start',
     justifyContent: 'center',
   },
   connector: {
     position: 'absolute',
-    top: PIN_SIZE,
-    bottom: -spacing.md,
-    width: PIN_SIZE,
+    top: ICON_SIZE,
+    bottom: -spacing.sm,
+    width: ICON_SIZE,
     alignItems: 'center',
     justifyContent: 'space-evenly',
   },
@@ -327,55 +336,11 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 2,
   },
-  placeHead: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing.sm,
-  },
-  placeLabel: {
-    fontSize: typography.caption,
-    color: colors.textSecondary,
-  },
   placeValue: {
-    fontSize: typography.body,
-    lineHeight: 22,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  marketplace: {
-    marginTop: spacing.sm,
     fontSize: typography.caption,
-    fontWeight: '700',
-    color: colors.primaryDark,
-  },
-  actions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  detailsButton: {
-    flex: 1,
-    minHeight: 44,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.xs,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.sm,
-    backgroundColor: colors.surface,
-  },
-  detailsText: {
-    fontSize: typography.caption,
-    fontWeight: '700',
+    lineHeight: 18,
+    fontWeight: '400',
     color: colors.text,
-  },
-  actionDivider: {
-    width: 1,
-    alignSelf: 'stretch',
-    backgroundColor: colors.border,
   },
   searchButton: {
     flex: 1,
@@ -385,10 +350,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: spacing.xs,
     borderWidth: 1,
-    borderColor: 'rgba(22, 155, 98, 0.35)',
+    borderColor: colors.primary,
     borderRadius: radius.md,
+    backgroundColor: colors.background,
     paddingHorizontal: spacing.sm,
-    backgroundColor: colors.primaryLight,
   },
   searchText: {
     fontSize: typography.caption,

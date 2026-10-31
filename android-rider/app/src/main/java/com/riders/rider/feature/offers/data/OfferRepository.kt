@@ -10,7 +10,6 @@ import com.riders.rider.core.network.ApiResult
 import com.riders.rider.core.network.CancellationRequest
 import com.riders.rider.core.network.CancellationResponse
 import com.riders.rider.core.network.OfferResponse
-import com.riders.rider.core.network.ReleaseRequest
 import com.riders.rider.core.network.RiderService
 import com.riders.rider.core.network.StatusRequest
 import com.riders.rider.core.network.apiCall
@@ -80,24 +79,6 @@ class OfferRepository @Inject constructor(
     }
 
     suspend fun accept(assignmentId: String): ApiResult<AcceptedDelivery>? = acceptance.accept(assignmentId)
-
-    suspend fun release(assignmentId: String, reason: String): ApiResult<AcceptedDelivery> {
-        return when (val result = apiCall { riders.release(assignmentId, ReleaseRequest(reason)) }) {
-            is ApiResult.Ok -> ApiResult.Ok(
-                AcceptedDelivery(assignmentId, result.value.deliveryId, result.value.status, result.value.availability),
-            )
-            is ApiResult.Err -> result
-        }
-    }
-
-    suspend fun progress(deliveryId: String, status: String): ApiResult<AcceptedDelivery> {
-        return when (val result = apiCall { riders.progress(deliveryId, StatusRequest(status)) }) {
-            is ApiResult.Ok -> ApiResult.Ok(
-                AcceptedDelivery("", result.value.deliveryId, result.value.status, result.value.availability),
-            )
-            is ApiResult.Err -> result
-        }
-    }
 
     suspend fun progressWithKey(deliveryId: String, status: String, idempotencyKey: String): ApiResult<AcceptedDelivery> {
         return when (val result = apiCall { riders.progressWithKey(deliveryId, idempotencyKey, StatusRequest(status)) }) {

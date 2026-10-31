@@ -11,16 +11,23 @@ import {
   Currency,
   DeliveryStatus,
   Prisma,
+  MotorcycleVerificationStatus,
+  ProfilePhotoStatus,
   ServiceClass,
 } from '../generated/prisma/client.js';
 import type { CustomerContext } from '../auth/customer-access.service.js';
 import type { RiderContext } from '../auth/rider-access.service.js';
 import { v2MarketplaceEnabled } from '../auth/v2-flags.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { finiteDistance } from './delivery-view.js';
 import { centsFromDecimal, formatCents } from './money.js';
+import { pickupDistanceMeters } from './customer-offer-distance.js';
 import { motorcycleForAcceptance } from '../rider/motorcycle-eligibility.js';
 import { lockWalletOwner } from '../rider/wallet-lock.js';
-import { closeUnassignedV2Deliveries } from './v2-deadline.js';
+import { assertV2CommissionCapacity } from '../rider/wallet-ledger.js';
+import { commissionCents } from './commission-calculator.js';
+import { closeUnassignedV2Deliveries, v2RequestRemainsOpen } from './v2-deadline.js';
+import { expireDueV2Searches, expireLockedV2Search, v2SearchWindowElapsed } from './v2-search.js';
 
 const MAX_BID_CENTS = 999_999_999_999;
 const UUID_TEXT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -44,7 +51,15 @@ export type PublicBid = {
   currency: Currency;
   status: BidStatus;
   createdAt: string;
-  rider: { id: string; name: string };
+  rider: {
+    id: string;
+    name: string;
+    verified: boolean;
+    completedDeliveries: number;
+    distanceMeters: number | null;
+    motorcycle: string | null;
+    hasProfilePhoto: boolean;
+  };
 };
 
 @Injectable()
@@ -77,6 +92,9 @@ export class BidService {
               pickupAddress: true,
               dropoffAddress: true,
               deliverBy: true,
+              parcelDescription: true,
+              suggestedPrice: true,
+              distanceMeters: true,
             },
           },
         },
@@ -96,6 +114,9 @@ export class BidService {
           pickupAddress: row.delivery.pickupAddress,
           dropoffAddress: row.delivery.dropoffAddress,
           deliverBy: row.delivery.deliverBy?.toISOString() ?? null,
+          parcelDescription: row.delivery.parcelDescription,
+          suggestedPrice: formatCents(centsFromDecimal(row.delivery.suggestedPrice)),
+          distanceMeters: finiteDistance(row.delivery.distanceMeters),
         })),
         nextCursor: rows.length > page.limit && last ? encodeBidCursor(last.createdAt, last.id) : null,
       };
@@ -106,20 +127,22 @@ export class BidService {
     this.requireMarketplace();
     return this.prisma.$transaction(async (tx) => {
       await expireClosedBids(tx, now);
+      await expireDueV2Searches(tx, now);
       const rows = await tx.delivery.findMany({
         where: {
           status: DeliveryStatus.CREATED,
           serviceClass: { not: null },
-          deliverBy: { gt: now },
           searchGeneration: 0,
+          OR: [{ deliverBy: null }, { deliverBy: { gt: now } }],
         },
-        orderBy: [{ deliverBy: 'asc' }, { id: 'asc' }],
+        orderBy: [{ deliverBy: { sort: 'asc', nulls: 'last' } }, { id: 'asc' }],
         select: {
           id: true,
           serviceClass: true,
           deliverBy: true,
           currency: true,
           suggestedPrice: true,
+          customerOffer: true,
           distanceMeters: true,
           pickupAddress: true,
           dropoffAddress: true,
@@ -133,6 +156,7 @@ export class BidService {
         deliverBy: row.deliverBy?.toISOString() ?? null,
         currency: row.currency,
         suggestedPrice: formatCents(centsFromDecimal(row.suggestedPrice)),
+        offeredPrice: formatCents(centsFromDecimal(row.customerOffer ?? row.suggestedPrice)),
         distanceMeters: row.distanceMeters,
         pickupAddress: row.pickupAddress,
         dropoffAddress: row.dropoffAddress,
@@ -210,7 +234,7 @@ export class BidService {
     return this.prisma.$transaction(async (tx) => {
       const delivery = await tx.delivery.findFirst({
         where: { id: deliveryId, customerId: customer.customerAccountId },
-        select: { id: true },
+        select: { id: true, pickupLatitude: true, pickupLongitude: true },
       });
       if (!delivery) {
         throw new NotFoundException('Delivery not found');
@@ -220,21 +244,65 @@ export class BidService {
       const rows = await tx.bid.findMany({
         where: { deliveryId, status: BidStatus.OPEN },
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-        include: { riderProfile: { include: { user: { select: { fullName: true } } } } },
+        include: {
+          riderProfile: {
+            select: {
+              verificationStatus: true,
+              user: { select: { fullName: true } },
+            },
+          },
+        },
       });
       const riderIds = [...new Set(rows.map((row) => row.riderProfileId))];
-      const expressAssignments = riderIds.length === 0 ? [] : await tx.deliveryAssignment.findMany({
-        where: {
-          riderProfileId: { in: riderIds },
-          status: AssignmentStatus.ACCEPTED,
-          serviceClass: ServiceClass.EXPRESS,
-        },
-        select: { riderProfileId: true },
-      });
-      const blocked = new Set(expressAssignments.map((row) => row.riderProfileId));
-      return rows
-        .filter((row) => !blocked.has(row.riderProfileId))
-        .map((row) => toPublicBid(row, row.riderProfile.user.fullName));
+      const [locations, completed, motorcycles] = riderIds.length === 0
+        ? [[], [], []]
+        : await Promise.all([
+          tx.riderLocation.findMany({
+            where: { riderProfileId: { in: riderIds } },
+            select: { riderProfileId: true, latitude: true, longitude: true, updatedAt: true },
+          }),
+          tx.deliveryAssignment.findMany({
+            where: {
+              riderProfileId: { in: riderIds },
+              status: AssignmentStatus.ACCEPTED,
+              delivery: { status: DeliveryStatus.DELIVERED },
+            },
+            select: { riderProfileId: true },
+          }),
+          tx.motorcycle.findMany({
+            where: {
+              riderProfileId: { in: riderIds },
+              isActive: true,
+              verificationStatus: MotorcycleVerificationStatus.VERIFIED,
+            },
+            select: { riderProfileId: true, make: true, model: true },
+          }),
+        ]);
+      const locationByRider = new Map(locations.map((row) => [row.riderProfileId, row]));
+      const completedByRider = new Map<string, number>();
+      for (const row of completed) {
+        completedByRider.set(row.riderProfileId, (completedByRider.get(row.riderProfileId) ?? 0) + 1);
+      }
+      const motorcycleByRider = new Map(motorcycles.map((row) => [row.riderProfileId, motorcycleLabel(row.make, row.model)]));
+      const photos = riderIds.length === 0
+        ? []
+        : await tx.riderProfilePhoto.findMany({
+          where: { riderProfileId: { in: riderIds }, status: ProfilePhotoStatus.STORED },
+          select: { riderProfileId: true },
+        });
+      const photoRiders = new Set(photos.map((photo) => photo.riderProfileId));
+      return rows.map((row) => toPublicBid(row, row.riderProfile.user.fullName, {
+          verified: row.riderProfile.verificationStatus === 'VERIFIED',
+          completedDeliveries: completedByRider.get(row.riderProfileId) ?? 0,
+          distanceMeters: pickupDistanceMeters(
+            delivery.pickupLatitude,
+            delivery.pickupLongitude,
+            locationByRider.get(row.riderProfileId) ?? null,
+            now,
+          ),
+          motorcycle: motorcycleByRider.get(row.riderProfileId) ?? null,
+          hasProfilePhoto: photoRiders.has(row.riderProfileId),
+        }));
     });
   }
 
@@ -252,15 +320,25 @@ export class BidService {
       throw new NotFoundException('Delivery not found');
     }
     await expireClosedBids(tx, now, delivery.id);
-    if (delivery.deliverBy && delivery.deliverBy.getTime() <= now.getTime() && delivery.serviceClass) {
+    const current = await tx.delivery.findUnique({ where: { id: delivery.id } });
+    if (!current) {
+      throw new NotFoundException('Delivery not found');
+    }
+    if (v2SearchWindowElapsed(current.searchStartedAt, now)) {
+      await expireLockedV2Search(tx, current.id, current.searchStartedAt, now);
+    }
+    const openForBids = await tx.delivery.findUnique({ where: { id: delivery.id } });
+    if (!openForBids) {
+      throw new NotFoundException('Delivery not found');
+    }
+    if (openForBids.serviceClass && !v2RequestRemainsOpen(openForBids.deliverBy, now)) {
       return { closed: true };
     }
     if (
-      delivery.status !== DeliveryStatus.CREATED
-      || delivery.serviceClass == null
-      || delivery.deliverBy == null
-      || delivery.searchGeneration !== 0
-      || delivery.currency !== Currency.USD
+      openForBids.status !== DeliveryStatus.CREATED
+      || openForBids.serviceClass == null
+      || openForBids.searchGeneration !== 0
+      || openForBids.currency !== Currency.USD
     ) {
       throw new ConflictException('This delivery is not open for bids');
     }
@@ -290,30 +368,23 @@ export class BidService {
       licenceVerificationStatus: profile.verificationStatus,
       motorcycles,
     });
+    if (profile.receivingRequests !== true) {
+      throw new ConflictException('You are not receiving requests');
+    }
     const open = await tx.bid.findFirst({
       where: { deliveryId: delivery.id, riderProfileId: profile.id, status: BidStatus.OPEN },
     });
     if (open) {
       throw new ConflictException('This rider already has an open bid');
     }
-    const liveExpress = await tx.deliveryAssignment.findFirst({
-      where: {
-        riderProfileId: profile.id,
-        status: AssignmentStatus.ACCEPTED,
-        serviceClass: ServiceClass.EXPRESS,
-      },
-      select: { id: true },
-    });
-    if (liveExpress) {
-      throw new ConflictException('You cannot submit a bid while an Express delivery is active');
-    }
     const rate = await tx.v2CommissionRate.findFirst({
       where: { isActive: true },
-      select: { id: true },
+      select: { id: true, basisPoints: true },
     });
     if (!rate) {
       throw new ConflictException('A commission percentage has not been published');
     }
+    await assertV2CommissionCapacity(tx, profile.id, commissionCents(input.amountCents, rate.basisPoints));
     const created = await tx.bid.create({
       data: {
         deliveryId: delivery.id,
@@ -356,7 +427,11 @@ async function riderName(tx: Prisma.TransactionClient, riderProfileId: string) {
   return profile?.user?.fullName ?? '';
 }
 
-function toPublicBid(bid: StoredBid, name: string): PublicBid {
+function toPublicBid(
+  bid: StoredBid,
+  name: string,
+  rider: Partial<Omit<PublicBid['rider'], 'id' | 'name'>> = {},
+): PublicBid {
   const amountCents = centsFromDecimal(bid.amount);
   return {
     id: bid.id,
@@ -366,8 +441,21 @@ function toPublicBid(bid: StoredBid, name: string): PublicBid {
     currency: bid.currency,
     status: bid.status,
     createdAt: bid.createdAt.toISOString(),
-    rider: { id: bid.riderProfileId, name },
+    rider: {
+      id: bid.riderProfileId,
+      name,
+      verified: rider.verified === true,
+      completedDeliveries: rider.completedDeliveries ?? 0,
+      distanceMeters: rider.distanceMeters ?? null,
+      motorcycle: rider.motorcycle ?? null,
+      hasProfilePhoto: rider.hasProfilePhoto === true,
+    },
   };
+}
+
+function motorcycleLabel(make: string | null | undefined, model: string | null | undefined): string | null {
+  const label = [make, model].map((part) => part?.trim() ?? '').filter((part) => part.length > 0).join(' ');
+  return label || null;
 }
 
 const BID_PAGE_DEFAULT = 20;

@@ -10,12 +10,6 @@ data class WorkloadCounts(
     val express: Int,
 )
 
-data class ReceivingControl(
-    val visible: Boolean,
-    val checked: Boolean,
-    val enabled: Boolean,
-)
-
 enum class DashboardFailure {
     Authentication,
     MarketplaceDisabled,
@@ -30,19 +24,43 @@ fun workloadCounts(serviceClasses: List<String?>): WorkloadCounts {
     )
 }
 
-fun receivingControl(
-    receiving: Boolean?,
-    canAcceptDeliveries: Boolean,
-    changing: Boolean,
-): ReceivingControl {
-    if (receiving == null) {
-        return ReceivingControl(visible = false, checked = false, enabled = false)
+const val OFFLINE_WITH_DELIVERIES_TITLE = "Go offline?"
+const val OFFLINE_WITH_DELIVERIES_MESSAGE =
+    "You will stop receiving new requests. Deliveries you already accepted stay assigned to you."
+
+fun activeDeliveryCount(showActiveDelivery: Boolean, flexibleCount: Int?, expressCount: Int?): Int {
+    val listed = (flexibleCount ?: 0) + (expressCount ?: 0)
+    if (listed > 0) {
+        return listed
     }
-    return ReceivingControl(
-        visible = true,
-        checked = receiving,
-        enabled = canAcceptDeliveries && !changing,
-    )
+    return if (showActiveDelivery) 1 else 0
+}
+
+fun offlineConfirmationRequired(activeDeliveryCount: Int): Boolean = activeDeliveryCount > 0
+
+enum class ReceivingAlignment {
+    None,
+    Enable,
+    Disable,
+    ReleaseBusy,
+}
+
+fun showsReceivingControl(): Boolean = false
+
+fun receivingAlignment(availability: String?, receiving: Boolean?): ReceivingAlignment {
+    if (receiving == null) {
+        return ReceivingAlignment.None
+    }
+    if (availability == "BUSY") {
+        return ReceivingAlignment.ReleaseBusy
+    }
+    if (availability == "AVAILABLE" && !receiving) {
+        return ReceivingAlignment.Enable
+    }
+    if (availability == "OFFLINE" && receiving) {
+        return ReceivingAlignment.Disable
+    }
+    return ReceivingAlignment.None
 }
 
 fun showsV1ActiveDelivery(
@@ -62,12 +80,13 @@ fun receivingAfterRefresh(previous: Boolean?, loaded: Boolean?, loadedFromServer
 }
 
 fun dashboardFailure(error: ApiError): DashboardFailure = when {
-    error is ApiError.SessionEnded || error is ApiError.Forbidden -> DashboardFailure.Authentication
+    error is ApiError.SessionEnded || error is ApiError.SignedInElsewhere || error is ApiError.Forbidden -> DashboardFailure.Authentication
     error is ApiError.Unexpected && error.message == MARKETPLACE_DISABLED -> DashboardFailure.MarketplaceDisabled
     error is ApiError.Network || error is ApiError.Timeout -> DashboardFailure.Network
     else -> DashboardFailure.Other
 }
 
-fun walletFigures(marketplace: Boolean, availableCapacity: String?, reservedFees: String?): Pair<String?, String?> {
-    return if (marketplace) availableCapacity to reservedFees else null to null
+fun homeWalletAmount(availableCapacity: String?): String? {
+    val amount = availableCapacity?.trim().orEmpty()
+    return amount.ifEmpty { null }
 }

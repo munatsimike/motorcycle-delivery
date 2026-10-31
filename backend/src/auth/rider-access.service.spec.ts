@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AccountStatus, UserRole } from '../generated/prisma/client.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import { AccessTokenService } from './access-token.service.js';
+import { RIDER_SIGNED_IN_ELSEWHERE } from './rider-session-policy.js';
 import { RiderAccessService } from './rider-access.service.js';
 
 const SECRET = '0123456789abcdef0123456789abcdef';
@@ -21,6 +22,19 @@ describe('RiderAccessService', () => {
     const ctx = context();
     const token = ctx.token();
     await expect(ctx.service.authenticate(token, NOW)).resolves.toEqual({
+      userId: 'user-1',
+      riderProfileId: 'profile-1',
+    });
+  });
+
+  it('rejects the previous device immediately after a new rider session is issued', async () => {
+    const replaced = context();
+    replaced.session.revokedAt = NOW;
+    replaced.otherActive = { id: 'session-2' };
+    await expect(replaced.service.authenticate(replaced.token(), NOW)).rejects.toThrow(RIDER_SIGNED_IN_ELSEWHERE);
+
+    const current = context();
+    await expect(current.service.authenticate(current.token(), NOW)).resolves.toEqual({
       userId: 'user-1',
       riderProfileId: 'profile-1',
     });
@@ -125,6 +139,10 @@ function context() {
     replacedBySessionId: null,
     expiresAt: new Date(NOW.getTime() + 60_000),
   };
+  const state: { profile: ProfileRow | null; otherActive: { id: string } | null } = {
+    profile: { id: 'profile-1', userId: 'user-1' },
+    otherActive: null,
+  };
   const user: UserRow = {
     id: 'user-1',
     role: UserRole.RIDER,
@@ -132,11 +150,13 @@ function context() {
     phoneVerifiedAt: NOW,
     passwordHash: null,
   };
-  const state: { profile: ProfileRow | null } = { profile: { id: 'profile-1', userId: 'user-1' } };
   const db = {
     refreshSession: {
       async findUnique({ where }: { where: { id: string } }) {
         return session.id === where.id ? session : null;
+      },
+      async findFirst() {
+        return state.otherActive;
       },
     },
     user: {
@@ -160,7 +180,10 @@ function context() {
     set profile(value: ProfileRow | null) {
       state.profile = value;
     },
-    token(at = NOW, role = UserRole.RIDER) {
+    set otherActive(value: { id: string } | null) {
+      state.otherActive = value;
+    },
+    token(at = NOW, role: UserRole = UserRole.RIDER) {
       return `Bearer ${accessTokens.sign({ sub: user.id, role, sid: session.id }, at).token}`;
     },
   };

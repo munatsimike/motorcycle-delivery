@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { AccessTokenService } from './access-token.service.js';
 import { REFRESH_ABSOLUTE_MS, REFRESH_INACTIVITY_MS, REFRESH_REUSE_GRACE_MS } from './auth.constants.js';
 import { hasAccountCredential } from './account-credential.js';
+import { rejectClosedRiderSession } from './rider-session-policy.js';
 import { hashSecret, newRefreshToken } from './token-hash.js';
 
 export type AuthTokens = {
@@ -30,14 +31,27 @@ export class SessionService {
     private readonly accessTokens: AccessTokenService,
   ) {}
 
-  async issue(writer: SessionWriter, userId: string, role: UserRole, now = new Date()): Promise<AuthTokens> {
-    const created = await this.insertSession(writer, {
-      userId,
-      familyId: randomUUID(),
-      familyExpiresAt: familyExpiry(role, now),
-      now,
+  async issue(
+    writer: SessionWriter,
+    userId: string,
+    role: UserRole,
+    now = new Date(),
+    options?: { riderMembership?: boolean },
+  ): Promise<AuthTokens> {
+    if (role !== UserRole.RIDER && options?.riderMembership !== true) {
+      return this.createSession(writer, userId, role, now);
+    }
+    return withRiderIssueLock(userId, async () => {
+      await writer.$queryRaw`SELECT "id" FROM "users" WHERE "id" = CAST(${userId} AS uuid) FOR UPDATE`;
+      await this.revokeAll(userId, writer);
+      await writer.$executeRaw`
+        DELETE FROM "rider_locations" AS l
+        USING "rider_profiles" AS p
+        WHERE l."rider_profile_id" = p."id"
+          AND p."user_id" = CAST(${userId} AS uuid)
+      `;
+      return this.createSession(writer, userId, role, now);
     });
-    return this.tokens(userId, role, created, now);
   }
 
   async refresh(rawToken: string, now = new Date()): Promise<AuthTokens> {
@@ -59,7 +73,7 @@ export class SessionService {
             data: { revokedAt: now },
           });
         }
-        throw new UnauthorizedException('Authentication failed');
+        return rejectClosedRiderSession(tx, current);
       }
 
       const user = await tx.user.findUnique({ where: { id: current.userId } });
@@ -116,6 +130,16 @@ export class SessionService {
     }
   }
 
+  async revokeCurrent(sessionId: string, userId: string, now = new Date()): Promise<void> {
+    await this.assertCurrent(sessionId, userId, now);
+    await this.revoke(sessionId, userId);
+  }
+
+  async revokeAllCurrent(sessionId: string, userId: string, now = new Date()): Promise<void> {
+    await this.assertCurrent(sessionId, userId, now);
+    await this.revokeAll(userId);
+  }
+
   async revoke(sessionId: string, userId: string): Promise<void> {
     await this.prisma.refreshSession.updateMany({
       where: { id: sessionId, userId, revokedAt: null },
@@ -128,6 +152,30 @@ export class SessionService {
       where: { userId, revokedAt: null },
       data: { revokedAt: new Date() },
     });
+  }
+
+  private async assertCurrent(sessionId: string, userId: string, now: Date): Promise<void> {
+    const session = await this.prisma.refreshSession.findUnique({ where: { id: sessionId } });
+    if (
+      !session
+      || session.userId !== userId
+      || session.revokedAt
+      || session.replacedBySessionId
+      || session.expiresAt <= now
+      || session.familyExpiresAt <= now
+    ) {
+      return rejectClosedRiderSession(this.prisma, session?.userId === userId ? session : null);
+    }
+  }
+
+  private async createSession(writer: SessionWriter, userId: string, role: UserRole, now: Date): Promise<AuthTokens> {
+    const created = await this.insertSession(writer, {
+      userId,
+      familyId: randomUUID(),
+      familyExpiresAt: familyExpiry(role, now),
+      now,
+    });
+    return this.tokens(userId, role, created, now);
   }
 
   private async insertSession(
@@ -169,6 +217,24 @@ function familyExpiry(role: UserRole, now: Date, currentFamilyExpiresAt?: Date):
     return currentFamilyExpiresAt ?? new Date(now.getTime() + REFRESH_ABSOLUTE_MS);
   }
   return new Date(now.getTime() + REFRESH_INACTIVITY_MS);
+}
+
+const riderIssueLocks = new Map<string, Promise<void>>();
+
+function withRiderIssueLock<T>(userId: string, work: () => Promise<T>): Promise<T> {
+  const previous = (riderIssueLocks.get(userId) ?? Promise.resolve()).catch(() => undefined);
+  let release: () => void = () => undefined;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  riderIssueLocks.set(userId, previous.then(() => current));
+  return previous.then(async () => {
+    try {
+      return await work();
+    } finally {
+      release();
+    }
+  });
 }
 
 function sessionAllowed(user: AllowedUser): boolean {

@@ -4,8 +4,12 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -46,6 +50,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Dp
@@ -226,6 +231,7 @@ fun RidersSecondaryButton(
     loading: Boolean = false,
     tone: RidersButtonTone = RidersButtonTone.Primary,
     @Suppress("UNUSED_PARAMETER") soft: Boolean = true,
+    bordered: Boolean = true,
     icon: Int? = null,
 ) {
     val inactive = !enabled || loading
@@ -237,7 +243,13 @@ fun RidersSecondaryButton(
             .alpha(if (inactive) 0.6f else 1f)
             .clip(RoundedCornerShape(RidersRadius.lg))
             .background(fill)
-            .border(1.dp, accent, RoundedCornerShape(RidersRadius.lg))
+            .then(
+                if (bordered) {
+                    Modifier.border(1.dp, accent, RoundedCornerShape(RidersRadius.lg))
+                } else {
+                    Modifier
+                },
+            )
             .clickable(enabled = !inactive, role = Role.Button, onClick = onClick)
             .padding(horizontal = RidersSpacing.lg, vertical = RidersSpacing.md),
         contentAlignment = Alignment.Center,
@@ -247,6 +259,43 @@ fun RidersSecondaryButton(
         } else {
             ButtonLabel(label, accent, icon)
         }
+    }
+}
+
+@Composable
+fun RidersViewDetailsButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier
+            .fillMaxWidth()
+            .defaultMinSize(minHeight = 44.dp)
+            .clip(RoundedCornerShape(RidersRadius.md))
+            .border(1.dp, RidersColors.border, RoundedCornerShape(RidersRadius.md))
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = RidersSpacing.md, vertical = RidersSpacing.sm),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        Icon(
+            painter = painterResource(R.drawable.ic_info),
+            contentDescription = null,
+            modifier = Modifier.size(16.dp),
+            tint = RidersColors.textSecondary,
+        )
+        Text(
+            "View details",
+            style = RidersType.body,
+            color = RidersColors.textSecondary,
+            modifier = Modifier.padding(horizontal = RidersSpacing.xs),
+        )
+        Icon(
+            painter = painterResource(R.drawable.ic_chevron_right),
+            contentDescription = null,
+            modifier = Modifier.size(18.dp),
+            tint = RidersColors.textSecondary,
+        )
     }
 }
 
@@ -275,16 +324,34 @@ fun RidersCard(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
     prominent: Boolean = false,
+    emphasizePress: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val shape = RoundedCornerShape(if (prominent) RidersRadius.xl else RidersRadius.lg)
+    val motion = rememberRidersMotion()
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (emphasizePress) offerPressScale(pressed, motion.enabled) else 1f,
+        animationSpec = tween(motion.duration(RidersMotion.PRESS_MS)),
+        label = "card-press",
+    )
     val clickable = if (onClick == null) {
         Modifier
     } else {
-        Modifier.clickable(role = Role.Button, onClick = onClick)
+        Modifier.clickable(
+            interactionSource = interaction,
+            indication = LocalIndication.current,
+            role = Role.Button,
+            onClick = onClick,
+        )
     }
     Column(
         modifier = modifier
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
             .shadow(elevation = 4.dp, shape = shape, ambientColor = RidersColors.shadow, spotColor = RidersColors.shadow)
             .clip(shape)
             .background(RidersColors.background)
@@ -303,8 +370,7 @@ fun RidersStatusIndicator(
     modifier: Modifier = Modifier,
 ) {
     val (label, color, fill) = when (availability) {
-        RidersAvailability.Available -> Triple("Available", RidersColors.primaryDark, RidersColors.primaryLight)
-        RidersAvailability.Busy -> Triple("On a delivery", RidersColors.primaryDark, RidersColors.surface)
+        RidersAvailability.Available, RidersAvailability.Busy -> Triple("Online", RidersColors.primaryDark, RidersColors.primaryLight)
         RidersAvailability.Offline -> Triple("Offline", RidersColors.textSecondary, RidersColors.surface)
     }
     Row(
@@ -416,58 +482,13 @@ fun isConnectionFailure(message: String?): Boolean {
     return "network request failed" in text || "timed out" in text || "check your connection" in text
 }
 
+@Suppress("UNUSED_PARAMETER")
 @Composable
 fun RidersNetworkNotice(
     onRetry: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(RidersRadius.lg))
-            .background(RidersColors.dangerSurface)
-            .padding(horizontal = RidersSpacing.lg, vertical = RidersSpacing.xl),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
-    ) {
-        Box(
-            Modifier
-                .size(48.dp)
-                .clip(CircleShape)
-                .background(Color(0xFFF8D7D4)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                painter = painterResource(R.drawable.ic_wifi_off),
-                contentDescription = null,
-                tint = RidersColors.error,
-                modifier = Modifier.size(26.dp),
-            )
-        }
-        Text(
-            "No internet connection",
-            style = RidersType.bodyStrong,
-            color = RidersColors.error,
-            textAlign = TextAlign.Center,
-        )
-        Text(
-            "Check your connection and try again.",
-            style = RidersType.caption,
-            color = RidersColors.error,
-            textAlign = TextAlign.Center,
-        )
-        if (onRetry != null) {
-            Text(
-                "Try again",
-                style = RidersType.captionStrong,
-                color = RidersColors.error,
-                textAlign = TextAlign.Center,
-                modifier = Modifier
-                    .padding(top = RidersSpacing.xs)
-                    .clickable(role = Role.Button, onClick = onRetry),
-            )
-        }
-    }
+    ReportNetworkNotice(active = true)
 }
 
 @Composable

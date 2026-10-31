@@ -1,5 +1,10 @@
 package com.riders.rider.feature.profile.presentation
 
+import android.graphics.Bitmap
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -17,13 +22,17 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -33,12 +42,17 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -47,6 +61,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.riders.rider.R
 import com.riders.rider.core.design.PhoneWithFlag
 import com.riders.rider.core.design.RidersButtonTone
+import com.riders.rider.core.design.RidersErrorState
 import com.riders.rider.core.design.RidersColors
 import com.riders.rider.core.design.RidersFailureNotice
 import com.riders.rider.core.design.RidersLoadingState
@@ -62,15 +77,20 @@ import com.riders.rider.feature.onboarding.domain.RiderOnboarding
 import com.riders.rider.feature.onboarding.domain.approvalStatusTitle
 import com.riders.rider.feature.onboarding.domain.motorcycleStatusTitle
 import com.riders.rider.feature.onboarding.domain.riderReadiness
+import com.riders.rider.core.io.readAtMost
+import com.riders.rider.feature.profile.domain.PROFILE_PHOTO_MAX_BYTES
+import com.riders.rider.feature.profile.domain.ProfilePhotoPhase
+import com.riders.rider.feature.profile.domain.ProfilePhotoState
+import com.riders.rider.feature.profile.domain.canStartProfilePhotoAction
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private val ProfileGreen = Color(0xFFC9EFD9)
 private val ProfileMid = Color(0xFFE5F7EE)
 private val ProfileFade = Color(0xFFF7FCF9)
-private val PhoneBlue = Color(0xFF3B6FE8)
-private val PhoneFill = Color(0xFFE8F1FF)
-private val LicenceFill = Color(0xFFEEF2F6)
-private val LicenceTint = Color(0xFF3D5A80)
-private val BikeFill = Color(0xFFDDF3E8)
+private val PendingReview = Color(0xFFB86E00)
+private val PendingReviewFill = Color(0xFFFFF4E5)
 
 @Composable
 private fun PasswordCard(
@@ -122,9 +142,40 @@ fun ProfileScreen(
     model: ProfileViewModel = hiltViewModel(),
 ) {
     val ui by model.ui.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val picker = rememberLauncherForActivityResult(PickVisualMedia()) { uri ->
+        if (uri == null) {
+            return@rememberLauncherForActivityResult
+        }
+        scope.launch {
+            val bytes = withContext(Dispatchers.IO) {
+                try {
+                    context.contentResolver.openInputStream(uri)?.use { stream ->
+                        readAtMost(stream, PROFILE_PHOTO_MAX_BYTES + 1)
+                    }
+                } catch (_: SecurityException) {
+                    null
+                } catch (_: java.io.IOException) {
+                    null
+                }
+            }
+            if (bytes == null) {
+                model.reportPhoto("Choose a profile photo")
+            } else {
+                model.uploadPhoto(bytes)
+            }
+        }
+    }
     LaunchedEffect(Unit) { model.refresh(force = false) }
+    var confirmRemove by rememberSaveable { mutableStateOf(false) }
     val board = ui.board
     val hasProfile = board.fullName.isNotBlank() || board.onboarding != null
+    val displayedPhoto = when {
+        ui.photo.showingPreview && ui.photoPreview != null -> ui.photoPreview
+        ui.photo.showingStored || ui.photo.showingPreview -> ui.photoBitmap
+        else -> null
+    }
     RidersPullRefresh(
         refreshing = ui.refreshing,
         onRefresh = { model.refresh(force = true) },
@@ -138,7 +189,14 @@ fun ProfileScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(bottom = RidersSpacing.xxl),
         ) {
-            ProfileHeader(board.fullName, board.onboarding)
+            ProfileHeader(
+                name = board.fullName,
+                onboarding = board.onboarding,
+                photo = displayedPhoto,
+                photoState = ui.photo,
+                onChangePhoto = { picker.launch(PickVisualMediaRequest(PickVisualMedia.ImageOnly)) },
+                onRemovePhoto = { confirmRemove = true },
+            )
             if (hasProfile) {
                 DetailsCard(
                     phone = board.phone,
@@ -148,13 +206,13 @@ fun ProfileScreen(
                     motorcycles = board.motorcycles,
                     onMotorcycles = onMotorcycles,
                     modifier = Modifier
-                        .padding(horizontal = RidersSpacing.xl)
+                        .padding(end = RidersSpacing.lg)
                         .pullUp(RidersSpacing.xxxl),
                 )
             }
             Column(
                 Modifier
-                    .padding(horizontal = RidersSpacing.xl)
+                    .padding(horizontal = RidersSpacing.lg)
                     .padding(top = if (hasProfile) RidersSpacing.lg else RidersSpacing.xl),
                 verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
             ) {
@@ -172,13 +230,21 @@ fun ProfileScreen(
                                 onRetry = { model.refresh(force = true) },
                             )
                         }
+                        ui.photo.error?.let { message ->
+                            RidersErrorState(
+                                message = message,
+                                retryLabel = if (ui.photo.retry != null) "Try again" else null,
+                                onRetry = model::retryPhoto,
+                            )
+                        }
                         RidersSecondaryButton(
                             label = "Log out",
                             onClick = model::logout,
                             enabled = !ui.signingOut,
                             loading = ui.signingOut,
                             tone = RidersButtonTone.Danger,
-                            icon = R.drawable.ic_logout,
+                            bordered = false,
+                            icon = R.drawable.ic_logout_outline,
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
@@ -186,19 +252,59 @@ fun ProfileScreen(
             }
         }
     }
+    if (confirmRemove && ui.photo.hasStoredPhoto && canStartProfilePhotoAction(ui.photo)) {
+        AlertDialog(
+            onDismissRequest = { confirmRemove = false },
+            title = {
+                Text("Remove profile photo?", style = RidersType.heading, color = RidersColors.text)
+            },
+            text = {
+                Text(
+                    "Customers will see your initials instead.",
+                    style = RidersType.body,
+                    color = RidersColors.text,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmRemove = false
+                    model.removePhoto()
+                }) {
+                    Text("Remove photo", color = RidersColors.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmRemove = false }) {
+                    Text("Keep photo")
+                }
+            },
+        )
+    }
 }
 
 @Composable
-private fun ProfileHeader(name: String, onboarding: RiderOnboarding?) {
+private fun ProfileHeader(
+    name: String,
+    onboarding: RiderOnboarding?,
+    photo: Bitmap?,
+    photoState: ProfilePhotoState,
+    onChangePhoto: () -> Unit,
+    onRemovePhoto: () -> Unit,
+) {
     val status = onboarding?.approvalStatus
     val pill = if (status == null) "Rider" else approvalStatusTitle(status)
-    val solidStatus = pill == "Pending review" || pill == "Approved"
+    val pendingReview = pill == "Pending review"
     val pillColor = when {
-        solidStatus -> RidersColors.textInverse
+        pendingReview -> PendingReview
+        pill == "Approved" -> RidersColors.textInverse
         status == "REJECTED" || status == "SUSPENDED" -> RidersColors.error
         else -> RidersColors.primaryDark
     }
-    val pillFill = if (solidStatus) RidersColors.primary else RidersColors.background
+    val pillFill = when {
+        pendingReview -> PendingReviewFill
+        pill == "Approved" -> RidersColors.primary
+        else -> RidersColors.background
+    }
     Column(Modifier.fillMaxWidth()) {
         Box(Modifier.fillMaxWidth().clipToBounds()) {
             ProfileBackdrop(Modifier.matchParentSize())
@@ -206,12 +312,36 @@ private fun ProfileHeader(name: String, onboarding: RiderOnboarding?) {
                 Modifier
                     .fillMaxWidth()
                     .statusBarsPadding()
-                    .padding(horizontal = RidersSpacing.xl)
+                    .padding(horizontal = RidersSpacing.lg)
                     .padding(top = RidersSpacing.lg, bottom = RidersSpacing.xl),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
             ) {
-                ProfileAvatar(name)
+                ProfileAvatar(
+                    name = name,
+                    photo = photo,
+                    busy = !canStartProfilePhotoAction(photoState),
+                    onChangePhoto = onChangePhoto,
+                )
+                if (photoState.phase == ProfilePhotoPhase.Uploading) {
+                    Text(
+                        "Uploading ${photoState.progress ?: 0}%",
+                        style = RidersType.caption,
+                        color = RidersColors.text,
+                    )
+                }
+                if (photoState.hasStoredPhoto && canStartProfilePhotoAction(photoState)) {
+                    Text(
+                        "Remove photo",
+                        style = RidersType.bodyStrong,
+                        color = RidersColors.error,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(RidersRadius.pill))
+                            .clickable(role = Role.Button, onClick = onRemovePhoto)
+                            .padding(horizontal = RidersSpacing.md, vertical = RidersSpacing.xs)
+                            .semantics { contentDescription = "Remove photo" },
+                    )
+                }
                 Text(
                     name.ifBlank { "Profile" },
                     style = RidersType.title,
@@ -272,15 +402,47 @@ private fun ProfileBackdrop(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun ProfileAvatar(name: String) {
+private fun ProfileAvatar(
+    name: String,
+    photo: Bitmap?,
+    busy: Boolean,
+    onChangePhoto: () -> Unit,
+) {
     Box(
         Modifier
             .size(80.dp)
             .clip(RoundedCornerShape(RidersRadius.lg))
-            .background(Color(0xFF3D5A80)),
+            .background(Color(0xFF3D5A80))
+            .semantics { contentDescription = "Change profile photo" }
+            .then(
+                if (busy) {
+                    Modifier
+                } else {
+                    Modifier.clickable(role = Role.Button, onClick = onChangePhoto)
+                },
+            ),
         contentAlignment = Alignment.Center,
     ) {
-        Text(profileInitials(name), style = RidersType.title, color = RidersColors.textInverse)
+        if (photo != null) {
+            Image(
+                bitmap = photo.asImageBitmap(),
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+        } else {
+            Text(profileInitials(name), style = RidersType.title, color = RidersColors.textInverse)
+        }
+        if (busy) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.35f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                CircularProgressIndicator(color = Color.White, strokeWidth = 3.dp)
+            }
+        }
     }
 }
 
@@ -304,10 +466,8 @@ private fun DetailsCard(
             .padding(horizontal = RidersSpacing.lg, vertical = RidersSpacing.sm),
     ) {
         InfoRow(
-            icon = R.drawable.ic_phone,
+            icon = R.drawable.ic_phone_outline,
             label = "WhatsApp number",
-            iconTint = PhoneBlue,
-            iconFill = PhoneFill,
         ) {
             if (phone.isBlank()) {
                 Text("Verified phone", style = RidersType.bodyStrong, color = RidersColors.text)
@@ -317,37 +477,29 @@ private fun DetailsCard(
         }
         Hairline()
         InfoRow(
-            icon = R.drawable.ic_map_marker,
+            icon = R.drawable.ic_map_marker_outline,
             label = "Address",
             value = address.ifBlank { "Not added" },
-            iconTint = RidersColors.primaryDark,
-            iconFill = RidersColors.primaryLight,
         )
         Hairline()
         InfoRow(
-            icon = R.drawable.ic_card,
+            icon = R.drawable.ic_card_outline,
             label = "Driving licence",
             value = licenceSummary(onboarding, hasLicence),
-            badges = licenceBadges(onboarding),
-            iconTint = LicenceTint,
-            iconFill = LicenceFill,
         )
         onboarding?.rejectionReason?.takeIf { it.isNotBlank() }?.let { reason ->
             Text(
                 reason,
                 style = RidersType.caption,
                 color = RidersColors.error,
-                modifier = Modifier.padding(start = 52.dp, bottom = RidersSpacing.sm),
+                modifier = Modifier.padding(start = 34.dp, bottom = RidersSpacing.sm),
             )
         }
         Hairline()
-        val bike = motorcycleIconColors(motorcycles)
         InfoRow(
             icon = R.drawable.ic_mdi_motorbike,
             label = "Motorbike",
             value = motorcycleSummary(motorcycles),
-            iconTint = bike.first,
-            iconFill = bike.second,
             onClick = onMotorcycles,
         )
         Hairline()
@@ -359,7 +511,7 @@ private fun Hairline() {
     Box(
         Modifier
             .fillMaxWidth()
-            .padding(start = 52.dp)
+            .padding(start = 34.dp)
             .height(1.dp)
             .background(RidersColors.border),
     )
@@ -371,9 +523,6 @@ private fun InfoRow(
     label: String,
     value: String? = null,
     caption: String? = null,
-    iconTint: Color = RidersColors.primaryDark,
-    iconFill: Color = RidersColors.background,
-    badges: List<String> = emptyList(),
     onClick: (() -> Unit)? = null,
     valueContent: (@Composable () -> Unit)? = null,
 ) {
@@ -385,15 +534,14 @@ private fun InfoRow(
         horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconBadge(icon, iconTint, iconFill)
+        Icon(
+            painter = painterResource(icon),
+            contentDescription = null,
+            modifier = Modifier.size(22.dp),
+            tint = Color.Black,
+        )
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
-            ) {
-                Text(label, style = RidersType.caption, color = RidersColors.textSecondary, modifier = Modifier.weight(1f))
-                badges.forEach { StatusBadge(it) }
-            }
+            Text(label, style = RidersType.caption, color = RidersColors.textSecondary)
             if (valueContent != null) {
                 valueContent()
             } else {
@@ -405,43 +553,12 @@ private fun InfoRow(
         }
         if (onClick != null) {
             Icon(
-                painter = painterResource(R.drawable.ic_chevron_right),
+                painter = painterResource(R.drawable.ic_chevron_right_outline),
                 contentDescription = null,
                 modifier = Modifier.size(20.dp),
-                tint = RidersColors.textSecondary,
+                tint = Color.Black,
             )
         }
-    }
-}
-
-@Composable
-private fun StatusBadge(label: String) {
-    Text(
-        label,
-        style = RidersType.captionStrong,
-        color = RidersColors.primaryDark,
-        modifier = Modifier
-            .clip(RoundedCornerShape(RidersRadius.pill))
-            .background(RidersColors.primaryLight)
-            .padding(horizontal = RidersSpacing.sm, vertical = RidersSpacing.xs),
-    )
-}
-
-@Composable
-private fun IconBadge(icon: Int, tint: Color, fill: Color) {
-    Box(
-        Modifier
-            .size(40.dp)
-            .clip(RoundedCornerShape(RidersRadius.md))
-            .background(fill),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            painter = painterResource(icon),
-            contentDescription = null,
-            modifier = Modifier.size(18.dp),
-            tint = tint,
-        )
     }
 }
 
@@ -475,27 +592,6 @@ private fun licenceSummary(onboarding: RiderOnboarding?, hasLicence: Boolean): S
         status,
     )
     return parts.joinToString(" · ").ifBlank { "On file" }
-}
-
-private fun licenceBadges(onboarding: RiderOnboarding?): List<String> {
-    if (onboarding?.licenceVerificationStatus != "VERIFIED") {
-        return emptyList()
-    }
-    return listOf("Verified")
-}
-
-private fun motorcycleIconColors(motorcycles: List<MotorcycleDetails>): Pair<Color, Color> {
-    val chosen = motorcycles.firstOrNull { it.isActive } ?: motorcycles.firstOrNull()
-    val pending = chosen == null || (
-        chosen.verificationStatus != "VERIFIED" &&
-            chosen.verificationStatus != "REJECTED" &&
-            chosen.verificationStatus != "REVOKED"
-        )
-    return if (pending) {
-        Color(0xFFB86E00) to Color(0xFFFFE8C2)
-    } else {
-        RidersColors.primaryDark to BikeFill
-    }
 }
 
 private fun motorcycleSummary(motorcycles: List<MotorcycleDetails>): String {

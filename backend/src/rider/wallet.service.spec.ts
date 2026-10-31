@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, NotFoundException } from '@nest
 import { Prisma, WalletActorType, WalletEntryType, WalletPaymentStatus } from '../generated/prisma/client.js';
 import { describe, expect, it } from 'vitest';
 import type { PrismaService } from '../prisma/prisma.service.js';
-import { walletPayloadHash, type LedgerCommand } from './wallet-ledger.js';
+import { walletPayloadHash, type CreditCommand, type LedgerCommand } from './wallet-ledger.js';
 import { WalletService } from './wallet.service.js';
 import { formatSignedCents, signedCentsFromDecimal } from './wallet-money.js';
 
@@ -49,10 +49,11 @@ describe('WalletService', () => {
     expect(postedFirst).toMatchObject({ amount: '1.00', balance: '1.00', replayed: false, configVersion: 1 });
     expect(postedSecond).toMatchObject({ amount: '2.50', balance: '3.50', replayed: false });
     expect(ctx.wallets).toHaveLength(1);
-    expect(ctx.entries).toHaveLength(2);
+    expect(ctx.entries).toHaveLength(0);
+    expect(ctx.promotionalEntries).toHaveLength(2);
     expect(ctx.locks).toEqual(['profile', 'wallet', 'profile', 'wallet']);
-    expect(balanceCents(ctx)).toBe(350);
-    expect(ledgerCents(ctx)).toBe(350);
+    expect(balanceCents(ctx)).toBe(0);
+    expect(promoCents(ctx)).toBe(350);
   });
 
   it('adds a top-up to a negative balance and floors capacity after a lower borrowing limit', async () => {
@@ -103,6 +104,37 @@ describe('WalletService', () => {
     expect(toppedUp).toMatchObject({ amount: '2.00', balance: '1.40', entryType: WalletEntryType.TOP_UP });
     expect(balanceCents(ctx)).toBe(140);
     expect(ledgerCents(ctx)).toBe(140);
+
+    const debt = context();
+    await debt.service.ensureWallet('profile-1', NOW);
+    await debt.service.setBorrowingLimit(ADMIN, 'profile-1', { borrowingLimit: '500.00' }, NOW);
+    await debt.service.post(command({
+      entryType: WalletEntryType.ADJUSTMENT,
+      amountCents: -20_000,
+      idempotencyKey: 'debt-200',
+      reason: 'Opening debt',
+    }));
+    debt.payments.push(
+      { id: 'payment-100', riderWalletId: 'wallet-1', amount: '100.00', currency: 'USD', status: WalletPaymentStatus.VERIFIED },
+      { id: 'payment-150', riderWalletId: 'wallet-1', amount: '150.00', currency: 'USD', status: WalletPaymentStatus.VERIFIED },
+    );
+    await debt.service.credit(credit({
+      entryType: WalletEntryType.TOP_UP,
+      amountCents: 10_000,
+      idempotencyKey: 'top-100',
+      reason: null,
+      walletPaymentId: 'payment-100',
+    }));
+    expect(debt.wallets[0]?.balance).toBe('-100.00');
+    await debt.service.credit(credit({
+      entryType: WalletEntryType.TOP_UP,
+      amountCents: 15_000,
+      idempotencyKey: 'top-150',
+      reason: null,
+      walletPaymentId: 'payment-150',
+    }));
+    expect(debt.wallets[0]?.balance).toBe('50.00');
+    expect(debt.wallets[0]?.promotionalBalance ?? '0.00').toBe('0.00');
     await expect(ctx.service.summary('profile-1')).resolves.toMatchObject({
       balance: '1.40',
       borrowingLimit: '0.00',
@@ -154,13 +186,16 @@ describe('WalletService', () => {
 
     const replay = await ctx.service.credit(credit({ amountCents: 100, idempotencyKey: 'same-key', now: new Date('2026-10-15T00:00:00.000Z') }));
     expect(replay).toMatchObject({ entryId: original.entryId, amount: '1.00', balance: '1.00', replayed: true, configVersion: 1 });
-    expect(ctx.wallets[0]?.balance).toBe('1.50');
+    expect(ctx.wallets[0]?.balance).toBe('0.00');
+    expect(ctx.wallets[0]?.promotionalBalance).toBe('1.50');
 
     const mismatch = ctx.service.credit(credit({ amountCents: 300, idempotencyKey: 'same-key' }));
     await expect(mismatch).rejects.toBeInstanceOf(ConflictException);
     await expect(mismatch).rejects.toMatchObject({ status: 409 });
-    expect(ctx.entries).toHaveLength(2);
-    expect(balanceCents(ctx)).toBe(150);
+    expect(ctx.promotionalEntries).toHaveLength(2);
+    expect(ctx.entries).toHaveLength(0);
+    expect(promoCents(ctx)).toBe(150);
+    expect(balanceCents(ctx)).toBe(0);
 
     await expect(ctx.service.credit(credit({
       riderProfileId: 'profile-2',
@@ -193,8 +228,10 @@ describe('WalletService', () => {
       idempotencyKey: 'fee-1',
       reason: null,
     }))).rejects.toBeInstanceOf(ConflictException);
-    expect(ctx.entries).toHaveLength(1);
-    expect(balanceCents(ctx)).toBe(100);
+    expect(ctx.promotionalEntries).toHaveLength(1);
+    expect(ctx.entries).toHaveLength(0);
+    expect(balanceCents(ctx)).toBe(0);
+    expect(promoCents(ctx)).toBe(100);
   });
 
   it('reports default capacity without writing and rejects a drifted balance', async () => {
@@ -209,6 +246,9 @@ describe('WalletService', () => {
       borrowingLimitSource: 'DEFAULT',
       reservedFees: '0.30',
       availableCapacity: '0.70',
+      promotionalBalance: '0.00',
+      availablePromotionalCredit: '0.00',
+      newDeliveriesRestricted: false,
       currency: 'USD',
     });
     expect(ctx.updates).toEqual([]);
@@ -218,6 +258,60 @@ describe('WalletService', () => {
     await expect(ctx.service.credit(credit({ amountCents: 100, idempotencyKey: 'drift' }))).rejects.toBeInstanceOf(ConflictException);
     expect(ctx.entries).toHaveLength(0);
     expect(ctx.wallets[0]?.balance).toBe('5.00');
+  });
+
+  it('changes only the negative wallet limit and leaves the balance and reservations in place', async () => {
+    const ctx = context();
+    await ctx.service.ensureWallet('profile-1', NOW);
+    const reservation = { riderWalletId: 'wallet-1', deliveryId: 'delivery-1', amount: '0.30', status: 'OPEN' };
+    ctx.reservations.push(reservation);
+
+    await expect(ctx.service.summary('profile-1')).resolves.toMatchObject({
+      balance: '0.00',
+      borrowingLimit: '1.00',
+      borrowingLimitSource: 'DEFAULT',
+      reservedFees: '0.30',
+      availableCapacity: '0.70',
+    });
+
+    const custom = await ctx.service.setBorrowingLimit(ADMIN, 'profile-1', { borrowingLimit: '2.50' }, NOW);
+    expect(custom).toMatchObject({
+      balance: '0.00',
+      borrowingLimit: '2.50',
+      borrowingLimitSource: 'OVERRIDE',
+      reservedFees: '0.30',
+      availableCapacity: '2.20',
+    });
+
+    const blocked = await ctx.service.setBorrowingLimit(ADMIN, 'profile-1', { borrowingLimit: '0.00' }, NOW);
+    expect(blocked).toMatchObject({
+      balance: '0.00',
+      borrowingLimit: '0.00',
+      borrowingLimitSource: 'OVERRIDE',
+      reservedFees: '0.30',
+      availableCapacity: '0.00',
+    });
+
+    const restored = await ctx.service.setBorrowingLimit(ADMIN, 'profile-1', { borrowingLimit: null }, NOW);
+    expect(restored).toMatchObject({
+      balance: '0.00',
+      borrowingLimit: '1.00',
+      borrowingLimitSource: 'DEFAULT',
+      reservedFees: '0.30',
+      availableCapacity: '0.70',
+    });
+
+    expect(ctx.wallets[0]?.balance).toBe('0.00');
+    expect(ctx.wallets[0]?.borrowingLimitOverride).toBeNull();
+    expect(ctx.entries).toEqual([]);
+    expect(ctx.reservations).toEqual([reservation]);
+    expect(ctx.limitAudits.map((audit) => audit.newOverride)).toEqual(['2.50', '0.00', null]);
+    expect(() => ctx.service.setBorrowingLimit(ADMIN, 'profile-1', { borrowingLimit: '-1.00' }, NOW)).toThrow(BadRequestException);
+    expect(() => ctx.service.setBorrowingLimit(ADMIN, 'profile-1', { borrowingLimit: '1' }, NOW)).toThrow(BadRequestException);
+    expect(() => ctx.service.setBorrowingLimit(ADMIN, 'profile-1', {}, NOW)).toThrow(BadRequestException);
+    expect(ctx.entries).toEqual([]);
+    expect(ctx.reservations).toEqual([reservation]);
+    expect(ctx.wallets[0]?.balance).toBe('0.00');
   });
 
   it('rejects a missing rider, a blank idempotency key, and an unchanged borrowing limit', async () => {
@@ -249,15 +343,19 @@ describe('WalletService', () => {
   });
 });
 
-function credit(overrides: Partial<LedgerCommand> = {}): LedgerCommand {
-  return command({
-    entryType: WalletEntryType.PROMOTIONAL_CREDIT,
-    amountCents: 100,
-    idempotencyKey: 'credit-1',
-    reason: 'Launch',
-    walletPaymentId: null,
-    ...overrides,
-  });
+function credit(overrides: Partial<CreditCommand> = {}): CreditCommand {
+  const entryType = overrides.entryType ?? WalletEntryType.PROMOTIONAL_CREDIT;
+  return {
+    ...command({
+      entryType,
+      amountCents: 100,
+      idempotencyKey: 'credit-1',
+      reason: 'Launch',
+      walletPaymentId: null,
+      ...overrides,
+    }),
+    entryType,
+  };
 }
 
 function command(overrides: Partial<LedgerCommand> = {}): LedgerCommand {
@@ -275,7 +373,7 @@ function command(overrides: Partial<LedgerCommand> = {}): LedgerCommand {
   };
 }
 
-function seedPayment(ctx: ReturnType<typeof context>, amount: string, status = WalletPaymentStatus.VERIFIED) {
+function seedPayment(ctx: ReturnType<typeof context>, amount: string, status: WalletPaymentStatus = WalletPaymentStatus.VERIFIED) {
   ctx.payments.push({
     id: 'payment-1',
     riderWalletId: 'wallet-1',
@@ -287,6 +385,10 @@ function seedPayment(ctx: ReturnType<typeof context>, amount: string, status = W
 
 function balanceCents(ctx: ReturnType<typeof context>): number {
   return signedCentsFromDecimal(String(ctx.wallets[0]?.balance));
+}
+
+function promoCents(ctx: ReturnType<typeof context>): number {
+  return signedCentsFromDecimal(String(ctx.wallets[0]?.promotionalBalance ?? '0.00'));
 }
 
 function ledgerCents(ctx: ReturnType<typeof context>): number {
@@ -314,13 +416,14 @@ function context(options: { pauseFirstLock?: boolean; loseCreateRace?: boolean }
     }]
     : [];
   const entries: Array<Record<string, unknown>> = [];
+  const promotionalEntries: Array<Record<string, unknown>> = [];
   const payments: Array<Record<string, unknown>> = [];
   const reservations: Array<Record<string, unknown>> = [];
   const limitAudits: Array<Record<string, unknown>> = [];
   const locks: string[] = [];
   const updates: Array<Record<string, unknown>> = [];
   const state = { pauseFirstLock: options.pauseFirstLock ?? false, paused: false, waiting: 0 };
-  let releasePause = () => undefined;
+  let releasePause: () => void = () => undefined;
   const pause = new Promise<void>((resolve) => {
     releasePause = resolve;
   });
@@ -331,7 +434,7 @@ function context(options: { pauseFirstLock?: boolean; loseCreateRace?: boolean }
       await holders.get(id);
       state.waiting -= 1;
     }
-    let release = () => undefined;
+    let release: () => void = () => undefined;
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
@@ -426,6 +529,22 @@ function context(options: { pauseFirstLock?: boolean; loseCreateRace?: boolean }
         throw new Error('ledger entry was changed');
       },
     },
+    riderPromotionalEntry: {
+      async findUnique({ where }: { where: { idempotencyKey?: string } }) {
+        return promotionalEntries.find((entry) => entry.idempotencyKey === where.idempotencyKey) ?? null;
+      },
+      async aggregate({ where }: { where: { riderWalletId: string } }) {
+        const rows = promotionalEntries.filter((entry) => entry.riderWalletId === where.riderWalletId);
+        if (rows.length === 0) return { _sum: { amount: null } };
+        const cents = rows.reduce((sum, entry) => sum + signedCentsFromDecimal(String(entry.amount)), 0);
+        return { _sum: { amount: formatSignedCents(cents) } };
+      },
+      async create({ data }: { data: Record<string, unknown> }) {
+        const row = { id: `promo-${promotionalEntries.length + 1}`, ...data };
+        promotionalEntries.push(row);
+        return row;
+      },
+    },
     walletPayment: {
       async findUnique({ where }: { where: { id: string } }) {
         return payments.find((payment) => payment.id === where.id) ?? null;
@@ -461,10 +580,11 @@ function context(options: { pauseFirstLock?: boolean; loseCreateRace?: boolean }
       }
       return undefined;
     },
-    async $transaction<T>(callback: (tx: typeof db) => Promise<T>) {
+    async $transaction<T>(callback: (tx: object) => Promise<T>) {
       const snapshot = {
         wallets: structuredClone(wallets),
         entries: structuredClone(entries),
+        promotionalEntries: structuredClone(promotionalEntries),
         limitAudits: structuredClone(limitAudits),
         updates: structuredClone(updates),
       };
@@ -482,6 +602,7 @@ function context(options: { pauseFirstLock?: boolean; loseCreateRace?: boolean }
       } catch (error) {
         wallets.splice(0, wallets.length, ...snapshot.wallets);
         entries.splice(0, entries.length, ...snapshot.entries);
+        promotionalEntries.splice(0, promotionalEntries.length, ...snapshot.promotionalEntries);
         limitAudits.splice(0, limitAudits.length, ...snapshot.limitAudits);
         updates.splice(0, updates.length, ...snapshot.updates);
         throw error;
@@ -495,6 +616,7 @@ function context(options: { pauseFirstLock?: boolean; loseCreateRace?: boolean }
     service: new WalletService(db as unknown as PrismaService),
     wallets,
     entries,
+    promotionalEntries,
     payments,
     reservations,
     configs,

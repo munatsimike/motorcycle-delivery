@@ -24,8 +24,13 @@ import com.riders.rider.feature.wallet.domain.walletAfterPage
 import com.riders.rider.feature.wallet.domain.walletAfterRefresh
 import com.riders.rider.feature.wallet.domain.walletBalanceIsNegative
 import com.riders.rider.feature.wallet.domain.walletBorrowingSourceLabel
+import com.riders.rider.feature.wallet.domain.walletLimitCaption
 import com.riders.rider.feature.wallet.domain.walletEarningsTotal
+import com.riders.rider.feature.wallet.domain.statementAmount
+import com.riders.rider.feature.wallet.domain.statementReference
 import com.riders.rider.feature.wallet.domain.walletEntryLabel
+import com.riders.rider.feature.wallet.domain.WALLET_TOP_UP_REQUIRED
+import com.riders.rider.feature.wallet.domain.signedWalletLabel
 import com.riders.rider.feature.wallet.domain.walletMoneyLabel
 import com.riders.rider.feature.wallet.domain.walletReceiptLabel
 import kotlinx.coroutines.CompletableDeferred
@@ -68,23 +73,36 @@ class RiderWalletTest {
     }
 
     @Test
-    fun aNegativeBalanceIsMoneyOwedToThePlatform() {
-        val summary = sampleSummary(balance = "-0.30", availableCapacity = "1.20")
-        assertTrue(walletBalanceIsNegative(summary.balance))
-        assertEquals("USD -0.30", displayedBalance(summary))
-        assertTrue(WALLET_BALANCE_EXPLANATION.contains("owed to the platform"))
-        assertFalse(WALLET_BALANCE_EXPLANATION.contains("error", ignoreCase = true))
+    fun walletBalanceShowsTheSignedBalanceAndCapacityStaysSeparate() {
+        val negative = sampleSummary(balance = "-200.00", availableCapacity = "300.00", borrowingLimit = "500.00", reservedFees = "0.00", promotionalBalance = "1.00")
+        assertTrue(walletBalanceIsNegative(negative.balance))
+        assertEquals("−USD 200.00", displayedBalance(negative))
+        assertEquals("−USD 200.00", signedWalletLabel("USD", "-200.00"))
+        assertEquals("USD 0.00", signedWalletLabel("USD", "0.00"))
+        assertEquals("USD 100.00", signedWalletLabel("USD", "100.00"))
         assertFalse(walletBalanceIsNegative("0.00"))
+        assertFalse(walletBalanceIsNegative("100.00"))
+        assertEquals("USD 300.00", displayedCapacity(negative))
+        assertTrue(WALLET_BALANCE_EXPLANATION.contains("cash balance"))
+        assertTrue(WALLET_TOP_UP_REQUIRED.contains("Top up"))
+        val zero = sampleSummary(balance = "0.00", availableCapacity = "500.00")
+        assertEquals("USD 0.00", displayedBalance(zero))
+        assertEquals("USD 500.00", displayedCapacity(zero))
     }
 
     @Test
-    fun borrowingLimitIsPermissionToOweThePlatform() {
-        assertTrue(WALLET_BORROWING_EXPLANATION.contains("permission to owe"))
-        assertTrue(WALLET_BORROWING_EXPLANATION.contains("not cash"))
-        assertTrue(WALLET_BORROWING_EXPLANATION.contains("earnings"))
-        assertTrue(WALLET_BORROWING_EXPLANATION.contains("money received"))
-        assertEquals("USD 2.00", displayedBorrowingLimit(sampleSummary()))
+    fun negativeWalletLimitShowsTheEffectiveAmountAndSource() {
+        val standard = sampleSummary()
+        assertEquals("USD 2.00", displayedBorrowingLimit(standard))
         assertEquals("Standard limit", walletBorrowingSourceLabel("DEFAULT"))
+        assertEquals(
+            "Standard limit. Platform fees can be deducted while the balance is below zero.",
+            walletLimitCaption(standard),
+        )
+        assertFalse(WALLET_BORROWING_EXPLANATION.contains("borrow", ignoreCase = true))
+        val account = sampleSummary(borrowingLimitSource = "OVERRIDE")
+        assertEquals("Account-specific limit", walletBorrowingSourceLabel(account.borrowingLimitSource))
+        assertTrue(walletLimitCaption(account).startsWith("Account-specific limit."))
     }
 
     @Test
@@ -104,7 +122,7 @@ class RiderWalletTest {
 
     @Test
     fun anAccountOverrideHasItsOwnLimitLabel() {
-        assertEquals("Account limit", walletBorrowingSourceLabel("OVERRIDE"))
+        assertEquals("Account-specific limit", walletBorrowingSourceLabel("OVERRIDE"))
         assertEquals("This limit was set for your account.", WALLET_BORROWING_OVERRIDE)
     }
 
@@ -198,6 +216,11 @@ class RiderWalletTest {
         )
         assertNull(walletEarningsTotal(history))
         assertEquals("EcoCash MP-1", walletReceiptLabel("MP-1", "EXT-1", "INT-1"))
+        assertEquals("+USD 2.00", statementAmount("USD", "TOP_UP", "2.00"))
+        assertEquals("−USD 0.30", statementAmount("USD", "PLATFORM_FEE", "-0.30"))
+        assertEquals("+USD 0.30", statementAmount("USD", "PLATFORM_FEE_REFUND", "0.30"))
+        assertEquals("Receipt 44", statementReference("Receipt 44", "Cash top-up"))
+        assertNull(walletEarningsTotal(history + entry("topup", "TOP_UP", "2.00")))
     }
 
     @Test
@@ -214,15 +237,18 @@ class RiderWalletTest {
     private fun sampleSummary(
         balance: String = "1.40",
         borrowingLimit: String = "2.00",
+        borrowingLimitSource: String = "DEFAULT",
         reservedFees: String = "0.00",
         availableCapacity: String = "3.40",
+        promotionalBalance: String = "0.00",
     ) = WalletSummary(
         balance = balance,
         borrowingLimit = borrowingLimit,
-        borrowingLimitSource = "DEFAULT",
+        borrowingLimitSource = borrowingLimitSource,
         reservedFees = reservedFees,
         availableCapacity = availableCapacity,
         currency = "USD",
+        promotionalBalance = promotionalBalance,
     )
 
     private fun entry(id: String, type: String, amount: String) = WalletEntry(

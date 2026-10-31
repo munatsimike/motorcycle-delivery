@@ -9,7 +9,9 @@ import com.riders.rider.core.session.SessionStore
 import com.riders.rider.feature.auth.data.AuthRepository
 import com.riders.rider.feature.auth.data.VerifyOutcome
 import com.riders.rider.feature.auth.domain.AppEntry
+import com.riders.rider.feature.auth.domain.DeviceReplacementNotice
 import com.riders.rider.feature.auth.domain.appEntry
+import com.riders.rider.feature.availability.data.AvailabilityRepository
 import com.riders.rider.feature.auth.domain.isVerificationCode
 import com.riders.rider.feature.auth.domain.normalizeRiderAddress
 import com.riders.rider.feature.auth.domain.normalizeRiderName
@@ -31,7 +33,6 @@ data class FormState(
     val prefillAddress: String? = null,
     val lockDetails: Boolean = false,
     val useExistingLogin: Boolean = false,
-    val accountMissing: Boolean = false,
     val whatsapp: Boolean = false,
 )
 
@@ -41,12 +42,6 @@ class SignInViewModel @Inject constructor(
 ) : ViewModel() {
     private val state = MutableStateFlow(FormState())
     val ui: StateFlow<FormState> = state.asStateFlow()
-
-    fun clearAccountMissing() {
-        if (state.value.accountMissing) {
-            state.value = state.value.copy(accountMissing = false)
-        }
-    }
 
     fun startWhatsAppLogin(phone: String) {
         val normalized = try {
@@ -58,13 +53,7 @@ class SignInViewModel @Inject constructor(
         viewModelScope.launch {
             state.value = FormState(loading = true)
             state.value = when (val result = auth.startWhatsAppLogin(normalized)) {
-                is ApiResult.Ok -> when (result.value) {
-                    com.riders.rider.feature.auth.data.LoginStart.CodeSent -> FormState(completedPhone = normalized, whatsapp = true)
-                    com.riders.rider.feature.auth.data.LoginStart.AccountMissing -> FormState(
-                        accountMissing = true,
-                        error = "Account not found. Create an account to continue.",
-                    )
-                }
+                is ApiResult.Ok -> FormState(completedPhone = normalized, whatsapp = true)
                 is ApiResult.Err -> FormState(error = result.error.text())
             }
         }
@@ -78,7 +67,7 @@ class RegisterViewModel @Inject constructor(
     private val state = MutableStateFlow(FormState())
     val ui: StateFlow<FormState> = state.asStateFlow()
 
-    fun registerWithPassword(phone: String, fullName: String, address: String, consent: Boolean) {
+    fun startWhatsAppRegistration(phone: String, consent: Boolean) {
         if (!consent) {
             state.value = FormState(error = "Consent to WhatsApp authentication messages is required")
             return
@@ -89,21 +78,9 @@ class RegisterViewModel @Inject constructor(
             state.value = FormState(error = error.message)
             return
         }
-        val normalizedName = try {
-            normalizeRiderName(fullName)
-        } catch (error: IllegalArgumentException) {
-            state.value = FormState(error = error.message)
-            return
-        }
-        val normalizedAddress = try {
-            normalizeRiderAddress(address)
-        } catch (error: IllegalArgumentException) {
-            state.value = FormState(error = error.message)
-            return
-        }
         viewModelScope.launch {
             state.value = FormState(loading = true)
-            state.value = when (val result = auth.registerWithPassword(normalizedPhone, normalizedName, normalizedAddress)) {
+            state.value = when (val result = auth.startWhatsAppRegistration(normalizedPhone)) {
                 is ApiResult.Ok -> FormState(completedPhone = normalizedPhone, whatsapp = true)
                 is ApiResult.Err -> FormState(error = result.error.text())
             }
@@ -129,21 +106,15 @@ class AccountViewModel @Inject constructor(
             state.value = FormState(error = "Verify your phone number again.")
             return
         }
-        if (lockDetails) {
-            viewModelScope.launch {
-                state.value = FormState(loading = true)
-                state.value = when (val result = auth.completeRegistration(token, initialName, initialAddress)) {
-                    is ApiResult.Ok -> FormState(completedPhone = phone)
-                    is ApiResult.Err -> FormState(error = result.error.text())
-                }
+        val normalizedName = if (lockDetails && initialName.isNotBlank()) {
+            initialName
+        } else {
+            try {
+                normalizeRiderName(name)
+            } catch (error: IllegalArgumentException) {
+                state.value = FormState(error = error.message)
+                return
             }
-            return
-        }
-        val normalizedName = try {
-            normalizeRiderName(name)
-        } catch (error: IllegalArgumentException) {
-            state.value = FormState(error = error.message)
-            return
         }
         val normalizedAddress = try {
             normalizeRiderAddress(address)
@@ -207,11 +178,13 @@ class OtpViewModel @Inject constructor(
 
 data class SessionUi(
     val entry: AppEntry = AppEntry.SignedOut,
+    val notice: String? = null,
 )
 
 @HiltViewModel
 class SessionViewModel @Inject constructor(
     private val sessions: SessionStore,
+    private val availability: AvailabilityRepository,
 ) : ViewModel() {
     private val state = MutableStateFlow(SessionUi())
     val ui: StateFlow<SessionUi> = state.asStateFlow()
@@ -220,12 +193,22 @@ class SessionViewModel @Inject constructor(
         publish()
         viewModelScope.launch {
             sessions.session.collect {
+                if (sessions.read() == null) {
+                    runCatching { availability.applySharing() }
+                }
                 publish()
             }
         }
     }
 
     private fun publish() {
-        state.value = SessionUi(entry = appEntry(sessions.read() != null))
+        val signedIn = sessions.read() != null
+        if (signedIn) {
+            DeviceReplacementNotice.clear()
+        }
+        state.value = SessionUi(
+            entry = appEntry(signedIn),
+            notice = if (signedIn) null else DeviceReplacementNotice.peek(),
+        )
     }
 }

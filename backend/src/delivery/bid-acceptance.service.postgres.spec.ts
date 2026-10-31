@@ -182,18 +182,17 @@ it('lets only one of two bids on the same delivery become accepted', async () =>
   expect(await prisma.walletFeeReservation.count({ where: { deliveryId: world.deliveryId, status: 'OPEN' } })).toBe(1);
 });
 
-it('rejects a second delivery for a rider who is already accepted', async () => {
+it('accepts a second delivery for a rider who is already accepted', async () => {
   await setRate(1_000);
   const first = await scenario();
   const second = await scenario({ riderId: first.riderId, wallet: false });
   await acceptance.accept(customer, first.deliveryId, first.bidId, `first-${first.deliveryId}`, NOW);
-  await expect(acceptance.accept(customer, second.deliveryId, second.bidId, `second-${second.deliveryId}`, NOW))
-    .rejects.toThrow('This rider already has an Express delivery');
-  expect(await prisma.deliveryAssignment.count({ where: { riderProfileId: first.riderId, status: 'ACCEPTED' } })).toBe(1);
-  const untouched = await prisma.delivery.findUnique({ where: { id: second.deliveryId } });
+  await acceptance.accept(customer, second.deliveryId, second.bidId, `second-${second.deliveryId}`, NOW);
+  expect(await prisma.deliveryAssignment.count({ where: { riderProfileId: first.riderId, status: 'ACCEPTED' } })).toBe(2);
+  const assigned = await prisma.delivery.findUnique({ where: { id: second.deliveryId } });
   const bid = await prisma.bid.findUnique({ where: { id: second.bidId } });
-  expect(untouched?.status).toBe('CREATED');
-  expect(bid?.status).toBe('OPEN');
+  expect(assigned?.status).toBe('RIDER_ASSIGNED');
+  expect(bid?.status).toBe('ACCEPTED');
 });
 
 it('keeps concurrent reservations within the rider wallet capacity', async () => {

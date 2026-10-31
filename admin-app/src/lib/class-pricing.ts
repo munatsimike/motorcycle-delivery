@@ -35,6 +35,7 @@ export type ClassDraft = {
   pricingModel: PricingModel | '';
   baseFee: string;
   pricePerKilometre: string;
+  includedKilometres: string;
   minimumTripMetres: string;
   maximumTripMetres: string;
   tiers: TierDraft[];
@@ -55,6 +56,7 @@ export type ClassPublishBody = {
   currency: 'USD';
   baseFee?: string;
   pricePerKilometre?: string;
+  includedMetres?: number;
   minimumTripMetres: number;
   maximumTripMetres: number;
   tiers?: Array<{ position: number; upToMetres: number; amount: string }>;
@@ -66,11 +68,35 @@ export function serviceName(serviceClass: ServiceClassName): string {
 }
 
 export function usesBaseFee(model: PricingModel | ''): boolean {
-  return model === 'FIXED' || model === 'BASE_PLUS_PER_KILOMETRE';
+  return model === 'FIXED' || model === 'BASE_PLUS_PER_KILOMETRE' || model === 'INCLUDED_DISTANCE';
 }
 
 export function usesPerKilometre(model: PricingModel | ''): boolean {
-  return model === 'PER_KILOMETRE' || model === 'BASE_PLUS_PER_KILOMETRE';
+  return model === 'PER_KILOMETRE' || model === 'BASE_PLUS_PER_KILOMETRE' || model === 'INCLUDED_DISTANCE';
+}
+
+const KILOMETRES = /^\d{1,7}(\.\d{1,3})?$/;
+
+export function metresFromKilometres(input: string): number | null {
+  const value = input.trim();
+  if (!KILOMETRES.test(value)) {
+    return null;
+  }
+  const [whole, fraction = ''] = value.split('.');
+  const metres = Number(whole) * 1000 + Number(fraction.padEnd(3, '0'));
+  if (!Number.isSafeInteger(metres) || metres <= 0 || metres > 2_000_000_000) {
+    return null;
+  }
+  return metres;
+}
+
+export function kilometresFromMetres(metres: number): string {
+  const whole = Math.trunc(metres / 1000);
+  const fraction = metres % 1000;
+  if (fraction === 0) {
+    return String(whole);
+  }
+  return `${whole}.${String(fraction).padStart(3, '0').replace(/0+$/, '')}`;
 }
 
 export function emptyDraft(): ClassDraft {
@@ -78,6 +104,7 @@ export function emptyDraft(): ClassDraft {
     pricingModel: '',
     baseFee: '',
     pricePerKilometre: '',
+    includedKilometres: '',
     minimumTripMetres: '',
     maximumTripMetres: '',
     tiers: [],
@@ -90,6 +117,9 @@ export function draftFromTariff(tariff: ClassTariff): ClassDraft {
     pricingModel: tariff.pricingModel,
     baseFee: usesBaseFee(tariff.pricingModel) ? tariff.baseFee : '',
     pricePerKilometre: usesPerKilometre(tariff.pricingModel) ? tariff.pricePerKilometre : '',
+    includedKilometres: tariff.pricingModel === 'INCLUDED_DISTANCE' && tariff.includedMetres
+      ? kilometresFromMetres(tariff.includedMetres)
+      : '',
     minimumTripMetres: String(tariff.minimumTripMetres),
     maximumTripMetres: String(tariff.maximumTripMetres),
     tiers: tariff.pricingModel === 'DISTANCE_TIERS'
@@ -187,6 +217,16 @@ export function reviewClassTariff(draft: ClassDraft): { body: ClassPublishBody }
     }
     body.pricePerKilometre = pricePerKilometre;
   }
+  if (draft.pricingModel === 'INCLUDED_DISTANCE') {
+    const includedMetres = metresFromKilometres(draft.includedKilometres);
+    if (includedMetres === null) {
+      return { error: 'Enter the included distance in kilometres. Use up to three decimal places.' };
+    }
+    if (includedMetres < minimumTripMetres || includedMetres > maximumTripMetres) {
+      return { error: 'Included distance must be inside the minimum and maximum trip.' };
+    }
+    body.includedMetres = includedMetres;
+  }
   if (draft.pricingModel === 'DISTANCE_TIERS') {
     const tiers = tierBody(draft.tiers, maximumTripMetres);
     if ('error' in tiers) {
@@ -219,6 +259,7 @@ export function hasUnsavedEdits(draft: ClassDraft, tariff: ClassTariff | null): 
     return draft.pricingModel !== ''
       || draft.baseFee !== ''
       || draft.pricePerKilometre !== ''
+      || draft.includedKilometres !== ''
       || draft.minimumTripMetres !== ''
       || draft.maximumTripMetres !== ''
       || draft.tiers.length > 0

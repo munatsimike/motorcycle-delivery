@@ -51,7 +51,7 @@ describe('S3ObjectStorage', () => {
     const storage = new S3ObjectStorage(() => ({
       async send(command: GetObjectCommand) {
         expect(command).toBeInstanceOf(GetObjectCommand);
-        expect(command.input.ACL).toBeUndefined();
+        expect(command.input).not.toHaveProperty('ACL');
         return { Body: { transformToByteArray: async () => bytes } };
       },
     }));

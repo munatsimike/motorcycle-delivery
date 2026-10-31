@@ -73,6 +73,24 @@ describe('customer bid acceptance', () => {
     expect(ctx.assignments[0]?.acceptedCommissionAmount).toBe('1.00');
   });
 
+  it('accepts a deadline-free request and still closes a request whose deadline has passed', async () => {
+    process.env.V2_MARKETPLACE_ENABLED = 'true';
+    const open = store();
+    open.deliveries[0]!.deliverBy = null;
+    const accepted = await new BidAcceptanceService(open.prisma).accept(CUSTOMER, DELIVERY, BID, 'open-ended', NOW);
+    expect(accepted.deliveryId).toBe(DELIVERY);
+    expect(open.assignments[0]?.offerExpiresAt ?? null).toBeNull();
+    expect(open.reservations).toHaveLength(1);
+    expect(open.deliveries[0]?.status).toBe(DeliveryStatus.RIDER_ASSIGNED);
+    expect(open.deliveries[0]?.deliverBy ?? null).toBeNull();
+
+    const closed = store();
+    closed.deliveries[0]!.deliverBy = new Date(NOW.getTime() - 1_000);
+    await expect(new BidAcceptanceService(closed.prisma).accept(CUSTOMER, DELIVERY, BID, 'closed', NOW)).rejects.toThrow('The bidding window has closed');
+    expect(closed.assignments).toHaveLength(0);
+    expect(closed.reservations).toHaveLength(0);
+  });
+
   it('accepts a published 0% rate with no reservation and no ledger entry', async () => {
     process.env.V2_MARKETPLACE_ENABLED = 'true';
     const ctx = store({ basisPoints: 0, borrowingLimit: '0.00' });
@@ -149,15 +167,16 @@ describe('customer bid acceptance', () => {
     expect(ctx.bids.filter((bid) => bid.status === BidStatus.SUPERSEDED)).toHaveLength(1);
   });
 
-  it('rejects a second delivery for a rider who already has an Express assignment', async () => {
+  it('accepts a second Express delivery for a rider who already has one', async () => {
     process.env.V2_MARKETPLACE_ENABLED = 'true';
     const ctx = store();
     const service = new BidAcceptanceService(ctx.prisma);
     await service.accept(CUSTOMER, DELIVERY, BID, 'first', NOW);
-    await expect(service.accept(CUSTOMER, DELIVERY_2, BID_3, 'second', NOW)).rejects.toThrow('This rider already has an Express delivery');
-    expect(ctx.assignments).toHaveLength(1);
-    expect(ctx.bids.find((bid) => bid.id === BID_3)?.status).toBe(BidStatus.OPEN);
-    expect(ctx.deliveries.find((delivery) => delivery.id === DELIVERY_2)?.status).toBe(DeliveryStatus.CREATED);
+    await service.accept(CUSTOMER, DELIVERY_2, BID_3, 'second', NOW);
+    expect(ctx.assignments).toHaveLength(2);
+    expect(ctx.assignments.every((row) => row.riderProfileId === RIDER && row.serviceClass === ServiceClass.EXPRESS)).toBe(true);
+    expect(ctx.bids.find((bid) => bid.id === BID_3)?.status).toBe(BidStatus.ACCEPTED);
+    expect(ctx.deliveries.find((delivery) => delivery.id === DELIVERY_2)?.status).toBe(DeliveryStatus.RIDER_ASSIGNED);
     expect(ctx.profiles[0]?.receivingRequests).toBe(true);
   });
 
@@ -185,9 +204,10 @@ describe('customer bid acceptance', () => {
     expect(ctx.profiles[0]?.availability).toBe(RiderAvailability.AVAILABLE);
     expect(ctx.profiles[0]?.receivingRequests).toBe(true);
     expect(ctx.reservations).toHaveLength(3);
-    await expect(service.accept(CUSTOMER, laterDelivery, laterBid, 'after-express', NOW)).rejects.toThrow('This rider already has an Express delivery');
-    expect(ctx.bids.find((bid) => bid.id === laterBid)?.status).toBe(BidStatus.OPEN);
-    expect(ctx.assignments.filter((row) => row.deliveryId === laterDelivery)).toHaveLength(0);
+    await service.accept(CUSTOMER, laterDelivery, laterBid, 'after-express', NOW);
+    expect(ctx.reservations).toHaveLength(4);
+    expect(ctx.assignments.filter((row) => row.deliveryId === laterDelivery)).toHaveLength(1);
+    expect(ctx.bids.find((bid) => bid.id === laterBid)?.status).toBe(BidStatus.ACCEPTED);
   });
 
   it('rolls back the assignment and bid changes when the reservation insert fails', async () => {
@@ -229,7 +249,7 @@ describe('customer bid acceptance', () => {
     expect(ctx.ledgerWrites).toBe(0);
   });
 
-  it('rejects a new commitment while paused, offline, or on a V1 assignment', async () => {
+  it('rejects a new commitment while paused or offline and still accepts one during a V1 assignment', async () => {
     process.env.V2_MARKETPLACE_ENABLED = 'true';
     const paused = store();
     paused.profiles[0]!.receivingRequests = false;
@@ -241,6 +261,12 @@ describe('customer bid acceptance', () => {
     offline.profiles[0]!.availability = RiderAvailability.OFFLINE;
     await expect(new BidAcceptanceService(offline.prisma).accept(CUSTOMER, DELIVERY, BID, 'offline', NOW)).rejects.toThrow('This rider is not available');
     expect(offline.assignments).toHaveLength(0);
+
+    const busy = store();
+    busy.profiles[0]!.availability = RiderAvailability.BUSY;
+    await new BidAcceptanceService(busy.prisma).accept(CUSTOMER, DELIVERY, BID, 'busy', NOW);
+    expect(busy.assignments).toHaveLength(1);
+    expect(busy.profiles[0]?.receivingRequests).toBe(true);
 
     const legacy = store();
     legacy.assignments.push({
@@ -258,9 +284,10 @@ describe('customer bid acceptance', () => {
       acceptedV2CommissionRateVersion: 0,
       acceptedCommissionAmount: '0.00',
     });
-    await expect(new BidAcceptanceService(legacy.prisma).accept(CUSTOMER, DELIVERY, BID, 'v1', NOW)).rejects.toThrow('This rider already has an accepted delivery');
-    expect(legacy.assignments).toHaveLength(1);
+    await new BidAcceptanceService(legacy.prisma).accept(CUSTOMER, DELIVERY, BID, 'v1', NOW);
+    expect(legacy.assignments).toHaveLength(2);
     expect(legacy.profiles[0]?.availability).toBe(RiderAvailability.AVAILABLE);
+    expect(legacy.profiles[0]?.receivingRequests).toBe(true);
   });
 
   it('does not accept another customer delivery while the flag is off', async () => {
@@ -295,6 +322,7 @@ type AssignmentRow = {
   acceptedCommissionBasisPoints: number;
   acceptedV2CommissionRateVersion: number;
   acceptedCommissionAmount: string;
+  offerExpiresAt?: Date | null;
 };
 
 function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?: boolean }) {
@@ -307,8 +335,15 @@ function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?:
     delivery(DELIVERY),
     delivery(DELIVERY_2),
   ];
-  const profiles = [
-    { id: RIDER, userId: 'user-rider', approvalStatus: RiderApprovalStatus.APPROVED, verificationStatus: RiderVerificationStatus.VERIFIED, availability: RiderAvailability.AVAILABLE, receivingRequests: true as boolean | null },
+  const profiles: Array<{
+    id: string;
+    userId: string;
+    approvalStatus: RiderApprovalStatus;
+    verificationStatus: RiderVerificationStatus;
+    availability: RiderAvailability;
+    receivingRequests: boolean | null;
+  }> = [
+    { id: RIDER, userId: 'user-rider', approvalStatus: RiderApprovalStatus.APPROVED, verificationStatus: RiderVerificationStatus.VERIFIED, availability: RiderAvailability.AVAILABLE, receivingRequests: true },
     { id: RIDER_2, userId: 'user-rider-2', approvalStatus: RiderApprovalStatus.APPROVED, verificationStatus: RiderVerificationStatus.VERIFIED, availability: RiderAvailability.AVAILABLE, receivingRequests: true as boolean | null },
   ];
   const users = [
@@ -347,7 +382,7 @@ function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?:
       }
       return [];
     },
-    async $transaction<T>(fn: (tx: typeof db) => Promise<T>): Promise<T> {
+    async $transaction<T>(fn: (tx: object) => Promise<T>): Promise<T> {
       const previous = queue;
       let release = () => {};
       queue = new Promise((resolve) => {
@@ -379,12 +414,14 @@ function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?:
         return deliveries.find((row) => row.id === where.id) ?? null;
       },
       async findMany({ where }: { where: { status?: DeliveryStatus; deliverBy?: { lte?: Date }; searchGeneration?: number } }) {
-        if (!where.deliverBy?.lte) return [];
+        const deadline = where.deliverBy?.lte;
+        if (!deadline) return [];
         return deliveries.filter((row) => (
           row.status === where.status
           && row.serviceClass != null
           && row.searchGeneration === where.searchGeneration
-          && row.deliverBy.getTime() <= where.deliverBy.lte!.getTime()
+          && row.deliverBy != null
+          && row.deliverBy.getTime() <= deadline.getTime()
         ));
       },
       async findFirst({ where }: { where: { id: string; customerId: string } }) {
@@ -407,7 +444,7 @@ function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?:
       async updateMany({ where, data }: { where: { deliveryId?: string; status: BidStatus; id?: { not: string }; delivery?: { deliverBy: { lte: Date } } }; data: { status: BidStatus } }) {
         for (const bid of bids) {
           const delivery = deliveries.find((row) => row.id === bid.deliveryId);
-          const due = where.delivery ? delivery != null && delivery.deliverBy.getTime() <= where.delivery.deliverBy.lte.getTime() : true;
+          const due = where.delivery ? delivery?.deliverBy != null && delivery.deliverBy.getTime() <= where.delivery.deliverBy.lte.getTime() : true;
           if (bid.status === where.status && (!where.deliveryId || bid.deliveryId === where.deliveryId) && (!where.id || bid.id !== where.id.not) && due) {
             bid.status = data.status;
           }
@@ -435,13 +472,7 @@ function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?:
         if (assignments.some((row) => row.idempotencyKey === data.idempotencyKey)) throw uniqueViolation();
         const accepted = assignments.filter((row) => row.status === AssignmentStatus.ACCEPTED);
         if (data.status === AssignmentStatus.ACCEPTED && accepted.some((row) => row.deliveryId === data.deliveryId)) {
-          throw uniqueViolation();
-        }
-        if (data.status === AssignmentStatus.ACCEPTED && data.serviceClass === ServiceClass.EXPRESS && accepted.some((row) => row.riderProfileId === data.riderProfileId && row.serviceClass === ServiceClass.EXPRESS)) {
-          throw uniqueViolation('delivery_assignments_one_live_express_per_rider_idx');
-        }
-        if (data.status === AssignmentStatus.ACCEPTED && data.acceptedBidAmount == null && accepted.some((row) => row.riderProfileId === data.riderProfileId && row.acceptedBidAmount == null)) {
-          throw uniqueViolation('delivery_assignments_one_accepted_v1_per_rider_idx');
+          throw uniqueViolation('delivery_assignments_one_accepted_per_delivery_idx');
         }
         const row = { id: `00000000-0000-7000-8000-${String(nextAssignment).padStart(12, '0')}`, ...data };
         nextAssignment += 1;
@@ -534,7 +565,19 @@ function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?:
   };
 }
 
-function delivery(id: string) {
+type DeliveryFixture = {
+  id: string;
+  customerId: string;
+  status: DeliveryStatus;
+  serviceClass: ServiceClass;
+  deliverBy: Date | null;
+  searchGeneration: number;
+  currency: Currency;
+  price: string | null;
+  suggestedPrice: string;
+};
+
+function delivery(id: string): DeliveryFixture {
   return {
     id,
     customerId: 'account-1',
@@ -543,7 +586,7 @@ function delivery(id: string) {
     deliverBy: DEADLINE,
     searchGeneration: 0,
     currency: Currency.USD,
-    price: null as string | null,
+    price: null,
     suggestedPrice: '9.00',
   };
 }

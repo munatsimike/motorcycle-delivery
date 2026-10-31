@@ -23,9 +23,7 @@ const DISPOSABLE_URL = `postgresql://postgres:postgres@${HOST}:${PORT}/${DATABAS
 const NOW = new Date('2026-10-24T08:00:00.000Z');
 const DEADLINE = new Date('2026-10-24T18:00:00.000Z');
 const PROGRESS = [
-  DeliveryStatus.COLLECTING,
   DeliveryStatus.COLLECTED,
-  DeliveryStatus.OUT_FOR_DELIVERY,
   DeliveryStatus.DELIVERED,
 ] as const;
 
@@ -80,13 +78,21 @@ beforeAll(async () => {
     for (const statement of sqlStatements(readFileSync(new URL('../../prisma/migrations/20261024160000_v2_flexible_express/migration.sql', import.meta.url), 'utf8'))) {
       await observer.query(statement);
     }
+    for (const statement of sqlStatements(readFileSync(new URL('../../prisma/migrations/20261026190000_rider_multiple_assignments/migration.sql', import.meta.url), 'utf8'))) {
+      await observer.query(statement);
+    }
     await observer.query(`
-      CREATE UNIQUE INDEX "delivery_assignments_one_accepted_per_delivery_idx"
+      CREATE UNIQUE INDEX IF NOT EXISTS "delivery_assignments_one_accepted_per_delivery_idx"
         ON "delivery_assignments" ("delivery_id")
         WHERE "status" = 'ACCEPTED'
     `);
     await observer.query(`
-      CREATE UNIQUE INDEX "bids_one_accepted_per_delivery_idx"
+      CREATE UNIQUE INDEX IF NOT EXISTS "delivery_assignments_one_open_offer_per_rider_idx"
+        ON "delivery_assignments" ("delivery_id", "rider_profile_id")
+        WHERE "status" IN ('OFFERED', 'ACCEPTED')
+    `);
+    await observer.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS "bids_one_accepted_per_delivery_idx"
         ON "bids" ("delivery_id")
         WHERE "status" = 'ACCEPTED' AND "closed_at" IS NULL
     `);
@@ -138,15 +144,16 @@ afterAll(async () => {
   else process.env.DATABASE_SSL_CA = previousSsl;
 }, 60_000);
 
-it('replaces the broad rider index with Express and V1 partial indexes', async () => {
+it('allows many accepted assignments per rider and one accepted assignment per delivery', async () => {
   const rows = await prisma.$queryRaw<Array<{ indexname: string }>>`
     SELECT indexname FROM pg_indexes WHERE tablename = 'delivery_assignments'
   `;
   const names = rows.map((row) => row.indexname);
   expect(names).not.toContain('delivery_assignments_one_accepted_per_rider_idx');
-  expect(names).toContain('delivery_assignments_one_live_express_per_rider_idx');
-  expect(names).toContain('delivery_assignments_one_accepted_v1_per_rider_idx');
+  expect(names).not.toContain('delivery_assignments_one_live_express_per_rider_idx');
+  expect(names).not.toContain('delivery_assignments_one_accepted_v1_per_rider_idx');
   expect(names).toContain('delivery_assignments_one_accepted_per_delivery_idx');
+  expect(names).toContain('delivery_assignments_one_open_offer_per_rider_idx');
 });
 
 it('accepts several Flexible deliveries awaiting pickup and keeps separate reservations', async () => {
@@ -185,7 +192,7 @@ it('accepts several Flexible deliveries awaiting pickup and keeps separate reser
   expect(Array.isArray(active.assignment)).toBe(false);
 });
 
-it('accepts Express beside Flexible work and then blocks every later acceptance', async () => {
+it('accepts Express beside Flexible work and keeps later bids open to the same rider', async () => {
   await setRate(1_000);
   const hired = await hire();
   const flexible = await openJob(hired.riderProfileId, 'FLEXIBLE', '10.00');
@@ -203,15 +210,13 @@ it('accepts Express beside Flexible work and then blocks every later acceptance'
   expect(afterReservation.amount.toFixed(2)).toBe(beforeReservation.amount.toFixed(2));
   expect((await prisma.delivery.findUniqueOrThrow({ where: { id: flexible.deliveryId } })).deliverBy?.toISOString()).toBe(DEADLINE.toISOString());
   expect((await prisma.delivery.findUniqueOrThrow({ where: { id: flexible.deliveryId } })).status).toBe('RIDER_ASSIGNED');
-  await expect(acceptance.accept(customer, laterFlexible.deliveryId, laterFlexible.bidId, `later-flex-${laterFlexible.deliveryId}`, NOW))
-    .rejects.toThrow('This rider already has an Express delivery');
-  await expect(acceptance.accept(customer, laterExpress.deliveryId, laterExpress.bidId, `later-express-${laterExpress.deliveryId}`, NOW))
-    .rejects.toThrow('This rider already has an Express delivery');
-  expect(await prisma.deliveryAssignment.count({ where: { riderProfileId: hired.riderProfileId, status: 'ACCEPTED', serviceClass: 'EXPRESS' } })).toBe(1);
-  expect((await prisma.bid.findUniqueOrThrow({ where: { id: laterFlexible.bidId } })).status).toBe('OPEN');
+  await acceptance.accept(customer, laterFlexible.deliveryId, laterFlexible.bidId, `later-flex-${laterFlexible.deliveryId}`, NOW);
+  await acceptance.accept(customer, laterExpress.deliveryId, laterExpress.bidId, `later-express-${laterExpress.deliveryId}`, NOW);
+  expect(await prisma.deliveryAssignment.count({ where: { riderProfileId: hired.riderProfileId, status: 'ACCEPTED', serviceClass: 'EXPRESS' } })).toBe(2);
+  expect((await prisma.bid.findUniqueOrThrow({ where: { id: laterFlexible.bidId } })).status).toBe('ACCEPTED');
 });
 
-it('lets one of two concurrent Express acceptances win and rejects the index collision', async () => {
+it('lets two concurrent Express acceptances both assign the same rider', async () => {
   await setRate(1_000);
   const hired = await hire();
   const first = await openJob(hired.riderProfileId, 'EXPRESS', '10.00');
@@ -220,17 +225,12 @@ it('lets one of two concurrent Express acceptances win and rejects the index col
     acceptance.accept(customer, first.deliveryId, first.bidId, `race-express-a-${first.deliveryId}`, NOW),
     acceptance.accept(customer, second.deliveryId, second.bidId, `race-express-b-${second.deliveryId}`, NOW),
   ]);
-  expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
-  const rejected = results.find((result) => result.status === 'rejected');
-  expect(rejected?.status === 'rejected' ? rejected.reason : null).toBeInstanceOf(Error);
-  expect(String(rejected && rejected.status === 'rejected' ? rejected.reason : '')).toContain('This rider already has an Express delivery');
-  expect(await prisma.deliveryAssignment.count({ where: { riderProfileId: hired.riderProfileId, status: 'ACCEPTED', serviceClass: 'EXPRESS' } })).toBe(1);
-  const winner = await prisma.deliveryAssignment.findFirstOrThrow({
-    where: { riderProfileId: hired.riderProfileId, status: 'ACCEPTED', serviceClass: 'EXPRESS' },
-  });
-  await expect(prisma.deliveryAssignment.create({
+  expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(2);
+  expect(await prisma.deliveryAssignment.count({ where: { riderProfileId: hired.riderProfileId, status: 'ACCEPTED', serviceClass: 'EXPRESS' } })).toBe(2);
+  const extra = await openJob(hired.riderProfileId, 'EXPRESS', '10.00');
+  await prisma.deliveryAssignment.create({
     data: {
-      deliveryId: (await openJob(hired.riderProfileId, 'EXPRESS', '10.00')).deliveryId,
+      deliveryId: extra.deliveryId,
       riderProfileId: hired.riderProfileId,
       motorcycleId: hired.motorcycleId,
       status: 'ACCEPTED',
@@ -238,11 +238,12 @@ it('lets one of two concurrent Express acceptances win and rejects the index col
       serviceClass: 'EXPRESS',
       acceptedBidAmount: '10.00',
       acceptedCommissionBasisPoints: 1_000,
-      acceptedV2CommissionRateVersion: winner.acceptedV2CommissionRateVersion,
+      acceptedV2CommissionRateVersion: 1,
       acceptedCommissionAmount: '1.00',
       createdAt: NOW,
     },
-  })).rejects.toThrow(/delivery_assignments_one_live_express_per_rider_idx|Unique constraint/);
+  });
+  expect(await prisma.deliveryAssignment.count({ where: { riderProfileId: hired.riderProfileId, status: 'ACCEPTED', serviceClass: 'EXPRESS' } })).toBe(3);
 });
 
 it('follows both Express and Flexible commit orders', async () => {
@@ -258,9 +259,8 @@ it('follows both Express and Flexible commit orders', async () => {
   const urgentFirst = await openJob(expressFirst.riderProfileId, 'EXPRESS', '10.00');
   const parkedLater = await openJob(expressFirst.riderProfileId, 'FLEXIBLE', '10.00');
   await acceptance.accept(customer, urgentFirst.deliveryId, urgentFirst.bidId, `order-express-first-${urgentFirst.deliveryId}`, NOW);
-  await expect(acceptance.accept(customer, parkedLater.deliveryId, parkedLater.bidId, `order-flex-second-${parkedLater.deliveryId}`, NOW))
-    .rejects.toThrow('This rider already has an Express delivery');
-  expect(await prisma.deliveryAssignment.count({ where: { riderProfileId: expressFirst.riderProfileId, status: 'ACCEPTED', serviceClass: 'FLEXIBLE' } })).toBe(0);
+  await acceptance.accept(customer, parkedLater.deliveryId, parkedLater.bidId, `order-flex-second-${parkedLater.deliveryId}`, NOW);
+  expect(await prisma.deliveryAssignment.count({ where: { riderProfileId: expressFirst.riderProfileId, status: 'ACCEPTED', serviceClass: 'FLEXIBLE' } })).toBe(1);
 
   const racing = await hire();
   const raceFlexible = await openJob(racing.riderProfileId, 'FLEXIBLE', '10.00');
@@ -270,25 +270,24 @@ it('follows both Express and Flexible commit orders', async () => {
     acceptance.accept(customer, raceExpress.deliveryId, raceExpress.bidId, `race-express-${raceExpress.deliveryId}`, NOW),
   ]);
   expect(await prisma.deliveryAssignment.count({ where: { riderProfileId: racing.riderProfileId, status: 'ACCEPTED', serviceClass: 'EXPRESS' } })).toBe(1);
-  expect(await prisma.deliveryAssignment.count({ where: { riderProfileId: racing.riderProfileId, status: 'ACCEPTED', serviceClass: 'FLEXIBLE' } })).toBeLessThanOrEqual(1);
+  expect(await prisma.deliveryAssignment.count({ where: { riderProfileId: racing.riderProfileId, status: 'ACCEPTED', serviceClass: 'FLEXIBLE' } })).toBe(1);
 });
 
-it('keeps V1 and V2 assignments from sharing one rider', async () => {
+it('lets one rider hold a V1 assignment and a V2 assignment together', async () => {
   await setRate(1_000);
   const v2First = await hire();
   const flexible = await openJob(v2First.riderProfileId, 'FLEXIBLE', '10.00');
   await acceptance.accept(customer, flexible.deliveryId, flexible.bidId, `v2-first-${flexible.deliveryId}`, NOW);
   const offer = await offerV1(v2First);
-  await expect(dispatch.accept(v2First.rider, offer.assignmentId, `v1-after-${offer.assignmentId}`, NOW))
-    .rejects.toThrow('You already have an accepted delivery');
-  expect(await prisma.deliveryAssignment.count({ where: { riderProfileId: v2First.riderProfileId, status: 'ACCEPTED', acceptedBidAmount: null } })).toBe(0);
+  await recordHistoricalAcceptance(prisma, v2First.rider, offer.assignmentId, NOW);
+  expect(await prisma.deliveryAssignment.count({ where: { riderProfileId: v2First.riderProfileId, status: 'ACCEPTED' } })).toBe(2);
 
   const v1First = await hire();
   const legacy = await offerV1(v1First);
-  await dispatch.accept(v1First.rider, legacy.assignmentId, `v1-first-${legacy.assignmentId}`, NOW);
+  await recordHistoricalAcceptance(prisma, v1First.rider, legacy.assignmentId, NOW);
   const blocked = await openJob(v1First.riderProfileId, 'FLEXIBLE', '10.00');
-  await expect(acceptance.accept(customer, blocked.deliveryId, blocked.bidId, `v2-after-${blocked.deliveryId}`, NOW))
-    .rejects.toThrow('This rider already has an accepted delivery');
+  await acceptance.accept(customer, blocked.deliveryId, blocked.bidId, `v2-after-${blocked.deliveryId}`, NOW);
+  expect(await prisma.deliveryAssignment.count({ where: { riderProfileId: v1First.riderProfileId, status: 'ACCEPTED' } })).toBe(2);
   expect((await prisma.riderProfile.findUniqueOrThrow({ where: { id: v1First.riderProfileId } })).availability).toBe('BUSY');
   expect((await prisma.riderProfile.findUniqueOrThrow({ where: { id: v1First.riderProfileId } })).receivingRequests).toBe(true);
 });
@@ -341,7 +340,7 @@ it('allows a new Flexible acceptance after Express ends while earlier Flexible w
   expect((await prisma.riderProfile.findUniqueOrThrow({ where: { id: hired.riderProfileId } })).receivingRequests).toBe(true);
 });
 
-it('keeps a manual pause through acceptance, completion, and cancellation', async () => {
+it('stops new commitments when the rider goes offline and leaves completed work in place', async () => {
   await setRate(1_000);
   const hired = await hire();
   const first = await openJob(hired.riderProfileId, 'FLEXIBLE', '10.00');
@@ -349,19 +348,20 @@ it('keeps a manual pause through acceptance, completion, and cancellation', asyn
   const third = await openJob(hired.riderProfileId, 'FLEXIBLE', '14.00');
   const accepted = await acceptance.accept(customer, first.deliveryId, first.bidId, `pause-base-${first.deliveryId}`, NOW);
   expect((await prisma.riderProfile.findUniqueOrThrow({ where: { id: hired.riderProfileId } })).receivingRequests).toBe(true);
-  await availability.setReceiving(hired.rider, { receiving: false }, NOW);
+  await availability.offline(hired.rider, NOW);
   await expect(acceptance.accept(customer, second.deliveryId, second.bidId, `pause-block-${second.deliveryId}`, NOW))
-    .rejects.toThrow('This rider is not receiving requests');
+    .rejects.toThrow('This rider is not available');
   await deliver(hired.rider, first.deliveryId);
   expect((await prisma.riderProfile.findUniqueOrThrow({ where: { id: hired.riderProfileId } })).receivingRequests).toBe(false);
-  await availability.setReceiving(hired.rider, { receiving: true }, NOW);
+  expect((await prisma.riderProfile.findUniqueOrThrow({ where: { id: hired.riderProfileId } })).availability).toBe('OFFLINE');
+  await availability.online(hired.rider, NOW);
   const kept = await acceptance.accept(customer, second.deliveryId, second.bidId, `pause-next-${second.deliveryId}`, NOW);
-  await availability.setReceiving(hired.rider, { receiving: false }, NOW);
+  await availability.offline(hired.rider, NOW);
   await dispatch.cancelBeforePickup(hired.rider, kept.assignmentId, `pause-cancel-${kept.assignmentId}`, { reason: 'PAYMENT_NOT_AGREED' }, NOW);
   expect((await prisma.riderProfile.findUniqueOrThrow({ where: { id: hired.riderProfileId } })).receivingRequests).toBe(false);
-  expect((await prisma.riderProfile.findUniqueOrThrow({ where: { id: hired.riderProfileId } })).availability).toBe('AVAILABLE');
+  expect((await prisma.riderProfile.findUniqueOrThrow({ where: { id: hired.riderProfileId } })).availability).toBe('OFFLINE');
   await expect(acceptance.accept(customer, third.deliveryId, third.bidId, `pause-still-${third.deliveryId}`, NOW))
-    .rejects.toThrow('This rider is not receiving requests');
+    .rejects.toThrow('This rider is not available');
   expect((await prisma.deliveryAssignment.findUniqueOrThrow({ where: { id: accepted.assignmentId } })).status).toBe('COMPLETED');
 });
 
@@ -409,7 +409,7 @@ it('counts every open reservation toward wallet capacity and allows a zero-perce
   await setRate(1_000);
 });
 
-it('hides and rejects an already open bid while Express is live, then replays the original acceptance', async () => {
+it('lists and accepts an open Flexible bid while Express is live, then replays the original acceptance', async () => {
   await setRate(1_000);
   const hired = await hire();
   const fresh = await prisma.delivery.create({ data: deliveryData('FLEXIBLE') });
@@ -421,12 +421,12 @@ it('hides and rejects an already open bid while Express is live, then replays th
   const accepted = await acceptance.accept(customer, express.deliveryId, express.bidId, `hide-${express.deliveryId}`, NOW);
   const replay = await acceptance.accept(customer, express.deliveryId, express.bidId, `hide-${express.deliveryId}`, NOW);
   expect(replay).toMatchObject({ assignmentId: accepted.assignmentId, replayed: true });
-  expect(await bids.listForCustomer(customer, hiddenDelivery.id, NOW)).toEqual([]);
+  expect((await bids.listForCustomer(customer, hiddenDelivery.id, NOW)).map((bid) => bid.id)).toEqual([hidden.id]);
   expect((await prisma.bid.findUniqueOrThrow({ where: { id: hidden.id } })).status).toBe('OPEN');
-  await expect(bids.submit(hired.rider, { deliveryId: fresh.id, amountCents: 1_100, currency: 'USD' }, `new-bid-${fresh.id}`, NOW))
-    .rejects.toThrow('You cannot submit a bid while an Express delivery is active');
-  await expect(acceptance.accept(customer, hiddenDelivery.id, hidden.id, `hidden-${hidden.id}`, NOW))
-    .rejects.toThrow('This rider already has an Express delivery');
+  const submitted = await bids.submit(hired.rider, { deliveryId: fresh.id, amountCents: 1_100, currency: 'USD' }, `new-bid-${fresh.id}`, NOW);
+  expect(submitted.deliveryId).toBe(fresh.id);
+  await acceptance.accept(customer, hiddenDelivery.id, hidden.id, `hidden-${hidden.id}`, NOW);
+  expect((await prisma.delivery.findUniqueOrThrow({ where: { id: hiddenDelivery.id } })).status).toBe('RIDER_ASSIGNED');
 });
 
 it('does not include another rider in the live assignment list', async () => {
@@ -446,6 +446,37 @@ async function deliver(rider: { userId: string; riderProfileId: string }, delive
   for (const status of PROGRESS) {
     await dispatch.progress(rider, deliveryId, { status }, NOW, `deliver-${deliveryId}-${status}`);
   }
+}
+
+async function recordHistoricalAcceptance(
+  db: PrismaService,
+  rider: { riderProfileId: string },
+  assignmentId: string,
+  now: Date,
+) {
+  const motorcycle = await db.motorcycle.findFirst({
+    where: { riderProfileId: rider.riderProfileId, isActive: true },
+  });
+  const assignment = await db.deliveryAssignment.update({
+    where: { id: assignmentId },
+    data: {
+      status: 'ACCEPTED',
+      motorcycleId: motorcycle?.id ?? null,
+      respondedAt: now,
+      acceptedPlatformFee: '0.30',
+      acceptedFeeConfigVersion: 1,
+      acceptedCommissionModel: 'ON_COMPLETION',
+      acceptedCommissionPolicyVersion: 1,
+    },
+  });
+  await db.delivery.update({
+    where: { id: assignment.deliveryId },
+    data: { status: 'ASSIGNED', updatedAt: now },
+  });
+  await db.riderProfile.update({
+    where: { id: rider.riderProfileId },
+    data: { availability: 'BUSY', updatedAt: now },
+  });
 }
 
 async function offerV1(hired: Hired) {

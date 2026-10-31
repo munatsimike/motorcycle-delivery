@@ -106,14 +106,24 @@ export function rejectDevOtpUnlessLocal(env: NodeJS.ProcessEnv = process.env): v
 export function selectPhoneVerificationProvider(
   env: NodeJS.ProcessEnv,
   twilio: PhoneVerificationProvider,
-  meta: PhoneVerificationProvider,
   devOtp: PhoneVerificationProvider,
+  infobip?: PhoneVerificationProvider,
 ): PhoneVerificationProvider {
   rejectDevOtpUnlessLocal(env);
   if (devOtpAllowed(env)) {
     return devOtp;
   }
-  return env.WHATSAPP_VERIFICATION_PROVIDER === 'meta' ? meta : twilio;
+  const provider = env.WHATSAPP_VERIFICATION_PROVIDER ?? 'twilio';
+  if (provider === 'twilio') {
+    return twilio;
+  }
+  if (provider === 'infobip') {
+    if (!infobip) {
+      throw new ServiceUnavailableException('WhatsApp verification is unavailable');
+    }
+    return infobip;
+  }
+  throw new ServiceUnavailableException('WhatsApp verification provider is not supported');
 }
 
 export function generateDevOtp(): string {

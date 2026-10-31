@@ -1,6 +1,8 @@
 package com.riders.rider.navigation
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.ContentTransform
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -13,7 +15,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -26,14 +27,15 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavBackStackEntry
 import com.riders.rider.R
+import com.riders.rider.core.design.NetworkSnackbarClearance
+import com.riders.rider.core.design.RiderTransition
 import com.riders.rider.core.design.RidersColors
 import com.riders.rider.core.design.RidersType
+import com.riders.rider.core.design.rememberRidersMotion
 import com.riders.rider.feature.home.DeliveriesScreen
 import com.riders.rider.feature.home.HomeScreen
-import com.riders.rider.feature.offers.notification.rememberOfferInbox
 import com.riders.rider.feature.offers.notification.rememberOfferPush
 import com.riders.rider.feature.home.HomeViewModel
 import com.riders.rider.feature.profile.presentation.ProfileScreen
@@ -52,20 +54,14 @@ private val RiderDestination.navIcon: Int
 fun RiderShell(
     entry: NavBackStackEntry,
     onDelivery: (String) -> Unit,
+    onCompleted: (String) -> Unit,
     onAccepted: (String) -> Unit,
     onSetup: () -> Unit,
     onMotorcycles: () -> Unit,
 ) {
     var tabName by rememberSaveable { mutableStateOf(RiderDestination.Home.name) }
     val tab = RiderDestination.valueOf(tabName)
-    val pending = rememberOfferInbox()
     val offerPush = rememberOfferPush()
-    val offerTap by pending.taps.collectAsStateWithLifecycle()
-    LaunchedEffect(offerTap) {
-        if (offerTap != null) {
-            tabName = RiderDestination.Deliveries.name
-        }
-    }
     val home: HomeViewModel = hiltViewModel()
     val profile: ProfileViewModel = hiltViewModel()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -85,6 +81,7 @@ fun RiderShell(
     BackHandler(enabled = tab != RiderDestination.Home) {
         tabName = (tabAfterBack(tab) ?: RiderDestination.Home).name
     }
+    NetworkSnackbarClearance(80.dp)
     Scaffold(
         containerColor = RidersColors.background,
         bottomBar = {
@@ -119,26 +116,42 @@ fun RiderShell(
             }
         },
     ) { padding ->
+        val motion = rememberRidersMotion()
+        val tabMs = motion.millis(RiderTransition.TabFade)
         Box(Modifier.padding(padding).fillMaxSize()) {
-            when (tab) {
-                RiderDestination.Home -> HomeScreen(
-                    onOffers = { tabName = RiderDestination.Deliveries.name },
-                    onWallet = { tabName = RiderDestination.Wallet.name },
-                    onDelivery = onDelivery,
-                    onSetup = onSetup,
-                    inShell = true,
-                    model = home,
-                )
-                RiderDestination.Deliveries -> DeliveriesScreen(
-                    onAccepted = onAccepted,
-                    onOpenDelivery = onDelivery,
-                    model = home,
-                )
-                RiderDestination.Wallet -> WalletScreen(showBack = false, inShell = true)
-                RiderDestination.Profile -> ProfileScreen(
-                    onMotorcycles = onMotorcycles,
-                    model = profile,
-                )
+            AnimatedContent(
+                targetState = tab,
+                transitionSpec = {
+                    val forward = targetState.ordinal > initialState.ordinal
+                    ContentTransform(
+                        targetContentEnter = if (forward) deliveryForwardEnter(tabMs) else deliveryBackEnter(tabMs),
+                        initialContentExit = if (forward) deliveryForwardExit(tabMs) else deliveryBackExit(tabMs),
+                        sizeTransform = null,
+                    )
+                },
+                label = "rider-tabs",
+            ) { destination ->
+                when (destination) {
+                    RiderDestination.Home -> HomeScreen(
+                        onOffers = { tabName = RiderDestination.Deliveries.name },
+                        onWallet = { tabName = RiderDestination.Wallet.name },
+                        onDelivery = onDelivery,
+                        onSetup = onSetup,
+                        inShell = true,
+                        model = home,
+                    )
+                    RiderDestination.Deliveries -> DeliveriesScreen(
+                        onAccepted = onAccepted,
+                        onOpenDelivery = onDelivery,
+                        onOpenCompleted = onCompleted,
+                        model = home,
+                    )
+                    RiderDestination.Wallet -> WalletScreen(showBack = false, inShell = true)
+                    RiderDestination.Profile -> ProfileScreen(
+                        onMotorcycles = onMotorcycles,
+                        model = profile,
+                    )
+                }
             }
         }
     }

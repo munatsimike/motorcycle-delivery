@@ -5,7 +5,7 @@ import com.riders.rider.feature.auth.domain.AppEntry
 const val OFFER_CHANNEL_ID = "rider_delivery_requests"
 const val OFFER_NOTICE_TITLE = "New delivery request"
 const val OFFER_NOTICE_BODY = "Open the app to respond. This request expires soon."
-const val REQUEST_UNAVAILABLE = "This request is no longer available."
+const val REQUEST_UNAVAILABLE = "Offer no longer available"
 const val OFFER_EXTRA_ASSIGNMENT_ID = "rider_offer_assignment_id"
 const val ACCEPTED_BID_EXTRA_DELIVERY_ID = "v2_bid_accepted_delivery_id"
 const val ACCEPTED_BID_TITLE = "Your bid was accepted"
@@ -49,7 +49,7 @@ fun parseRiderNotice(data: Map<String, String>): RiderNotice? {
     }
 }
 
-fun riderOfferOpensV1Offers(notice: RiderNotice): Boolean = notice is RiderNotice.Offer
+fun riderOfferOpensV1Offers(@Suppress("UNUSED_PARAMETER") notice: RiderNotice): Boolean = false
 
 fun acceptedBidDeliveryId(notice: RiderNotice): String? = (notice as? RiderNotice.BidAccepted)?.deliveryId
 

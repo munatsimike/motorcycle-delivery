@@ -73,25 +73,27 @@ describe('rider approval', () => {
     });
     expect(ctx.locks[0]).toBe('profile');
     expect(ctx.locks.indexOf('wallet')).toBeGreaterThan(0);
-    expect(ctx.entries).toEqual([
+    expect(ctx.entries).toHaveLength(0);
+    expect(ctx.promotionalEntries).toEqual([
       expect.objectContaining({
-        entryType: WalletEntryType.WELCOME_BONUS,
+        entryType: 'ISSUED',
         amount: '2.50',
         balanceAfter: '2.50',
         configVersion: 7,
         actorType: WalletActorType.ADMIN,
         actorId: 'admin-1',
         idempotencyKey: 'welcome-bonus:profile-1',
-        walletPaymentId: null,
+        reservationId: null,
       }),
     ]);
-    expect(ctx.wallets[0]).toMatchObject({ balance: '2.50', welcomeBonusAwardedAt: NOW });
+    expect(ctx.wallets[0]).toMatchObject({ balance: '0.00', promotionalBalance: '2.50', welcomeBonusAwardedAt: NOW });
     expect(ledgerCents(ctx)).toBe(signedCentsFromDecimal('2.50'));
 
     await expect(ctx.service.decide(ADMIN, 'profile-1', 'APPROVE', LATER)).rejects.toBeInstanceOf(ConflictException);
-    expect(ctx.entries).toHaveLength(1);
+    expect(ctx.promotionalEntries).toHaveLength(1);
     expect(ctx.wallets[0].welcomeBonusAwardedAt).toBe(NOW);
-    expect(ctx.wallets[0].balance).toBe('2.50');
+    expect(ctx.wallets[0].balance).toBe('0.00');
+    expect(ctx.wallets[0].promotionalBalance).toBe('2.50');
   });
 
   it('marks a zero welcome bonus as used without posting a credit', async () => {
@@ -115,8 +117,9 @@ describe('rider approval', () => {
       approvalStatus: RiderApprovalStatus.APPROVED,
       availability: RiderAvailability.OFFLINE,
     });
-    expect(ctx.entries).toHaveLength(1);
-    expect(ctx.wallets[0]).toMatchObject({ balance: '1.00', welcomeBonusAwardedAt: NOW });
+    expect(ctx.promotionalEntries).toHaveLength(1);
+    expect(ctx.entries).toHaveLength(0);
+    expect(ctx.wallets[0]).toMatchObject({ balance: '0.00', promotionalBalance: '1.00', welcomeBonusAwardedAt: NOW });
   });
 
   it('keeps a backfilled entitlement and does not post a retroactive bonus', async () => {
@@ -168,8 +171,9 @@ describe('rider approval', () => {
     expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
     expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
     expect(ctx.profile.approvalStatus).toBe(RiderApprovalStatus.APPROVED);
-    expect(ctx.entries).toHaveLength(1);
-    expect(ctx.wallets[0]).toMatchObject({ balance: '1.00', welcomeBonusAwardedAt: NOW });
+    expect(ctx.promotionalEntries).toHaveLength(1);
+    expect(ctx.entries).toHaveLength(0);
+    expect(ctx.wallets[0]).toMatchObject({ balance: '0.00', promotionalBalance: '1.00', welcomeBonusAwardedAt: NOW });
     expect(ledgerCents(ctx)).toBe(100);
   });
 });
@@ -194,7 +198,7 @@ function ready() {
 }
 
 function ledgerCents(ctx: ReturnType<typeof context>): number {
-  return ctx.entries.reduce((sum, entry) => sum + signedCentsFromDecimal(String(entry.amount)), 0);
+  return ctx.promotionalEntries.reduce((sum, entry) => sum + signedCentsFromDecimal(String(entry.amount)), 0);
 }
 
 function context() {
@@ -223,9 +227,10 @@ function context() {
     welcomeBonusAwardedAt: null,
   }];
   const entries: Array<Record<string, unknown>> = [];
+  const promotionalEntries: Array<Record<string, unknown>> = [];
   const locks: string[] = [];
   const state = { pauseFirstLock: false, paused: false, waiting: 0 };
-  let releasePause = () => undefined;
+  let releasePause: () => void = () => undefined;
   const pause = new Promise<void>((resolve) => {
     releasePause = resolve;
   });
@@ -249,7 +254,7 @@ function context() {
       await gate?.wait;
       state.waiting -= 1;
     }
-    let resolve = () => undefined;
+    let resolve: () => void = () => undefined;
     const wait = new Promise<void>((done) => {
       resolve = done;
     });
@@ -263,7 +268,7 @@ function context() {
       }
     };
   };
-  const db = {
+  const models = {
     riderProfile: {
       async findUnique({ where }: { where: { id: string } }) {
         return profiles.find((profile) => profile.id === where.id) ?? null;
@@ -337,6 +342,22 @@ function context() {
         throw new Error('ledger entry was changed');
       },
     },
+    riderPromotionalEntry: {
+      async findUnique({ where }: { where: { idempotencyKey?: string } }) {
+        return promotionalEntries.find((entry) => entry.idempotencyKey === where.idempotencyKey) ?? null;
+      },
+      async aggregate({ where }: { where: { riderWalletId: string } }) {
+        const rows = promotionalEntries.filter((entry) => entry.riderWalletId === where.riderWalletId);
+        if (rows.length === 0) return { _sum: { amount: null } };
+        const cents = rows.reduce((sum, entry) => sum + signedCentsFromDecimal(String(entry.amount)), 0);
+        return { _sum: { amount: formatSignedCents(cents) } };
+      },
+      async create({ data }: { data: Record<string, unknown> }) {
+        const row = { id: `promo-${promotionalEntries.length + 1}`, ...data };
+        promotionalEntries.push(row);
+        return row;
+      },
+    },
     async $queryRaw(strings: TemplateStringsArray, values: unknown[] = [], txId = 0) {
       const sql = strings.join(' ');
       if (sql.includes('rider_profiles') && sql.includes('FOR UPDATE')) {
@@ -351,59 +372,73 @@ function context() {
       if (sql.includes('rider_wallets') && sql.includes('FOR UPDATE')) locks.push('wallet');
       return undefined;
     },
-    async $transaction<T>(callback: (tx: typeof db) => Promise<T>) {
+  };
+  const db = {
+    ...models,
+    async $transaction<T>(callback: (tx: object) => Promise<T>) {
       const txId = ++txSerial;
       const releases: Array<() => void> = [];
-      let snapshot: { profiles: ProfileRow[]; wallets: Array<Record<string, unknown>>; entries: Array<Record<string, unknown>> } | null = null;
+      const captured: {
+        snapshot: {
+          profiles: ProfileRow[];
+          wallets: Array<Record<string, unknown>>;
+          entries: Array<Record<string, unknown>>;
+          promotionalEntries: Array<Record<string, unknown>>;
+        } | null;
+      } = { snapshot: null };
       const capture = () => {
-        if (!snapshot) {
-          snapshot = {
+        if (!captured.snapshot) {
+          captured.snapshot = {
             profiles: structuredClone(profiles),
             wallets: structuredClone(wallets),
             entries: structuredClone(entries),
+            promotionalEntries: structuredClone(promotionalEntries),
           };
         }
       };
       const tx = {
-        ...db,
+        ...models,
         riderProfile: {
-          ...db.riderProfile,
+          ...models.riderProfile,
           async update(args: { where: { id: string }; data: Partial<ProfileRow> }) {
             capture();
-            return db.riderProfile.update(args);
+            return models.riderProfile.update(args);
           },
         },
         riderWallet: {
-          ...db.riderWallet,
+          ...models.riderWallet,
           async create(args: { data: Record<string, unknown> }) {
             capture();
-            return db.riderWallet.create(args);
+            return models.riderWallet.create(args);
           },
           async update(args: { where: { id: string }; data: Record<string, unknown> }) {
             capture();
-            return db.riderWallet.update(args);
+            return models.riderWallet.update(args);
           },
         },
         riderWalletEntry: {
-          ...db.riderWalletEntry,
+          ...models.riderWalletEntry,
           async create(args: { data: Record<string, unknown> }) {
             capture();
-            return db.riderWalletEntry.create(args);
+            return models.riderWalletEntry.create(args);
           },
         },
         async $queryRaw(strings: TemplateStringsArray, ...values: unknown[]) {
-          const release = await db.$queryRaw(strings, values, txId);
+          const release = await models.$queryRaw(strings, values, txId);
           if (typeof release === 'function') releases.push(release);
           return [];
         },
+        $transaction: (inner: (client: object) => Promise<unknown>) => db.$transaction(inner),
       };
       try {
         return await callback(tx);
       } catch (error) {
+        const snapshot = captured.snapshot;
         if (snapshot) {
           profiles.splice(0, profiles.length, ...snapshot.profiles);
           wallets.splice(0, wallets.length, ...snapshot.wallets);
           entries.splice(0, entries.length, ...snapshot.entries);
+          promotionalEntries.splice(0, promotionalEntries.length, ...snapshot.promotionalEntries);
         }
         throw error;
       } finally {
@@ -418,6 +453,7 @@ function context() {
     configs,
     wallets,
     entries,
+    promotionalEntries,
     locks,
     get profile() {
       return profiles[0];

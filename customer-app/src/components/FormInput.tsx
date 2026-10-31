@@ -1,6 +1,7 @@
-import { StyleSheet, Text, TextInput, type KeyboardTypeOptions } from 'react-native';
+import { StyleSheet, Text, TextInput, View, type KeyboardTypeOptions } from 'react-native';
 
 import { colors, inputErrorStyle, radius, spacing, typography } from '../theme';
+import { useRevealFocusedField } from './useKeyboardLift';
 import { useInputFocus } from './useInputFocus';
 
 type FormInputProps = {
@@ -37,9 +38,10 @@ export default function FormInput({
   onFocus,
 }: FormInputProps) {
   const focus = useInputFocus();
+  const revealFocusedField = useRevealFocusedField();
 
   return (
-    <>
+    <View>
       <Text style={styles.label}>{label}</Text>
       <TextInput
         style={[styles.input, focus.style, (error || invalid) ? inputErrorStyle : null, !editable && styles.locked]}
@@ -56,12 +58,13 @@ export default function FormInput({
         editable={editable}
         onFocus={() => {
           focus.onFocus();
+          revealFocusedField();
           onFocus?.();
         }}
         onBlur={focus.onBlur}
       />
       {error ? <Text style={styles.error}>{error}</Text> : null}
-    </>
+    </View>
   );
 }
 
@@ -70,7 +73,7 @@ const styles = StyleSheet.create({
     fontSize: typography.caption,
     fontWeight: '700',
     color: colors.text,
-    marginBottom: spacing.sm,
+    marginBottom: spacing.xs,
   },
   input: {
     minHeight: 58,

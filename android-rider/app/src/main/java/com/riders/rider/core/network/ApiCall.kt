@@ -54,5 +54,6 @@ private fun refreshFailure(failure: RefreshAttempt): ApiError {
         is RefreshAttempt.Success,
         RefreshAttempt.Rejected,
         -> ApiError.Network
+        RefreshAttempt.Replaced -> ApiError.SignedInElsewhere
     }
 }

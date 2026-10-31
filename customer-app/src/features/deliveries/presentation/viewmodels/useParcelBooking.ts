@@ -28,7 +28,6 @@ import {
   quotesMatch,
   type DeliveryQuote,
 } from '../../domain/deliveryQuote';
-import { createDelivery } from '../../domain/usecases/createDelivery';
 import { createOpenRequest } from '../../domain/usecases/createOpenRequest';
 import { quoteDelivery } from '../../domain/usecases/quoteDelivery';
 import { selectedPlaceBias } from './usePlaceBias';
@@ -46,9 +45,7 @@ type CustomerOffer = {
   pinKey: string | null;
 };
 
-export type BookingResult =
-  | { mode: 'v1'; deliveryId: string }
-  | { mode: 'v2'; request: OpenBidRequest };
+export type BookingResult = { mode: 'v2'; request: OpenBidRequest };
 
 export function useParcelBooking(accessToken: string | null, marketplace = false) {
   const [draft, setDraft] = useState<BookingDraft>(emptyBookingDraft);
@@ -247,9 +244,8 @@ export function useParcelBooking(accessToken: string | null, marketplace = false
       setError('Request a price before confirming.');
       return;
     }
-    const submission = marketplace ? null : customerOfferForBooking(offer.text);
-    if (submission && !('offeredPrice' in submission)) {
-      setError(submission.error);
+    if (!marketplace) {
+      setError('Choose Express or Flexible before confirming.');
       return;
     }
     creating.current = true;
@@ -257,28 +253,18 @@ export function useParcelBooking(accessToken: string | null, marketplace = false
     setError(null);
     try {
       const fresh = await quoteDelivery(customerDeliveryRepository, accessToken, prepared.booking);
-      const classChanged = prepared.booking.serviceClass !== null && fresh.serviceClass !== prepared.booking.serviceClass;
-      if (!quotesMatch(quote, fresh) || classChanged) {
+      if (!quotesMatch(quote, fresh)) {
         rememberQuote({ ...fresh, pinKey: identity });
         setError('The price changed. Review the new price and confirm again.');
         return;
       }
-      if (marketplace) {
-        const created = await createOpenRequest(customerDeliveryRepository, accessToken, prepared.booking);
-        onCreated({ mode: 'v2', request: created });
+      const submitted = customerOfferForBooking(offer.text);
+      if (!('offeredPrice' in submitted)) {
+        setError(submitted.error);
         return;
       }
-      if (!submission || !('offeredPrice' in submission)) {
-        setError('Enter an offer from $0.01 to $1,000.00.');
-        return;
-      }
-      const created = await createDelivery(
-        customerDeliveryRepository,
-        accessToken,
-        prepared.booking,
-        submission.offeredPrice,
-      );
-      onCreated({ mode: 'v1', deliveryId: created.id });
+      const created = await createOpenRequest(customerDeliveryRepository, accessToken, prepared.booking, submitted.offeredPrice);
+      onCreated({ mode: 'v2', request: created });
     } catch (caught: unknown) {
       setError(errorMessage(caught, 'The delivery could not be booked.'));
     } finally {

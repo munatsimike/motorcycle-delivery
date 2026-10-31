@@ -13,7 +13,6 @@ import com.riders.rider.core.design.RiderTheme
 import com.riders.rider.feature.auth.domain.AppEntry
 import com.riders.rider.feature.auth.presentation.SessionViewModel
 import com.riders.rider.feature.offers.domain.ACCEPTED_BID_EXTRA_DELIVERY_ID
-import com.riders.rider.feature.offers.domain.OFFER_EXTRA_ASSIGNMENT_ID
 import com.riders.rider.feature.offers.notification.OfferPushCoordinator
 import com.riders.rider.feature.offers.notification.PendingOffer
 import com.riders.rider.navigation.RiderNavHost
@@ -40,7 +39,7 @@ class MainActivity : FragmentActivity() {
                 }
                 when (ui.entry) {
                     AppEntry.Home -> RiderNavHost(signedIn = true)
-                    AppEntry.SignedOut -> RiderNavHost(signedIn = false)
+                    AppEntry.SignedOut -> RiderNavHost(signedIn = false, notice = ui.notice)
                 }
             }
         }
@@ -58,11 +57,5 @@ class MainActivity : FragmentActivity() {
             pendingOffer.acceptedBidTapped(deliveryId)
             intent?.removeExtra(ACCEPTED_BID_EXTRA_DELIVERY_ID)
         }
-        val assignmentId = intent?.getStringExtra(OFFER_EXTRA_ASSIGNMENT_ID)?.trim().orEmpty()
-        if (assignmentId.isEmpty()) {
-            return
-        }
-        pendingOffer.notificationTapped(assignmentId)
-        intent?.removeExtra(OFFER_EXTRA_ASSIGNMENT_ID)
     }
 }

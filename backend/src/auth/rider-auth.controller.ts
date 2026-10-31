@@ -1,9 +1,9 @@
 import { Body, Controller, HttpCode, Post, Req } from '@nestjs/common';
-import { ApiBadRequestResponse, ApiBody, ApiConflictResponse, ApiOkResponse, ApiOperation, ApiServiceUnavailableResponse, ApiTags, ApiTooManyRequestsResponse, ApiUnauthorizedResponse } from '@nestjs/swagger';
+import { ApiBadRequestResponse, ApiBody, ApiOkResponse, ApiOperation, ApiServiceUnavailableResponse, ApiTags, ApiTooManyRequestsResponse, ApiUnauthorizedResponse } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { AuthSubjectRole } from '../generated/prisma/client.js';
 import { rateLimitAddress } from '../http/client-address.js';
-import { OtpVerifyBody, PendingResponse, PhoneBody, RiderWhatsAppRegistrationBody, SessionResponse, WhatsAppRecoveryBody } from '../openapi/schemas.js';
+import { OtpVerifyBody, PendingResponse, PhoneBody, RiderRegistrationCompleteBody, RiderWhatsAppRegistrationBody, SessionResponse, WhatsAppRecoveryBody } from '../openapi/schemas.js';
 import { WhatsAppAuthService } from './whatsapp-auth.service.js';
 
 @ApiTags('Rider authentication')
@@ -13,7 +13,7 @@ export class RiderAuthController {
 
   @Post('login/whatsapp')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Send a rider sign-in code on WhatsApp when the number can sign in' })
+  @ApiOperation({ summary: 'Send a rider sign-in code on WhatsApp without revealing whether the number has an account' })
   @ApiBody({ type: WhatsAppRecoveryBody })
   @ApiOkResponse({ type: PendingResponse })
   @ApiServiceUnavailableResponse({ description: 'WhatsApp verification is unavailable.' })
@@ -33,9 +33,9 @@ export class RiderAuthController {
 
   @Post('login/whatsapp/verify')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Verify the rider WhatsApp sign-in code and create the session' })
+  @ApiOperation({ summary: 'Verify the rider WhatsApp sign-in code. An existing rider profile receives a session. A verified number without a rider profile receives a registration proof.' })
   @ApiBody({ type: OtpVerifyBody })
-  @ApiOkResponse({ type: SessionResponse })
+  @ApiOkResponse({ description: 'A session for an existing rider profile, or a short-lived rider registration proof.' })
   @ApiUnauthorizedResponse({ description: 'Verification code is invalid' })
   @ApiServiceUnavailableResponse({ description: 'WhatsApp verification is unavailable.' })
   verifyWhatsAppLogin(@Body() body: unknown) {
@@ -44,11 +44,10 @@ export class RiderAuthController {
 
   @Post('register/whatsapp')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Start rider registration and send a WhatsApp verification code' })
+  @ApiOperation({ summary: 'Send a rider registration code on WhatsApp without revealing whether the number has an account' })
   @ApiBody({ type: RiderWhatsAppRegistrationBody })
   @ApiOkResponse({ type: PendingResponse })
-  @ApiBadRequestResponse({ description: 'The phone, password, name, address, or WhatsApp consent is invalid.' })
-  @ApiConflictResponse({ description: 'Phone number is already registered' })
+  @ApiBadRequestResponse({ description: 'The phone or WhatsApp consent is invalid.' })
   @ApiTooManyRequestsResponse({ description: 'Too many verification attempts. Try again later.' })
   @ApiServiceUnavailableResponse({ description: 'WhatsApp verification is unavailable.' })
   startWhatsAppRegistration(@Body() body: unknown, @Req() request: Request) {
@@ -68,14 +67,26 @@ export class RiderAuthController {
 
   @Post('register/whatsapp/verify')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Verify the rider WhatsApp code and create the session' })
+  @ApiOperation({ summary: 'Verify the rider registration code. An existing rider profile receives a session. A new or customer number receives a registration proof.' })
   @ApiBody({ type: OtpVerifyBody })
-  @ApiOkResponse({ type: SessionResponse })
+  @ApiOkResponse({ description: 'A session for an existing rider profile, or a short-lived rider registration proof.' })
   @ApiUnauthorizedResponse({ description: 'Verification code is invalid' })
   @ApiTooManyRequestsResponse({ description: 'Too many verification attempts. Try again later.' })
   @ApiServiceUnavailableResponse({ description: 'WhatsApp verification is unavailable.' })
   verifyWhatsAppRegistration(@Body() body: unknown) {
     return this.whatsapp.verifyRegistration(AuthSubjectRole.RIDER, body);
+  }
+
+  @Post('register/whatsapp/complete')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Create the pending rider profile for a verified phone and create the session' })
+  @ApiBody({ type: RiderRegistrationCompleteBody })
+  @ApiOkResponse({ type: SessionResponse })
+  @ApiBadRequestResponse({ description: 'The name or address is invalid.' })
+  @ApiUnauthorizedResponse({ description: 'Authentication failed' })
+  @ApiServiceUnavailableResponse({ description: 'WhatsApp verification is unavailable.' })
+  completeWhatsAppRegistration(@Body() body: unknown) {
+    return this.whatsapp.completeRiderRegistration(body);
   }
 
 }

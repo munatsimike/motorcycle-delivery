@@ -47,7 +47,7 @@ class RiderLocationService : Service() {
     private val relay = LocationRelay()
     private val client by lazy { LocationServices.getFusedLocationProviderClient(this) }
     private var prompt: CancellationTokenSource? = null
-    private var updatesRequested = false
+    @Volatile private var updatesRequested = false
     @Volatile private var running = false
 
     private val callback = object : LocationCallback() {
@@ -71,16 +71,15 @@ class RiderLocationService : Service() {
             return START_NOT_STICKY
         }
         running = true
+        // The service is started only after sharing was already approved. Register
+        // before the network re-check so a slow or hung status call cannot leave
+        // the foreground service with no Fused Location request.
+        val listening = beginUpdates()
+        requestPromptFix()
         scope.launch {
-            if (!authorized()) {
+            if (!authorized() || (!listening && !beginUpdates())) {
                 stopSharing()
-                return@launch
             }
-            if (!beginUpdates()) {
-                stopSharing()
-                return@launch
-            }
-            requestPromptFix()
         }
         return START_NOT_STICKY
     }
@@ -118,10 +117,14 @@ class RiderLocationService : Service() {
             .setWaitForAccurateLocation(false)
             .build()
         return try {
-            client.requestLocationUpdates(request, callback, Looper.getMainLooper())
             updatesRequested = true
+            client.requestLocationUpdates(request, callback, Looper.getMainLooper())
+                .addOnFailureListener {
+                    updatesRequested = false
+                }
             true
         } catch (_: SecurityException) {
+            updatesRequested = false
             false
         }
     }
@@ -134,7 +137,7 @@ class RiderLocationService : Service() {
         prompt?.cancel()
         prompt = token
         try {
-            client.getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, token.token)
+            client.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, token.token)
                 .addOnSuccessListener { point ->
                     if (point != null) {
                         scope.launch { deliver(point) }

@@ -326,7 +326,16 @@ function stored(id: string, riderProfileId: string): MotorcycleRow {
 }
 
 function context() {
-  const profile = {
+  const profile: {
+    id: string;
+    approvalStatus: RiderApprovalStatus;
+    availability: RiderAvailability;
+    verificationStatus: RiderVerificationStatus;
+    licenceNumber: string | null;
+    licenceClass: string | null;
+    verifiedAt: Date | null;
+    reviewerId: string | null;
+  } = {
     id: RIDER.riderProfileId,
     approvalStatus: RiderApprovalStatus.PENDING,
     availability: RiderAvailability.OFFLINE,
@@ -383,13 +392,13 @@ function context() {
             throw { code: 'P2002' };
           }
           const row: MotorcycleRow = {
-            verifiedAt: null,
-            verifiedById: null,
-            rejectedAt: null,
-            rejectedById: null,
-            revokedAt: null,
-            revokedById: null,
             ...data,
+            verifiedAt: data.verifiedAt ?? null,
+            verifiedById: data.verifiedById ?? null,
+            rejectedAt: data.rejectedAt ?? null,
+            rejectedById: data.rejectedById ?? null,
+            revokedAt: data.revokedAt ?? null,
+            revokedById: data.revokedById ?? null,
           };
           motorcycles.push(row);
           return { ...row };

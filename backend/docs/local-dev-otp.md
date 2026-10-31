@@ -38,10 +38,24 @@ Type that code into the existing verification screen. A code expires five minute
 
 ## Android apps
 
-Point either debug app at this local API. The Android emulator reaches the computer as `http://10.0.2.2:3000`. A phone on the same network uses the computer's LAN address and port 3000 instead. Release builds stay on HTTPS and do not use this mock.
+Point either debug app at this local API. Release builds stay on the HTTPS `API_BASE_URL` and do not use this mock.
 
-Customer app: set `EXPO_PUBLIC_API_BASE_URL=http://10.0.2.2:3000` in `customer-app/.env`, then start Metro from `customer-app`. The development client reads that value when Metro starts.
+Leave the development address as loopback, `http://127.0.0.1:3000`. On a phone, forward that port before opening the app:
 
-Rider app: the debug build already uses `http://10.0.2.2:3000` unless `android-rider/local.properties` sets `DEBUG_API_BASE_URL`. Cleartext HTTP is allowed on that debug build. Install the debug variant, open the existing sign-in screen, and enter the code from the backend terminal.
+```
+adb reverse tcp:3000 tcp:3000
+```
+
+Also forward Metro when the customer development client loads from this computer:
+
+```
+adb reverse tcp:8081 tcp:8081
+```
+
+An Android emulator rewrites that loopback address to `http://10.0.2.2:3000`. A phone that cannot use `adb reverse` can set a private LAN address instead: `DEBUG_API_BASE_URL` in `android-rider/local.properties` for the rider debug build, or `EXPO_PUBLIC_API_BASE_URL` in `customer-app/.env` for the customer app. Do not commit either value. Cleartext HTTP is allowed on the rider debug build only.
+
+Customer app: keep `EXPO_PUBLIC_API_BASE_URL=http://127.0.0.1:3000` in `customer-app/.env`, then start Metro from `customer-app`. The development client reads that value when Metro starts.
+
+Rider app: install the debug variant. With no `DEBUG_API_BASE_URL`, a phone uses `http://127.0.0.1:3000` and an emulator uses `http://10.0.2.2:3000`. Open the existing sign-in screen and enter the code from the backend terminal.
 
 After the code is accepted, the apps keep the rotating refresh session and restore it on the next launch. Logout and logout-all are unchanged. Admin email and password sign-in does not use this provider.

@@ -67,7 +67,7 @@ import com.riders.rider.feature.onboarding.domain.canReplaceLicence
 import com.riders.rider.feature.onboarding.domain.canSelectMotorcycle
 import com.riders.rider.feature.onboarding.domain.motorcycleStatusTitle
 import com.riders.rider.feature.onboarding.domain.riderReadiness
-import java.io.ByteArrayOutputStream
+import com.riders.rider.core.io.readAtMost
 import java.io.InputStream
 
 @Composable
@@ -105,7 +105,7 @@ fun OnboardingScreen(
             Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = RidersSpacing.xl, vertical = RidersSpacing.lg),
+                .padding(horizontal = RidersSpacing.lg, vertical = RidersSpacing.lg),
             verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
         ) {
             if (!focused) {
@@ -590,9 +590,22 @@ private fun MotorcycleChoice(
     val pending = motorcycle.verificationStatus != "VERIFIED" &&
         motorcycle.verificationStatus != "REJECTED" &&
         motorcycle.verificationStatus != "REVOKED"
+    val approved = motorcycle.verificationStatus == "VERIFIED"
     val shape = RoundedCornerShape(RidersRadius.lg)
-    val cardFill = if (pending) Color(0xFFFFF4E5) else if (selected) RidersColors.primaryLight else RidersColors.surface
-    val cardBorder = if (pending) Color(0xFFF3D7A1) else if (selected) RidersColors.primary else RidersColors.border
+    val cardFill = when {
+        pending -> Color(0xFFFFF4E5)
+        approved && selected -> ActiveFill
+        approved -> InactiveFill
+        selected -> RidersColors.primaryLight
+        else -> RidersColors.surface
+    }
+    val cardBorder = when {
+        pending -> Color(0xFFF3D7A1)
+        approved && selected -> ActiveBlue
+        approved -> InactiveBorder
+        selected -> RidersColors.primary
+        else -> RidersColors.border
+    }
     Row(
         Modifier
             .fillMaxWidth()
@@ -608,14 +621,27 @@ private fun MotorcycleChoice(
             Modifier
                 .size(40.dp)
                 .clip(RoundedCornerShape(RidersRadius.md))
-                .background(if (pending) Color(0xFFFFE8C2) else if (selected) RidersColors.background else Color(0xFFDDF3E8)),
+                .background(
+                    when {
+                        pending -> Color(0xFFFFE8C2)
+                        approved && selected -> Color(0xFFFFFFFF)
+                        approved -> Color(0xFFE6E8EB)
+                        selected -> RidersColors.background
+                        else -> Color(0xFFDDF3E8)
+                    },
+                ),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
                 painter = painterResource(R.drawable.ic_mdi_motorbike),
                 contentDescription = null,
                 modifier = Modifier.size(24.dp),
-                tint = if (pending) Color(0xFFB86E00) else RidersColors.primaryDark,
+                tint = when {
+                    pending -> Color(0xFFB86E00)
+                    approved && selected -> ActiveBlue
+                    approved -> InactiveGrey
+                    else -> RidersColors.primaryDark
+                },
             )
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -637,12 +663,16 @@ private fun MotorcycleChoice(
             horizontalAlignment = Alignment.End,
             verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
         ) {
-            SelectionMark(selected)
+            SelectionMark(
+                selected = selected,
+                color = if (approved) ActiveBlue else RidersColors.primary,
+                idle = if (approved) InactiveGrey else RidersColors.border,
+            )
             if (selected) {
                 Text(
                     "Active",
                     style = RidersType.captionStrong,
-                    color = RidersColors.primaryDark,
+                    color = if (approved) ActiveBlue else RidersColors.primaryDark,
                     modifier = Modifier
                         .clip(RoundedCornerShape(RidersRadius.pill))
                         .background(RidersColors.background)
@@ -653,14 +683,21 @@ private fun MotorcycleChoice(
     }
 }
 
+private val ActiveFill = Color(0xFFD7E9F8)
+private val ActiveBlue = Color(0xFF3B78D8)
+private val InactiveFill = Color(0xFFF3F4F6)
+private val InactiveBorder = Color(0xFFD8DDE3)
+private val InactiveGrey = Color(0xFF9AA3AB)
+
 @Composable
-private fun SelectionMark(selected: Boolean) {
+private fun SelectionMark(selected: Boolean, color: Color, idle: Color) {
+    val mark = if (selected) color else idle
     Box(
         Modifier
             .size(22.dp)
             .clip(CircleShape)
-            .background(if (selected) RidersColors.primary else Color.Transparent)
-            .border(2.dp, if (selected) RidersColors.primary else RidersColors.border, CircleShape),
+            .background(if (selected) color else Color.Transparent)
+            .border(2.dp, mark, CircleShape),
         contentAlignment = Alignment.Center,
     ) {
         if (selected) {
@@ -739,23 +776,3 @@ private fun readLicence(resolver: android.content.ContentResolver, uri: Uri): By
     }
 }
 
-private fun readAtMost(stream: InputStream, limit: Int): ByteArray {
-    val output = ByteArrayOutputStream()
-    val chunk = ByteArray(8 * 1024)
-    var total = 0
-    while (total <= limit) {
-        val read = stream.read(chunk)
-        if (read < 0) {
-            break
-        }
-        val allowed = minOf(read, limit - total + 1)
-        if (allowed > 0) {
-            output.write(chunk, 0, minOf(read, allowed))
-        }
-        total += read
-        if (total > limit) {
-            return ByteArray(limit + 1)
-        }
-    }
-    return output.toByteArray()
-}

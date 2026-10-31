@@ -4,6 +4,7 @@ import { InvalidPhoneNumberError, normalizeAuthPhone } from '../auth/phone-numbe
 import { CoordinateSource, Currency, DeliveryPayer, ParcelSize, PaymentMethod, ServiceClass } from '../generated/prisma/client.js';
 import { isPlaceId } from './google-places.js';
 import { readMoneyCents } from './money.js';
+import { assertServiceCoordinates } from './service-area.js';
 
 export type QuotePins = {
   pickupLatitude: string;
@@ -36,7 +37,9 @@ export type V2DeliveryDraft = QuotePins & {
   parcelSize: ParcelSize;
   parcelInstructions: string | null;
   serviceClass: ServiceClass;
-  deliverBy: Date;
+  deliverBy: Date | null;
+  paymentMethod: PaymentMethod | null;
+  offeredPriceCents: number;
 };
 
 export type DeliveryDraft = QuotePins & {
@@ -60,6 +63,7 @@ export type DeliveryDraft = QuotePins & {
   offeredPriceCents: number;
   payer: DeliveryPayer;
   paymentMethod: PaymentMethod;
+  serviceClass: ServiceClass | null;
 };
 
 const PAYMENT_METHODS = new Set<string>(Object.values(PaymentMethod));
@@ -79,12 +83,15 @@ export function readQuotePins(body: unknown): QuotePins {
   const record = recordOf(body, 'Enter the pickup and drop-off');
   const pickup = recordOf(record.pickup, 'Enter the pickup');
   const dropoff = recordOf(record.dropoff, 'Enter the drop-off');
-  return {
+  const pins = {
     pickupLatitude: readCoordinate(pickup.latitude, -90, 90, 'Enter a valid pickup location'),
     pickupLongitude: readCoordinate(pickup.longitude, -180, 180, 'Enter a valid pickup location'),
     dropoffLatitude: readCoordinate(dropoff.latitude, -90, 90, 'Enter a valid drop-off location'),
     dropoffLongitude: readCoordinate(dropoff.longitude, -180, 180, 'Enter a valid drop-off location'),
   };
+  assertServiceCoordinates(pins.pickupLatitude, pins.pickupLongitude);
+  assertServiceCoordinates(pins.dropoffLatitude, pins.dropoffLongitude);
+  return pins;
 }
 
 export function readQuoteRequest(body: unknown): QuoteRequest {
@@ -132,7 +139,19 @@ export function readV2DeliveryDraft(body: unknown, now: Date): V2DeliveryDraft {
     parcelInstructions: readOptionalText(parcel.instructions, 500, 'Enter parcel instructions'),
     serviceClass: readRequiredServiceClass(record.serviceClass),
     deliverBy: readDeliverBy(record.deliverBy, now),
+    paymentMethod: readOptionalPaymentMethod(record.paymentMethod),
+    offeredPriceCents: readCustomerOfferCents(record.offeredPrice),
   };
+}
+
+function readOptionalServiceClass(value: unknown): ServiceClass | null {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+  if (value === ServiceClass.EXPRESS || value === ServiceClass.FLEXIBLE) {
+    return value;
+  }
+  throw new BadRequestException('Choose Express or Flexible');
 }
 
 function readRequiredServiceClass(value: unknown): ServiceClass {
@@ -142,9 +161,12 @@ function readRequiredServiceClass(value: unknown): ServiceClass {
   throw new BadRequestException('Choose Express or Flexible');
 }
 
-function readDeliverBy(value: unknown, now: Date): Date {
+function readDeliverBy(value: unknown, now: Date): Date | null {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
   if (typeof value !== 'string' || value.trim() === '') {
-    throw new BadRequestException('Enter the delivery deadline');
+    throw new BadRequestException('Enter a deadline in the future');
   }
   const deadline = new Date(value);
   if (Number.isNaN(deadline.getTime()) || deadline.getTime() <= now.getTime()) {
@@ -186,6 +208,7 @@ export function readDeliveryDraft(body: unknown): DeliveryDraft {
     offeredPriceCents: readCustomerOfferCents(record.offeredPrice),
     payer: readPayer(record.payer),
     paymentMethod: readPaymentMethod(record.paymentMethod),
+    serviceClass: readOptionalServiceClass(record.serviceClass),
   };
 }
 
@@ -229,9 +252,12 @@ function readStop(value: unknown, label: string): StopDraft {
   if (coordinateSource === CoordinateSource.DEVICE_GEOCODER && placeId) {
     throw new BadRequestException(`Enter a valid ${label} location`);
   }
+  const latitude = readCoordinate(stop.latitude, -90, 90, `Enter a valid ${label} location`);
+  const longitude = readCoordinate(stop.longitude, -180, 180, `Enter a valid ${label} location`);
+  assertServiceCoordinates(latitude, longitude);
   return {
-    latitude: readCoordinate(stop.latitude, -90, 90, `Enter a valid ${label} location`),
-    longitude: readCoordinate(stop.longitude, -180, 180, `Enter a valid ${label} location`),
+    latitude,
+    longitude,
     address: readRequiredText(stop.address, 500, `Enter the ${label} address`),
     placeId,
     coordinateSource,
@@ -271,6 +297,13 @@ function readPayer(value: unknown): DeliveryPayer {
     return value;
   }
   throw new BadRequestException('Choose who pays the rider');
+}
+
+function readOptionalPaymentMethod(value: unknown): PaymentMethod | null {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+  return readPaymentMethod(value);
 }
 
 function readPaymentMethod(value: unknown): PaymentMethod {

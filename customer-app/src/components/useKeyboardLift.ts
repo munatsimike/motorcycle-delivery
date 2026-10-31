@@ -1,5 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { Dimensions, Keyboard, Platform, ScrollView, TextInput } from 'react-native';
+
+export const KeyboardFieldFocusContext = createContext<() => void>(() => {});
+
+export function useRevealFocusedField(): () => void {
+  return useContext(KeyboardFieldFocusContext);
+}
 
 const FIELD_CLEARANCE = 88;
 

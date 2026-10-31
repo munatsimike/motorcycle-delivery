@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Pressable, StyleSheet, Switch, Text } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import FormInput from '../../components/FormInput';
@@ -61,18 +61,15 @@ export default function SignUpScreen({ navigation }: SignUpProps) {
             }}
           />
           <Pressable
-            accessibilityRole="switch"
-            accessibilityState={{ checked: whatsappConsent }}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: whatsappConsent, disabled: isLoading }}
             disabled={isLoading}
             onPress={() => setWhatsappConsent((current) => !current)}
             style={styles.consent}
           >
-            <Switch
-              value={whatsappConsent}
-              onValueChange={setWhatsappConsent}
-              disabled={isLoading}
-              trackColor={{ true: colors.primary, false: colors.border }}
-            />
+            <View style={[styles.checkbox, whatsappConsent ? styles.checkboxChecked : null]}>
+              {whatsappConsent ? <Text style={styles.checkmark}>✓</Text> : null}
+            </View>
             <Text style={styles.consentText}>I agree to receive WhatsApp authentication messages.</Text>
           </Pressable>
         </>
@@ -88,13 +85,33 @@ const styles = StyleSheet.create({
   consent: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
-    marginTop: spacing.md,
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+    marginBottom: spacing.xl,
+  },
+  checkbox: {
+    width: 18,
+    height: 18,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    backgroundColor: colors.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkboxChecked: {
+    backgroundColor: colors.primary,
+  },
+  checkmark: {
+    color: colors.textInverse,
+    fontSize: 12,
+    lineHeight: 14,
+    fontWeight: '700',
   },
   consentText: {
     flex: 1,
-    fontSize: typography.body,
-    lineHeight: 22,
+    fontSize: typography.small,
+    lineHeight: 16,
     color: colors.text,
   },
 });

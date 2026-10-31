@@ -1,5 +1,5 @@
 import { ConflictException, ForbiddenException, Injectable } from '@nestjs/common';
-import { CustomerAccountKind, Prisma, UserRole } from '../generated/prisma/client.js';
+import { CustomerAccountKind, Prisma, ProfilePhotoStatus, UserRole } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { CustomerSession } from '../auth/customer-access.service.js';
 import { v2MarketplaceEnabled } from '../auth/v2-flags.js';
@@ -14,6 +14,7 @@ export type CustomerAccountResponse = {
   address: string;
   phone: string;
   email: string | null;
+  hasProfilePhoto: boolean;
   marketplaceEnabled: boolean;
 };
 
@@ -34,7 +35,7 @@ export class CustomerAccountService {
     if (!user.customerAccount) {
       throw new ForbiddenException('Customer access is required');
     }
-    return toResponse(user.customerAccount, user.phone, user.email);
+    return toResponse(user.customerAccount, user.phone, user.email, await this.hasProfilePhoto(user.customerAccount.id));
   }
 
   async update(customer: { userId: string }, body: unknown): Promise<CustomerAccountResponse> {
@@ -65,7 +66,7 @@ export class CustomerAccountService {
         });
         return { account, phone: updatedUser.phone, email: updatedUser.email };
       });
-      return toResponse(saved.account, saved.phone, saved.email);
+      return toResponse(saved.account, saved.phone, saved.email, await this.hasProfilePhoto(saved.account.id));
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         throw new ConflictException('Email address is already in use.');
@@ -77,7 +78,7 @@ export class CustomerAccountService {
   async activate(session: CustomerSession, body: unknown, now = new Date()): Promise<CustomerAccountResponse> {
     const user = await this.ownedUser(session.userId);
     if (user.customerAccount) {
-      return toResponse(user.customerAccount, user.phone, user.email);
+      return toResponse(user.customerAccount, user.phone, user.email, await this.hasProfilePhoto(user.customerAccount.id));
     }
     const profile = readCustomerProfile(body);
     try {
@@ -91,12 +92,12 @@ export class CustomerAccountService {
           updatedAt: now,
         },
       });
-      return toResponse(created, user.phone, user.email);
+      return toResponse(created, user.phone, user.email, false);
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         const existing = await this.prisma.customerAccount.findUnique({ where: { userId: user.id } });
         if (existing) {
-          return toResponse(existing, user.phone, user.email);
+          return toResponse(existing, user.phone, user.email, await this.hasProfilePhoto(existing.id));
         }
         throw new ConflictException('Phone number is already registered');
       }
@@ -114,9 +115,22 @@ export class CustomerAccountService {
     }
     return user;
   }
+
+  private async hasProfilePhoto(customerAccountId: string): Promise<boolean> {
+    const photo = await this.prisma.customerProfilePhoto.findFirst({
+      where: { customerAccountId, status: ProfilePhotoStatus.STORED },
+      select: { id: true },
+    });
+    return photo !== null;
+  }
 }
 
-function toResponse(account: AccountRow, phone: string, email: string | null): CustomerAccountResponse {
+function toResponse(
+  account: AccountRow,
+  phone: string,
+  email: string | null,
+  hasProfilePhoto: boolean,
+): CustomerAccountResponse {
   return {
     id: account.id,
     kind: account.kind,
@@ -125,6 +139,7 @@ function toResponse(account: AccountRow, phone: string, email: string | null): C
     address: account.address,
     phone,
     email,
+    hasProfilePhoto,
     marketplaceEnabled: v2MarketplaceEnabled(),
   };
 }

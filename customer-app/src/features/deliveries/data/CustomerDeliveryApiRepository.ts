@@ -1,4 +1,4 @@
-import { apiGet, apiGetBytes, apiPost } from '../../../services/api/apiClient';
+import { apiGet, apiPost } from '../../../services/api/apiClient';
 import { createBody, quoteBody, v2CreateBody, type PreparedBooking } from '../domain/bookingDraft';
 import { readBidAcceptance, readCustomerBids, type BidAcceptance, type CustomerBid } from '../domain/customerBids';
 import { readOpenBidRequest, type OpenBidRequest } from '../domain/openBidRequest';
@@ -57,8 +57,8 @@ export class CustomerDeliveryApiRepository implements CustomerDeliveryRepository
     return readCustomerDeliveryDetail(body);
   }
 
-  async createOpenRequest(accessToken: string, booking: PreparedBooking): Promise<OpenBidRequest> {
-    const body = await apiPost<unknown>('/customers/me/deliveries', v2CreateBody(booking), { accessToken });
+  async createOpenRequest(accessToken: string, booking: PreparedBooking, offeredPrice: string): Promise<OpenBidRequest> {
+    const body = await apiPost<unknown>('/customers/me/deliveries', v2CreateBody(booking, offeredPrice), { accessToken });
     return readOpenBidRequest(body);
   }
 
@@ -160,6 +160,22 @@ export class CustomerDeliveryApiRepository implements CustomerDeliveryRepository
     );
   }
 
+  async adjustOffer(accessToken: string, deliveryId: string, offeredPrice: string): Promise<{ customerOffer: string }> {
+    const body = await apiPost<unknown>(
+      `/customers/me/deliveries/${encodeURIComponent(deliveryId)}/offer`,
+      { offeredPrice },
+      { accessToken },
+    );
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      throw new Error('This offer could not be saved.');
+    }
+    const customerOffer = (body as { customerOffer?: unknown }).customerOffer;
+    if (typeof customerOffer !== 'string' || !customerOffer.trim()) {
+      throw new Error('This offer could not be saved.');
+    }
+    return { customerOffer };
+  }
+
   async cancel(accessToken: string, deliveryId: string): Promise<void> {
     await apiPost<unknown>(
       `/customers/me/deliveries/${encodeURIComponent(deliveryId)}/cancellation`,
@@ -170,38 +186,6 @@ export class CustomerDeliveryApiRepository implements CustomerDeliveryRepository
 }
 
 export const customerDeliveryRepository = new CustomerDeliveryApiRepository();
-
-const mapImages = new Map<string, string | null>();
-
-export async function loadDeliveryMapImage(accessToken: string, deliveryId: string): Promise<string | null> {
-  const saved = mapImages.get(deliveryId);
-  if (saved !== undefined) {
-    return saved;
-  }
-  const bytes = await apiGetBytes(
-    `/customers/me/deliveries/${encodeURIComponent(deliveryId)}/map?labels=off`,
-    { accessToken },
-  );
-  const image = bytes && bytes.length > 0 ? pngDataUrl(bytes) : null;
-  mapImages.set(deliveryId, image);
-  return image;
-}
-
-function pngDataUrl(bytes: Uint8Array): string {
-  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-  let encoded = '';
-  for (let index = 0; index < bytes.length; index += 3) {
-    const first = bytes[index] ?? 0;
-    const second = bytes[index + 1] ?? 0;
-    const third = bytes[index + 2] ?? 0;
-    const triple = (first << 16) | (second << 8) | third;
-    encoded += alphabet[(triple >> 18) & 63];
-    encoded += alphabet[(triple >> 12) & 63];
-    encoded += index + 1 < bytes.length ? alphabet[(triple >> 6) & 63] : '=';
-    encoded += index + 2 < bytes.length ? alphabet[triple & 63] : '=';
-  }
-  return `data:image/png;base64,${encoded}`;
-}
 
 const SEARCH_CACHE_MS = 30_000;
 const searchCache = new Map<string, { at: number; suggestions: PlaceSuggestion[] }>();

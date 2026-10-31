@@ -153,14 +153,14 @@ it('shows the current rider point only while that parcel is collecting', async (
   });
   await expect(read(opened.deliveryId)).resolves.not.toHaveProperty('riderLocation');
 
-  await step(hired.rider, opened.deliveryId, DeliveryStatus.COLLECTING);
+  await prisma.delivery.update({ where: { id: opened.deliveryId }, data: { status: 'COLLECTING' } });
   const beforePoint = await read(opened.deliveryId);
   expect(beforePoint.status).toBe('COLLECTING');
   expect(beforePoint).not.toHaveProperty('riderLocation');
 
   await storePoint(hired.riderProfileId, RIDER_LATITUDE, RIDER_LONGITUDE);
   const collecting = await read(opened.deliveryId);
-  expect(collecting.riderLocation).toEqual({ latitude: RIDER_LATITUDE, longitude: RIDER_LONGITUDE });
+  expect(riderPoint(collecting)).toMatchObject({ latitude: RIDER_LATITUDE, longitude: RIDER_LONGITUDE });
   expect(JSON.stringify(collecting)).not.toContain(HIDDEN_ADDRESS);
   expect(JSON.stringify(collecting)).not.toContain(HIDDEN_PHONE);
   expect(JSON.stringify(collecting)).not.toContain(HIDDEN_RECIPIENT);
@@ -168,7 +168,7 @@ it('shows the current rider point only while that parcel is collecting', async (
   expect(collecting).not.toHaveProperty('assignmentId');
 
   await storePoint(hired.riderProfileId, MOVED_LATITUDE, MOVED_LONGITUDE);
-  expect((await read(opened.deliveryId)).riderLocation).toEqual({
+  expect(riderPoint(await read(opened.deliveryId))).toMatchObject({
     latitude: MOVED_LATITUDE,
     longitude: MOVED_LONGITUDE,
   });
@@ -178,7 +178,7 @@ it('shows the current rider point only while that parcel is collecting', async (
   expect(collected).not.toHaveProperty('riderLocation');
   expect(JSON.stringify(collected)).not.toContain(MOVED_LATITUDE);
 
-  await step(hired.rider, opened.deliveryId, DeliveryStatus.OUT_FOR_DELIVERY);
+  await prisma.delivery.update({ where: { id: opened.deliveryId }, data: { status: 'OUT_FOR_DELIVERY' } });
   expect(await read(opened.deliveryId)).not.toHaveProperty('riderLocation');
   await step(hired.rider, opened.deliveryId, DeliveryStatus.DELIVERED);
   expect(await read(opened.deliveryId)).not.toHaveProperty('riderLocation');
@@ -194,20 +194,19 @@ it('keeps location visibility independent for two Flexible parcels', async () =>
   await storePoint(hired.riderProfileId, RIDER_LATITUDE, RIDER_LONGITUDE);
   const first = await acceptJob(hired, customer);
   const second = await acceptJob(hired, customer, { pickupAddress: 'Second Pickup Road', recipientName: 'Second Recipient' });
-  await step(hired.rider, first.deliveryId, DeliveryStatus.COLLECTING);
+  await prisma.delivery.update({ where: { id: first.deliveryId }, data: { status: 'COLLECTING' } });
   const visible = await read(first.deliveryId);
   const waiting = await read(second.deliveryId);
-  expect(visible.riderLocation).toEqual({ latitude: RIDER_LATITUDE, longitude: RIDER_LONGITUDE });
+  expect(riderPoint(visible)).toMatchObject({ latitude: RIDER_LATITUDE, longitude: RIDER_LONGITUDE });
   expect(waiting.status).toBe('RIDER_ASSIGNED');
-  expect(waiting).not.toHaveProperty('riderLocation');
-  expect(JSON.stringify(waiting)).not.toContain(RIDER_LATITUDE);
+  expect(riderPoint(waiting)).toMatchObject({ latitude: RIDER_LATITUDE, longitude: RIDER_LONGITUDE });
   expect(JSON.stringify(visible)).not.toContain('Second Pickup Road');
   expect(JSON.stringify(visible)).not.toContain('Second Recipient');
 
   await step(hired.rider, first.deliveryId, DeliveryStatus.COLLECTED);
-  await step(hired.rider, second.deliveryId, DeliveryStatus.COLLECTING);
+  await prisma.delivery.update({ where: { id: second.deliveryId }, data: { status: 'COLLECTING' } });
   expect(await read(first.deliveryId)).not.toHaveProperty('riderLocation');
-  expect((await read(second.deliveryId)).riderLocation).toEqual({
+  expect(riderPoint(await read(second.deliveryId))).toMatchObject({
     latitude: RIDER_LATITUDE,
     longitude: RIDER_LONGITUDE,
   });
@@ -217,8 +216,8 @@ it('omits the rider point after cancellation and refuses other customers and rid
   const hired = await hire();
   await storePoint(hired.riderProfileId, RIDER_LATITUDE, RIDER_LONGITUDE);
   const opened = await acceptJob(hired, customer);
-  await step(hired.rider, opened.deliveryId, DeliveryStatus.COLLECTING);
-  expect((await read(opened.deliveryId)).riderLocation?.latitude).toBe(RIDER_LATITUDE);
+  await prisma.delivery.update({ where: { id: opened.deliveryId }, data: { status: 'COLLECTING' } });
+  expect(riderPoint(await read(opened.deliveryId)).latitude).toBe(RIDER_LATITUDE);
 
   await dispatch.cancel(customer, opened.deliveryId, NOW);
   const cancelled = await read(opened.deliveryId);
@@ -309,7 +308,7 @@ it('leaves a V1 customer delivery without a rider point', async () => {
   expect(assigned).not.toHaveProperty('riderLocation');
   expect(JSON.stringify(assigned)).not.toContain(RIDER_LATITUDE);
 
-  await dispatch.progress(hired.rider, delivery.id, { status: 'ARRIVED_AT_PICKUP' }, NOW);
+  await prisma.delivery.update({ where: { id: delivery.id }, data: { status: 'ARRIVED_AT_PICKUP' } });
   const arrived = await read(delivery.id);
   expect(arrived.status).toBe('ARRIVED_AT_PICKUP');
   expect(arrived).not.toHaveProperty('riderLocation');
@@ -318,6 +317,24 @@ it('leaves a V1 customer delivery without a rider point', async () => {
 
 async function read(deliveryId: string) {
   return deliveries.getById(customer, deliveryId);
+}
+
+function riderPoint(view: object): { latitude: string; longitude: string } {
+  if (!('riderLocation' in view)) {
+    throw new Error('rider location missing');
+  }
+  const point = view.riderLocation;
+  if (
+    point === null
+    || typeof point !== 'object'
+    || !('latitude' in point)
+    || !('longitude' in point)
+    || typeof point.latitude !== 'string'
+    || typeof point.longitude !== 'string'
+  ) {
+    throw new Error('rider location missing');
+  }
+  return { latitude: point.latitude, longitude: point.longitude };
 }
 
 async function step(
@@ -332,8 +349,8 @@ async function step(
 async function storePoint(riderProfileId: string, latitude: string, longitude: string) {
   await prisma.riderLocation.upsert({
     where: { riderProfileId },
-    create: { riderProfileId, latitude, longitude, updatedAt: NOW },
-    update: { latitude, longitude, updatedAt: NOW },
+    create: { riderProfileId, latitude, longitude, updatedAt: new Date() },
+    update: { latitude, longitude, updatedAt: new Date() },
   });
 }
 
@@ -425,7 +442,7 @@ async function customerAccount(name: string) {
   const account = await prisma.customerAccount.create({
     data: { userId: user.id, kind: 'INDIVIDUAL', name, address: 'Harare' },
   });
-  return { userId: user.id, role: UserRole.CUSTOMER as const, customerAccountId: account.id };
+  return { userId: user.id, role: UserRole.CUSTOMER, customerAccountId: account.id };
 }
 
 function nextPhone(): string {

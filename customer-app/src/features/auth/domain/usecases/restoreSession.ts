@@ -1,10 +1,9 @@
 import { loadCustomerIdentity, saveCustomerIdentity } from '../../../deliveries/data/recentDeliveryStore';
 import { rebindCustomerIdentity } from '../../../../services/session/customerIdentity';
+import { REFRESH_WINDOW_MS } from '../../../../services/session/sessionAccess';
 import type { AuthSession } from '../auth.types';
 import type { CustomerAuthRepository } from '../repositories/CustomerAuthRepository';
 import type { CustomerSessionStore } from '../repositories/CustomerSessionStore';
-
-const REFRESH_WINDOW_MS = 30_000;
 
 export type SessionRestore =
   | { status: 'ready'; session: AuthSession }

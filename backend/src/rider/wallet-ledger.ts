@@ -10,6 +10,18 @@ import {
   WalletPaymentStatus,
 } from '../generated/prisma/client.js';
 import type { AdminContext } from '../auth/admin-access.service.js';
+import { v2MarketplaceEnabled } from '../auth/v2-flags.js';
+import {
+  consumeReservedPromotional,
+  issuePromotionalCredit,
+  marketplaceRateIsPositive,
+  newDeliveriesRestricted,
+  readPromotionalPosition,
+  promotionalConsumeKey,
+  reservationPortions,
+  restoreConsumedPromotional,
+  splitCommission,
+} from './promotional-credit.js';
 import { lockRiderWallet, lockWalletOwner } from './wallet-lock.js';
 import { formatSignedCents, signedCentsFromDecimal } from './wallet-money.js';
 
@@ -62,10 +74,13 @@ export type LedgerPosting = {
 export type WalletSummary = {
   riderProfileId: string;
   balance: string;
+  promotionalBalance: string;
   borrowingLimit: string;
   borrowingLimitSource: 'DEFAULT' | 'OVERRIDE';
   reservedFees: string;
   availableCapacity: string;
+  availablePromotionalCredit: string;
+  newDeliveriesRestricted: boolean;
   currency: 'USD';
 };
 
@@ -85,6 +100,7 @@ type WalletRow = {
   id: string;
   riderProfileId: string;
   balance: string | { toFixed(digits: number): string };
+  promotionalBalance?: string | { toFixed(digits: number): string } | null;
   borrowingLimitOverride: string | { toFixed(digits: number): string } | null;
   welcomeBonusAwardedAt: Date | null;
 };
@@ -109,6 +125,9 @@ export async function creditWallet(tx: Prisma.TransactionClient, command: Credit
   }
   if (!Number.isSafeInteger(command.amountCents) || command.amountCents <= 0) {
     throw new BadRequestException('Enter a credit amount');
+  }
+  if (command.entryType === WalletEntryType.WELCOME_BONUS || command.entryType === WalletEntryType.PROMOTIONAL_CREDIT) {
+    return postPromotionalCredit(tx, command);
   }
   return postLedgerEntry(tx, command);
 }
@@ -221,15 +240,20 @@ export async function openPlatformFeeReservation(
   if (feeCents === 0) {
     return { reserved: false, amount: formatSignedCents(0), configVersion: config.configVersion };
   }
-  if (signedCentsFromDecimal(summary.availableCapacity) < feeCents) {
-    throw new ConflictException('Wallet capacity is not enough for the platform fee');
-  }
+  const split = splitCommission(
+    feeCents,
+    signedCentsFromDecimal(summary.availablePromotionalCredit),
+    signedCentsFromDecimal(summary.availableCapacity),
+    'Wallet capacity is not enough for the platform fee',
+  );
   await tx.walletFeeReservation.create({
     data: {
       riderWalletId: wallet.id,
       deliveryId,
       assignmentId,
       amount: formatSignedCents(feeCents),
+      promotionalAmount: formatSignedCents(split.promo),
+      walletAmount: formatSignedCents(split.wallet),
       currency: Currency.USD,
       configVersion: config.configVersion,
       status: WalletFeeReservationStatus.OPEN,
@@ -269,12 +293,21 @@ export async function openV2CommissionReservation(
   if (amountCents === 0 || !wallet) {
     return { reserved: false, amount: formatSignedCents(0), rateVersion };
   }
+  const summary = await readWalletSummary(tx, riderProfileId);
+  const split = splitCommission(
+    amountCents,
+    signedCentsFromDecimal(summary.availablePromotionalCredit),
+    signedCentsFromDecimal(summary.availableCapacity),
+    'Wallet capacity is not enough for this bid',
+  );
   await tx.walletFeeReservation.create({
     data: {
       riderWalletId: wallet.id,
       deliveryId,
       assignmentId,
       amount: formatSignedCents(amountCents),
+      promotionalAmount: formatSignedCents(split.promo),
+      walletAmount: formatSignedCents(split.wallet),
       currency: Currency.USD,
       configVersion: rateVersion,
       status: WalletFeeReservationStatus.OPEN,
@@ -304,9 +337,12 @@ export async function assertV2CommissionCapacity(
   }
   await lockRiderWallet(tx, wallet.id);
   const summary = await readWalletSummary(tx, riderProfileId);
-  if (signedCentsFromDecimal(summary.availableCapacity) < amountCents) {
-    throw new ConflictException('Wallet capacity is not enough for this bid');
-  }
+  splitCommission(
+    amountCents,
+    signedCentsFromDecimal(summary.availablePromotionalCredit),
+    signedCentsFromDecimal(summary.availableCapacity),
+    'Wallet capacity is not enough for this bid',
+  );
   return wallet;
 }
 
@@ -407,7 +443,8 @@ export async function capturePlatformFeeReservation(
   if (snapshot.feeCents !== reservedCents || snapshot.configVersion !== reservation.configVersion) {
     throw new ConflictException('Platform fee reservation is corrupted');
   }
-  const amountCents = -reservedCents;
+  const portions = reservationPortions(reservation);
+  const amountCents = -portions.wallet;
   const idempotencyKey = assignmentId ? assignmentPlatformFeeIdempotencyKey(assignmentId) : platformFeeIdempotencyKey(deliveryId);
   const hash = walletPayloadHash({
     riderProfileId,
@@ -420,8 +457,25 @@ export async function capturePlatformFeeReservation(
     actorId: null,
     now,
   });
-  const existing = await tx.riderWalletEntry.findUnique({ where: { idempotencyKey } });
+  const existing = portions.wallet === 0 ? null : await tx.riderWalletEntry.findUnique({ where: { idempotencyKey } });
   if (reservation.status === WalletFeeReservationStatus.CAPTURED) {
+    if (portions.wallet === 0) {
+      const stored = await tx.riderWallet.findUnique({ where: { id: wallet.id } });
+      if (!stored) {
+        throw new ConflictException('Platform fee reservation is corrupted');
+      }
+      return {
+        captured: true,
+        replayed: true,
+        deliveryId,
+        riderProfileId,
+        amount: formatSignedCents(0),
+        balance: formatSignedCents(signedCentsFromDecimal(stored.balance)),
+        currency: Currency.USD,
+        configVersion: reservation.configVersion,
+        entryId: null,
+      };
+    }
     const posted = await postedCents(tx, wallet.id);
     return replayCapturedFee(existing, wallet, riderProfileId, deliveryId, amountCents, reservation.configVersion, hash, posted);
   }
@@ -433,11 +487,11 @@ export async function capturePlatformFeeReservation(
   if (posted !== cached) {
     throw new ConflictException(LEDGER_MISMATCH);
   }
-  if (existing) {
+  if (portions.wallet > 0 && existing) {
     if (existing.payloadHash !== hash || existing.riderWalletId !== wallet.id || signedCentsFromDecimal(existing.amount) !== amountCents || existing.configVersion !== reservation.configVersion) {
       throw new ConflictException('Platform fee reservation is corrupted');
     }
-  } else {
+  } else if (portions.wallet > 0) {
     const next = cached + amountCents;
     assertNextBalance(next);
     await tx.riderWalletEntry.create({
@@ -466,13 +520,16 @@ export async function capturePlatformFeeReservation(
       throw new ConflictException(LEDGER_MISMATCH);
     }
   }
+  if (portions.promo > 0) {
+    await consumeReservedPromotional(tx, wallet, reservation, portions.promo, idempotencyKey, now);
+  }
   const captured = await tx.walletFeeReservation.update({
     where: { id: reservation.id },
     data: { status: WalletFeeReservationStatus.CAPTURED, capturedAt: now },
   });
-  const entry = existing ?? await tx.riderWalletEntry.findUnique({ where: { idempotencyKey } });
+  const entry = portions.wallet === 0 ? null : existing ?? await tx.riderWalletEntry.findUnique({ where: { idempotencyKey } });
   const stored = await tx.riderWallet.findUnique({ where: { id: wallet.id } });
-  if (!entry || !stored) {
+  if ((portions.wallet > 0 && !entry) || !stored) {
     throw new ConflictException('Platform fee reservation is corrupted');
   }
   const balance = signedCentsFromDecimal(stored.balance);
@@ -488,7 +545,7 @@ export async function capturePlatformFeeReservation(
     balance: formatSignedCents(balance),
     currency: Currency.USD,
     configVersion: captured.configVersion,
-    entryId: entry.id,
+    entryId: entry?.id ?? null,
   };
 }
 
@@ -568,7 +625,8 @@ export async function captureV2CommissionReservation(
   if (reservation.status === WalletFeeReservationStatus.RELEASED) {
     throw new ConflictException('This commission reservation was released');
   }
-  const amountCents = -commissionCents;
+  const portions = reservationPortions(reservation);
+  const amountCents = -portions.wallet;
   const hash = walletPayloadHash({
     riderProfileId,
     entryType: WalletEntryType.PLATFORM_FEE,
@@ -580,8 +638,25 @@ export async function captureV2CommissionReservation(
     actorId: null,
     now,
   });
-  const existing = await tx.riderWalletEntry.findUnique({ where: { idempotencyKey } });
+  const existing = portions.wallet === 0 ? null : await tx.riderWalletEntry.findUnique({ where: { idempotencyKey } });
   if (reservation.status === WalletFeeReservationStatus.CAPTURED) {
+    if (portions.wallet === 0) {
+      const stored = await tx.riderWallet.findUnique({ where: { id: wallet.id } });
+      if (!stored) {
+        throw new ConflictException('This commission reservation does not match the accepted bid');
+      }
+      return {
+        captured: true,
+        replayed: true,
+        deliveryId,
+        riderProfileId,
+        amount: formatSignedCents(0),
+        balance: formatSignedCents(signedCentsFromDecimal(stored.balance)),
+        currency: 'USD',
+        configVersion: reservation.configVersion,
+        entryId: null,
+      };
+    }
     const posted = await postedCents(tx, wallet.id);
     return replayCapturedFee(existing, wallet, riderProfileId, deliveryId, amountCents, reservation.configVersion, hash, posted);
   }
@@ -593,7 +668,7 @@ export async function captureV2CommissionReservation(
   if (posted !== cached) {
     throw new ConflictException(LEDGER_MISMATCH);
   }
-  if (existing) {
+  if (portions.wallet > 0 && existing) {
     if (
       existing.payloadHash !== hash
       || existing.riderWalletId !== wallet.id
@@ -602,7 +677,7 @@ export async function captureV2CommissionReservation(
     ) {
       throw new ConflictException('This idempotency key was already used');
     }
-  } else {
+  } else if (portions.wallet > 0) {
     const next = cached + amountCents;
     assertNextBalance(next);
     await tx.riderWalletEntry.create({
@@ -631,13 +706,16 @@ export async function captureV2CommissionReservation(
       throw new ConflictException(LEDGER_MISMATCH);
     }
   }
+  if (portions.promo > 0) {
+    await consumeReservedPromotional(tx, wallet, reservation, portions.promo, idempotencyKey, now);
+  }
   await tx.walletFeeReservation.update({
     where: { id: reservation.id },
     data: { status: WalletFeeReservationStatus.CAPTURED, capturedAt: now },
   });
-  const entry = existing ?? await tx.riderWalletEntry.findUnique({ where: { idempotencyKey } });
+  const entry = portions.wallet === 0 ? null : existing ?? await tx.riderWalletEntry.findUnique({ where: { idempotencyKey } });
   const stored = await tx.riderWallet.findUnique({ where: { id: wallet.id } });
-  if (!entry || !stored || signedCentsFromDecimal(stored.balance) !== await postedCents(tx, wallet.id)) {
+  if ((portions.wallet > 0 && !entry) || !stored || signedCentsFromDecimal(stored.balance) !== await postedCents(tx, wallet.id)) {
     throw new ConflictException(LEDGER_MISMATCH);
   }
   return {
@@ -649,7 +727,7 @@ export async function captureV2CommissionReservation(
     balance: formatSignedCents(signedCentsFromDecimal(stored.balance)),
     currency: 'USD',
     configVersion: reservation.configVersion,
-    entryId: entry.id,
+    entryId: entry?.id ?? null,
   };
 }
 
@@ -759,109 +837,143 @@ export async function refundAcceptanceCommission(
     throw new ConflictException('Acceptance commission assignment is invalid');
   }
 
-  const chargeKey = assignmentPlatformFeeIdempotencyKey(assignmentId);
-  const charge = await tx.riderWalletEntry.findUnique({
-    where: { idempotencyKey: chargeKey },
-  });
-
-  if (!charge || charge.entryType !== WalletEntryType.PLATFORM_FEE) {
-    throw new ConflictException('Original acceptance commission charge not found');
+  if (assignment.acceptedPlatformFee == null || assignment.acceptedFeeConfigVersion == null || assignment.acceptedFeeConfigVersion < 1) {
+    throw new ConflictException('Acceptance commission charge is inconsistent');
   }
-
-  await lockWalletOwner(tx, assignment.riderProfileId);
-
-  const wallet = await tx.riderWallet.findUnique({
-    where: { riderProfileId: assignment.riderProfileId },
-  });
-
-  if (!wallet || wallet.id !== charge.riderWalletId) {
-    throw new ConflictException('Acceptance commission wallet mismatch');
-  }
-
-  await lockRiderWallet(tx, wallet.id);
-
   const feeCents = signedCentsFromDecimal(assignment.acceptedPlatformFee);
-  const chargedCents = signedCentsFromDecimal(charge.amount);
-
-  if (
-    feeCents <= 0 ||
-    chargedCents !== -feeCents ||
-    assignment.acceptedFeeConfigVersion !== charge.configVersion ||
-    charge.currency !== Currency.USD
-  ) {
+  if (feeCents <= 0) {
     throw new ConflictException('Acceptance commission charge is inconsistent');
   }
 
-  const refundKey = assignmentPlatformFeeRefundKey(assignmentId);
-  const existingRefund = await tx.riderWalletEntry.findUnique({
-    where: { idempotencyKey: refundKey },
+  await lockWalletOwner(tx, assignment.riderProfileId);
+  const owned = await tx.riderWallet.findUnique({
+    where: { riderProfileId: assignment.riderProfileId },
   });
-
-  const lockedWallet = await tx.riderWallet.findUnique({
-    where: { id: wallet.id },
-  });
-
-  if (!lockedWallet) {
+  if (!owned) {
+    throw new ConflictException('Acceptance commission wallet not found');
+  }
+  await lockRiderWallet(tx, owned.id);
+  const wallet = await tx.riderWallet.findUnique({ where: { id: owned.id } });
+  if (!wallet) {
     throw new ConflictException('Acceptance commission wallet not found');
   }
 
-  const currentBalance = signedCentsFromDecimal(lockedWallet.balance);
+  const reservation = await tx.walletFeeReservation.findFirst({ where: { assignmentId } });
+  let portions = { total: feeCents, promo: 0, wallet: feeCents };
+  let configVersion = assignment.acceptedFeeConfigVersion;
+  if (reservation) {
+    if (
+      reservation.status !== WalletFeeReservationStatus.CAPTURED
+      || reservation.riderWalletId !== wallet.id
+      || reservation.currency !== Currency.USD
+      || reservation.configVersion !== assignment.acceptedFeeConfigVersion
+    ) {
+      throw new ConflictException('Acceptance commission charge is inconsistent');
+    }
+    portions = reservationPortions(reservation);
+    if (portions.total !== feeCents) {
+      throw new ConflictException('Acceptance commission charge is inconsistent');
+    }
+    configVersion = reservation.configVersion;
+  }
+
+  const chargeKey = assignmentPlatformFeeIdempotencyKey(assignmentId);
+  const charge = await tx.riderWalletEntry.findUnique({ where: { idempotencyKey: chargeKey } });
+  if (portions.wallet > 0) {
+    if (
+      !charge
+      || charge.entryType !== WalletEntryType.PLATFORM_FEE
+      || charge.riderWalletId !== wallet.id
+      || signedCentsFromDecimal(charge.amount) !== -portions.wallet
+      || charge.configVersion !== configVersion
+      || charge.currency !== Currency.USD
+    ) {
+      throw new ConflictException('Original acceptance commission charge not found');
+    }
+  } else if (charge) {
+    throw new ConflictException('Acceptance commission charge is inconsistent');
+  }
+  if (portions.promo > 0) {
+    const consumed = await tx.riderPromotionalEntry.findUnique({
+      where: { idempotencyKey: promotionalConsumeKey(chargeKey) },
+    });
+    if (
+      !reservation
+      || !consumed
+      || consumed.riderWalletId !== wallet.id
+      || consumed.reservationId !== reservation.id
+      || signedCentsFromDecimal(consumed.amount) !== -portions.promo
+    ) {
+      throw new ConflictException('Acceptance commission charge is inconsistent');
+    }
+  }
+
+  const currentBalance = signedCentsFromDecimal(wallet.balance);
   if (await postedCents(tx, wallet.id) !== currentBalance) {
     throw new ConflictException(LEDGER_MISMATCH);
   }
 
+  const refundKey = assignmentPlatformFeeRefundKey(assignmentId);
+  const existingRefund = await tx.riderWalletEntry.findUnique({ where: { idempotencyKey: refundKey } });
+  if (portions.wallet === 0 && existingRefund) {
+    throw new ConflictException('Acceptance commission refund is inconsistent');
+  }
   if (existingRefund) {
     if (
-      existingRefund.entryType !== WalletEntryType.PLATFORM_FEE_REFUND ||
-      existingRefund.riderWalletId !== wallet.id ||
-      signedCentsFromDecimal(existingRefund.amount) !== feeCents ||
-      existingRefund.configVersion !== charge.configVersion
+      existingRefund.entryType !== WalletEntryType.PLATFORM_FEE_REFUND
+      || existingRefund.riderWalletId !== wallet.id
+      || signedCentsFromDecimal(existingRefund.amount) !== portions.wallet
+      || existingRefund.configVersion !== configVersion
     ) {
       throw new ConflictException('Acceptance commission refund is inconsistent');
+    }
+    if (portions.promo > 0) {
+      await restoreConsumedPromotional(tx, wallet, portions.promo, refundKey, configVersion, now);
     }
     return;
   }
 
-  const nextBalance = currentBalance + feeCents;
-  assertNextBalance(nextBalance);
-
-  const hash = walletPayloadHash({
-    riderProfileId: assignment.riderProfileId,
-    entryType: WalletEntryType.PLATFORM_FEE_REFUND,
-    amountCents: feeCents,
-    idempotencyKey: refundKey,
-    reason: null,
-    walletPaymentId: null,
-    actorType: WalletActorType.SYSTEM,
-    actorId: null,
-    now,
-  });
-
-  await tx.riderWalletEntry.create({
-    data: {
-      riderWalletId: wallet.id,
+  if (portions.wallet > 0) {
+    const nextBalance = currentBalance + portions.wallet;
+    assertNextBalance(nextBalance);
+    const hash = walletPayloadHash({
+      riderProfileId: assignment.riderProfileId,
       entryType: WalletEntryType.PLATFORM_FEE_REFUND,
-      amount: formatSignedCents(feeCents),
-      balanceAfter: formatSignedCents(nextBalance),
-      currency: Currency.USD,
-      configVersion: charge.configVersion,
+      amountCents: portions.wallet,
       idempotencyKey: refundKey,
-      payloadHash: hash,
-      walletPaymentId: null,
       reason: null,
+      walletPaymentId: null,
       actorType: WalletActorType.SYSTEM,
       actorId: null,
-      createdAt: now,
-    },
-  });
-
-  await tx.riderWallet.update({
-    where: { id: wallet.id },
-    data: { balance: formatSignedCents(nextBalance) },
-  });
-
-  if (await postedCents(tx, wallet.id) !== nextBalance) {
-    throw new ConflictException(LEDGER_MISMATCH);
+      now,
+    });
+    await tx.riderWalletEntry.create({
+      data: {
+        riderWalletId: wallet.id,
+        entryType: WalletEntryType.PLATFORM_FEE_REFUND,
+        amount: formatSignedCents(portions.wallet),
+        balanceAfter: formatSignedCents(nextBalance),
+        currency: Currency.USD,
+        configVersion,
+        idempotencyKey: refundKey,
+        payloadHash: hash,
+        walletPaymentId: null,
+        reason: null,
+        actorType: WalletActorType.SYSTEM,
+        actorId: null,
+        createdAt: now,
+      },
+    });
+    await tx.riderWallet.update({
+      where: { id: wallet.id },
+      data: { balance: formatSignedCents(nextBalance) },
+    });
+    if (await postedCents(tx, wallet.id) !== nextBalance) {
+      throw new ConflictException(LEDGER_MISMATCH);
+    }
+  }
+  if (portions.promo > 0) {
+    await restoreConsumedPromotional(tx, wallet, portions.promo, refundKey, configVersion, now);
   }
 }
 export function assignmentPlatformFeeRefundKey(assignmentId: string): string {
@@ -896,7 +1008,15 @@ export async function awardWelcomeBonus(
   now: Date,
 ): Promise<void> {
   const wallet = await lockedWallet(tx, riderProfileId, now);
-  if (wallet.welcomeBonusAwardedAt) {
+  const welcomeKey = `welcome-bonus:${riderProfileId}`;
+  const historical = await tx.riderWalletEntry.findUnique({ where: { idempotencyKey: welcomeKey } });
+  if (wallet.welcomeBonusAwardedAt || historical) {
+    if (!wallet.welcomeBonusAwardedAt) {
+      await tx.riderWallet.update({
+        where: { id: wallet.id },
+        data: { welcomeBonusAwardedAt: now },
+      });
+    }
     return;
   }
   const config = await tx.walletConfig.findFirst({ where: { isActive: true } });
@@ -933,6 +1053,7 @@ export async function createEmptyWallet(tx: Prisma.TransactionClient, riderProfi
       riderProfileId,
       currency: Currency.USD,
       balance: '0.00',
+      promotionalBalance: '0.00',
       borrowingLimitOverride: null,
       welcomeBonusAwardedAt: null,
       updatedAt: now,
@@ -965,16 +1086,27 @@ export async function readWalletSummary(tx: Prisma.TransactionClient, riderProfi
     limit = signedCentsFromDecimal(override);
   }
   // Open reservation rows reduce capacity and are not ledger entries, so they
-  // do not change balance.
-  const reserved = await reservedFeeCents(tx, wallet.id);
-  const available = Math.max(0, cached + limit - reserved);
+  // do not change either balance. Only the cash portion reduces main capacity.
+  const holds = await openHoldCents(tx, wallet.id);
+  const available = Math.max(0, cached + limit - holds.wallet);
+  const promotional = await readPromotionalPosition(tx, wallet);
+  const platformFee = config?.platformFee == null ? 0 : signedCentsFromDecimal(config.platformFee);
+  const positiveRate = await marketplaceRateIsPositive(tx);
   return {
     riderProfileId,
     balance: formatSignedCents(cached),
+    promotionalBalance: formatSignedCents(promotional.balance),
     borrowingLimit: formatSignedCents(limit),
     borrowingLimitSource: source,
-    reservedFees: formatSignedCents(reserved),
+    reservedFees: formatSignedCents(holds.total),
     availableCapacity: formatSignedCents(available),
+    availablePromotionalCredit: formatSignedCents(promotional.available),
+    newDeliveriesRestricted: newDeliveriesRestricted({
+      coverCents: available + promotional.available,
+      platformFeeCents: platformFee,
+      marketplace: v2MarketplaceEnabled(),
+      positivePublishedRate: positiveRate,
+    }),
     currency: Currency.USD,
   };
 }
@@ -1156,12 +1288,64 @@ async function postedCents(tx: Prisma.TransactionClient, riderWalletId: string):
   return signedCentsFromDecimal(aggregate._sum.amount);
 }
 
-async function reservedFeeCents(tx: Prisma.TransactionClient, riderWalletId: string): Promise<number> {
+async function openHoldCents(
+  tx: Prisma.TransactionClient,
+  riderWalletId: string,
+): Promise<{ total: number; wallet: number }> {
   const rows = await tx.walletFeeReservation.findMany({
     where: { riderWalletId, status: WalletFeeReservationStatus.OPEN },
-    select: { amount: true },
   });
-  return rows.reduce((sum, row) => sum + signedCentsFromDecimal(row.amount), 0);
+  return rows.reduce((sum, row) => {
+    const portions = reservationPortions(row);
+    return { total: sum.total + portions.total, wallet: sum.wallet + portions.wallet };
+  }, { total: 0, wallet: 0 });
+}
+
+export async function riderCanCoverPlatformFee(tx: Prisma.TransactionClient, riderProfileId: string): Promise<boolean> {
+  const config = await tx.walletConfig.findFirst({ where: { isActive: true } });
+  if (!config) {
+    return false;
+  }
+  const feeCents = signedCentsFromDecimal(config.platformFee);
+  if (feeCents === 0) {
+    return true;
+  }
+  const wallet = await tx.riderWallet.findUnique({ where: { riderProfileId } });
+  if (!wallet) {
+    return false;
+  }
+  const summary = await readWalletSummary(tx, riderProfileId);
+  const cover = signedCentsFromDecimal(summary.availableCapacity) + signedCentsFromDecimal(summary.availablePromotionalCredit);
+  return cover >= feeCents;
+}
+
+async function postPromotionalCredit(tx: Prisma.TransactionClient, command: CreditCommand): Promise<LedgerPosting> {
+  const input = normalizeLedger(command);
+  await lockWalletOwner(tx, input.riderProfileId);
+  const wallet = await lockedWallet(tx, input.riderProfileId, input.now);
+  const posted = await postedCents(tx, wallet.id);
+  if (posted !== signedCentsFromDecimal(wallet.balance)) {
+    throw new ConflictException(LEDGER_MISMATCH);
+  }
+  const config = await tx.walletConfig.findFirst({ where: { isActive: true } });
+  if (!config) {
+    throw new ConflictException(WALLET_CONFIG_MISSING);
+  }
+  const entryType = input.entryType;
+  if (entryType !== WalletEntryType.WELCOME_BONUS && entryType !== WalletEntryType.PROMOTIONAL_CREDIT) {
+    throw new BadRequestException('Enter a credit type');
+  }
+  return issuePromotionalCredit(tx, wallet, {
+    riderProfileId: input.riderProfileId,
+    entryType,
+    amountCents: input.amountCents,
+    idempotencyKey: input.idempotencyKey,
+    reason: input.reason,
+    actorType: input.actorType,
+    actorId: input.actorId,
+    now: input.now,
+    configVersion: config.configVersion,
+  });
 }
 
 function toPosting(entry: EntryRow, riderProfileId: string, replayed: boolean): LedgerPosting {

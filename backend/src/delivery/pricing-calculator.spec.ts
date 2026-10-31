@@ -37,6 +37,47 @@ describe('pricing calculator', () => {
     expect(calculateTariffPrice(tierTariff(), 2_500, AT).suggestedPriceCents).toBe(450);
   });
 
+  it('charges the included distance once and the per-kilometre rate only on the excess', () => {
+    const snapshot = includedTariff();
+    const prices: Array<[number, number]> = [
+      [100, 500],
+      [3_000, 500],
+      [5_000, 500],
+      [5_001, 500],
+      [6_000, 580],
+      [8_000, 740],
+      [10_000, 900],
+      [15_000, 1_300],
+    ];
+    for (const [metres, cents] of prices) {
+      expect(calculateTariffPrice(snapshot, metres, AT).suggestedPriceCents).toBe(cents);
+    }
+    expect(calculateTariffPrice(snapshot, 5_006, AT).suggestedPriceCents).toBe(500);
+    expect(calculateTariffPrice(snapshot, 5_007, AT).suggestedPriceCents).toBe(501);
+    expect(calculateTariffPrice(includedTariff({ pricePerKilometreCents: 50 }), 5_010, AT).suggestedPriceCents).toBe(501);
+    expect(calculateTariffPrice(snapshot, 100_000, AT).suggestedPriceCents).toBe(8_100);
+    expect(() => calculateTariffPrice(snapshot, 99, AT)).toThrow('outside the configured range');
+    expect(() => calculateTariffPrice(snapshot, 100_001, AT)).toThrow('outside the configured range');
+  });
+
+  it('applies a pricing window after the included-distance charge', () => {
+    const priced = calculateTariffPrice(includedTariff({
+      windows: [window({ adjustmentBasisPoints: 1_000 })],
+    }), 6_000, AT);
+    expect(priced).toMatchObject({ basisPoints: 1_000, pricingWindow: { id: 'peak', kind: 'PEAK' }, suggestedPriceCents: 638 });
+    expect(calculateTariffPrice(includedTariff({
+      windows: [window({ enabled: false, adjustmentBasisPoints: 1_000 })],
+    }), 6_000, AT).suggestedPriceCents).toBe(580);
+  });
+
+  it('rejects an included distance on the wrong model or outside the trip', () => {
+    expect(() => calculateTariffPrice(includedTariff({ includedMetres: null }), 1_000, AT)).toThrow('included distance is invalid');
+    expect(() => calculateTariffPrice(includedTariff({ includedMetres: 0 }), 1_000, AT)).toThrow('included distance is invalid');
+    expect(() => calculateTariffPrice(includedTariff({ includedMetres: 50 }), 1_000, AT)).toThrow('outside the configured range');
+    expect(() => calculateTariffPrice(tariff({ includedMetres: 5_000 }), 0, AT)).toThrow('belongs only to the included-distance model');
+    expect(calculateTariffPrice(tariff(), 0, AT).suggestedPriceCents).toBe(200);
+  });
+
   it('splits 1500 metres into 1000 at the first rate and 500 at the second', () => {
     const snapshot = tierTariff([
       { position: 1, upToMetres: 1_000, amountCents: 1_000 },
@@ -282,16 +323,18 @@ describe('pricing calculator', () => {
     expect(() => calculateTariffPrice(tariff(), 0, new Date('not-a-date'))).toThrow('Pricing instant is invalid');
   });
 
-  it('keeps V1 quote and delivery creation on the existing formula', () => {
+  it('quotes and creates deliveries through the class-tariff path', () => {
     const source = readFileSync('src/delivery/delivery.service.ts', 'utf8');
-    const v1Quote = source.slice(source.indexOf('async quote('), source.indexOf('async create('));
+    const quote = source.slice(source.indexOf('async quote('), source.indexOf('async create('));
     const create = source.slice(source.indexOf('async create('), source.indexOf('private async createV2Request'));
-    expect(v1Quote).toContain('priceMetres');
-    expect(v1Quote).not.toContain('calculateTariffPrice');
-    expect(create).toContain('priceMetres');
-    expect(create).not.toContain('calculateTariffPrice');
-    expect(source.slice(source.indexOf('private async createV2Request'))).toContain('calculateTariffPrice');
-    expect(source).toContain('suggestedCents');
+    const createV2 = source.slice(source.indexOf('private async createV2Request'), source.indexOf('private async quoteServiceClass'));
+    const quoteClass = source.slice(source.indexOf('private async quoteServiceClass'), source.indexOf('private async roadMetres'));
+    expect(quote).toContain('return this.quoteServiceClass(request)');
+    expect(quote).not.toContain('priceMetres');
+    expect(create).toContain('return this.createV2Request(customer, body)');
+    expect(create).not.toContain('priceMetres');
+    expect(createV2).toContain('calculateTariffPrice');
+    expect(quoteClass).toContain('calculateTariffPrice');
   });
 });
 
@@ -311,10 +354,23 @@ function tariff(overrides: Partial<TariffSnapshot> = {}): TariffSnapshot {
     pricePerKilometreCents: 100,
     minimumTripMetres: 0,
     maximumTripMetres: 10_000,
+    includedMetres: null,
     tiers: [],
     windows: [],
     ...overrides,
   };
+}
+
+function includedTariff(overrides: Partial<TariffSnapshot> = {}): TariffSnapshot {
+  return tariff({
+    pricingModel: PricingModel.INCLUDED_DISTANCE,
+    baseFeeCents: 500,
+    pricePerKilometreCents: 80,
+    minimumTripMetres: 100,
+    maximumTripMetres: 100_000,
+    includedMetres: 5_000,
+    ...overrides,
+  });
 }
 
 function tierTariff(tiers?: PricingTierSnapshot[]): TariffSnapshot {

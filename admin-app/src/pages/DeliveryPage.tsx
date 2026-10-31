@@ -59,7 +59,7 @@ export function DeliveryPage() {
                 <span>Rider {assignment.riderName || assignment.riderProfileId}</span>
                 <span>Motorcycle {assignment.motorcycleId ?? '—'}</span>
                 {assignment.releaseReason ? <span>Release {label(assignment.releaseReason)} · {when(assignment.releasedAt)}</span> : null}
-                <span>Offered until {when(assignment.offerExpiresAt)}</span>
+                {assignment.offerExpiresAt ? <span>Offered until {when(assignment.offerExpiresAt)}</span> : null}
               </article></li>
             ))}
           </ul>
@@ -77,7 +77,7 @@ function MarketplaceRecord({ delivery }: { delivery: DeliveryDetail }) {
       <section className="panel">
         <h2>Marketplace booking</h2>
         <p><strong>Service.</strong> {label(delivery.serviceClass ?? '')}</p>
-        <p><strong>Deliver by.</strong> {when(delivery.deliverBy)}</p>
+        {delivery.deliverBy ? <p><strong>Deliver by.</strong> {when(delivery.deliverBy)}</p> : null}
         <p><strong>Status.</strong> {label(delivery.status)}</p>
         <p><strong>Suggested price.</strong> {delivery.suggestedPrice ? `${delivery.currency} ${delivery.suggestedPrice}` : '—'}</p>
         <p><strong>Agreed price.</strong> {agreed ? `${delivery.currency} ${agreed}` : '—'}</p>

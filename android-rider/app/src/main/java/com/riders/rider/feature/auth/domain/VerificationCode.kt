@@ -5,5 +5,8 @@ package com.riders.rider.feature.auth.domain
 private val VERIFICATION_CODE = Regex("^\\d{4,10}$")
 
 const val VERIFICATION_CODE_MAX_LENGTH = 10
+const val OTP_BOX_COUNT = 6
 
 fun isVerificationCode(code: String): Boolean = VERIFICATION_CODE.matches(code)
+
+fun fitOtpDigits(value: String): String = value.filter(Char::isDigit).take(OTP_BOX_COUNT)

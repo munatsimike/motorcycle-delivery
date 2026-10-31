@@ -28,6 +28,8 @@ describe('nearby rider availability', () => {
     expect(db.calls).toHaveLength(1);
     expect(db.calls[0]?.sql).toContain('ST_DWithin');
     expect(db.calls[0]?.sql).toContain(`'AVAILABLE'`);
+    expect(db.calls[0]?.sql).toContain('receiving_requests" IS NOT FALSE');
+    expect(db.calls[0]?.sql).toContain(`'ACCEPTED'`);
     expect(db.calls[0]?.sql).toContain('APPROVED');
     expect(db.calls[0]?.sql).toContain('VERIFIED');
     expect(db.calls[0]?.values).toContain(NEARBY_RIDER_RADIUS_METRES);

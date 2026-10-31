@@ -186,7 +186,7 @@ function context(options: { pauseFirstLock?: boolean } = {}) {
   const payments: Array<Record<string, unknown>> = [];
   const locks: string[] = [];
   const state = { pauseFirstLock: options.pauseFirstLock ?? false, paused: false, waiting: 0 };
-  let releasePause = () => undefined;
+  let releasePause: () => void = () => undefined;
   const pause = new Promise<void>((resolve) => {
     releasePause = resolve;
   });
@@ -211,7 +211,7 @@ function context(options: { pauseFirstLock?: boolean } = {}) {
       await holders.get(id)?.wait;
       state.waiting -= 1;
     }
-    let resolve = () => undefined;
+    let resolve: () => void = () => undefined;
     const wait = new Promise<void>((done) => {
       resolve = done;
     });
@@ -307,7 +307,7 @@ function context(options: { pauseFirstLock?: boolean } = {}) {
       if (sql.includes('rider_wallets') && sql.includes('FOR UPDATE')) locks.push('wallet');
       return undefined;
     },
-    async $transaction<T>(callback: (tx: typeof db) => Promise<T>) {
+    async $transaction<T>(callback: (tx: object) => Promise<T>) {
       const txId = ++txSerial;
       const releases: Array<() => void> = [];
       const snapshot = {

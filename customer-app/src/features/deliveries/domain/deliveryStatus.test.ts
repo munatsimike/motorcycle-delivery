@@ -6,8 +6,13 @@ import {
   HISTORY_DELIVERY_STATUSES,
   deliveriesInGroup,
   deliveryGroup,
+  deliveryCardStatusLabel,
   deliveryListLabel,
+  showsViewBids,
+  deliveryCanDelete,
   deliveryCanSearchAgain,
+  usesDeliveryOutcomeScreen,
+  trackingRequestActions,
   deliveryStatusLabel,
   deliveryUsesPackageIcon,
   type CustomerDelivery,
@@ -77,6 +82,22 @@ describe('deliveryStatusLabel', () => {
   });
 });
 
+describe('usesDeliveryOutcomeScreen', () => {
+  it('opens collected, delivered, cancelled, failed, and no-rider deliveries on the detail screen', () => {
+    expect(usesDeliveryOutcomeScreen('COLLECTED')).toBe(true);
+    expect(usesDeliveryOutcomeScreen('PICKED_UP')).toBe(true);
+    expect(usesDeliveryOutcomeScreen('OUT_FOR_DELIVERY')).toBe(true);
+    expect(usesDeliveryOutcomeScreen('IN_TRANSIT')).toBe(true);
+    expect(usesDeliveryOutcomeScreen('ARRIVED_AT_DROPOFF')).toBe(true);
+    expect(usesDeliveryOutcomeScreen('DELIVERED')).toBe(true);
+    expect(usesDeliveryOutcomeScreen('CANCELLED')).toBe(true);
+    expect(usesDeliveryOutcomeScreen('FAILED')).toBe(true);
+    expect(usesDeliveryOutcomeScreen('NO_RIDER_FOUND')).toBe(true);
+    expect(usesDeliveryOutcomeScreen('RIDER_ASSIGNED')).toBe(false);
+    expect(usesDeliveryOutcomeScreen('COLLECTING')).toBe(false);
+  });
+});
+
 describe('deliveryUsesPackageIcon', () => {
   it('uses a package icon for deliveries that are not active', () => {
     expect(deliveryUsesPackageIcon('DELIVERED')).toBe(true);
@@ -89,11 +110,59 @@ describe('deliveryUsesPackageIcon', () => {
 
 describe('marketplace list labels', () => {
   it('waits for bids on an open V2 request and keeps V1 search on the V1 path', () => {
-    expect(deliveryListLabel({ status: 'CREATED', serviceClass: 'FLEXIBLE' })).toBe('Waiting for bids');
+    expect(deliveryListLabel({ status: 'CREATED', serviceClass: 'FLEXIBLE', deliverBy: '2026-10-24T16:30:00.000Z' })).toBe('Waiting for bids');
+    expect(deliveryListLabel({ status: 'CREATED', serviceClass: 'FLEXIBLE', deliverBy: null })).toBe('Waiting for bids');
+    expect(deliveryListLabel({ status: 'CREATED', serviceClass: null, deliverBy: null })).toBe('Pending');
     expect(deliveryListLabel({ status: 'CREATED', serviceClass: null })).toBe('Pending');
     expect(deliveryListLabel({ status: 'SEARCHING', serviceClass: null })).toBe('Finding a rider');
-    expect(deliveryCanSearchAgain({ status: 'NO_RIDER_FOUND', serviceClass: null })).toBe(true);
-    expect(deliveryCanSearchAgain({ status: 'NO_RIDER_FOUND', serviceClass: 'EXPRESS' })).toBe(false);
-    expect(deliveryCanSearchAgain({ status: 'CREATED', serviceClass: 'FLEXIBLE' })).toBe(false);
+    expect(deliveryCanSearchAgain({ status: 'NO_RIDER_FOUND', serviceClass: null })).toBe(false);
+    expect(deliveryCanSearchAgain({ status: 'NO_RIDER_FOUND', serviceClass: 'EXPRESS', deliverBy: null })).toBe(true);
+    expect(deliveryCanSearchAgain({ status: 'NO_RIDER_FOUND', serviceClass: 'FLEXIBLE', deliverBy: null })).toBe(true);
+    expect(deliveryCanSearchAgain({ status: 'NO_RIDER_FOUND', serviceClass: 'EXPRESS', deliverBy: '2026-10-24T16:30:00.000Z' }, Date.parse('2026-10-27T12:00:00.000Z'))).toBe(false);
+    expect(deliveryCanSearchAgain({ status: 'NO_RIDER_FOUND', serviceClass: 'FLEXIBLE', deliverBy: '2026-12-01T12:00:00.000Z' }, Date.parse('2026-10-27T12:00:00.000Z'))).toBe(true);
+    expect(deliveryCanSearchAgain({ status: 'CREATED', serviceClass: 'FLEXIBLE', deliverBy: '2026-10-24T16:30:00.000Z' })).toBe(false);
+  });
+
+  it('shows a bid count only while a marketplace request has actionable bids', () => {
+    const waiting = { status: 'CREATED' as const, serviceClass: 'FLEXIBLE' as const, deliverBy: '2026-10-24T16:30:00.000Z' };
+    expect(deliveryCardStatusLabel({ ...waiting, openBidCount: 0 })).toBe('Waiting for bids');
+    expect(showsViewBids({ ...waiting, openBidCount: 0 })).toBe(false);
+    expect(deliveryCardStatusLabel({ ...waiting, openBidCount: 1 })).toBe('1 bid received');
+    expect(showsViewBids({ ...waiting, openBidCount: 1 })).toBe(true);
+    expect(deliveryCardStatusLabel({ ...waiting, openBidCount: 4 })).toBe('4 bids received');
+    expect(showsViewBids({ ...waiting, openBidCount: 4 })).toBe(true);
+    expect(deliveryCardStatusLabel({ status: 'SEARCHING', serviceClass: null, openBidCount: 3 })).toBe('Finding a rider');
+    expect(showsViewBids({ status: 'SEARCHING', serviceClass: null, openBidCount: 3 })).toBe(false);
+    expect(deliveryCardStatusLabel({ status: 'RIDER_ASSIGNED', serviceClass: 'EXPRESS', openBidCount: 2 })).toBe('Rider assigned');
+    expect(showsViewBids({ status: 'RIDER_ASSIGNED', serviceClass: 'EXPRESS', openBidCount: 2 })).toBe(false);
+  });
+
+  it('shows delete for every no-rider request and search again for legacy or an open marketplace request', () => {
+    const now = Date.parse('2026-10-27T12:00:00.000Z');
+    expect(trackingRequestActions({ status: 'NO_RIDER_FOUND', serviceClass: null }, now)).toEqual({
+      searchAgain: false,
+      deleteRequest: true,
+    });
+    expect(trackingRequestActions({ status: 'NO_RIDER_FOUND', serviceClass: 'FLEXIBLE', deliverBy: null }, now)).toEqual({
+      searchAgain: true,
+      deleteRequest: true,
+    });
+    expect(trackingRequestActions({ status: 'NO_RIDER_FOUND', serviceClass: 'EXPRESS', deliverBy: '2026-10-24T16:30:00.000Z' }, now)).toEqual({
+      searchAgain: false,
+      deleteRequest: true,
+    });
+    expect(deliveryCanDelete({ status: 'NO_RIDER_FOUND' })).toBe(true);
+    expect(trackingRequestActions({ status: 'ASSIGNED', serviceClass: 'FLEXIBLE' })).toEqual({
+      searchAgain: false,
+      deleteRequest: false,
+    });
+    expect(trackingRequestActions({ status: 'SEARCHING', serviceClass: null })).toEqual({
+      searchAgain: false,
+      deleteRequest: false,
+    });
+    expect(trackingRequestActions({ status: 'CREATED', serviceClass: 'FLEXIBLE', deliverBy: '2026-10-24T16:30:00.000Z' })).toEqual({
+      searchAgain: false,
+      deleteRequest: false,
+    });
   });
 });

@@ -24,6 +24,10 @@ data class ActiveDelivery(
     val dropoffAddress: String = "",
     val dropoffLandmark: String? = null,
     val dropoffInstructions: String? = null,
+    val serviceClass: String? = null,
+    val distanceMeters: Int? = null,
+    val createdAt: String? = null,
+    val agreedPrice: String? = null,
 )
 
 data class DeliveryContacts(
@@ -53,6 +57,9 @@ fun OfferResponse.toActiveDelivery(deliveryId: String, assignmentId: String, sta
         dropoffAddress = dropoff.address,
         dropoffLandmark = dropoff.landmark,
         dropoffInstructions = dropoff.instructions,
+        serviceClass = serviceClass,
+        distanceMeters = distanceMeters,
+        agreedPrice = offeredPrice,
     )
 }
 
@@ -70,6 +77,10 @@ fun ActiveAssignmentBody.toActiveDelivery(): ActiveDelivery {
         dropoffAddress = dropoff.address,
         dropoffLandmark = dropoff.landmark,
         dropoffInstructions = dropoff.instructions,
+        serviceClass = serviceClass,
+        distanceMeters = distanceMeters,
+        createdAt = createdAt,
+        agreedPrice = agreedPrice,
     )
 }
 
@@ -229,6 +240,27 @@ class DeliveryRecoveryCoordinator(
         }
         return decision
     }
+}
+
+private val internationalPhone = Regex("^\\+[1-9]\\d{7,14}$")
+
+fun senderInitials(name: String): String {
+    val letters = name.trim().split(Regex("\\s+"))
+        .filter { it.isNotEmpty() }
+        .take(2)
+        .mapNotNull { word -> word.firstOrNull { it.isLetter() }?.uppercaseChar() }
+        .joinToString("")
+    return letters.ifEmpty { "S" }
+}
+
+fun senderDialUri(phone: String): String? {
+    val value = phone.trim()
+    return if (internationalPhone.matches(value)) "tel:$value" else null
+}
+
+fun senderWhatsAppUri(phone: String): String? {
+    val value = phone.trim()
+    return if (internationalPhone.matches(value)) "whatsapp://send?phone=${value.drop(1)}" else null
 }
 
 fun loadedDelivery(stored: ActiveDelivery?, offerCache: List<OfferResponse>, deliveryId: String): ActiveDelivery? {

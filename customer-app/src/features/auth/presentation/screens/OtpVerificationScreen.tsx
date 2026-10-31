@@ -11,8 +11,8 @@ import { useHeaderHeight } from '@react-navigation/elements';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import ErrorMessage from '../../../../components/ErrorMessage';
-import FormInput from '../../../../components/FormInput';
 import PrimaryButton from '../../../../components/PrimaryButton';
+import OtpCodeBoxes from '../components/OtpCodeBoxes';
 import SecondaryButton from '../../../../components/SecondaryButton';
 import type { RootStackParamList } from '../../../../navigation/types';
 import { colors, spacing, typography } from '../../../../theme';
@@ -73,15 +73,9 @@ export default function OtpVerificationScreen({ navigation, route }: OtpProps) {
         <Text style={styles.subtitle}>
           {`Enter the WhatsApp code sent to ${phone}. The account stays signed out until this code is accepted.`}
         </Text>
-        <FormInput
-          label="Verification code"
+        <OtpCodeBoxes
           value={code}
           onChangeText={setCode}
-          placeholder="Enter code"
-          keyboardType="number-pad"
-          autoComplete="sms-otp"
-          textContentType="oneTimeCode"
-          maxLength={10}
           editable={!isLoading}
           invalid={Boolean(saveError ?? error)}
         />
@@ -117,7 +111,7 @@ const styles = StyleSheet.create({
   },
   content: {
     flexGrow: 1,
-    paddingHorizontal: spacing.xl,
+    paddingHorizontal: spacing.lg,
     paddingTop: spacing.lg,
     paddingBottom: spacing.xxl,
   },

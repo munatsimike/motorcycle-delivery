@@ -3,6 +3,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import BrandLogo from '../components/BrandLogo';
+import { deviceReplacementNotice } from '../features/auth/domain/sessionGate';
 import PrimaryButton from '../components/PrimaryButton';
 import SecondaryButton from '../components/SecondaryButton';
 import type { RootStackParamList } from './types';
@@ -11,10 +12,12 @@ import { colors, spacing, typography } from '../theme';
 type WelcomeProps = NativeStackScreenProps<RootStackParamList, 'Welcome'>;
 
 export default function WelcomeScreen({ navigation }: WelcomeProps) {
+  const notice = deviceReplacementNotice();
   return (
     <SafeAreaView style={styles.screen}>
       <View style={styles.content}>
         <BrandLogo />
+        {notice ? <Text style={styles.notice}>{notice}</Text> : null}
         <Text style={styles.heading}>Deliver with Riders</Text>
         <Text style={styles.description}>
           Sign in to see your rider account. Delivery requests will be added later.
@@ -39,6 +42,12 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     gap: spacing.lg,
+  },
+  notice: {
+    fontSize: typography.body,
+    lineHeight: 24,
+    color: colors.error,
+    textAlign: 'center',
   },
   heading: {
     fontSize: typography.title,

@@ -4,7 +4,14 @@ import { ApiError } from './apiError';
 import type { AuthSession } from './auth.types';
 import type { RiderAuthRepository } from './repositories/RiderAuthRepository';
 import type { RiderSessionStore } from './repositories/RiderSessionStore';
-import { RiderSessionGate, unauthorized } from './sessionGate';
+import {
+  RIDER_SIGNED_IN_ELSEWHERE,
+  RiderSessionGate,
+  SessionReplacedError,
+  clearDeviceReplacementNotice,
+  deviceReplacementNotice,
+  unauthorized,
+} from './sessionGate';
 
 const NOW = Date.parse('2026-10-16T15:00:00.000Z');
 
@@ -150,6 +157,26 @@ describe('rider session gate', () => {
     await gate.logout('all');
     expect(calls).toEqual(['current:access-1', 'all:access-1']);
     await expect(store.load()).resolves.toBeNull();
+  });
+
+  it('clears credentials and does not refresh after another device signs in', async () => {
+    clearDeviceReplacementNotice();
+    const store = memoryStore(session('1', '2026-10-16T15:10:00.000Z'));
+    let refreshed = 0;
+    const gate = new RiderSessionGate(repository({
+      refresh: async () => {
+        refreshed += 1;
+        return session('2', '2026-10-16T15:20:00.000Z');
+      },
+    }), store);
+
+    await expect(gate.authorized(async () => {
+      throw new ApiError(RIDER_SIGNED_IN_ELSEWHERE, 401);
+    }, NOW)).rejects.toBeInstanceOf(SessionReplacedError);
+    expect(refreshed).toBe(0);
+    await expect(store.load()).resolves.toBeNull();
+    expect(deviceReplacementNotice()).toBe(RIDER_SIGNED_IN_ELSEWHERE);
+    clearDeviceReplacementNotice();
   });
 
   it('clears credentials when logout is rejected', async () => {

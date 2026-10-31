@@ -36,6 +36,7 @@ describe('signed-in rider bid read', () => {
       serviceClass: ServiceClass.FLEXIBLE,
       pickupAddress: 'Pickup',
       dropoffAddress: 'Dropoff',
+      suggestedPrice: '9.00',
     });
     expect(JSON.stringify(first)).not.toContain(OTHER);
     expect(JSON.stringify(first)).not.toContain('pickupContactPhone');
@@ -81,6 +82,8 @@ function stored(id: string, riderProfileId: string, createdAt: string) {
       pickupAddress: 'Pickup',
       dropoffAddress: 'Dropoff',
       deliverBy: new Date('2026-10-24T18:00:00.000Z'),
+      parcelDescription: 'Parcel',
+      suggestedPrice: '9.00',
       pickupContactPhone: '+263770000099',
     },
   };

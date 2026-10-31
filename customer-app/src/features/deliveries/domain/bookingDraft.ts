@@ -121,11 +121,7 @@ export function prepareBooking(
   const marketplace = options?.marketplace === true;
   if (marketplace) {
     if (draft.serviceClass !== 'EXPRESS' && draft.serviceClass !== 'FLEXIBLE') {
-      return { ok: false, error: 'Choose Express or Flexible' };
-    }
-    const deadline = deadlineError(draft.deliverBy);
-    if (deadline) {
-      return { ok: false, error: deadline };
+      return { ok: false, error: 'Choose Urgent or Flexible' };
     }
   } else {
     if (!draft.payer) {
@@ -146,9 +142,9 @@ export function prepareBooking(
         instructions,
       },
       payer: marketplace ? null : draft.payer,
-      paymentMethod: marketplace ? null : draft.paymentMethod,
-      serviceClass: marketplace ? draft.serviceClass : null,
-      deliverBy: marketplace ? draft.deliverBy : null,
+      paymentMethod: draft.paymentMethod,
+      serviceClass: marketplace ? (draft.serviceClass === 'EXPRESS' ? 'EXPRESS' : 'FLEXIBLE') : null,
+      deliverBy: null,
       pinKey: pinKey(pickup.stop, dropoff.stop),
     },
   };
@@ -176,8 +172,8 @@ export function quoteBody(booking: PreparedBooking) {
 }
 
 export function createBody(booking: PreparedBooking, offeredPrice: string) {
-  if (booking.serviceClass && booking.deliverBy) {
-    return v2CreateBody(booking);
+  if (booking.serviceClass) {
+    return v2CreateBody(booking, offeredPrice);
   }
   return {
     pickup: stopBody(booking.pickup),
@@ -190,21 +186,22 @@ export function createBody(booking: PreparedBooking, offeredPrice: string) {
   };
 }
 
-export function v2CreateBody(booking: PreparedBooking) {
+export function v2CreateBody(booking: PreparedBooking, offeredPrice: string) {
   if (booking.serviceClass !== 'EXPRESS' && booking.serviceClass !== 'FLEXIBLE') {
-    throw new Error('Choose Express or Flexible');
+    throw new Error('Choose Urgent or Flexible');
   }
-  if (!booking.deliverBy) {
-    throw new Error('Enter the delivery deadline');
-  }
-  return {
+  const body = {
     pickup: stopBody(booking.pickup),
     dropoff: stopBody(booking.dropoff),
     parcel: booking.parcel,
     serviceClass: booking.serviceClass,
-    deliverBy: booking.deliverBy,
+    offeredPrice,
     currency: 'USD' as const,
   };
+  if (!booking.paymentMethod) {
+    return body;
+  }
+  return { ...body, paymentMethod: booking.paymentMethod };
 }
 
 export function stopError(stop: StopDraft, label: 'pickup' | 'drop-off'): string | null {
@@ -242,9 +239,9 @@ export function parcelError(draft: BookingDraft, marketplace = false): string | 
   }
   if (marketplace) {
     if (draft.serviceClass !== 'EXPRESS' && draft.serviceClass !== 'FLEXIBLE') {
-      return 'Choose Express or Flexible';
+      return 'Choose Urgent or Flexible';
     }
-    return deadlineError(draft.deliverBy);
+    return null;
   }
   if (!draft.payer) {
     return 'Choose who pays the rider';

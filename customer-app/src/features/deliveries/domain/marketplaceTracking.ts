@@ -1,10 +1,20 @@
-import type { CustomerDeliveryDetail } from './customerDeliveryDetail';
-import { deliveryHasMapCoordinates } from './customerDeliveryDetail';
+import { keepsRiderLocation, type CustomerDeliveryDetail } from './customerDeliveryDetail';
+import { riderFixIsFresh } from './trackingDisplay';
 
 export type LocationPresentation =
   | { kind: 'none' }
   | { kind: 'waiting' }
   | { kind: 'rider'; deliveryId: string; latitude: number; longitude: number };
+
+export type MapCoordinate = {
+  latitude: number;
+  longitude: number;
+};
+
+export type TrackingMapView =
+  | { kind: 'hidden' }
+  | { kind: 'awaiting'; deliveryId: string; pickup: MapCoordinate | null }
+  | { kind: 'live'; deliveryId: string; rider: MapCoordinate; pickup: MapCoordinate | null };
 
 const LIVE_DELIVERY_STATUSES = new Set([
   'CREATED',
@@ -14,8 +24,24 @@ const LIVE_DELIVERY_STATUSES = new Set([
   'OUT_FOR_DELIVERY',
 ]);
 
-export function isMarketplaceDelivery(delivery: { serviceClass: CustomerDeliveryDetail['serviceClass'] } | null): boolean {
-  return delivery?.serviceClass === 'EXPRESS' || delivery?.serviceClass === 'FLEXIBLE';
+const V1_PROGRESS_STATUSES = new Set([
+  'SEARCHING',
+  'ASSIGNED',
+  'ARRIVED_AT_PICKUP',
+  'PICKED_UP',
+  'IN_TRANSIT',
+  'ARRIVED_AT_DROPOFF',
+]);
+
+export function isMarketplaceDelivery(delivery: {
+  serviceClass: CustomerDeliveryDetail['serviceClass'];
+  status?: string;
+  deliverBy?: string | null;
+} | null): boolean {
+  if (delivery?.serviceClass !== 'EXPRESS' && delivery?.serviceClass !== 'FLEXIBLE') {
+    return false;
+  }
+  return !delivery.status || !V1_PROGRESS_STATUSES.has(delivery.status);
 }
 
 export function shouldPollDelivery(delivery: CustomerDeliveryDetail | null): boolean {
@@ -27,7 +53,7 @@ export function shouldPollBids(delivery: CustomerDeliveryDetail | null): boolean
 }
 
 export function locationPresentation(activeDeliveryId: string, delivery: CustomerDeliveryDetail | null): LocationPresentation {
-  if (!delivery || delivery.id !== activeDeliveryId || delivery.status !== 'COLLECTING') {
+  if (!delivery || delivery.id !== activeDeliveryId || !keepsRiderLocation(delivery.status)) {
     return { kind: 'none' };
   }
   if (!delivery.riderLocation) {
@@ -45,21 +71,28 @@ export function showsRiderMap(presentation: LocationPresentation): boolean {
   return presentation.kind === 'rider';
 }
 
-export function showsStaticRoutePreview(delivery: CustomerDeliveryDetail | null): boolean {
-  return Boolean(
-    delivery
-    && delivery.serviceClass == null
-    && delivery.status === 'SEARCHING'
-    && deliveryHasMapCoordinates(delivery),
-  );
+export function trackingMapView(delivery: CustomerDeliveryDetail, now: number): TrackingMapView {
+  if (!keepsRiderLocation(delivery.status)) {
+    return { kind: 'hidden' };
+  }
+  const pickup = mapCoordinate(delivery.pickupLatitude, delivery.pickupLongitude);
+  const point = delivery.riderLocation;
+  if (point && riderFixIsFresh(point.updatedAt, now)) {
+    return {
+      kind: 'live',
+      deliveryId: delivery.id,
+      rider: { latitude: point.latitude, longitude: point.longitude },
+      pickup,
+    };
+  }
+  return { kind: 'awaiting', deliveryId: delivery.id, pickup };
 }
 
-export function staticRouteIsRiderLocation(): boolean {
-  return false;
-}
-
-export function usesV1Search(delivery: CustomerDeliveryDetail | null): boolean {
-  return !isMarketplaceDelivery(delivery);
+function mapCoordinate(latitude: number | null, longitude: number | null): MapCoordinate | null {
+  if (latitude === null || longitude === null) {
+    return null;
+  }
+  return { latitude, longitude };
 }
 
 export function visibleBidError(status: string, error: string | null): string | null {

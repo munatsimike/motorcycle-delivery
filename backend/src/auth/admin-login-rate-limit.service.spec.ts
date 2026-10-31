@@ -14,7 +14,7 @@ describe('Admin login rate limiting', () => {
   };
 
   const prisma = {
-    $transaction: vi.fn(async (callback: (tx: typeof tx) => Promise<void>) =>
+    $transaction: vi.fn(async (callback: (transaction: typeof tx) => Promise<void>) =>
       callback(tx),
     ),
   };

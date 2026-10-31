@@ -15,6 +15,9 @@ export function riderSearchView(input: {
   if (!input.hasDelivery && input.isLoading) {
     return 'loading';
   }
+  if (!input.hasDelivery && input.error && !isConnectionError(input.error)) {
+    return 'details';
+  }
   if (!input.hasDelivery) {
     return 'offline';
   }
@@ -22,7 +25,7 @@ export function riderSearchView(input: {
     return 'offline';
   }
   if (input.status === 'SEARCHING') {
-    return 'searching';
+    return 'details';
   }
   if (input.status === 'ASSIGNED') {
     return 'assigned';

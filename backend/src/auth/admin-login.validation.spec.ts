@@ -1,7 +1,7 @@
 import {
   parseAdminLoginRequest,
   parseAdminVerifyRequest,
-} from './admin-login.validation';
+} from './admin-login.validation.js';
 
 describe('Admin login request validation', () => {
   const challengeId = '0199aabb-ccdd-7eee-8fff-123456789abc';

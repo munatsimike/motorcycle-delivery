@@ -4,7 +4,7 @@ import { Link, useParams } from 'react-router-dom';
 import { adminApi, recordTopUp, type TopUpResult } from '../lib/client';
 import { label, when } from '../lib/labels';
 import { moneyValue, newTopUpKey, type TopUpDraft, type TopUpMethod } from '../lib/money';
-import type { RiderDetail } from '../lib/types';
+import type { RiderDetail, RiderWalletSummary } from '../lib/types';
 import { Dialog, ErrorNote, Loading, Status, SuccessNote, textOf } from '../ui';
 
 type Confirm =
@@ -35,6 +35,13 @@ export function RiderPage() {
   const [received, setReceived] = useState(false);
   const [topUp, setTopUp] = useState<TopUpDraft | null>(null);
   const [topUpResult, setTopUpResult] = useState<TopUpResult | null>(null);
+  const [limitAmount, setLimitAmount] = useState('');
+  const [limitDraft, setLimitDraft] = useState<{ borrowingLimit: string | null } | null>(null);
+  const wallet = useQuery({
+    queryKey: ['rider-wallet', riderProfileId],
+    queryFn: () => adminApi.request<RiderWalletSummary>(`/admin/riders/${riderProfileId}/wallet`),
+    enabled: riderProfileId.length > 0,
+  });
 
   const action = useMutation({
     mutationFn: async (next: Exclude<Confirm, null>) => {
@@ -63,6 +70,19 @@ export function RiderPage() {
       setSuccess('Saved.');
       setConfirm(null);
       await queryClient.invalidateQueries({ queryKey: ['rider', riderProfileId] });
+    },
+  });
+
+  const limit = useMutation({
+    mutationFn: (body: { borrowingLimit: string | null }) => adminApi.request<RiderWalletSummary>(`/admin/riders/${riderProfileId}/wallet/negative-limit`, {
+      method: 'PUT',
+      body,
+    }),
+    onSuccess: async (result) => {
+      setLimitDraft(null);
+      setLimitAmount('');
+      setSuccess('Negative wallet limit saved.');
+      queryClient.setQueryData(['rider-wallet', riderProfileId], result);
     },
   });
 
@@ -175,6 +195,39 @@ export function RiderPage() {
         )}
       </section>
       <section className="panel">
+        <h2>Negative wallet limit</h2>
+        <p className="muted">Platform fees can be deducted while the balance is below zero. Saving a limit does not change the wallet balance or open reservations.</p>
+        {wallet.isLoading ? <Loading label="Loading the negative wallet limit" /> : null}
+        {wallet.error ? <ErrorNote>{textOf(wallet.error)}</ErrorNote> : null}
+        {wallet.data ? (
+          <div className="stack">
+            <div className="facts">
+              <div><span>Effective limit</span><b>{wallet.data.currency} {wallet.data.borrowingLimit}</b></div>
+              <div><span>Source</span><b>{limitSource(wallet.data.borrowingLimitSource)}</b></div>
+              <div><span>Balance</span><b>{wallet.data.currency} {wallet.data.balance}</b></div>
+            </div>
+            <label>Custom limit (USD)
+              <input value={limitAmount} onChange={(event) => setLimitAmount(event.target.value)} placeholder="1.00" />
+            </label>
+            <div className="actions">
+              <button className="button" type="button" disabled={limit.isPending} onClick={() => {
+                setFormError(null);
+                const parsed = moneyValue(limitAmount, true);
+                if (!parsed) {
+                  setFormError('Enter the limit in dollars and cents. Zero is allowed.');
+                  return;
+                }
+                setLimitDraft({ borrowingLimit: parsed });
+              }}>Review custom limit</button>
+              <button className="button-secondary" type="button" disabled={limit.isPending || wallet.data.borrowingLimitSource !== 'OVERRIDE'} onClick={() => {
+                setFormError(null);
+                setLimitDraft({ borrowingLimit: null });
+              }}>Use the global default</button>
+            </div>
+          </div>
+        ) : null}
+      </section>
+      <section className="panel">
         <h2>Manual top-up</h2>
         <p className="muted">Record a payment already received outside the app. This page does not calculate the wallet balance.</p>
         <label>Amount (USD)
@@ -230,6 +283,22 @@ export function RiderPage() {
           {action.error ? <ErrorNote>{textOf(action.error)}</ErrorNote> : null}
         </Dialog>
       ) : null}
+      {limitDraft ? (
+        <Dialog
+          title="Save negative wallet limit"
+          busy={limit.isPending}
+          confirmLabel="Save limit"
+          onClose={() => { if (!limit.isPending) setLimitDraft(null); }}
+          onConfirm={() => limit.mutate(limitDraft)}
+        >
+          <p>
+            {limitDraft.borrowingLimit === null
+              ? `Use the global default for this rider. The balance stays ${wallet.data?.currency ?? 'USD'} ${wallet.data?.balance ?? ''}.`
+              : `Set this rider's negative wallet limit to USD ${limitDraft.borrowingLimit}. The balance stays ${wallet.data?.currency ?? 'USD'} ${wallet.data?.balance ?? ''}.`}
+          </p>
+          {limit.error ? <ErrorNote>{textOf(limit.error)}</ErrorNote> : null}
+        </Dialog>
+      ) : null}
       {topUp ? (
         <Dialog
           title="Confirm top-up"
@@ -261,6 +330,10 @@ export function RiderPage() {
       ) : null}
     </div>
   );
+}
+
+function limitSource(source: string): string {
+  return source === 'OVERRIDE' ? 'Account-specific limit' : 'Standard limit';
 }
 
 function confirmText(confirm: Exclude<Confirm, null>, name: string): string {

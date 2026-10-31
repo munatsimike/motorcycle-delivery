@@ -105,13 +105,13 @@ CREATE UNIQUE INDEX "delivery_assignments_one_accepted_per_delivery_idx"
     ON "delivery_assignments" ("delivery_id")
     WHERE "status" = 'ACCEPTED';
 
-CREATE UNIQUE INDEX "delivery_assignments_one_accepted_per_rider_idx"
-    ON "delivery_assignments" ("rider_profile_id")
-    WHERE "status" = 'ACCEPTED';
+CREATE UNIQUE INDEX "delivery_assignments_one_open_offer_per_rider_idx"
+    ON "delivery_assignments" ("delivery_id", "rider_profile_id")
+    WHERE "status" IN ('OFFERED', 'ACCEPTED');
 
 CREATE UNIQUE INDEX "bids_one_accepted_per_delivery_idx"
     ON "bids" ("delivery_id")
-    WHERE "status" = 'ACCEPTED';
+    WHERE "status" = 'ACCEPTED' AND "closed_at" IS NULL;
 
 CREATE UNIQUE INDEX "wallet_fee_reservations_one_open_per_delivery_idx"
     ON "wallet_fee_reservations" ("delivery_id")

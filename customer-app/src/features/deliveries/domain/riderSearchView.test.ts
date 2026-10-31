@@ -3,13 +3,13 @@ import { describe, expect, it } from 'vitest';
 import { riderSearchView } from './riderSearchView';
 
 describe('riderSearchView', () => {
-  it('shows the search animation only while the backend is searching', () => {
+  it('keeps a historical search on the delivery details view', () => {
     expect(riderSearchView({
       hasDelivery: true,
       isLoading: false,
       status: 'SEARCHING',
       error: null,
-    })).toBe('searching');
+    })).toBe('details');
   });
 
   it('shows rider assigned when a rider accepts', () => {
@@ -43,5 +43,11 @@ describe('riderSearchView', () => {
       status: null,
       error: 'The request timed out. Check your connection and try again.',
     })).toBe('offline');
+    expect(riderSearchView({
+      hasDelivery: false,
+      isLoading: false,
+      status: null,
+      error: 'Authentication failed',
+    })).toBe('details');
   });
 });

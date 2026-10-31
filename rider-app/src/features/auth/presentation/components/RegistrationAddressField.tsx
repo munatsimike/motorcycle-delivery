@@ -214,7 +214,7 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
   },
   suggestion: {
-    backgroundColor: '#FFF1E0',
+    backgroundColor: '#E8F1FF',
     borderRadius: radius.md,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,

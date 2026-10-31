@@ -5,8 +5,6 @@
 // The initial migration also creates objects Prisma 7.1.0 cannot represent.
 // Do not drop them in a later migration:
 //   delivery_assignments_one_accepted_per_delivery_idx
-//   delivery_assignments_one_live_express_per_rider_idx WHERE status = ACCEPTED AND service_class = EXPRESS
-//   delivery_assignments_one_accepted_v1_per_rider_idx WHERE status = ACCEPTED AND accepted_bid_amount IS NULL
 //   delivery_assignments_one_open_offer_per_rider_idx
 //   the named *_chk constraints
 //   refresh_sessions_one_active_per_family_idx
@@ -15,6 +13,8 @@
 //   rider_profiles_availability_requires_approval_chk
 //   rider_licence_images_one_uploading_per_rider_idx
 //   rider_licence_images_one_stored_per_rider_idx
+//   rider_profile_photos_one_uploading_per_rider_idx
+//   rider_profile_photos_one_stored_per_rider_idx
 //   motorcycles_identity_chk
 //   motorcycles_verification_chk
 //   motorcycles_active_requires_verified_chk
@@ -74,13 +74,17 @@
 //   bids_currency_usd_chk
 //   bids_idempotency_pair_chk
 //
-// Phase 4B dropped delivery_assignments_one_accepted_per_rider_idx. Do not
-// recreate that broad index. A rider may hold many Flexible ACCEPTED rows.
-// One live Express ACCEPTED row and one V1 ACCEPTED row are the partial
-// indexes above. Prisma cannot represent them.
+// Phase 4B dropped delivery_assignments_one_accepted_per_rider_idx.
+// A later migration drops the Express and V1 per-rider partial indexes.
+// A rider may hold many Express, Flexible, and V1 ACCEPTED rows. One ACCEPTED
+// assignment per delivery stays. Do not recreate a per-rider assignment index.
+// Prisma cannot represent the remaining partial index.
 //
-// V1 accept sets BUSY. V2 acceptance leaves availability and
-// receiving_requests unchanged.
+// V1 accept sets BUSY and V1 completion or release restores it. V2
+// acceptance, completion, and cancellation leave availability unchanged.
+// Going online sets AVAILABLE and receiving_requests true. A rider who is
+// still BUSY can go online unless an accepted legacy assignment remains.
+// Going offline sets OFFLINE and receiving_requests false.
 //
 // Prisma 7.1.0 cannot represent the SQL-only composite foreign keys
 // delivery_assignments_motorcycle_owner_fkey and
@@ -331,6 +335,7 @@ model User {
   confirmedWalletPayments WalletPayment[]         @relation("WalletPaymentConfirmer")
   reviewedTopUpRequests   WalletTopUpRequest[]    @relation("WalletTopUpReviewer")
   walletEntries           RiderWalletEntry[]      @relation("WalletEntryActor")
+  promotionalEntries      RiderPromotionalEntry[] @relation("PromotionalEntryActor")
   borrowingLimitAudits    WalletBorrowingLimitAudit[] @relation("BorrowingLimitAuditor")
   deliveryStatusEvents    DeliveryStatusEvent[]
   refreshSessions       RefreshSession[]
@@ -373,10 +378,10 @@ model RiderProfile {
   assignments    DeliveryAssignment[]
   licenceImages  RiderLicenceImage[]
   licenceReviews RiderLicenceReview[]
+  profilePhotos  RiderProfilePhoto[]
   wallet         RiderWallet?
   location       RiderLocation?
   pushDevices    RiderPushDevice[]
-  offerNotifications RiderOfferNotification[]
   bids               Bid[]
   v2OutboxEvents     V2OutboxEvent[]
   progressCommands   DeliveryProgressCommand[]
@@ -421,6 +426,7 @@ enum PricingModel {
   PER_KILOMETRE
   BASE_PLUS_PER_KILOMETRE
   DISTANCE_TIERS
+  INCLUDED_DISTANCE
 
   @@map("pricing_model")
 }
@@ -442,6 +448,9 @@ model DeliveryPricingConfig {
   pricePerKilometre  Decimal       @map("price_per_kilometre") @db.Decimal(12, 2)
   minimumTripMetres  Int           @map("minimum_trip_metres")
   maximumTripMetres  Int           @map("maximum_trip_metres")
+  // Null on every model except INCLUDED_DISTANCE. The base fee covers this
+  // many metres, and the per-kilometre rate applies only to the excess.
+  includedMetres     Int?          @map("included_metres")
   isActive           Boolean       @map("is_active")
   createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
   createdById        String        @map("created_by_id") @db.Uuid
@@ -486,6 +495,8 @@ model Delivery {
   // Null on a V2 request until a bid is accepted. V1 create still writes a price.
   price                Decimal?       @db.Decimal(12, 2)
   suggestedPrice       Decimal        @map("suggested_price") @db.Decimal(12, 2)
+  // The customer's opening offer. Null on older rows and on V1. This is not the agreed price.
+  customerOffer        Decimal?       @map("customer_offer") @db.Decimal(12, 2)
   distanceMeters       Int            @map("distance_meters")
   pricingVersion       Int            @map("pricing_version")
   // Null on a V2 request. V1 create still writes both. V2 pricing does not read them.
@@ -501,7 +512,10 @@ model Delivery {
   deliverBy         DateTime?      @map("deliver_by") @db.Timestamptz(6)
   status            DeliveryStatus @default(CREATED)
   // Customer searches and rider releases each start a new generation.
-  // Generation 0 means nobody has searched yet.
+  // Generation 0 means nobody has searched yet. V2 bidding stays on generation 0.
+  // A V2 search window is searchStartedAt plus six minutes. nextRetryAt stores
+  // that same instant and is not a V1 retry. Null searchStartedAt is a request
+  // created before the window existed.
   searchGeneration  Int            @default(0) @map("search_generation")
  autoRetryCount Int       @default(0) @map("auto_retry_count")
  nextRetryAt    DateTime? @map("next_retry_at") @db.Timestamptz(6)
@@ -515,7 +529,6 @@ model Delivery {
   statusEvents    DeliveryStatusEvent[]
   bids            Bid[]
   feeReservations WalletFeeReservation[]
-  dispatchRounds  DeliveryDispatchRound[]
   v2OutboxEvents  V2OutboxEvent[]
   progressCommands DeliveryProgressCommand[]
 
@@ -545,7 +558,8 @@ model DeliveryAssignment {
   // generated migration before applying it. Pre-accept statuses must stay null.
   motorcycleId   String?                  @map("motorcycle_id") @db.Uuid
   status         AssignmentStatus         @default(OFFERED)
-  offerExpiresAt DateTime                 @map("offer_expires_at") @db.Timestamptz(6)
+  // Null on a V2 assignment that has no customer deadline. V1 offers still store an expiry.
+  offerExpiresAt DateTime?                @map("offer_expires_at") @db.Timestamptz(6)
   respondedAt    DateTime?                @map("responded_at") @db.Timestamptz(6)
   releaseReason    AssignmentReleaseReason? @map("release_reason")
   releasedAt       DateTime?                @map("released_at") @db.Timestamptz(6)
@@ -583,7 +597,6 @@ model DeliveryAssignment {
   acceptedBid  Bid?         @relation(fields: [acceptedBidId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   v2OutboxEvents V2OutboxEvent[]
   progressCommands DeliveryProgressCommand[]
-  offerNotification RiderOfferNotification?
   v2CommissionRate V2CommissionRate? @relation(fields: [acceptedV2CommissionRateVersion], references: [rateVersion], onDelete: Restrict, onUpdate: Restrict)
 
   @@index([deliveryId, status])
@@ -629,33 +642,6 @@ model RiderLocation {
   @@map("rider_locations")
 }
 
-enum DispatchRoundStatus {
-  PENDING
-  COMPLETED
-
-  @@map("dispatch_round_status")
-}
-
-// One row per radius in a search generation. The worker claims PENDING rows
-// whose due time has arrived. Offers and the COMPLETED mark share a transaction.
-model DeliveryDispatchRound {
-  id               String              @id @default(uuid(7)) @db.Uuid
-  deliveryId       String              @map("delivery_id") @db.Uuid
-  searchGeneration Int                 @map("search_generation")
-  roundNumber      Int                 @map("round_number")
-  radiusMetres     Int                 @map("radius_metres")
-  dueAt            DateTime            @map("due_at") @db.Timestamptz(6)
-  status           DispatchRoundStatus @default(PENDING)
-  createdAt        DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
-  completedAt      DateTime?           @map("completed_at") @db.Timestamptz(6)
-
-  delivery Delivery @relation(fields: [deliveryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-
-  @@unique([deliveryId, searchGeneration, roundNumber], map: "delivery_dispatch_rounds_generation_round_key")
-  @@index([status, dueAt])
-  @@map("delivery_dispatch_rounds")
-}
-
 model DeliveryStatusEvent {
   id             String            @id @default(uuid(7)) @db.Uuid
   deliveryId     String            @map("delivery_id") @db.Uuid
@@ -699,6 +685,7 @@ model CustomerAccount {
   fcmDevices CustomerFcmDevice[]
   v2OutboxEvents V2OutboxEvent[]
   riderAvailabilityAlerts RiderAvailabilityAlert[]
+  profilePhotos CustomerProfilePhoto[]
 
   @@map("customer_accounts")
 }
@@ -771,38 +758,6 @@ model RiderAvailabilityAlert {
   @@map("rider_availability_alerts")
 }
 
-enum RiderOfferNotificationStatus {
-  PENDING
-  SENDING
-  SENT
-  SKIPPED
-
-  @@map("rider_offer_notification_status")
-}
-
-// One alert per offered assignment. The row is written in the same transaction
-// as the OFFERED assignment and is sent only after that transaction commits.
-// rider_offer_notifications_pending_idx and rider_offer_notifications_sending_idx
-// are partial indexes in SQL. Do not drop them in a generated diff.
-model RiderOfferNotification {
-  id             String                        @id @default(uuid(7)) @db.Uuid
-  assignmentId   String                        @unique @map("assignment_id") @db.Uuid
-  riderProfileId String                        @map("rider_profile_id") @db.Uuid
-  status         RiderOfferNotificationStatus  @default(PENDING)
-  attemptCount   Int                           @default(0) @map("attempt_count")
-  nextAttemptAt  DateTime                      @map("next_attempt_at") @db.Timestamptz(6)
-  claimedAt      DateTime?                     @map("claimed_at") @db.Timestamptz(6)
-  sentAt         DateTime?                     @map("sent_at") @db.Timestamptz(6)
-  skipReason     String?                       @map("skip_reason") @db.VarChar(40)
-  lastFailure    String?                       @map("last_failure") @db.VarChar(40)
-  createdAt      DateTime                      @default(now()) @map("created_at") @db.Timestamptz(6)
-
-  assignment   DeliveryAssignment @relation(fields: [assignmentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  riderProfile RiderProfile       @relation(fields: [riderProfileId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-
-  @@map("rider_offer_notifications")
-}
-
 // One FCM token per app install. Registration moves the token onto the
 // signed-in rider. A delete must also match rider_profile_id so an old
 // session cannot remove another rider's token.
@@ -862,7 +817,8 @@ model AuthChallenge {
   accountKind   CustomerAccountKind? @map("account_kind")
   address       String?             @db.VarChar(500)
   businessName  String?             @map("business_name") @db.VarChar(200)
-  twilioSid     String?             @map("twilio_sid") @db.VarChar(64)
+  twilioSid     String?             @map("twilio_sid") @db.VarChar(128)
+  codeHash      String?             @map("code_hash") @db.Char(64)
   channel       VerificationChannel @default(SMS)
   status        AuthChallengeStatus @default(PENDING)
   sendCount     Int                 @default(1) @map("send_count")
@@ -895,6 +851,70 @@ model RefreshSession {
   @@index([userId, revokedAt])
   @@index([familyId])
   @@map("refresh_sessions")
+}
+
+enum ProfilePhotoStatus {
+  UPLOADING
+  STORED
+  SUPERSEDED
+  PURGE_PENDING
+  PURGED
+
+  @@map("profile_photo_status")
+}
+
+// Private rider profile photos. Bytes live in object storage under a prefix
+// that is separate from licence images. Prisma 7.1.0 cannot represent the
+// partial unique indexes in the migration. Do not drop them:
+//   rider_profile_photos_one_uploading_per_rider_idx
+//   rider_profile_photos_one_stored_per_rider_idx
+model RiderProfilePhoto {
+  id             String             @id @default(uuid(7)) @db.Uuid
+  riderProfileId String             @map("rider_profile_id") @db.Uuid
+  objectKey      String             @unique @map("object_key") @db.VarChar(200)
+  contentType    String?            @map("content_type") @db.VarChar(40)
+  byteSize       Int?               @map("byte_size")
+  sha256         String?            @db.Char(64)
+  status         ProfilePhotoStatus @default(UPLOADING)
+  uploadedAt     DateTime?          @map("uploaded_at") @db.Timestamptz(6)
+  supersededAt   DateTime?          @map("superseded_at") @db.Timestamptz(6)
+  purgeAfter     DateTime?          @map("purge_after") @db.Timestamptz(6)
+  purgedAt       DateTime?          @map("purged_at") @db.Timestamptz(6)
+  createdAt      DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  riderProfile RiderProfile @relation(fields: [riderProfileId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([riderProfileId, status])
+  @@index([status, createdAt])
+  @@index([status, purgeAfter])
+  @@map("rider_profile_photos")
+}
+
+// Private customer profile photos. Bytes live in object storage under a prefix
+// that is separate from rider photos. Prisma 7.1.0 cannot represent the
+// partial unique indexes in the migration. Do not drop them:
+//   customer_profile_photos_one_uploading_per_customer_idx
+//   customer_profile_photos_one_stored_per_customer_idx
+model CustomerProfilePhoto {
+  id                String             @id @default(uuid(7)) @db.Uuid
+  customerAccountId String             @map("customer_account_id") @db.Uuid
+  objectKey         String             @unique @map("object_key") @db.VarChar(200)
+  contentType       String?            @map("content_type") @db.VarChar(40)
+  byteSize          Int?               @map("byte_size")
+  sha256            String?            @db.Char(64)
+  status            ProfilePhotoStatus @default(UPLOADING)
+  uploadedAt        DateTime?          @map("uploaded_at") @db.Timestamptz(6)
+  supersededAt      DateTime?          @map("superseded_at") @db.Timestamptz(6)
+  purgeAfter        DateTime?          @map("purge_after") @db.Timestamptz(6)
+  purgedAt          DateTime?          @map("purged_at") @db.Timestamptz(6)
+  createdAt         DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  customerAccount CustomerAccount @relation(fields: [customerAccountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([customerAccountId, status])
+  @@index([status, createdAt])
+  @@index([status, purgeAfter])
+  @@map("customer_profile_photos")
 }
 
 enum LicenceImageStatus {
@@ -1018,6 +1038,13 @@ enum WalletFeeReservationStatus {
   @@map("wallet_fee_reservation_status")
 }
 
+enum PromotionalEntryType {
+  ISSUED
+  CONSUMED
+
+  @@map("promotional_entry_type")
+}
+
 enum WalletActorType {
   ADMIN
   RIDER
@@ -1072,25 +1099,58 @@ model WalletConfigAudit {
 
 // One wallet per rider. welcome_bonus_awarded_at is the one-time entitlement
 // marker. It is set without a credit for riders already APPROVED or SUSPENDED
-// before this feature. balance is the ledger sum and may be negative.
+// before this feature, and a later approval must not award that bonus again.
+// balance is the cash and debt ledger sum and may be negative.
+// promotional_balance is separate, non-withdrawable, and starts at zero.
+// Historical welcome and promotional rows already mixed into balance stay there.
 model RiderWallet {
   id                      String    @id @default(uuid(7)) @db.Uuid
   riderProfileId          String    @unique @map("rider_profile_id") @db.Uuid
   currency                Currency
   balance                 Decimal   @db.Decimal(12, 2)
+  promotionalBalance      Decimal   @default(0) @map("promotional_balance") @db.Decimal(12, 2)
   borrowingLimitOverride  Decimal?  @map("borrowing_limit_override") @db.Decimal(12, 2)
   welcomeBonusAwardedAt   DateTime? @map("welcome_bonus_awarded_at") @db.Timestamptz(6)
   createdAt               DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt               DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  riderProfile        RiderProfile                @relation(fields: [riderProfileId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  entries             RiderWalletEntry[]
-  payments            WalletPayment[]
-  topUpRequests       WalletTopUpRequest[]
+  riderProfile         RiderProfile                 @relation(fields: [riderProfileId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  entries              RiderWalletEntry[]
+  promotionalEntries   RiderPromotionalEntry[]
+  payments             WalletPayment[]
+  topUpRequests        WalletTopUpRequest[]
   borrowingLimitAudits WalletBorrowingLimitAudit[]
-  feeReservations     WalletFeeReservation[]
+  feeReservations      WalletFeeReservation[]
 
   @@map("rider_wallets")
+}
+
+// Append-only promotional ledger from the cutover forward. ISSUED increases
+// promotional_balance. CONSUMED decreases it when a reserved fee is captured.
+// Releasing a reservation does not write a row. Do not update or delete.
+model RiderPromotionalEntry {
+  id              String                @id @default(uuid(7)) @db.Uuid
+  riderWalletId   String                @map("rider_wallet_id") @db.Uuid
+  entryType       PromotionalEntryType  @map("entry_type")
+  amount          Decimal               @db.Decimal(12, 2)
+  balanceAfter    Decimal               @map("balance_after") @db.Decimal(12, 2)
+  currency        Currency
+  configVersion   Int                   @map("config_version")
+  idempotencyKey  String                @unique @map("idempotency_key") @db.VarChar(200)
+  payloadHash     String                @map("payload_hash") @db.Char(64)
+  reservationId   String?               @unique @map("reservation_id") @db.Uuid
+  reason          String?               @db.VarChar(500)
+  actorType       WalletActorType       @map("actor_type")
+  actorId         String?               @map("actor_id") @db.Uuid
+  createdAt       DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  riderWallet RiderWallet           @relation(fields: [riderWalletId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  reservation WalletFeeReservation? @relation(fields: [reservationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  actor       User?                 @relation("PromotionalEntryActor", fields: [actorId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([riderWalletId, createdAt])
+  @@index([actorId])
+  @@map("rider_promotional_entries")
 }
 
 // Append-only ledger. A reversal or fee release is a new compensating row.
@@ -1214,24 +1274,28 @@ model WalletBorrowingLimitAudit {
 }
 
 // Created when a rider accepts a delivery with a positive platform fee.
-// OPEN reduces capacity and posts no ledger entry. RELEASED posts no ledger
-// entry. CAPTURED is paired with one negative PLATFORM_FEE entry for the
-// amount and configuration version stored on this row.
+// OPEN holds promotional_amount and wallet_amount and posts no ledger entry.
+// RELEASED restores that hold and posts nothing. CAPTURED consumes
+// promotional_amount and posts wallet_amount as one negative PLATFORM_FEE.
+// Older rows keep the whole amount on the cash side.
 model WalletFeeReservation {
   id            String                     @id @default(uuid(7)) @db.Uuid
   riderWalletId String                     @map("rider_wallet_id") @db.Uuid
   deliveryId    String?                    @map("delivery_id") @db.Uuid
   assignmentId  String?                    @unique @map("assignment_id") @db.Uuid
-  amount        Decimal                    @db.Decimal(12, 2)
-  currency      Currency
-  configVersion Int                        @map("config_version")
-  status        WalletFeeReservationStatus @default(OPEN)
+  amount             Decimal                    @db.Decimal(12, 2)
+  promotionalAmount  Decimal                    @default(0) @map("promotional_amount") @db.Decimal(12, 2)
+  walletAmount       Decimal                    @default(0) @map("wallet_amount") @db.Decimal(12, 2)
+  currency           Currency
+  configVersion      Int                        @map("config_version")
+  status             WalletFeeReservationStatus @default(OPEN)
   createdAt     DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
   releasedAt    DateTime?                  @map("released_at") @db.Timestamptz(6)
   capturedAt    DateTime?                  @map("captured_at") @db.Timestamptz(6)
 
-  riderWallet RiderWallet @relation(fields: [riderWalletId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  delivery    Delivery?   @relation(fields: [deliveryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  riderWallet        RiderWallet              @relation(fields: [riderWalletId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  delivery           Delivery?                @relation(fields: [deliveryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  promotionalEntries RiderPromotionalEntry[]
 
   @@index([riderWalletId, status])
   @@index([deliveryId])

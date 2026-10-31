@@ -46,11 +46,13 @@ fun riderReadiness(onboarding: RiderOnboarding): RiderReadiness {
     val licensed = onboarding.licenceVerificationStatus == "VERIFIED"
     val availability = if (approved) onboarding.availability else "OFFLINE"
     val motorcycleReady = onboarding.activeVerifiedMotorcycle
-    val ready = approved && licensed && motorcycleReady && availability == "AVAILABLE"
+    val marketplace = onboarding.receiving != null
+    val staleBusy = marketplace && availability == "BUSY"
+    val ready = approved && licensed && motorcycleReady && (availability == "AVAILABLE" || availability == "BUSY")
     return RiderReadiness(
         canAcceptDeliveries = ready,
-        canGoOnline = approved && licensed && motorcycleReady && availability == "OFFLINE",
-        availabilityLabel = availabilityLabel(availability),
+        canGoOnline = approved && licensed && motorcycleReady && (availability == "OFFLINE" || staleBusy),
+        availabilityLabel = if (staleBusy) "Offline" else availabilityLabel(availability),
         licenceLabel = licenceLabel(onboarding.licenceVerificationStatus),
         approvalLabel = approvalLabel(onboarding.approvalStatus),
         message = readinessMessage(onboarding, availability),
@@ -77,10 +79,7 @@ private fun readinessMessage(onboarding: RiderOnboarding, availability: String):
     if (!onboarding.activeVerifiedMotorcycle) {
         return "You need an active verified motorcycle before you can accept deliveries."
     }
-    if (availability == "BUSY") {
-        return "You are on a delivery. You cannot change availability until it is finished."
-    }
-    if (availability != "AVAILABLE") {
+    if (availability == "OFFLINE") {
         return "Your account is approved. You are offline, so you cannot accept deliveries yet."
     }
     return "You are online. Delivery requests appear while you stay available."
@@ -100,7 +99,6 @@ private fun approvalLabel(status: String): String = when (status) {
 }
 
 private fun availabilityLabel(status: String): String = when (status) {
-    "AVAILABLE" -> "Available"
-    "BUSY" -> "On a delivery"
+    "AVAILABLE", "BUSY" -> "Online"
     else -> "Offline"
 }

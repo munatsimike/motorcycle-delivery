@@ -10,12 +10,14 @@ const SECRET_ENV = [
   'TWILIO_AUTH_TOKEN',
   'TWILIO_ACCOUNT_SID',
   'WHATSAPP_VERIFICATION_SERVICE_SID',
+  'INFOBIP_API_KEY',
+  'INFOBIP_OTP_HMAC_SECRET',
 ];
 
-export function logStorageFailure(error: unknown): void {
+export function logStorageFailure(error: unknown, area = 'Licence image'): void {
   const name = error instanceof Error && /^[A-Za-z0-9_]+$/.test(error.name) ? error.name : 'Error';
   const detail = storageDetail(error);
-  logger.warn(`Licence image storage failed httpStatus=${storageStatus(error)} error=${name}${detail}`);
+  logger.warn(`${area} storage failed httpStatus=${storageStatus(error)} error=${name}${detail}`);
 }
 
 function storageStatus(error: unknown): number | 'none' {

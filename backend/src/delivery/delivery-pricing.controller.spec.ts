@@ -8,13 +8,6 @@ import { DeliveryPricingController } from './delivery-pricing.controller.js';
 
 describe('DeliveryPricingController', () => {
   const controller = new DeliveryPricingController({
-    async current() {
-      return { pricingVersion: 1 };
-    },
-    async replace(admin: { userId: string }) {
-      return { userId: admin.userId };
-    },
-  } as never, {
     async currentClasses() {
       return { express: null, flexible: null };
     },
@@ -33,8 +26,6 @@ describe('DeliveryPricingController', () => {
   } as never);
 
   it('requires an admin session', () => {
-    expect(() => controller.current({})).toThrow(ForbiddenException);
-    expect(() => controller.replace({}, {})).toThrow(ForbiddenException);
     expect(() => controller.currentClasses({})).toThrow(ForbiddenException);
     expect(() => controller.classTariff({}, 'EXPRESS')).toThrow(ForbiddenException);
     expect(() => controller.publish({}, 'EXPRESS', {})).toThrow(ForbiddenException);
@@ -44,7 +35,6 @@ describe('DeliveryPricingController', () => {
 
   it('uses the authenticated admin and the admin guard', async () => {
     expect(Reflect.getMetadata(GUARDS_METADATA, DeliveryPricingController)).toEqual([AdminAccessGuard]);
-    await expect(controller.replace({ admin: { userId: 'admin-1' } }, { pricingVersion: 9 })).resolves.toEqual({ userId: 'admin-1' });
     await expect(controller.publish({ admin: { userId: 'admin-1' } }, 'EXPRESS', {})).resolves.toEqual({ userId: 'admin-1' });
   });
 

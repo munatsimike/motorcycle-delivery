@@ -110,6 +110,16 @@ class RiderLocationTest {
     @Test
     fun offlineStopsLocationSharing() {
         assertFalse(shouldShareLocation(hasSession = true, permissionGranted = true, receivingRequests = null, availability = "OFFLINE"))
+        assertFalse(shouldShareLocation(hasSession = true, permissionGranted = true, receivingRequests = true, availability = "OFFLINE"))
+        assertTrue(
+            shouldShareLocation(
+                hasSession = true,
+                permissionGranted = true,
+                receivingRequests = true,
+                deliveryStatuses = listOf("COLLECTING"),
+                availability = "OFFLINE",
+            ),
+        )
     }
 
     @Test
@@ -134,7 +144,7 @@ class RiderLocationTest {
                 availability = "OFFLINE",
             ),
         )
-        assertTrue(
+        assertFalse(
             shouldShareLocation(
                 hasSession = true,
                 permissionGranted = true,
@@ -259,6 +269,7 @@ class RiderLocationTest {
     fun sessionInvalidationStopsSharing() {
         assertFalse(shouldShareLocation(hasSession = false, permissionGranted = true, receivingRequests = true))
         assertEquals(LocationCommand.Stop, commandAfterUploadFailure(ApiError.SessionEnded))
+        assertEquals(LocationCommand.Stop, commandAfterUploadFailure(ApiError.SignedInElsewhere))
         assertEquals(LocationCommand.Stop, commandAfterUploadFailure(ApiError.Forbidden))
         assertEquals(LocationCommand.KeepSharing, commandAfterUploadFailure(ApiError.Network))
     }

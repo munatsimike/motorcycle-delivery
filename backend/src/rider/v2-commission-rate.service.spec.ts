@@ -231,7 +231,7 @@ function context() {
           .slice(skip, skip + take);
       },
     },
-    async $transaction<T>(callback: (tx: typeof db) => Promise<T>) {
+    async $transaction<T>(callback: (tx: object) => Promise<T>) {
       let snapshot = cloneRates();
       const auditSnapshot = audits.map((item) => ({ ...item }));
       let release: (() => void) | undefined;

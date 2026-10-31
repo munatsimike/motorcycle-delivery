@@ -13,6 +13,11 @@ export type CustomerBid = {
   status: CustomerBidStatus;
   createdAt: string;
   riderName: string;
+  verified: boolean;
+  completedDeliveries: number;
+  distanceMeters: number | null;
+  motorcycle: string | null;
+  hasProfilePhoto: boolean;
 };
 
 export type BidAcceptance = {
@@ -61,7 +66,7 @@ export function acceptableBids(bids: readonly CustomerBid[]): CustomerBid[] {
 }
 
 export function acceptancePrompt(bid: CustomerBid): string {
-  return `Accept ${bid.currency} ${bid.amount} from ${bid.riderName}? This becomes the agreed delivery price.`;
+  return `Choose ${bid.riderName} for ${bid.currency} ${bid.amount}?`;
 }
 
 export function agreedPriceDiffers(agreed: string, suggested: string): boolean {
@@ -133,6 +138,12 @@ function readCustomerBid(value: unknown): CustomerBid {
   if (!riderName) {
     throw new Error('Bids are unavailable.');
   }
+  const completedDeliveries = readCount(isRecord(value.rider) ? value.rider.completedDeliveries : undefined);
+  const distanceMeters = readDistance(isRecord(value.rider) ? value.rider.distanceMeters : undefined);
+  const motorcycle = readMotorcycle(isRecord(value.rider) ? value.rider.motorcycle : undefined);
+  if (completedDeliveries === undefined || distanceMeters === undefined || motorcycle === undefined) {
+    throw new Error('Bids are unavailable.');
+  }
   return {
     id: value.id,
     deliveryId: value.deliveryId,
@@ -141,7 +152,39 @@ function readCustomerBid(value: unknown): CustomerBid {
     status: value.status as CustomerBidStatus,
     createdAt: value.createdAt,
     riderName,
+    verified: isRecord(value.rider) && value.rider.verified === true,
+    completedDeliveries,
+    distanceMeters,
+    motorcycle,
+    hasProfilePhoto: isRecord(value.rider) && value.rider.hasProfilePhoto === true,
   };
+}
+
+function readMotorcycle(value: unknown): string | null | undefined {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function readCount(value: unknown): number | undefined {
+  if (value === undefined || value === null) {
+    return 0;
+  }
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+    return undefined;
+  }
+  return value;
+}
+
+function readDistance(value: unknown): number | null | undefined {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+    return undefined;
+  }
+  return value;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -1,13 +1,16 @@
 import { StyleSheet, Text } from 'react-native';
 
 import { colors, spacing, typography } from '../theme';
+import { isNetworkUnavailableMessage, useNetworkNotice } from './NetworkNotice';
 
 type ErrorMessageProps = {
   message: string | null;
 };
 
 export default function ErrorMessage({ message }: ErrorMessageProps) {
-  if (!message) {
+  const network = message != null && isNetworkUnavailableMessage(message);
+  useNetworkNotice(network);
+  if (!message || network) {
     return null;
   }
 

@@ -72,10 +72,27 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     android: {
       ...config.android,
       package: applicationId,
-      ...optionalFile('googleServicesFile', 'google-services.json'),
+      ...(firebase.packageRegistered ? optionalFile('googleServicesFile', 'google-services.json') : {}),
+      config: {
+        ...config.android?.config,
+        ...(googleMapsAndroidKey()
+          ? { googleMaps: { apiKey: googleMapsAndroidKey() } }
+          : {}),
+      },
     },
+    plugins: [
+      ...(config.plugins ?? []),
+      [
+        'react-native-maps',
+        googleMapsAndroidKey() ? { androidGoogleMapsApiKey: googleMapsAndroidKey() } : {},
+      ],
+    ],
   };
 };
+
+function googleMapsAndroidKey(): string {
+  return process.env.EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_KEY?.trim() ?? '';
+}
 
 function optionalFile(key: 'googleServicesFile', filename: string): { googleServicesFile?: string } {
   return existsSync(path.join(__dirname, filename)) ? { [key]: `./${filename}` } : {};

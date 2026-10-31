@@ -27,9 +27,10 @@ fun apiBaseUrl(release: Boolean): String {
     if (release) {
         return configuredApiBaseUrl
     }
-    return debugApiBaseUrl.ifEmpty {
-        configuredApiBaseUrl.ifEmpty { "http://10.0.2.2:3000" }
-    }
+    // Empty in a debug build. The app then uses the emulator host or the phone
+    // loopback that adb reverse forwards. A local DEBUG_API_BASE_URL is only an
+    // explicit override for a phone that cannot use adb reverse.
+    return debugApiBaseUrl
 }
 
 gradle.taskGraph.whenReady {
@@ -43,6 +44,12 @@ gradle.taskGraph.whenReady {
 }
 
 android {
+    // adb install without a user also enables the package for Samsung's dual-app
+    // user, which adds a second Home screen icon. Debug installs stay on the owner.
+    installation {
+        installOptions.addAll(listOf("--user", "0"))
+    }
+
     namespace = "com.riders.rider"
     compileSdk {
         version = release(37) {
@@ -122,7 +129,6 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.coroutines.test)
     testImplementation(libs.mockwebserver)
-    testImplementation(libs.turbine)
     androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.compose.ui.test)
 }

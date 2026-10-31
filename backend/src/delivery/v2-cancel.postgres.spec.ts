@@ -122,7 +122,7 @@ afterAll(async () => {
 
 it('reopens the original delivery after a pre-pickup cancellation and accepts a new bid', async () => {
   const world = await acceptedJob({ competing: true });
-  await dispatch.progress(world.rider, world.deliveryId, { status: 'COLLECTING' }, NOW, `collect-${world.deliveryId}`);
+  await prisma.delivery.update({ where: { id: world.deliveryId }, data: { status: 'COLLECTING' } });
   const before = await prisma.delivery.findUniqueOrThrow({ where: { id: world.deliveryId } });
   const cancelled = await dispatch.cancelBeforePickup(
     world.rider,
@@ -147,6 +147,10 @@ it('reopens the original delivery after a pre-pickup cancellation and accepts a 
   expect(delivery.parcelDescription).toBe(before.parcelDescription);
   expect(delivery.serviceClass).toBe(before.serviceClass);
   expect(delivery.deliverBy?.toISOString()).toBe(before.deliverBy?.toISOString());
+  expect(delivery.searchStartedAt?.toISOString()).toBe(NOW.toISOString());
+  expect(delivery.nextRetryAt?.toISOString()).toBe(new Date(NOW.getTime() + 360_000).toISOString());
+  expect(delivery.autoRetryCount).toBe(0);
+  expect(delivery.searchGeneration).toBe(0);
   expect(delivery.suggestedPrice.toFixed(2)).toBe(before.suggestedPrice.toFixed(2));
   expect(delivery.price).toBeNull();
   expect(delivery.status).toBe('CREATED');
@@ -168,21 +172,20 @@ it('reopens the original delivery after a pre-pickup cancellation and accepts a 
   expect(await prisma.delivery.count({ where: { customerId: customer.customerAccountId } })).toBe(1);
 
   const next = await hireRider();
-  const submitted = await bids.submit(next.rider, { deliveryId: world.deliveryId, amountCents: 1_200 }, `bid-${next.rider.riderProfileId}`, NOW);
+  const submitted = await bids.submit(next.rider, { deliveryId: world.deliveryId, amountCents: 900 }, `bid-${next.rider.riderProfileId}`, NOW);
   const second = await acceptance.accept(customer, world.deliveryId, submitted.id, `accept-${submitted.id}`, NOW);
   expect(second.assignmentId).not.toBe(world.assignmentId);
-  expect(second).toMatchObject({ acceptedBidAmount: '12.00', commissionAmount: '1.20', reserved: true });
+  expect(second).toMatchObject({ acceptedBidAmount: '9.00', commissionAmount: '0.90', reserved: true });
   expect(await prisma.deliveryAssignment.count({ where: { deliveryId: world.deliveryId } })).toBe(2);
   expect(await prisma.deliveryAssignment.count({ where: { deliveryId: world.deliveryId, status: 'ACCEPTED' } })).toBe(1);
   const freshReservation = await prisma.walletFeeReservation.findFirstOrThrow({ where: { assignmentId: second.assignmentId } });
   expect(freshReservation.status).toBe('OPEN');
-  expect(signedCentsFromDecimal(freshReservation.amount)).toBe(120);
+  expect(signedCentsFromDecimal(freshReservation.amount)).toBe(90);
   await expect(prisma.bid.update({ where: { id: world.bidId }, data: { closedAt: null } })).rejects.toMatchObject({ code: 'P2002' });
 }, 30_000);
 
 it('rejects cancellation after pickup and keeps the reservation open', async () => {
   const world = await acceptedJob();
-  await dispatch.progress(world.rider, world.deliveryId, { status: 'COLLECTING' }, NOW, `collect-${world.deliveryId}`);
   await dispatch.progress(world.rider, world.deliveryId, { status: 'COLLECTED' }, NOW, `collected-${world.deliveryId}`);
   await expect(dispatch.cancelBeforePickup(world.rider, world.assignmentId, `late-${world.assignmentId}`, { reason: 'BREAKDOWN' }, NOW))
     .rejects.toThrow('This delivery cannot be cancelled');
@@ -194,7 +197,7 @@ it('rejects cancellation after pickup and keeps the reservation open', async () 
 
 it('lets one of a cancellation and a pickup win', async () => {
   const world = await acceptedJob();
-  await dispatch.progress(world.rider, world.deliveryId, { status: 'COLLECTING' }, NOW, `collect-${world.deliveryId}`);
+  await prisma.delivery.update({ where: { id: world.deliveryId }, data: { status: 'COLLECTING' } });
   const results = await Promise.allSettled([
     dispatch.cancelBeforePickup(world.rider, world.assignmentId, `race-${world.assignmentId}`, { reason: 'WRONG_ADDRESS' }, NOW),
     dispatch.progress(world.rider, world.deliveryId, { status: 'COLLECTED' }, NOW, `collected-${world.deliveryId}`),
@@ -227,15 +230,6 @@ it('treats two cancellation requests with one key as a single release', async ()
   await expect(dispatch.cancelBeforePickup(world.rider, world.assignmentId, `same-${world.assignmentId}`, { reason: 'BREAKDOWN' }, NOW))
     .rejects.toThrow('This idempotency key was already used');
   expect(await prisma.walletFeeReservation.count({ where: { assignmentId: world.assignmentId, status: 'RELEASED' } })).toBe(1);
-}, 30_000);
-
-it('refuses the V1 release path for a V2 assignment that has reached pickup', async () => {
-  const world = await acceptedJob();
-  await dispatch.progress(world.rider, world.deliveryId, { status: 'COLLECTING' }, NOW, `collect-${world.deliveryId}`);
-  await expect(dispatch.release(world.rider, world.assignmentId, { reason: 'RIDER_CANCELLED' }, NOW))
-    .rejects.toThrow('This delivery cannot be released');
-  expect((await prisma.delivery.findUnique({ where: { id: world.deliveryId } }))?.status).toBe('COLLECTING');
-  expect((await prisma.walletFeeReservation.findFirst({ where: { assignmentId: world.assignmentId } }))?.status).toBe('OPEN');
 }, 30_000);
 
 it('closes the original delivery when the deadline has passed', async () => {

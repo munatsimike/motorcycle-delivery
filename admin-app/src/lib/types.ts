@@ -40,6 +40,18 @@ export type DashboardSummary = {
   };
 };
 
+export type CustomerRow = {
+  customerAccountId: string;
+  name: string;
+  fullName: string;
+  contactName: string | null;
+  phone: string;
+  accountStatus: string;
+  kind: string;
+  address: string;
+  createdAt: string;
+};
+
 export type RiderRow = {
   riderProfileId: string;
   fullName: string;
@@ -168,6 +180,16 @@ export type DeliveryDetail = Omit<DeliveryRow, 'price'> & {
   unmatchedReservations: AdminReservation[];
 };
 
+export type RiderWalletSummary = {
+  riderProfileId: string;
+  balance: string;
+  borrowingLimit: string;
+  borrowingLimitSource: 'DEFAULT' | 'OVERRIDE';
+  reservedFees: string;
+  availableCapacity: string;
+  currency: string;
+};
+
 export type WalletConfig = {
   configVersion: number;
   currency: string;
@@ -176,16 +198,7 @@ export type WalletConfig = {
   platformFee: string;
 };
 
-export type DeliveryPricing = {
-  pricingVersion: number;
-  currency: string;
-  baseFee: string;
-  pricePerKilometre: string;
-  minimumTripMetres: number;
-  maximumTripMetres: number;
-};
-
-export type PricingModel = 'FIXED' | 'PER_KILOMETRE' | 'BASE_PLUS_PER_KILOMETRE' | 'DISTANCE_TIERS';
+export type PricingModel = 'FIXED' | 'PER_KILOMETRE' | 'BASE_PLUS_PER_KILOMETRE' | 'DISTANCE_TIERS' | 'INCLUDED_DISTANCE';
 
 export type ServiceClassName = 'EXPRESS' | 'FLEXIBLE';
 
@@ -218,6 +231,7 @@ export type ClassTariff = {
   pricePerKilometre: string;
   minimumTripMetres: number;
   maximumTripMetres: number;
+  includedMetres: number | null;
   isActive: boolean;
   tiers: DistanceTier[];
   windows: PricingWindow[];
@@ -229,11 +243,6 @@ export type PricingAudit = {
   previousVersion: number | null;
   nextVersion: number | null;
   createdAt: string;
-};
-
-export type CommissionPolicy = {
-  model: 'ON_COMPLETION' | 'ON_ACCEPTANCE';
-  policyVersion: number;
 };
 
 export type V2CommissionRate =

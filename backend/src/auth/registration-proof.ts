@@ -16,25 +16,37 @@ export type RegistrationProof = {
   missing?: Array<'accountKind' | 'address'>;
 };
 
+export type RegistrationProofPurpose = 'customer-registration' | 'rider-registration';
+
 export type RegistrationProofClaims = {
   challengeId: string;
   phone: string;
+  purpose: RegistrationProofPurpose;
 };
 
-export function signRegistrationProof(challengeId: string, phone: string, now: Date): string {
+export function signRegistrationProof(
+  challengeId: string,
+  phone: string,
+  now: Date,
+  purpose: RegistrationProofPurpose = 'customer-registration',
+): string {
   const expiresAtSeconds = Math.floor((now.getTime() + REGISTRATION_PROOF_TTL_MS) / 1000);
-  const header = base64UrlJson({ alg: 'HS256', typ: 'customer-registration' });
+  const header = base64UrlJson({ alg: 'HS256', typ: purpose });
   const payload = base64UrlJson({
     cid: challengeId,
     phone,
-    purpose: 'customer-registration',
+    purpose,
     exp: expiresAtSeconds,
   });
   const unsigned = `${header}.${payload}`;
   return `${unsigned}.${signPart(unsigned, secret())}`;
 }
 
-export function readRegistrationProof(token: string, now = new Date()): RegistrationProofClaims {
+export function readRegistrationProof(
+  token: string,
+  now = new Date(),
+  purpose: RegistrationProofPurpose = 'customer-registration',
+): RegistrationProofClaims {
   if (token.length < 20 || token.length > MAX_TOKEN_LENGTH) {
     throw new UnauthorizedException('Authentication failed');
   }
@@ -55,11 +67,11 @@ export function readRegistrationProof(token: string, now = new Date()): Registra
   }
 
   const header = decodeJson(headerPart);
-  if (header.alg !== 'HS256' || header.typ !== 'customer-registration') {
+  if (header.alg !== 'HS256' || header.typ !== purpose) {
     throw new UnauthorizedException('Authentication failed');
   }
   const payload = decodeJson(payloadPart);
-  if (payload.purpose !== 'customer-registration' || typeof payload.cid !== 'string' || typeof payload.phone !== 'string') {
+  if (payload.purpose !== purpose || typeof payload.cid !== 'string' || typeof payload.phone !== 'string') {
     throw new UnauthorizedException('Authentication failed');
   }
   if (!STORED_PHONE.test(payload.phone) || typeof payload.exp !== 'number') {
@@ -68,7 +80,7 @@ export function readRegistrationProof(token: string, now = new Date()): Registra
   if (payload.exp * 1000 + CLOCK_SKEW_MS <= now.getTime()) {
     throw new UnauthorizedException('Authentication failed');
   }
-  return { challengeId: payload.cid, phone: payload.phone };
+  return { challengeId: payload.cid, phone: payload.phone, purpose };
 }
 
 function secret(): string {

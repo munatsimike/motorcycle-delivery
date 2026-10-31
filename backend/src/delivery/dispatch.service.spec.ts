@@ -1,17 +1,9 @@
-import { readFileSync } from 'node:fs';
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+﻿import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '../generated/prisma/client.js';
 import { describe, expect, it } from 'vitest';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import { straightLineMetres } from './straight-line.js';
-import {
-  DISPATCH_ROUND_DELAYS_MS,
-  DISPATCH_ROUND_RADII_METRES,
-  GPS_FRESH_MS,
-  OFFER_TTL_MS,
-  gpsIsFresh,
-  offerIsOpen,
-} from './dispatch.constants.js';
+import { GPS_FRESH_MS } from './dispatch.constants.js';
 import { DispatchService } from './dispatch.service.js';
 import { formatSignedCents } from '../rider/wallet-money.js';
 
@@ -19,179 +11,38 @@ const NOW = new Date('2026-10-14T12:00:00.000Z');
 const CUSTOMER = { userId: 'user-customer', role: 'CUSTOMER' as const, customerAccountId: 'account-1' };
 
 describe('progressive dispatch', () => {
-  it('does not retry after a rider accepts the delivery', async () => {
+  it('does not search a delivery that is not Express or Flexible', async () => {
     const ctx = context();
-    const { delivery } = await acceptJob(ctx, 'retry-stop');
-
-    expect(ctx.deliveries[0].status).toBe('ASSIGNED');
-
-    const later = new Date(NOW.getTime() + 120_000);
-
-    await drain(ctx.service, later);
-
-    expect(await ctx.service.processAutoRetry(later)).toBe(false);
-
-    expect(ctx.deliveries[0].status).toBe('ASSIGNED');
-    expect(ctx.deliveries[0].searchGeneration).toBe(1);
-    expect(ctx.deliveries[0].autoRetryCount).toBe(0);
-    expect(ctx.deliveries[0].nextRetryAt).toBeNull();
-
-    expect(ctx.rounds.filter(
-      (round) => round.deliveryId === delivery.id,
-    )).toHaveLength(3);
-  });
-
-  it('does not retry after the customer cancels during the retry countdown', async () => {
-    const ctx = context();
-    const delivery = addDelivery(ctx);
-
-    await ctx.service.search(CUSTOMER, delivery.id, NOW);
-
-    const exhaustedAt = new Date(NOW.getTime() + 40_000);
-    await drain(ctx.service, exhaustedAt);
-
-    expect(await ctx.service.processAutoRetry(exhaustedAt)).toBe(true);
-    expect(ctx.deliveries[0].nextRetryAt).toEqual(
-      new Date(exhaustedAt.getTime() + 10_000),
-    );
-
-    await ctx.service.cancel(
-      CUSTOMER,
-      delivery.id,
-      new Date(exhaustedAt.getTime() + 5_000),
-    );
-
-    expect(ctx.deliveries[0].status).toBe('CANCELLED');
-
-    expect(
-      await ctx.service.processAutoRetry(
-        new Date(exhaustedAt.getTime() + 10_000),
-      ),
-    ).toBe(false);
-
-    expect(ctx.deliveries[0].searchGeneration).toBe(1);
-    expect(ctx.deliveries[0].autoRetryCount).toBe(0);
-    expect(ctx.rounds).toHaveLength(3);
-  });
-
-  it('stops after five automatic retries and allows a manual restart', async () => {
-    const ctx = context();
-    const delivery = addDelivery(ctx);
-
-    await ctx.service.search(CUSTOMER, delivery.id, NOW);
-
-    for (let attempt = 0; attempt <= 5; attempt += 1) {
-      const searchStart = new Date(NOW.getTime() + attempt * 50_000);
-      const exhaustedAt = new Date(searchStart.getTime() + 40_000);
-
-      await drain(ctx.service, exhaustedAt);
-
-      expect(ctx.deliveries[0].searchGeneration).toBe(attempt + 1);
-      expect(ctx.deliveries[0].autoRetryCount).toBe(attempt);
-
-      expect(await ctx.service.processAutoRetry(exhaustedAt)).toBe(true);
-
-      if (attempt < 5) {
-        expect(ctx.deliveries[0].nextRetryAt).toEqual(
-          new Date(exhaustedAt.getTime() + 10_000),
-        );
-
-        expect(
-          await ctx.service.processAutoRetry(
-            new Date(exhaustedAt.getTime() + 10_000),
-          ),
-        ).toBe(true);
-      }
-    }
-
-    expect(ctx.deliveries[0].status).toBe('NO_RIDER_FOUND');
-    expect(ctx.deliveries[0].autoRetryCount).toBe(5);
-    expect(ctx.deliveries[0].searchGeneration).toBe(6);
-    expect(ctx.deliveries[0].nextRetryAt).toBeNull();
-
-    expect(await ctx.service.processAutoRetry(
-      new Date(NOW.getTime() + 400_000),
-    )).toBe(false);
-
-    const restarted = await ctx.service.search(
-      CUSTOMER,
-      delivery.id,
-      new Date(NOW.getTime() + 400_000),
-    );
-
-    expect(restarted.searchGeneration).toBe(7);
-    expect(restarted.status).toBe('SEARCHING');
-    expect(ctx.deliveries[0].autoRetryCount).toBe(0);
-  });
-
-  it('starts search for a committed delivery that never reached the worker', async () => {
-    const ctx = context();
-    const delivery = addDelivery(ctx);
-
-    expect(await ctx.service.processCreatedRecovery(NOW)).toBe(true);
-    expect(ctx.deliveries[0]).toMatchObject({
-      status: 'SEARCHING',
-      searchGeneration: 1,
-      autoRetryCount: 0,
-      nextRetryAt: null,
-    });
-    expect(ctx.rounds).toHaveLength(3);
-    expect(ctx.rounds.map((round) => round.roundNumber)).toEqual([1, 2, 3]);
-
-    expect(await ctx.service.processCreatedRecovery(NOW)).toBe(false);
-    expect(ctx.rounds).toHaveLength(3);
-    await expect(ctx.service.search(CUSTOMER, delivery.id, NOW)).rejects.toBeInstanceOf(ConflictException);
-  });
-
-  it('does not start a second generation when two workers recover one delivery', async () => {
-    const ctx = context();
-    addDelivery(ctx);
-
-    const results = await Promise.all([
-      ctx.service.processCreatedRecovery(NOW),
-      ctx.service.processCreatedRecovery(NOW),
-    ]);
-
-    expect(results.filter(Boolean)).toHaveLength(1);
-    expect(ctx.deliveries[0].searchGeneration).toBe(1);
-    expect(ctx.rounds).toHaveLength(3);
-  });
-
-  it('recovers each stranded delivery once', async () => {
-    const ctx = context();
-    addDelivery(ctx, 'delivery-a');
-    addDelivery(ctx, 'delivery-b');
-
-    const results = await Promise.all([
-      ctx.service.processCreatedRecovery(NOW),
-      ctx.service.processCreatedRecovery(NOW),
-    ]);
-
-    expect(results).toEqual([true, true]);
-    expect(ctx.deliveries.map((delivery) => delivery.status)).toEqual(['SEARCHING', 'SEARCHING']);
-    expect(ctx.rounds).toHaveLength(6);
-    expect(new Set(ctx.rounds.map((round) => round.searchGeneration))).toEqual(new Set([1]));
-  });
-
-  it('does not recover a cancelled, finished, or already searched delivery', async () => {
-    const ctx = context();
-    const cancelled = addDelivery(ctx, 'delivery-cancelled');
-    await ctx.service.cancel(CUSTOMER, cancelled.id, NOW);
-    const finished = addDelivery(ctx, 'delivery-finished');
-    finished.status = 'DELIVERED';
-    const exhausted = addDelivery(ctx, 'delivery-exhausted');
+    const created = addDelivery(ctx, 'created-v1');
+    const exhausted = addDelivery(ctx, 'exhausted-v1');
     exhausted.status = 'NO_RIDER_FOUND';
     exhausted.searchGeneration = 6;
-    const started = addDelivery(ctx, 'delivery-started');
-    await ctx.service.search(CUSTOMER, started.id, NOW);
 
-    expect(await ctx.service.processCreatedRecovery(NOW)).toBe(false);
-    expect(ctx.deliveries.find((delivery) => delivery.id === cancelled.id)?.status).toBe('CANCELLED');
-    expect(ctx.deliveries.find((delivery) => delivery.id === finished.id)?.status).toBe('DELIVERED');
-    expect(ctx.deliveries.find((delivery) => delivery.id === exhausted.id)?.status).toBe('NO_RIDER_FOUND');
-    expect(ctx.deliveries.find((delivery) => delivery.id === exhausted.id)?.searchGeneration).toBe(6);
-    expect(ctx.rounds.filter((round) => round.deliveryId === started.id)).toHaveLength(3);
-    expect(ctx.rounds.filter((round) => round.deliveryId !== started.id)).toHaveLength(0);
+    await expect(ctx.service.search(CUSTOMER, created.id, NOW)).rejects.toThrow('This delivery cannot be searched');
+    await expect(ctx.service.search(CUSTOMER, exhausted.id, NOW)).rejects.toThrow('This delivery cannot be searched');
+
+    expect(ctx.deliveries.find((row) => row.id === created.id)).toMatchObject({ status: 'CREATED', searchGeneration: 0 });
+    expect(ctx.deliveries.find((row) => row.id === exhausted.id)).toMatchObject({ status: 'NO_RIDER_FOUND', searchGeneration: 6 });
+    expect(ctx.rounds).toHaveLength(0);
+    expect(ctx.assignments).toHaveLength(0);
+  });
+
+
+  it('leaves a stored legacy assignment unchanged when progress or cancellation is requested', async () => {
+    const ctx = context();
+    const courier = addRider(ctx, 'stored', longitudeFor(500), fresh(NOW));
+    const delivery = addDelivery(ctx, 'stored-legacy');
+    seedAccepted(ctx, delivery, courier.id);
+
+    await expect(ctx.service.progress(rider(courier.id), delivery.id, { status: 'ARRIVED_AT_PICKUP' }, NOW))
+      .rejects.toBeInstanceOf(ConflictException);
+    await expect(ctx.service.cancel(CUSTOMER, delivery.id, NOW))
+      .rejects.toBeInstanceOf(ConflictException);
+
+    expect(ctx.deliveries.find((row) => row.id === delivery.id)?.status).toBe('ASSIGNED');
+    expect(ctx.assignments.find((row) => row.deliveryId === delivery.id)?.status).toBe('ACCEPTED');
+    expect(ctx.reservations[0]?.status).toBe('OPEN');
+    expect(ctx.events.filter((event) => event.newStatus === 'ARRIVED_AT_PICKUP' || event.newStatus === 'CANCELLED')).toHaveLength(0);
   });
 
   it('cancels a delivery when no rider was found', async () => {
@@ -204,707 +55,132 @@ describe('progressive dispatch', () => {
     expect(ctx.deliveries[0]?.status).toBe('CANCELLED');
   });
 
-  it('lets a cancellation win without offering the delivery', async () => {
+  it('closes open bids when the customer cancels before choosing a rider', async () => {
     const ctx = context();
-    const delivery = addDelivery(ctx);
-
-    await Promise.all([
-      ctx.service.processCreatedRecovery(NOW),
-      ctx.service.cancel(CUSTOMER, delivery.id, NOW),
-    ]);
-
-    expect(ctx.deliveries[0].status).toBe('CANCELLED');
-    await drain(ctx.service, new Date(NOW.getTime() + 40_000));
-    expect(offeredRiders(ctx, delivery.id)).toEqual([]);
-    expect(ctx.rounds.length === 0 || ctx.rounds.length === 3).toBe(true);
-  });
-
-  it('starts an automatic retry only after the 10-second delay', async () => {
-    const ctx = context();
-    const delivery = addDelivery(ctx);
-
-    await ctx.service.search(CUSTOMER, delivery.id, NOW);
-    await drain(ctx.service, new Date(NOW.getTime() + 40_000));
-
-    const exhaustedAt = new Date(NOW.getTime() + 40_000);
-
-    expect(await ctx.service.processAutoRetry(exhaustedAt)).toBe(true);
-    expect(ctx.deliveries[0].autoRetryCount).toBe(0);
-    expect(ctx.deliveries[0].nextRetryAt).toEqual(
-      new Date(exhaustedAt.getTime() + 10_000),
+    const openEnded = addDelivery(ctx, 'open-ended');
+    openEnded.serviceClass = 'FLEXIBLE';
+    openEnded.deliverBy = null;
+    const other = addDelivery(ctx, 'still-open');
+    other.serviceClass = 'FLEXIBLE';
+    other.deliverBy = null;
+    ctx.bids.push(
+      { id: 'open-1', deliveryId: openEnded.id, status: 'OPEN' },
+      { id: 'open-2', deliveryId: openEnded.id, status: 'OPEN' },
+      { id: 'kept-accepted', deliveryId: openEnded.id, status: 'ACCEPTED' },
+      { id: 'kept-superseded', deliveryId: openEnded.id, status: 'SUPERSEDED' },
+      { id: 'other-open', deliveryId: other.id, status: 'OPEN' },
     );
 
-    expect(
-      await ctx.service.processAutoRetry(new Date(exhaustedAt.getTime() + 9_999)),
-    ).toBe(false);
+    await ctx.service.cancel(CUSTOMER, openEnded.id, NOW);
 
-    expect(ctx.deliveries[0].searchGeneration).toBe(1);
-
-    expect(
-      await ctx.service.processAutoRetry(new Date(exhaustedAt.getTime() + 10_000)),
-    ).toBe(true);
-
-    expect(ctx.deliveries[0].searchGeneration).toBe(2);
-    expect(ctx.deliveries[0].autoRetryCount).toBe(1);
-    expect(ctx.deliveries[0].nextRetryAt).toBeNull();
-    expect(ctx.rounds.filter((round) => round.searchGeneration === 2)).toHaveLength(3);
+    expect(ctx.deliveries.find((row) => row.id === openEnded.id)?.status).toBe('CANCELLED');
+    expect(ctx.bids.filter((bid) => bid.deliveryId === openEnded.id && bid.status === 'OPEN')).toHaveLength(0);
+    expect(ctx.bids.find((bid) => bid.id === 'open-1')?.status).toBe('EXPIRED');
+    expect(ctx.bids.find((bid) => bid.id === 'open-2')?.status).toBe('EXPIRED');
+    expect(ctx.bids.find((bid) => bid.id === 'kept-accepted')?.status).toBe('ACCEPTED');
+    expect(ctx.bids.find((bid) => bid.id === 'kept-superseded')?.status).toBe('SUPERSEDED');
+    expect(ctx.bids.find((bid) => bid.id === 'other-open')?.status).toBe('OPEN');
+    expect(ctx.deliveries.find((row) => row.id === other.id)?.status).toBe('CREATED');
   });
 
-  it('keeps offers inside each radius and on the 20 and 40 second marks', async () => {
+  it('updates only the customer offer while no rider was found', async () => {
     const ctx = context();
-    const near = addRider(ctx, 'near', longitudeFor(2_000), NOW);
-    const secondRing = addRider(ctx, 'second', longitudeFor(2_001), NOW);
-    const thirdRing = addRider(ctx, 'third', longitudeFor(7_000), NOW);
-    const beyond = addRider(ctx, 'beyond', longitudeFor(10_001), NOW);
-    const stale = addRider(ctx, 'stale', longitudeFor(100), new Date(NOW.getTime() - GPS_FRESH_MS));
-    const ineligible = addRider(ctx, 'ineligible', longitudeFor(100), NOW, { approvalStatus: 'PENDING' });
-    const delivery = addDelivery(ctx);
-
-    expect(gpsIsFresh(stale.updatedAt, NOW)).toBe(false);
-    expect(gpsIsFresh(new Date(NOW.getTime() - GPS_FRESH_MS + 1), NOW)).toBe(true);
-    expect(offerIsOpen(new Date(NOW.getTime() + OFFER_TTL_MS), new Date(NOW.getTime() + OFFER_TTL_MS))).toBe(false);
-
-    const started = await ctx.service.search(CUSTOMER, delivery.id, NOW);
-    expect(started).toEqual({ deliveryId: delivery.id, status: 'SEARCHING', searchGeneration: 1 });
-    expect(ctx.rounds.map((round) => [round.roundNumber, round.radiusMetres, round.dueAt.getTime() - NOW.getTime()]))
-      .toEqual([
-        [1, 2_000, 0],
-        [2, 5_000, 20_000],
-        [3, 10_000, 40_000],
-      ]);
-    await expect(ctx.service.search(CUSTOMER, delivery.id, NOW)).rejects.toBeInstanceOf(ConflictException);
-
-    await drain(ctx.service, NOW);
-    expect(offeredRiders(ctx, delivery.id)).toEqual([near.id]);
-    expect(ctx.notifications).toHaveLength(0);
-    expect(offeredRiders(ctx, delivery.id)).not.toContain(stale.id);
-    expect(offeredRiders(ctx, delivery.id)).not.toContain(ineligible.id);
-
-    await drain(ctx.service, new Date(NOW.getTime() + 19_000));
-    expect(offeredRiders(ctx, delivery.id)).toEqual([near.id]);
-    await drain(ctx.service, new Date(NOW.getTime() + DISPATCH_ROUND_DELAYS_MS[1]));
-    expect(offeredRiders(ctx, delivery.id).sort()).toEqual([near.id, secondRing.id].sort());
-    await drain(ctx.service, new Date(NOW.getTime() + DISPATCH_ROUND_DELAYS_MS[2]));
-    expect(offeredRiders(ctx, delivery.id).sort()).toEqual([near.id, secondRing.id, thirdRing.id].sort());
-    expect(offeredRiders(ctx, delivery.id)).not.toContain(beyond.id);
-    expect(ctx.rounds.every((round) => round.status === 'COMPLETED')).toBe(true);
-
-    const offers = await ctx.service.listOffers(rider(secondRing.id), new Date(NOW.getTime() + 20_000));
-    expect(offers.offers[0]).toMatchObject({ offeredPrice: '4.50', payer: 'SENDER', paymentMethod: 'CASH' });
-    expect(offers.offers[0]).not.toHaveProperty('suggestedPrice');
-    expect(JSON.stringify(offers)).not.toContain('8.88');
-    expect(JSON.stringify(offers)).not.toContain(secondRing.location.longitude);
-    expect(JSON.stringify(started)).not.toContain(secondRing.location.longitude);
-
-    await expect(ctx.service.search(CUSTOMER, delivery.id, new Date(NOW.getTime() + 99_000)))
-      .rejects.toBeInstanceOf(ConflictException);
-    await expect(ctx.service.search(CUSTOMER, delivery.id, new Date(NOW.getTime() + 100_000)))
-      .rejects.toBeInstanceOf(ConflictException);
+    const delivery = noRider(ctx);
+    await withMarketplace(async () => {
+      await expect(ctx.service.adjustOffer(CUSTOMER, delivery.id, { offeredPrice: '0.01' }, NOW)).resolves.toEqual({ customerOffer: '0.01' });
+      await expect(ctx.service.adjustOffer(CUSTOMER, delivery.id, { offeredPrice: '1000.00' }, NOW)).resolves.toEqual({ customerOffer: '1000.00' });
+      await expect(ctx.service.adjustOffer(CUSTOMER, delivery.id, { offeredPrice: '6.50' }, NOW)).resolves.toEqual({ customerOffer: '6.50' });
+    });
+    expect(ctx.deliveries.find((row) => row.id === delivery.id)).toMatchObject({
+      status: 'NO_RIDER_FOUND',
+      customerOffer: '6.50',
+      suggestedPrice: '8.88',
+      price: '4.50',
+    });
+    expect(ctx.events).toHaveLength(0);
   });
 
-  it('lets two workers claim different rounds and still offers each rider once', async () => {
+  it('rejects an offer outside the existing price rules', async () => {
     const ctx = context();
-    const first = addRider(ctx, 'first', longitudeFor(2_000), NOW);
-    const second = addRider(ctx, 'second', longitudeFor(2_001), NOW);
-    const delivery = addDelivery(ctx);
-    await ctx.service.search(CUSTOMER, delivery.id, NOW);
-    const later = new Date(NOW.getTime() + 40_000);
-    const other = new DispatchService(ctx.prisma);
-    const claimed = await Promise.allSettled([
-      ctx.service.processDueRound(later),
-      other.processDueRound(later),
-    ]);
-    expect(claimed.filter((result) => result.status === 'fulfilled').length).toBe(2);
-    await drain(ctx.service, later);
-    const riders = ctx.assignments
-      .filter((row) => row.deliveryId === delivery.id && row.status === 'OFFERED')
-      .map((row) => row.riderProfileId);
-    expect(riders.sort()).toEqual([first.id, second.id].sort());
-    expect(new Set(riders).size).toBe(riders.length);
-  });
-
-  it('charges commission immediately under ON_ACCEPTANCE', async () => {
-    const previousModel = process.env.TEST_COMMISSION_MODEL;
-    process.env.TEST_COMMISSION_MODEL = 'ON_ACCEPTANCE';
-
-    try {
-      const ctx = context();
-      const winner = addRider(ctx, 'acceptance-rider', longitudeFor(500), fresh(NOW));
-      const delivery = addDelivery(ctx);
-
-      await ctx.service.search(CUSTOMER, delivery.id, NOW);
-      await drain(ctx.service, NOW);
-
-      const offer = offerFor(ctx, winner.id);
-      await ctx.service.accept(rider(winner.id), offer.id, 'acceptance-charge', NOW);
-
-      expect(ctx.assignments.find((row) => row.id === offer.id)).toMatchObject({
-        acceptedCommissionModel: 'ON_ACCEPTANCE',
-        acceptedCommissionPolicyVersion: 1,
-        acceptedPlatformFee: '0.30',
-      });
-
-      expect(ctx.wallets.find((wallet) => wallet.riderProfileId === winner.id)?.balance)
-        .toBe('-0.30');
-
-      expect(ctx.entries).toHaveLength(1);
-      expect(ctx.entries[0]).toMatchObject({
-        entryType: 'PLATFORM_FEE',
-        amount: '-0.30',
-        idempotencyKey: `platform-fee:assignment:${offer.id}`,
-      });
-
-      expect(ctx.reservations[0]?.status).toBe('CAPTURED');
-    } finally {
-      if (previousModel === undefined) {
-        delete process.env.TEST_COMMISSION_MODEL;
-      } else {
-        process.env.TEST_COMMISSION_MODEL = previousModel;
+    const delivery = noRider(ctx);
+    await withMarketplace(async () => {
+      for (const offeredPrice of ['0.00', '1000.01', '6.5', '']) {
+        await expect(ctx.service.adjustOffer(CUSTOMER, delivery.id, { offeredPrice }, NOW)).rejects.toBeInstanceOf(BadRequestException);
       }
-    }
+    });
+    expect(ctx.deliveries.find((row) => row.id === delivery.id)?.customerOffer).toBe('4.00');
   });
-  it('keeps acceptance commission when rider releases delivery', async () => {
-    const previousModel = process.env.TEST_COMMISSION_MODEL;
-    process.env.TEST_COMMISSION_MODEL = 'ON_ACCEPTANCE';
 
-    try {
-      const ctx = context();
-      const courier = addRider(ctx, 'release-fee-rider', longitudeFor(500), fresh(NOW));
-      const delivery = addDelivery(ctx);
-
-      await ctx.service.search(CUSTOMER, delivery.id, NOW);
-      await drain(ctx.service, NOW);
-
-      const offer = offerFor(ctx, courier.id);
-      await ctx.service.accept(rider(courier.id), offer.id, 'release-fee', NOW);
-
-      expect(ctx.wallets.find((wallet) => wallet.riderProfileId === courier.id)?.balance)
-        .toBe('-0.30');
-
-      await ctx.service.release(
-        rider(courier.id),
-        offer.id,
-        { reason: 'RIDER_CANCELLED' },
+  it('rejects a price change from another customer', async () => {
+    const ctx = context();
+    const delivery = noRider(ctx);
+    await withMarketplace(async () => {
+      await expect(ctx.service.adjustOffer(
+        { ...CUSTOMER, customerAccountId: 'other-account' },
+        delivery.id,
+        { offeredPrice: '6.00' },
         NOW,
-      );
-
-      expect(ctx.assignments.find((row) => row.id === offer.id)?.status)
-        .toBe('RELEASED');
-
-      expect(ctx.wallets.find((wallet) => wallet.riderProfileId === courier.id)?.balance)
-        .toBe('-0.30');
-
-      expect(ctx.entries).toHaveLength(1);
-      expect(ctx.entries[0]).toMatchObject({
-        entryType: 'PLATFORM_FEE',
-        amount: '-0.30',
-      });
-
-      expect(ctx.reservations[0]?.status).toBe('CAPTURED');
-    } finally {
-      if (previousModel === undefined) {
-        delete process.env.TEST_COMMISSION_MODEL;
-      } else {
-        process.env.TEST_COMMISSION_MODEL = previousModel;
-      }
-    }
+      )).rejects.toBeInstanceOf(NotFoundException);
+    });
+    expect(ctx.deliveries.find((row) => row.id === delivery.id)?.customerOffer).toBe('4.00');
   });
-  it('refunds a released rider when customer cancels before pickup', async () => {
-    const previousModel = process.env.TEST_COMMISSION_MODEL;
-    process.env.TEST_COMMISSION_MODEL = 'ON_ACCEPTANCE';
 
-    try {
-      const ctx = context();
-      const courier = addRider(ctx, 'refund-rider', longitudeFor(500), fresh(NOW));
-      const delivery = addDelivery(ctx);
+  it('rejects a price change after assignment, cancellation, retry, or the deadline', async () => {
+    await withMarketplace(async () => {
+      for (const status of ['CANCELLED', 'RIDER_ASSIGNED', 'CREATED']) {
+        const ctx = context();
+        const delivery = noRider(ctx);
+        delivery.status = status;
+        await expect(ctx.service.adjustOffer(CUSTOMER, delivery.id, { offeredPrice: '6.00' }, NOW)).rejects.toBeInstanceOf(ConflictException);
+        expect(ctx.deliveries.find((row) => row.id === delivery.id)?.customerOffer).toBe('4.00');
+      }
+      const expired = context();
+      const closed = noRider(expired);
+      closed.deliverBy = new Date(NOW.getTime() - 1_000);
+      await expect(expired.service.adjustOffer(CUSTOMER, closed.id, { offeredPrice: '6.00' }, NOW)).rejects.toBeInstanceOf(ConflictException);
+      const assigned = context();
+      const taken = noRider(assigned);
+      assigned.assignments.push({ id: 'assignment-1', deliveryId: taken.id, status: 'ACCEPTED' });
+      await expect(assigned.service.adjustOffer(CUSTOMER, taken.id, { offeredPrice: '6.00' }, NOW)).rejects.toBeInstanceOf(ConflictException);
+      expect(assigned.deliveries.find((row) => row.id === taken.id)?.customerOffer).toBe('4.00');
+    });
+  });
 
+  it('restarts search with the updated customer offer', async () => {
+    const ctx = context();
+    const delivery = noRider(ctx);
+    await withMarketplace(async () => {
+      await ctx.service.adjustOffer(CUSTOMER, delivery.id, { offeredPrice: '6.50' }, NOW);
       await ctx.service.search(CUSTOMER, delivery.id, NOW);
-      await drain(ctx.service, NOW);
-
-      const offer = offerFor(ctx, courier.id);
-      await ctx.service.accept(rider(courier.id), offer.id, 'refund-test', NOW);
-
-      await ctx.service.release(
-        rider(courier.id),
-        offer.id,
-        { reason: 'RIDER_CANCELLED' },
-        NOW,
-      );
-
-      expect(ctx.wallets.find((wallet) => wallet.riderProfileId === courier.id)?.balance)
-        .toBe('-0.30');
-
-      await ctx.service.cancel(CUSTOMER, delivery.id, NOW);
-
-      expect(ctx.deliveries[0]?.status).toBe('CANCELLED');
-      expect(ctx.wallets.find((wallet) => wallet.riderProfileId === courier.id)?.balance)
-        .toBe('0.00');
-
-      expect(ctx.entries).toHaveLength(2);
-      expect(ctx.entries.find((entry) => entry.entryType === 'PLATFORM_FEE_REFUND'))
-        .toMatchObject({
-          amount: '0.30',
-          idempotencyKey: `platform-fee-refund:assignment:${offer.id}`,
-        });
-    } finally {
-      if (previousModel === undefined) {
-        delete process.env.TEST_COMMISSION_MODEL;
-      } else {
-        process.env.TEST_COMMISSION_MODEL = previousModel;
-      }
-    }
+    });
+    expect(ctx.deliveries.find((row) => row.id === delivery.id)).toMatchObject({
+      status: 'CREATED',
+      customerOffer: '6.50',
+      suggestedPrice: '8.88',
+      price: '4.50',
+    });
   });
-  it('refunds both riders after reassignment and customer cancellation', async () => {
-    const previousModel = process.env.TEST_COMMISSION_MODEL;
-    process.env.TEST_COMMISSION_MODEL = 'ON_ACCEPTANCE';
 
-    try {
-      const ctx = context();
-      const first = addRider(ctx, 'refund-first', longitudeFor(500), fresh(NOW));
-      const second = addRider(ctx, 'refund-second', longitudeFor(700), fresh(NOW));
-      const delivery = addDelivery(ctx);
-
-      await ctx.service.search(CUSTOMER, delivery.id, NOW);
-      await drain(ctx.service, NOW);
-
-      const firstOffer = offerFor(ctx, first.id);
-      await ctx.service.accept(rider(first.id), firstOffer.id, 'first-charge', NOW);
-
-      await ctx.service.release(
-        rider(first.id),
-        firstOffer.id,
-        { reason: 'RIDER_CANCELLED' },
-        NOW,
-      );
-
-      await drain(ctx.service, NOW);
-
-      const secondOffer = ctx.assignments.find(
-        (row) =>
-          row.deliveryId === delivery.id &&
-          row.riderProfileId === second.id &&
-          row.status === 'OFFERED',
-      );
-
-      expect(secondOffer).toBeDefined();
-
-      await ctx.service.accept(
-        rider(second.id),
-        secondOffer!.id,
-        'second-charge',
-        NOW,
-      );
-
-      expect(ctx.entries.filter((entry) => entry.entryType === 'PLATFORM_FEE'))
-        .toHaveLength(2);
-
-      await ctx.service.cancel(CUSTOMER, delivery.id, NOW);
-
-      expect(ctx.deliveries[0]?.status).toBe('CANCELLED');
-
-      expect(ctx.entries.filter((entry) => entry.entryType === 'PLATFORM_FEE_REFUND'))
-        .toHaveLength(2);
-
-      expect(ctx.wallets.find((wallet) => wallet.riderProfileId === first.id)?.balance)
-        .toBe('0.00');
-
-      expect(ctx.wallets.find((wallet) => wallet.riderProfileId === second.id)?.balance)
-        .toBe('0.00');
-    } finally {
-      if (previousModel === undefined) {
-        delete process.env.TEST_COMMISSION_MODEL;
-      } else {
-        process.env.TEST_COMMISSION_MODEL = previousModel;
-      }
-    }
-  });
-  it('reserves only the platform fee and keeps acceptance idempotent', async () => {
+  it('keeps the offer consistent when search and a price change overlap', async () => {
     const ctx = context();
-    const winner = addRider(ctx, 'winner', longitudeFor(500), fresh(NOW));
-    const loser = addRider(ctx, 'loser', longitudeFor(600), fresh(NOW));
-    const delivery = addDelivery(ctx);
-    await ctx.service.search(CUSTOMER, delivery.id, NOW);
-    await drain(ctx.service, NOW);
-    const winnerOffer = offerFor(ctx, winner.id);
-    const loserOffer = offerFor(ctx, loser.id);
-
-    const accepted = await Promise.allSettled([
-      ctx.service.accept(rider(winner.id), winnerOffer.id, 'accept-1', NOW),
-      ctx.service.accept(rider(loser.id), loserOffer.id, 'accept-2', NOW),
-    ]);
-    const won = accepted.find((result) => result.status === 'fulfilled');
-    const lost = accepted.find((result) => result.status === 'rejected');
-    expect(won?.status).toBe('fulfilled');
-    expect(lost?.status).toBe('rejected');
-    if (won?.status === 'fulfilled') {
-      expect(won.value.reservedFee).toBe('0.30');
-      expect(won.value.configVersion).toBe(3);
-      expect(won.value.replayed).toBe(false);
+    const delivery = noRider(ctx);
+    const [adjusted, searched] = await withMarketplace(() => Promise.allSettled([
+      ctx.service.adjustOffer(CUSTOMER, delivery.id, { offeredPrice: '6.00' }, NOW),
+      ctx.service.search(CUSTOMER, delivery.id, NOW),
+    ]));
+    const row = ctx.deliveries.find((item) => item.id === delivery.id);
+    expect(searched?.status).toBe('fulfilled');
+    expect(row).toMatchObject({ status: 'CREATED', suggestedPrice: '8.88', price: '4.50' });
+    if (adjusted?.status === 'fulfilled') {
+      expect(adjusted.value).toEqual({ customerOffer: '6.00' });
+      expect(row?.customerOffer).toBe('6.00');
+    } else {
+      expect(adjusted?.reason).toBeInstanceOf(ConflictException);
+      expect(row?.customerOffer).toBe('4.00');
     }
-    expect(ctx.reservations).toHaveLength(1);
-    expect(ctx.reservations[0]).toMatchObject({ amount: '0.30', status: 'OPEN', configVersion: 3 });
-    expect(ctx.entries).toHaveLength(0);
-    expect(ctx.wallets.every((wallet) => wallet.balance === '0.00')).toBe(true);
-    expect(ctx.profiles.find((profile) => profile.id === winner.id)?.availability).toBe('BUSY');
-    expect(ctx.assignments.filter((row) => row.status === 'ACCEPTED')).toHaveLength(1);
-    expect(ctx.assignments.find((row) => row.status === 'ACCEPTED')).toMatchObject({
-      acceptedPlatformFee: '0.30',
-      acceptedFeeConfigVersion: 3,
-    });
-    expect(ctx.assignments.filter((row) => row.status !== 'ACCEPTED').every((row) => (
-      row.acceptedPlatformFee == null && row.acceptedFeeConfigVersion == null
-    ))).toBe(true);
-    expect(ctx.deliveries[0]?.status).toBe('ASSIGNED');
-
-    const replay = await ctx.service.accept(rider(winner.id), winnerOffer.id, 'accept-1', NOW);
-    expect(replay.replayed).toBe(true);
-    expect(replay.assignmentId).toBe(winnerOffer.id);
-    expect(ctx.reservations).toHaveLength(1);
-    ctx.configs[0]!.isActive = false;
-    ctx.configs.push({
-      id: 'config-8',
-      configVersion: 8,
-      isActive: true,
-      platformFee: '0.80',
-      defaultBorrowingLimit: '1.00',
-      currency: 'USD',
-      welcomeBonus: '1.00',
-    });
-    const pricedReplay = await ctx.service.accept(rider(winner.id), winnerOffer.id, 'accept-1', NOW);
-    expect(pricedReplay).toMatchObject({ replayed: true, reservedFee: '0.30', configVersion: 3 });
-    expect(ctx.reservations).toHaveLength(1);
-
-    const other = addDelivery(ctx, 'delivery-2');
-    await ctx.service.search(CUSTOMER, other.id, NOW);
-    await drain(ctx.service, NOW);
-    const secondOffer = ctx.assignments.find((row) => row.deliveryId === other.id && row.status === 'OFFERED');
-    await expect(ctx.service.accept(rider(winner.id), secondOffer?.id ?? '', 'accept-1', NOW))
-      .rejects.toBeInstanceOf(ConflictException);
-    expect(ctx.reservations).toHaveLength(1);
-
-    const locks = ctx.lockLog;
-    expect(locks.indexOf('wallet')).toBeGreaterThan(locks.indexOf('assignment'));
-    expect(locks.indexOf('assignment')).toBeGreaterThan(locks.indexOf('profile'));
-    expect(locks.indexOf('profile')).toBeGreaterThan(locks.indexOf('delivery'));
   });
 
-  it('rejects an expired, ineligible, or underfunded acceptance without reserving', async () => {
-    const ctx = context();
-    const riderRow = addRider(ctx, 'rider', longitudeFor(500), fresh(NOW));
-    const delivery = addDelivery(ctx);
-    await ctx.service.search(CUSTOMER, delivery.id, NOW);
-    await drain(ctx.service, NOW);
-    const offer = offerFor(ctx, riderRow.id);
-    await expect(ctx.service.accept(rider(riderRow.id), offer.id, 'late', new Date(NOW.getTime() + OFFER_TTL_MS)))
-      .rejects.toBeInstanceOf(ConflictException);
-    expect(ctx.assignments[0]?.status).toBe('EXPIRED');
-    expect(ctx.reservations).toHaveLength(0);
-
-    const funded = context();
-    const rich = addRider(funded, 'rich', longitudeFor(500), fresh(NOW));
-    rich.wallet.borrowingLimitOverride = '0.00';
-    const job = addDelivery(funded);
-    await funded.service.search(CUSTOMER, job.id, NOW);
-    await drain(funded.service, NOW);
-    await expect(funded.service.accept(rider(rich.id), offerFor(funded, rich.id).id, 'poor', NOW))
-      .rejects.toBeInstanceOf(ConflictException);
-    expect(funded.reservations).toHaveLength(0);
-    expect(offerFor(funded, rich.id).status).toBe('OFFERED');
-    expect(funded.wallets[0]?.balance).toBe('0.00');
-
-    const free = context();
-    const waived = addRider(free, 'waived', longitudeFor(500), fresh(NOW));
-    free.configs[0]!.platformFee = '0.00';
-    const waivedJob = addDelivery(free);
-    await free.service.search(CUSTOMER, waivedJob.id, NOW);
-    await drain(free.service, NOW);
-    const waivedOfferId = offerFor(free, waived.id).id;
-    const result = await free.service.accept(rider(waived.id), waivedOfferId, 'free', NOW);
-    expect(result.reservedFee).toBe('0.00');
-    expect(result.configVersion).toBe(3);
-    expect(free.reservations).toHaveLength(0);
-    expect(free.entries).toHaveLength(0);
-    expect(free.assignments.find((row) => row.status === 'ACCEPTED')).toMatchObject({
-      acceptedPlatformFee: '0.00',
-      acceptedFeeConfigVersion: 3,
-    });
-    free.configs[0]!.isActive = false;
-    free.configs.push({
-      id: 'config-9',
-      configVersion: 9,
-      isActive: true,
-      platformFee: '0.90',
-      defaultBorrowingLimit: '1.00',
-      currency: 'USD',
-      welcomeBonus: '1.00',
-    });
-    const waivedReplay = await free.service.accept(rider(waived.id), waivedOfferId, 'free', NOW);
-    expect(waivedReplay).toMatchObject({ replayed: true, reservedFee: '0.00', configVersion: 3 });
-  });
-
-  it('cancels before pickup, restores availability, and excludes a released rider', async () => {
-    const ctx = context();
-    const accepted = addRider(ctx, 'accepted', longitudeFor(500), NOW);
-    const other = addRider(ctx, 'other', longitudeFor(700), NOW);
-    const delivery = addDelivery(ctx);
-    await ctx.service.search(CUSTOMER, delivery.id, NOW);
-    await drain(ctx.service, NOW);
-    const acceptedOfferId = offerFor(ctx, accepted.id).id;
-    await ctx.service.accept(rider(accepted.id), acceptedOfferId, 'accept-1', NOW);
-
-    const cancelled = context();
-    const busy = addRider(cancelled, 'busy', longitudeFor(500), fresh(NOW));
-    const cancelJob = addDelivery(cancelled);
-    await cancelled.service.search(CUSTOMER, cancelJob.id, NOW);
-    await drain(cancelled.service, NOW);
-    await cancelled.service.accept(rider(busy.id), offerFor(cancelled, busy.id).id, 'accept-1', NOW);
-    const busyProfile = cancelled.profiles.find((profile) => profile.id === busy.id);
-    if (!busyProfile) {
-      throw new Error('missing profile');
-    }
-    busyProfile.verificationStatus = 'REJECTED';
-    await cancelled.service.cancel(CUSTOMER, cancelJob.id, NOW);
-    expect(cancelled.deliveries[0]?.status).toBe('CANCELLED');
-    expect(cancelled.profiles.find((profile) => profile.id === busy.id)?.availability).toBe('OFFLINE');
-    expect(cancelled.reservations[0]?.status).toBe('RELEASED');
-    expect(cancelled.assignments.find((row) => row.status === 'RELEASED')).toMatchObject({
-      acceptedPlatformFee: '0.30',
-      acceptedFeeConfigVersion: 3,
-    });
-    expect(cancelled.entries).toHaveLength(0);
-    expect(cancelled.wallets[0]?.balance).toBe('0.00');
-
-    const offline = context();
-    const parked = addRider(offline, 'parked', longitudeFor(500), fresh(NOW));
-    const parkedJob = addDelivery(offline);
-    await offline.service.search(CUSTOMER, parkedJob.id, NOW);
-    await drain(offline.service, NOW);
-    await offline.service.accept(rider(parked.id), offerFor(offline, parked.id).id, 'accept-1', NOW);
-    const parkedProfile = offline.profiles.find((profile) => profile.id === parked.id);
-    if (!parkedProfile) {
-      throw new Error('missing profile');
-    }
-    parkedProfile.availability = 'OFFLINE';
-    await offline.service.cancel(CUSTOMER, parkedJob.id, NOW);
-    expect(offline.profiles.find((profile) => profile.id === parked.id)?.availability).toBe('OFFLINE');
-
-    await ctx.service.release(rider(accepted.id), acceptedOfferId, { reason: 'RIDER_CANCELLED' }, NOW);
-    expect(ctx.deliveries[0]?.status).toBe('SEARCHING');
-    expect(ctx.deliveries[0]?.searchGeneration).toBe(2);
-    expect(ctx.assignments.find((row) => row.riderProfileId === accepted.id)?.status).toBe('RELEASED');
-    expect(ctx.assignments.find((row) => row.riderProfileId === accepted.id)).toMatchObject({
-      acceptedPlatformFee: '0.30',
-      acceptedFeeConfigVersion: 3,
-    });
-    expect(ctx.reservations[0]?.status).toBe('RELEASED');
-    expect(ctx.profiles.find((profile) => profile.id === accepted.id)?.availability).toBe('AVAILABLE');
-    const acceptedLocation = ctx.locations.find((location) => location.riderProfileId === accepted.id);
-    if (acceptedLocation) {
-      acceptedLocation.updatedAt = fresh(NOW);
-    }
-    await drain(ctx.service, NOW);
-    expect(offeredRiders(ctx, delivery.id)).toEqual([other.id]);
-    expect(ctx.assignments.some((row) => row.riderProfileId === accepted.id && row.status === 'RELEASED')).toBe(true);
-    expect(ctx.events.map((event) => event.newStatus)).toEqual(['SEARCHING', 'ASSIGNED', 'SEARCHING']);
-
-    await expect(ctx.service.release(rider(other.id), 'missing', { reason: 'CUSTOMER_CANCELLED' }, NOW))
-      .rejects.toBeInstanceOf(BadRequestException);
-    await expect(ctx.service.release(rider(other.id), 'missing', { reason: 'RIDER_CANCELLED' }, NOW))
-      .rejects.toBeInstanceOf(NotFoundException);
-    ctx.deliveries[0]!.status = 'PICKED_UP';
-    await expect(ctx.service.cancel(CUSTOMER, delivery.id, NOW)).rejects.toBeInstanceOf(ConflictException);
-  });
-
-  it('advances one status at a time and captures the reserved fee only when delivered', async () => {
-    const ctx = context();
-    const { riderRow, delivery } = await acceptJob(ctx, 'courier');
-    const steps = ['ARRIVED_AT_PICKUP', 'PICKED_UP', 'IN_TRANSIT', 'ARRIVED_AT_DROPOFF', 'DELIVERED'] as const;
-    for (const status of steps) {
-      const mark = ctx.lockLog.length;
-      const result = await ctx.service.progress(rider(riderRow.id), delivery.id, { status, riderProfileId: 'other' }, NOW);
-      expect(result).toMatchObject({
-        deliveryId: delivery.id,
-        status,
-        availability: status === 'DELIVERED' ? 'AVAILABLE' : 'BUSY',
-      });
-      const locks = ctx.lockLog.slice(mark);
-      if (status === 'DELIVERED') {
-        expect(locks).toEqual(['delivery', 'profile', 'assignment', 'profile', 'wallet']);
-      } else {
-        expect(locks).toEqual(['delivery', 'profile', 'assignment']);
-        expect(ctx.reservations[0]?.status).toBe('OPEN');
-        expect(ctx.entries.filter((entry) => entry.entryType === 'PLATFORM_FEE')).toHaveLength(0);
-        expect(ctx.wallets[0]?.balance).toBe('0.00');
-      }
-    }
-    expect(ctx.deliveries.find((row) => row.id === delivery.id)?.status).toBe('DELIVERED');
-    expect(ctx.assignments.find((row) => row.riderProfileId === riderRow.id)).toMatchObject({
-      status: 'COMPLETED',
-      acceptedPlatformFee: '0.30',
-      acceptedFeeConfigVersion: 3,
-    });
-    expect(ctx.reservations[0]).toMatchObject({ status: 'CAPTURED', amount: '0.30', configVersion: 3 });
-    expect(ctx.entries.filter((entry) => entry.entryType === 'PLATFORM_FEE')).toEqual([
-      expect.objectContaining({
-        amount: '-0.30',
-        configVersion: 3,
-        actorType: 'SYSTEM',
-        walletPaymentId: null,
-      }),
-    ]);
-    expect(ctx.wallets[0]?.balance).toBe('-0.30');
-    expect(ctx.events.filter((event) => event.actorType === 'RIDER' && event.newStatus !== 'ASSIGNED').map((event) => ({
-      previousStatus: event.previousStatus,
-      newStatus: event.newStatus,
-      actorId: event.actorId,
-    }))).toEqual([
-      { previousStatus: 'ASSIGNED', newStatus: 'ARRIVED_AT_PICKUP', actorId: 'user-courier' },
-      { previousStatus: 'ARRIVED_AT_PICKUP', newStatus: 'PICKED_UP', actorId: 'user-courier' },
-      { previousStatus: 'PICKED_UP', newStatus: 'IN_TRANSIT', actorId: 'user-courier' },
-      { previousStatus: 'IN_TRANSIT', newStatus: 'ARRIVED_AT_DROPOFF', actorId: 'user-courier' },
-      { previousStatus: 'ARRIVED_AT_DROPOFF', newStatus: 'DELIVERED', actorId: 'user-courier' },
-    ]);
-    await expect(ctx.service.progress(rider(riderRow.id), delivery.id, { status: 'DELIVERED' }, NOW))
-      .rejects.toBeInstanceOf(NotFoundException);
-    expect(ctx.entries.filter((entry) => entry.entryType === 'PLATFORM_FEE')).toHaveLength(1);
-  });
-
-  it('rejects skipped, backward, cancelled, and failed status changes', async () => {
-    const ctx = context();
-    const { riderRow, delivery } = await acceptJob(ctx, 'courier');
-    const other = addRider(ctx, 'other', longitudeFor(700), fresh(NOW));
-    await expect(ctx.service.progress(rider(other.id), delivery.id, { status: 'ARRIVED_AT_PICKUP' }, NOW))
-      .rejects.toBeInstanceOf(NotFoundException);
-    await expect(ctx.service.progress(rider(riderRow.id), delivery.id, { status: 'PICKED_UP' }, NOW))
-      .rejects.toBeInstanceOf(ConflictException);
-    await expect(ctx.service.progress(rider(riderRow.id), delivery.id, { status: 'CANCELLED' }, NOW))
-      .rejects.toBeInstanceOf(ConflictException);
-    await expect(ctx.service.progress(rider(riderRow.id), delivery.id, { status: 'FAILED' }, NOW))
-      .rejects.toBeInstanceOf(ConflictException);
-    await expect(ctx.service.progress(rider(riderRow.id), delivery.id, { status: 'ELSEWHERE' }, NOW))
-      .rejects.toBeInstanceOf(BadRequestException);
-    expect(ctx.deliveries.find((row) => row.id === delivery.id)?.status).toBe('ASSIGNED');
-    expect(ctx.events.filter((event) => event.actorType === 'RIDER' && event.newStatus !== 'ASSIGNED')).toHaveLength(0);
-
-    await ctx.service.progress(rider(riderRow.id), delivery.id, { status: 'ARRIVED_AT_PICKUP' }, NOW);
-    await expect(ctx.service.progress(rider(riderRow.id), delivery.id, { status: 'ASSIGNED' }, NOW))
-      .rejects.toBeInstanceOf(ConflictException);
-    await ctx.service.release(rider(riderRow.id), ctx.assignments.find((row) => row.riderProfileId === riderRow.id)?.id ?? '', { reason: 'RIDER_CANCELLED' }, NOW);
-    expect(ctx.reservations[0]?.status).toBe('RELEASED');
-    expect(ctx.entries.filter((entry) => entry.entryType === 'PLATFORM_FEE')).toHaveLength(0);
-    expect(ctx.assignments.find((row) => row.riderProfileId === riderRow.id)).toMatchObject({
-      status: 'RELEASED',
-      acceptedPlatformFee: '0.30',
-      acceptedFeeConfigVersion: 3,
-    });
-  });
-
-  it('lets one of two concurrent status updates win and keeps the fee until delivery', async () => {
-    const ctx = context();
-    const { riderRow, delivery } = await acceptJob(ctx, 'courier');
-    const results = await Promise.allSettled([
-      ctx.service.progress(rider(riderRow.id), delivery.id, { status: 'ARRIVED_AT_PICKUP' }, NOW),
-      ctx.service.progress(rider(riderRow.id), delivery.id, { status: 'ARRIVED_AT_PICKUP' }, NOW),
-    ]);
-    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
-    expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
-    expect(ctx.deliveries.find((row) => row.id === delivery.id)?.status).toBe('ARRIVED_AT_PICKUP');
-    expect(ctx.events.filter((event) => event.newStatus === 'ARRIVED_AT_PICKUP')).toHaveLength(1);
-    expect(ctx.reservations[0]?.status).toBe('OPEN');
-
-    await ctx.service.progress(rider(riderRow.id), delivery.id, { status: 'PICKED_UP' }, NOW);
-    await expect(ctx.service.release(
-      rider(riderRow.id),
-      ctx.assignments.find((row) => row.riderProfileId === riderRow.id)?.id ?? '',
-      { reason: 'VEHICLE_PROBLEM' },
-      NOW,
-    )).rejects.toBeInstanceOf(ConflictException);
-    await expect(ctx.service.cancel(CUSTOMER, delivery.id, NOW)).rejects.toBeInstanceOf(ConflictException);
-    expect(ctx.reservations[0]?.status).toBe('OPEN');
-    expect(ctx.deliveries.find((row) => row.id === delivery.id)?.status).toBe('PICKED_UP');
-  });
-
-  it('uses the accepted fee snapshot and rolls a failed delivery back', async () => {
-    const changed = context();
-    const changedJob = await acceptJob(changed, 'changed');
-    changed.configs[0]!.isActive = false;
-    changed.configs.push({
-      id: 'config-8',
-      configVersion: 8,
-      isActive: true,
-      platformFee: '0.80',
-      defaultBorrowingLimit: '1.00',
-      currency: 'USD',
-      welcomeBonus: '1.00',
-    });
-    for (const status of ['ARRIVED_AT_PICKUP', 'PICKED_UP', 'IN_TRANSIT', 'ARRIVED_AT_DROPOFF', 'DELIVERED'] as const) {
-      await changed.service.progress(rider(changedJob.riderRow.id), changedJob.delivery.id, { status }, NOW);
-    }
-    expect(changed.entries.find((entry) => entry.entryType === 'PLATFORM_FEE')).toMatchObject({
-      amount: '-0.30',
-      configVersion: 3,
-    });
-
-    const free = context();
-    free.configs.push({
-      id: 'config-free',
-      configVersion: 3,
-      isActive: true,
-      platformFee: '0.00',
-      defaultBorrowingLimit: '1.00',
-      currency: 'USD',
-      welcomeBonus: '1.00',
-    });
-    const waived = await acceptJob(free, 'waived');
-    for (const status of ['ARRIVED_AT_PICKUP', 'PICKED_UP', 'IN_TRANSIT', 'ARRIVED_AT_DROPOFF', 'DELIVERED'] as const) {
-      await free.service.progress(rider(waived.riderRow.id), waived.delivery.id, { status }, NOW);
-    }
-    expect(free.reservations).toHaveLength(0);
-    expect(free.entries).toHaveLength(0);
-    expect(free.wallets[0]?.balance).toBe('0.00');
-    expect(free.assignments.find((row) => row.status === 'COMPLETED')).toMatchObject({
-      acceptedPlatformFee: '0.00',
-      acceptedFeeConfigVersion: 3,
-    });
-
-    const failed = context();
-    const failedJob = await acceptJob(failed, 'failed');
-    for (const status of ['ARRIVED_AT_PICKUP', 'PICKED_UP', 'IN_TRANSIT', 'ARRIVED_AT_DROPOFF'] as const) {
-      await failed.service.progress(rider(failedJob.riderRow.id), failedJob.delivery.id, { status }, NOW);
-    }
-    failed.entries.push({
-      id: 'stray',
-      riderWalletId: failedJob.riderRow.wallet.id,
-      entryType: 'TOP_UP',
-      amount: '1.00',
-      balanceAfter: '1.00',
-      currency: 'USD',
-      configVersion: 3,
-      idempotencyKey: 'stray',
-      payloadHash: 'b'.repeat(64),
-      walletPaymentId: null,
-      reason: null,
-      actorType: 'SYSTEM',
-      actorId: null,
-    });
-    await expect(failed.service.progress(rider(failedJob.riderRow.id), failedJob.delivery.id, { status: 'DELIVERED' }, NOW))
-      .rejects.toBeInstanceOf(ConflictException);
-    expect(failed.deliveries.find((row) => row.id === failedJob.delivery.id)?.status).toBe('ARRIVED_AT_DROPOFF');
-    expect(failed.assignments.find((row) => row.riderProfileId === failedJob.riderRow.id)?.status).toBe('ACCEPTED');
-    expect(failed.reservations[0]?.status).toBe('OPEN');
-    expect(failed.entries.filter((entry) => entry.entryType === 'PLATFORM_FEE')).toHaveLength(0);
-    expect(failed.wallets[0]?.balance).toBe('0.00');
-  });
-
-  it('describes the geographic query and the round schedule', () => {
-    const sql = readFileSync('src/delivery/dispatch-query.ts', 'utf8');
-    expect(sql).toContain('ST_DWithin');
-    expect(sql).toContain('ST_MakePoint');
-    expect(sql).toContain('4326');
-    expect(sql).toContain('RELEASED');
-    expect(DISPATCH_ROUND_RADII_METRES).toEqual([2_000, 5_000, 10_000]);
-    expect(DISPATCH_ROUND_DELAYS_MS).toEqual([0, 20_000, 40_000]);
-    expect(OFFER_TTL_MS).toBe(60_000);
+  it('keeps the fresh location window used by tracking', () => {
     expect(GPS_FRESH_MS).toBe(60_000);
   });
 });
@@ -977,7 +253,7 @@ function context() {
           const sql = strings.join(' ');
           if (sql.includes('SKIP LOCKED') && sql.includes("'CREATED'") && sql.includes('search_generation')) {
             const eligible = draft.deliveries
-              .filter((delivery) => delivery.status === 'CREATED' && delivery.searchGeneration === 0)
+              .filter((delivery) => delivery.status === 'CREATED' && delivery.searchGeneration === 0 && delivery.serviceClass == null)
               .filter((delivery) => !draft.rounds.some((round) => round.deliveryId === delivery.id))
               .filter((delivery) => !draft.assignments.some(
                 (offer) => offer.deliveryId === delivery.id && offer.status === 'OFFERED',
@@ -1005,7 +281,7 @@ function context() {
           if (sql.includes('SKIP LOCKED') && sql.includes('FROM "deliveries" d')) {
             const now = values[0] as Date;
             const eligible = draft.deliveries
-              .filter((delivery) => delivery.status === 'SEARCHING' && delivery.searchGeneration > 0)
+              .filter((delivery) => delivery.status === 'SEARCHING' && delivery.searchGeneration > 0 && delivery.serviceClass == null)
               .filter((delivery) => !draft.rounds.some(
                 (round) => round.deliveryId === delivery.id && round.status === 'PENDING',
               ))
@@ -1076,14 +352,8 @@ function context() {
         },
         delivery: table(() => draft.deliveries, mark, () => sequence++),
         deliveryAssignment: assignmentTable(() => draft.assignments, mark, () => sequence++),
-        riderOfferNotification: {
-          ...table(() => draft.notifications, mark, () => sequence++),
-          async create() {
-            throw new Error('notification store unavailable');
-          },
-        },
-        deliveryDispatchRound: roundTable(() => draft.rounds, mark, () => sequence++),
         deliveryStatusEvent: table(() => draft.events, mark, () => sequence++),
+        bid: bidTable(() => draft.bids, mark),
         riderProfile: table(() => draft.profiles, mark, () => sequence++),
         riderLocation: table(() => draft.locations, mark, () => sequence++),
         user: table(() => draft.users, mark, () => sequence++),
@@ -1146,11 +416,37 @@ function context() {
     get reservations() { return committed.reservations; },
     get entries() { return committed.entries; },
     get events() { return committed.events; },
+    get bids() { return committed.bids; },
     get configs() { return committed.configs; },
     get locations() { return committed.locations; },
     get users() { return committed.users; },
     get motorcycles() { return committed.motorcycles; },
   };
+}
+
+function noRider(ctx: ReturnType<typeof context>, id = 'no-rider') {
+  const delivery = addDelivery(ctx, id);
+  delivery.status = 'NO_RIDER_FOUND';
+  delivery.serviceClass = 'EXPRESS';
+  delivery.customerOffer = '4.00';
+  delivery.suggestedPrice = '8.88';
+  delivery.price = '4.50';
+  delivery.deliverBy = null;
+  return delivery;
+}
+
+async function withMarketplace<T>(run: () => Promise<T>): Promise<T> {
+  const previous = process.env.V2_MARKETPLACE_ENABLED;
+  process.env.V2_MARKETPLACE_ENABLED = 'true';
+  try {
+    return await run();
+  } finally {
+    if (previous === undefined) {
+      delete process.env.V2_MARKETPLACE_ENABLED;
+    } else {
+      process.env.V2_MARKETPLACE_ENABLED = previous;
+    }
+  }
 }
 
 function addDelivery(ctx: ReturnType<typeof context>, id = 'delivery-1') {
@@ -1164,6 +460,7 @@ function addDelivery(ctx: ReturnType<typeof context>, id = 'delivery-1') {
     searchStartedAt: null,
     price: '4.50',
     suggestedPrice: '8.88',
+    customerOffer: null as string | null,
     pricingVersion: 7,
     distanceMeters: 12_345,
     currency: 'USD',
@@ -1172,6 +469,8 @@ function addDelivery(ctx: ReturnType<typeof context>, id = 'delivery-1') {
     parcelDescription: 'Documents',
     parcelSize: 'SMALL',
     parcelInstructions: null,
+    serviceClass: null as string | null,
+    deliverBy: null as Date | null,
     pickupAddress: 'Pickup',
     pickupLatitude: '0.0000000',
     pickupLongitude: '0.0000000',
@@ -1250,41 +549,62 @@ function addRider(
   return { id, profile, wallet, location, latitude: location.latitude, updatedAt };
 }
 
-async function acceptJob(ctx: ReturnType<typeof context>, name: string) {
-  const riderRow = addRider(ctx, name, longitudeFor(500), fresh(NOW));
-  const delivery = addDelivery(ctx, `delivery-${name}`);
-  await ctx.service.search(CUSTOMER, delivery.id, NOW);
-  await drain(ctx.service, NOW);
-  await ctx.service.accept(rider(riderRow.id), offerFor(ctx, riderRow.id).id, `accept-${name}`, NOW);
-  return { riderRow, delivery };
-}
-
 function rider(riderProfileId: string) {
   return { userId: `user-${riderProfileId.replace('profile-', '')}`, riderProfileId };
 }
 
-function offeredRiders(ctx: ReturnType<typeof context>, deliveryId: string): string[] {
-  return ctx.assignments
-    .filter((row) => row.deliveryId === deliveryId && row.status === 'OFFERED')
-    .map((row) => String(row.riderProfileId));
-}
-
-function offerFor(ctx: ReturnType<typeof context>, riderProfileId: string) {
-  const offer = ctx.assignments.find((row) => row.riderProfileId === riderProfileId && row.status === 'OFFERED');
-  if (!offer) {
-    throw new Error('missing offer');
+function seedAccepted(ctx: ReturnType<typeof context>, delivery: Row, riderProfileId: string, assignmentId = `assignment-${delivery.id}`) {
+  const config = ctx.configs.find((row) => row.isActive) ?? ctx.configs[0];
+  const fee = String(config?.platformFee ?? '0.30');
+  const configVersion = Number(config?.configVersion ?? 3);
+  delivery.status = 'ASSIGNED';
+  delivery.searchGeneration = 1;
+  ctx.assignments.push({
+    id: assignmentId,
+    deliveryId: delivery.id,
+    riderProfileId,
+    status: 'ACCEPTED',
+    offerExpiresAt: null,
+    searchGeneration: 1,
+    acceptedPlatformFee: fee,
+    acceptedFeeConfigVersion: configVersion,
+    acceptedCommissionModel: 'ON_COMPLETION',
+    acceptedCommissionPolicyVersion: 1,
+    acceptedBidAmount: null,
+    releaseReason: null,
+    releasedAt: null,
+  });
+  if (cents(fee) > 0) {
+    const wallet = ctx.wallets.find((row) => row.riderProfileId === riderProfileId);
+    ctx.reservations.push({
+      id: `reservation-${assignmentId}`,
+      riderWalletId: wallet?.id,
+      assignmentId,
+      deliveryId: delivery.id,
+      status: 'OPEN',
+      amount: fee,
+      promotionalAmount: '0.00',
+      walletAmount: fee,
+      currency: 'USD',
+      configVersion,
+      createdAt: NOW,
+      releasedAt: null,
+      capturedAt: null,
+    });
   }
-  return offer;
-}
-
-async function drain(service: DispatchService, now: Date): Promise<void> {
-  for (let attempt = 0; attempt < 10; attempt += 1) {
-    const worked = await service.processDueRound(now);
-    if (!worked) {
-      return;
-    }
+  const profile = ctx.profiles.find((row) => row.id === riderProfileId);
+  if (profile) {
+    profile.availability = 'BUSY';
   }
-  throw new Error('dispatch rounds did not finish');
+  ctx.events.push({
+    deliveryId: delivery.id,
+    previousStatus: 'CREATED',
+    newStatus: 'ASSIGNED',
+    actorId: `user-${String(riderProfileId).replace('profile-', '')}`,
+    actorType: 'RIDER',
+    occurredAt: NOW,
+  });
+  return assignmentId;
 }
 
 function fresh(now: Date): Date {
@@ -1316,6 +636,7 @@ type State = {
   reservations: Row[];
   configs: Row[];
   events: Row[];
+  bids: Row[];
 };
 
 const STATE_KEYS = [
@@ -1332,6 +653,7 @@ const STATE_KEYS = [
   'reservations',
   'configs',
   'events',
+  'bids',
 ] as const;
 
 function emptyState(): State {
@@ -1349,6 +671,24 @@ function emptyState(): State {
     reservations: [],
     configs: [],
     events: [],
+    bids: [],
+  };
+}
+
+function bidTable(read: () => Row[], mark: () => void) {
+  const rows = table(read, mark, () => 0);
+  return {
+    ...rows,
+    async updateMany({ where, data }: { where: Row; data: Row }) {
+      const matched = read().filter((row) => matches(row, where));
+      for (const row of matched) {
+        Object.assign(row, data);
+      }
+      if (matched.length > 0) {
+        mark();
+      }
+      return { count: matched.length };
+    },
   };
 }
 
@@ -1407,20 +747,6 @@ function assignmentTable(read: () => Row[], mark: () => void, nextId: () => numb
       }
       assertAssignment(read(), { ...current, ...data }, current);
       return rows.update({ where, data });
-    },
-  };
-}
-
-function roundTable(read: () => Row[], mark: () => void, nextId: () => number) {
-  const rows = table(read, mark, nextId);
-  return {
-    ...rows,
-    async create({ data }: { data: Row }) {
-      const row = { id: data.id ?? `id-${nextId()}`, ...data };
-      if (read().some((item) => item.deliveryId === row.deliveryId && item.searchGeneration === row.searchGeneration && item.roundNumber === row.roundNumber)) {
-        throw uniqueError();
-      }
-      return rows.create({ data: row });
     },
   };
 }

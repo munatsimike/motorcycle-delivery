@@ -10,8 +10,10 @@ import com.riders.rider.feature.profile.domain.ProfileBoard
 import com.riders.rider.feature.profile.domain.canEditProfileName
 import com.riders.rider.feature.profile.domain.canEditProfilePhone
 import com.riders.rider.feature.profile.domain.profileAfterRefresh
+import com.riders.rider.core.network.ApiError
 import com.riders.rider.feature.profile.domain.shouldLoadProfile
 import com.riders.rider.feature.profile.domain.showsAccountDeactivation
+import com.riders.rider.feature.profile.domain.signOutLeavesRiderOnDuty
 import com.riders.rider.navigation.RiderDestination
 import com.riders.rider.navigation.RIDER_SHELL
 import com.riders.rider.navigation.deliveriesShowsActiveDelivery
@@ -70,12 +72,12 @@ class RiderNavigationTest {
 
     @Test
     fun deliveriesShowsOffersOnlyWhileAvailableAndPollsOnlyInTheForeground() {
-        assertTrue(deliveriesShowsOffers("AVAILABLE"))
+        assertFalse(deliveriesShowsOffers("AVAILABLE"))
         assertFalse(deliveriesShowsOffers("BUSY"))
         assertFalse(deliveriesShowsOffers("OFFLINE"))
-        assertTrue(deliveriesShowsActiveDelivery("BUSY"))
+        assertFalse(deliveriesShowsActiveDelivery("BUSY"))
         assertFalse(deliveriesShowsActiveDelivery("AVAILABLE"))
-        assertTrue(offersPollOnDeliveriesTab(RiderDestination.Deliveries, resumed = true, availability = "AVAILABLE"))
+        assertFalse(offersPollOnDeliveriesTab(RiderDestination.Deliveries, resumed = true, availability = "AVAILABLE"))
         assertFalse(offersPollOnDeliveriesTab(RiderDestination.Deliveries, resumed = false, availability = "AVAILABLE"))
         assertFalse(offersPollOnDeliveriesTab(RiderDestination.Home, resumed = true, availability = "AVAILABLE"))
         assertFalse(offersPollOnDeliveriesTab(RiderDestination.Deliveries, resumed = true, availability = "BUSY"))
@@ -106,6 +108,14 @@ class RiderNavigationTest {
         assertEquals("12 Samora Machel Avenue", kept.address)
         assertEquals("APPROVED", kept.onboarding?.approvalStatus)
         assertEquals("Network request failed. Check your connection and try again.", kept.error)
+    }
+
+    @Test
+    fun signOutKeepsARiderOnDutyOnlyDuringADelivery() {
+        assertTrue(signOutLeavesRiderOnDuty(ApiError.Conflict("You cannot go offline during a delivery")))
+        assertTrue(signOutLeavesRiderOnDuty(ApiError.Conflict("Availability cannot be changed while busy")))
+        assertFalse(signOutLeavesRiderOnDuty(ApiError.Conflict("Availability cannot be changed while busy.")))
+        assertFalse(signOutLeavesRiderOnDuty(ApiError.Network))
     }
 
     @Test

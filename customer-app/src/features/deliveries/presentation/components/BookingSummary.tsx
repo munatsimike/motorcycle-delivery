@@ -1,12 +1,13 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Image, StyleSheet, Text, TextInput, View } from 'react-native';
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
 
 import LoadingIndicator from '../../../../components/LoadingIndicator';
 import { useInputFocus } from '../../../../components/useInputFocus';
 import { colors, radius, spacing, typography } from '../../../../theme';
-import { deliveryContactPhone, formatDeadline, type BookingDraft, type StopDraft } from '../../domain/bookingDraft';
-import { deliveryCardAddress } from '../../domain/deliveryCard';
+import { deliveryContactPhone, type BookingDraft, type StopDraft } from '../../domain/bookingDraft';
+import { deliveryCardAddress, deliveryContentKind } from '../../domain/deliveryCard';
+import { ContentIcon, LocationPin, StopLabel, deliveryIcon } from '../deliveryIcons';
 import type { DeliveryQuote } from '../../domain/deliveryQuote';
 import { parcelSizeLabel, payerLabel, paymentMethodLabel } from './ParcelFields';
 
@@ -31,57 +32,41 @@ export default function BookingSummary({
   onOfferFocus,
   marketplace = false,
 }: BookingSummaryProps) {
-  const deadline = draft.deliverBy ? formatDeadline(draft.deliverBy) : null;
   const offerFocus = useInputFocus();
   return (
     <View style={styles.wrap}>
       <View style={styles.route}>
         <RouteStop label="Pickup" stop={draft.pickup} last={false} />
-        <RouteStop label="Destination" stop={draft.dropoff} last />
+        <RouteStop label="Drop-off" stop={draft.dropoff} last />
       </View>
 
       <View style={styles.facts}>
         <Fact
-          icon="package-variant"
           label="Sending"
           value={describeParcel(draft)}
-          iconColor={colors.primary}
-          backgroundColor={colors.primaryLight}
+          mark={<ContentIcon kind={deliveryContentKind(draft.description)} />}
         />
         {marketplace ? (
           <Fact
-            icon="clock-outline"
-            label="Deliver by"
-            value={deadline ?? ''}
-            iconColor="#3B6FE8"
-            backgroundColor="#E8F1FF"
+            icon={draft.serviceClass === 'EXPRESS' ? 'flash-outline' : 'message-text-outline'}
+            label="Delivery type"
+            value={draft.serviceClass === 'EXPRESS' ? 'Urgent' : 'Flexible'}
           />
-        ) : (
+        ) : null}
+        {marketplace ? null : (
           <Fact
-            icon="account-group"
+            icon="account-group-outline"
             label="Pays"
             value={draft.payer ? payerLabel(draft.payer) : ''}
-            iconColor="#3B6FE8"
-            backgroundColor="#E8F1FF"
           />
         )}
-        {marketplace ? (
+        {draft.paymentMethod ? (
           <Fact
-            icon="motorbike"
-            label="Service"
-            value={draft.serviceClass === 'EXPRESS' ? 'Express' : draft.serviceClass === 'FLEXIBLE' ? 'Flexible' : ''}
-            iconColor="#E07A2F"
-            backgroundColor="#FFF1E0"
-          />
-        ) : (
-          <Fact
-            icon="wallet"
+            icon={draft.paymentMethod === 'ECOCASH' ? 'cellphone' : 'cash'}
             label="Method"
-            value={draft.paymentMethod ? paymentMethodLabel(draft.paymentMethod) : ''}
-            iconColor="#E07A2F"
-            backgroundColor="#FFF1E0"
+            value={paymentMethodLabel(draft.paymentMethod)}
           />
-        )}
+        ) : null}
       </View>
 
       <View style={styles.priceCard}>
@@ -98,32 +83,26 @@ export default function BookingSummary({
                 <Text style={styles.distance}>{formatDistance(quote.distanceMeters)}</Text>
               </View>
             </View>
-            {marketplace ? (
-              <Text style={styles.offerLabel}>Riders bid their own price. This suggestion is not a final price.</Text>
-            ) : (
-              <>
-                <Text style={styles.offerLabel}>Your offer</Text>
-                <View style={[styles.offerField, offerFocus.style]}>
-                  <Text style={styles.offerCurrency}>{quote.currency}</Text>
-                  <TextInput
-                    style={styles.offerInput}
-                    value={offerText}
-                    onChangeText={onOfferChange}
-                    keyboardType="decimal-pad"
-                    inputMode="decimal"
-                    placeholder="0.00"
-                    placeholderTextColor={colors.textSecondary}
-                    maxLength={7}
-                    editable={offerEditable}
-                    onFocus={() => {
-                      offerFocus.onFocus();
-                      onOfferFocus?.();
-                    }}
-                    onBlur={offerFocus.onBlur}
-                  />
-                </View>
-              </>
-            )}
+            <Text style={styles.offerLabel}>Your offer (USD)</Text>
+            <View style={[styles.offerField, offerFocus.style]}>
+              <Text style={styles.offerCurrency}>{quote.currency}</Text>
+              <TextInput
+                style={styles.offerInput}
+                value={offerText}
+                onChangeText={onOfferChange}
+                keyboardType="decimal-pad"
+                inputMode="decimal"
+                placeholder="0.00"
+                placeholderTextColor={colors.textSecondary}
+                maxLength={7}
+                editable={offerEditable}
+                onFocus={() => {
+                  offerFocus.onFocus();
+                  onOfferFocus?.();
+                }}
+                onBlur={offerFocus.onBlur}
+              />
+            </View>
           </View>
         ) : null}
       </View>
@@ -134,29 +113,27 @@ export default function BookingSummary({
 function RouteStop({ label, stop, last }: { label: string; stop: StopDraft; last: boolean }) {
   const name = stop.contactName.trim();
   const phone = displayPhone(stop.contactPhone);
-  const pin = last ? colors.error : colors.primary;
-  const badge = last ? '#FDECEC' : colors.primaryLight;
   return (
     <View style={styles.stop}>
       <View style={styles.rail}>
-        <View style={[styles.pinCircle, { backgroundColor: badge }]}>
-          <MaterialDesignIcons name="map-marker" color={pin} size={18} />
+        <View style={styles.pinCircle}>
+          <LocationPin dropoff={last} />
         </View>
         {last ? null : <DottedConnector />}
       </View>
       <View style={styles.stopCopy}>
-        <Text style={styles.stopLabel}>{label}</Text>
+        <StopLabel>{label}</StopLabel>
         <Text style={styles.stopAddress}>{deliveryCardAddress(stop.address.trim())}</Text>
         {name ? (
           <View style={styles.meta}>
-            <MaterialDesignIcons name="account" size={16} color={colors.primary} />
+            <MaterialDesignIcons name="account-outline" size={16} color="#000000" />
             <Text style={styles.stopName}>{name}</Text>
           </View>
         ) : null}
         {phone ? (
           <View style={styles.meta}>
-            <MaterialDesignIcons name="phone" size={16} color={colors.primary} />
-            {phone.startsWith('+263') ? (
+            <MaterialDesignIcons name="phone-outline" size={16} color="#000000" />
+            {phone.startsWith('+263') && !last ? (
               <Image
                 source={require('../../../../../assets/zimbabwe-flag.png')}
                 style={styles.flag}
@@ -191,22 +168,18 @@ function DottedConnector() {
 }
 function Fact({
   icon,
+  mark,
   label,
   value,
-  iconColor,
-  backgroundColor,
 }: {
-  icon: 'package-variant' | 'account-group' | 'wallet' | 'clock-outline' | 'motorbike';
+  icon?: 'flash-outline' | 'message-text-outline' | 'account-group-outline' | 'cash' | 'cellphone';
+  mark?: ReactNode;
   label: string;
   value: string;
-  iconColor: string;
-  backgroundColor: string;
 }) {
   return (
     <View style={styles.fact}>
-      <View style={[styles.factIcon, { backgroundColor }]}>
-        <MaterialDesignIcons name={icon} size={18} color={iconColor} />
-      </View>
+      {mark ?? (icon ? <MaterialDesignIcons name={icon} size={deliveryIcon.size} color={deliveryIcon.color} /> : null)}
       <Text style={styles.factLabel}>{label}</Text>
       <Text style={styles.factValue}>{value}</Text>
     </View>
@@ -258,11 +231,12 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: radius.lg,
     padding: spacing.lg,
-    gap: spacing.lg,
+    paddingLeft: spacing.xs,
+    gap: spacing.sm,
   },
   stop: {
     flexDirection: 'row',
-    gap: spacing.md,
+    gap: spacing.xs,
   },
   rail: {
     width: 32,
@@ -270,15 +244,14 @@ const styles = StyleSheet.create({
   },
   pinCircle: {
     width: 32,
-    height: 32,
-    borderRadius: radius.md,
+    height: 18,
     alignItems: 'center',
     justifyContent: 'center',
   },
   connector: {
     position: 'absolute',
-    top: 32,
-    bottom: -spacing.lg,
+    top: 18,
+    bottom: -spacing.sm,
     width: 32,
     alignItems: 'center',
     justifyContent: 'space-evenly',
@@ -292,17 +265,11 @@ const styles = StyleSheet.create({
   stopCopy: {
     flex: 1,
     gap: spacing.xs,
-    paddingBottom: spacing.md,
-  },
-  stopLabel: {
-    fontSize: typography.small,
-    fontWeight: '700',
-    color: colors.textSecondary,
   },
   stopAddress: {
-    fontSize: typography.body,
-    lineHeight: 22,
-    fontWeight: '700',
+    fontSize: typography.caption,
+    lineHeight: 20,
+    fontWeight: '500',
     color: colors.text,
   },
   stopName: {
@@ -318,8 +285,7 @@ const styles = StyleSheet.create({
   stopPhone: {
     flex: 1,
     fontSize: typography.caption,
-    fontWeight: '700',
-    color: colors.text,
+    color: colors.textSecondary,
   },
   meta: {
     flexDirection: 'row',
@@ -339,13 +305,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.md,
     gap: spacing.xs,
-  },
-  factIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   factLabel: {
     fontSize: typography.small,

@@ -16,7 +16,7 @@ type AssignmentSource = {
   riderProfileId: string;
   motorcycleId: string | null;
   status: string;
-  offerExpiresAt: Date;
+  offerExpiresAt: Date | null;
   respondedAt: Date | null;
   releaseReason: string | null;
   releasedAt: Date | null;

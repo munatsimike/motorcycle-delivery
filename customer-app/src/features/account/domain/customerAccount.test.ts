@@ -21,6 +21,7 @@ describe('readCustomerAccount', () => {
       phone: '+263771234567',
       email: null,
       photoUrl: null,
+      hasProfilePhoto: false,
       marketplaceEnabled: true,
     });
   });
@@ -40,8 +41,8 @@ describe('readCustomerAccount', () => {
     });
   });
 
-  it('keeps an optional profile photo and treats a removed photo as absent', () => {
-    expect(readCustomerAccount({
+  it('reads a stored profile photo flag and ignores a public photo url', () => {
+    const saved = readCustomerAccount({
       id: 'account-2',
       kind: 'INDIVIDUAL',
       name: 'Rudo Ncube',
@@ -49,8 +50,12 @@ describe('readCustomerAccount', () => {
       address: '1 First Street',
       phone: '+263771234567',
       marketplaceEnabled: false,
+      hasProfilePhoto: true,
       photoUrl: ' https://example.com/rudo.jpg ',
-    }).photoUrl).toBe('https://example.com/rudo.jpg');
+    });
+    expect(saved.hasProfilePhoto).toBe(true);
+    expect(saved.photoUrl).toBeNull();
+    expect(JSON.stringify(saved)).not.toContain('example.com');
 
     expect(readCustomerAccount({
       kind: 'INDIVIDUAL',
@@ -59,8 +64,7 @@ describe('readCustomerAccount', () => {
       address: '1 First Street',
       phone: '+263771234567',
       marketplaceEnabled: false,
-      photoUrl: '   ',
-    }).photoUrl).toBeNull();
+    }).hasProfilePhoto).toBe(false);
   });
 
   it('reads an optional email and ignores a missing one', () => {
@@ -97,7 +101,7 @@ describe('readCustomerAccount', () => {
       phone: '+263771234567',
     })).toThrow('Account details are unavailable.');
     expect(bookingMode(true)).toBe('v2');
-    expect(bookingMode(false)).toBe('v1');
+    expect(bookingMode(false)).toBe('unavailable');
     expect(bookingMode(null)).toBe('unknown');
   });
 

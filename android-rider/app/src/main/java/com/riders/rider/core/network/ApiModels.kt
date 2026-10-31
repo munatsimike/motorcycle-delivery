@@ -1,5 +1,6 @@
 package com.riders.rider.core.network
 
+import com.riders.rider.feature.auth.domain.DeviceReplacementNotice
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -18,6 +19,7 @@ sealed interface ApiError {
     data object Timeout : ApiError
     data class Validation(val message: String) : ApiError
     data object SessionEnded : ApiError
+    data object SignedInElsewhere : ApiError
     data object Forbidden : ApiError
     data class Conflict(val message: String) : ApiError
     data class TooManyRequests(val message: String) : ApiError
@@ -30,6 +32,7 @@ fun ApiError.text(): String = when (this) {
     ApiError.Timeout -> "The request timed out. Check your connection and try again."
     is ApiError.Validation -> message
     ApiError.SessionEnded -> "Your session has ended. Sign in again."
+    ApiError.SignedInElsewhere -> DeviceReplacementNotice.MESSAGE
     ApiError.Forbidden -> "Rider access is required."
     is ApiError.Conflict -> message
     is ApiError.TooManyRequests -> message
@@ -41,7 +44,9 @@ fun mapHttpFailure(code: Int, body: String?, establishedSession: Boolean = true)
     val message = apiMessage(body)
     return when (code) {
         400 -> ApiError.Validation(message ?: "The request could not be completed.")
-        401 -> if (establishedSession) {
+        401 -> if (establishedSession && message == DeviceReplacementNotice.MESSAGE) {
+            ApiError.SignedInElsewhere
+        } else if (establishedSession) {
             ApiError.SessionEnded
         } else {
             ApiError.Validation(message ?: "Authentication failed")
@@ -108,9 +113,27 @@ data class PhoneRequest(val phone: String)
 @Serializable
 data class RiderWhatsAppRegistrationRequest(
     val phone: String,
+    val whatsappConsent: Boolean,
+)
+
+@Serializable
+data class RiderRegistrationCompleteRequest(
+    val registrationToken: String,
     val fullName: String,
     val address: String,
-    val whatsappConsent: Boolean,
+)
+
+@Serializable
+data class RiderVerificationResponse(
+    val status: String? = null,
+    val registrationToken: String? = null,
+    val fullName: String? = null,
+    val address: String? = null,
+    val readOnly: List<String> = emptyList(),
+    val accessToken: String? = null,
+    val refreshToken: String? = null,
+    val accessTokenExpiresAt: String? = null,
+    val refreshTokenExpiresAt: String? = null,
 )
 
 @Serializable
@@ -130,6 +153,7 @@ data class RiderProfileResponse(
     val fullName: String,
     val phone: String,
     val address: String? = null,
+    val hasProfilePhoto: Boolean = false,
 )
 
 @Serializable
@@ -217,6 +241,9 @@ data class ActiveAssignmentBody(
     val serviceClass: String? = null,
     val deliverBy: String? = null,
     val agreedPrice: String? = null,
+    val distanceMeters: Int? = null,
+    val createdAt: String? = null,
+    val completedAt: String? = null,
 )
 
 @Serializable
@@ -240,6 +267,8 @@ data class OfferResponse(
     val parcel: ParcelResponse,
     val pickup: StopResponse,
     val dropoff: StopResponse,
+    val serviceClass: String? = null,
+    val distanceMeters: Int = 0,
 )
 
 @Serializable
@@ -274,9 +303,6 @@ data class AcceptanceResponse(
 )
 
 @Serializable
-data class ReleaseRequest(val reason: String)
-
-@Serializable
 data class StatusRequest(val status: String)
 
 @Serializable
@@ -289,6 +315,7 @@ data class BidRequestBody(
     val deliverBy: String? = null,
     val currency: String? = null,
     val suggestedPrice: String? = null,
+    val offeredPrice: String? = null,
     val distanceMeters: Int? = null,
     val pickupAddress: String = "",
     val dropoffAddress: String = "",
@@ -325,6 +352,9 @@ data class OwnBidBody(
     val pickupAddress: String = "",
     val dropoffAddress: String = "",
     val deliverBy: String? = null,
+    val parcelDescription: String = "",
+    val suggestedPrice: String = "",
+    val distanceMeters: Int? = null,
 )
 
 @Serializable
@@ -360,6 +390,9 @@ data class WalletSummaryResponse(
     val reservedFees: String,
     val availableCapacity: String,
     val currency: String,
+    val promotionalBalance: String = "0.00",
+    val availablePromotionalCredit: String = "0.00",
+    val newDeliveriesRestricted: Boolean = false,
 )
 
 @Serializable

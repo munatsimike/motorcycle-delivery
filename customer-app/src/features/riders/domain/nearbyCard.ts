@@ -7,7 +7,7 @@ export type NearbyCardContent = {
   message: string;
   action: 'turn-on-location' | 'allow-location' | 'try-again' | 'notify' | 'cancel-alert' | 'open-notification-settings' | null;
   tone: 'amber' | 'neutral' | 'green' | 'danger';
-  icon: 'map-marker-off' | 'map-marker-alert-outline' | 'crosshairs-gps' | 'bike' | 'cloud-off-outline' | 'bell-outline';
+  icon: 'map-marker-off-outline' | 'map-marker-alert-outline' | 'crosshairs-gps' | 'bike' | 'cloud-off-outline' | 'bell-outline';
 };
 
 export function nearbyCardContent(state: NearbyAvailability): NearbyCardContent | null {
@@ -20,7 +20,7 @@ export function nearbyCardContent(state: NearbyAvailability): NearbyCardContent 
       message: 'Turn on your device location to see available riders near you.',
       action: 'turn-on-location',
       tone: 'amber',
-      icon: 'map-marker-off',
+      icon: 'map-marker-off-outline',
     };
   }
   if (state.status === 'permission-denied') {
@@ -67,6 +67,28 @@ export function nearbyCardContent(state: NearbyAvailability): NearbyCardContent 
     tone: 'green',
     icon: 'bike',
   };
+}
+
+export function nearbyHomeCountLabel(state: NearbyAvailability): string {
+  if (state.status === 'loading') {
+    return 'Checking';
+  }
+  if (state.status === 'services-off') {
+    return 'Location is off';
+  }
+  if (state.status === 'permission-denied') {
+    return 'Location needed';
+  }
+  if (state.status === 'position-unavailable') {
+    return 'Location unavailable';
+  }
+  if (state.status === 'check-failed') {
+    return 'Unable to check';
+  }
+  if (state.count === 0) {
+    return '0 riders nearby';
+  }
+  return String(state.count);
 }
 
 export function nearbyActionLabel(action: NearbyCardContent['action']): string | null {

@@ -1,4 +1,5 @@
 import { DeliveryStatus, type CoordinateSource, type Currency, type DeliveryPayer, type ParcelSize, type PaymentMethod, type PricingModel, type ServiceClass } from '../generated/prisma/client.js';
+import { GPS_FRESH_MS } from './dispatch.constants.js';
 import { shouldWithholdCoordinates } from './coordinate-retention.js';
 import { centsFromDecimal, formatCents } from './money.js';
 
@@ -19,6 +20,7 @@ export type StoredDelivery = {
   deliverBy?: Date | null;
   price: string | { toFixed(digits: number): string } | null;
   suggestedPrice: string | { toFixed(digits: number): string };
+  customerOffer?: string | { toFixed(digits: number): string } | null;
   pickupLatitude: string | { toFixed(digits: number): string } | null;
   pickupLongitude: string | { toFixed(digits: number): string } | null;
   pickupAddress: string;
@@ -58,7 +60,8 @@ export function toCustomerDeliverySummary(delivery: {
   currency?: Currency | null;
   suggestedPrice?: string | { toFixed(digits: number): string } | null;
   price?: string | { toFixed(digits: number): string } | null;
-}) {
+  distanceMeters?: number | null;
+}, openBidCount = 0) {
   return {
     id: delivery.id,
     reference: delivery.id,
@@ -69,6 +72,8 @@ export function toCustomerDeliverySummary(delivery: {
     currency: delivery.currency ?? null,
     suggestedPrice: moneyOrNull(delivery.suggestedPrice),
     offeredPrice: moneyOrNull(delivery.price),
+    distanceMeters: finiteDistance(delivery.distanceMeters),
+    openBidCount,
     pickup: { address: delivery.pickupAddress },
     dropoff: { address: delivery.dropoffAddress },
   };
@@ -77,7 +82,57 @@ export function toCustomerDeliverySummary(delivery: {
 export type RiderPoint = {
   latitude: string;
   longitude: string;
+  updatedAt?: string;
+  riderProfileId?: string;
 };
+
+export type PickupApproachView = {
+  metres: number;
+  seconds: number;
+  line: Array<{ latitude: number; longitude: number }>;
+};
+
+export type AssignedRiderView = {
+  name: string;
+  verified: boolean;
+  motorcycle: string | null;
+  phone: string | null;
+  hasProfilePhoto: boolean;
+};
+
+const ASSIGNED_RIDER_STATUSES = new Set<DeliveryStatus>([
+  DeliveryStatus.ASSIGNED,
+  DeliveryStatus.ARRIVED_AT_PICKUP,
+  DeliveryStatus.PICKED_UP,
+  DeliveryStatus.IN_TRANSIT,
+  DeliveryStatus.ARRIVED_AT_DROPOFF,
+  DeliveryStatus.RIDER_ASSIGNED,
+  DeliveryStatus.COLLECTING,
+  DeliveryStatus.COLLECTED,
+  DeliveryStatus.OUT_FOR_DELIVERY,
+  DeliveryStatus.DELIVERED,
+]);
+
+export function assignedRiderStatus(status: DeliveryStatus): boolean {
+  return ASSIGNED_RIDER_STATUSES.has(status);
+}
+
+export function withAssignedRider<T>(
+  view: T,
+  rider: AssignedRiderView | null,
+): T | (T & { rider: AssignedRiderView }) {
+  if (!rider) {
+    return view;
+  }
+  return { ...view, rider };
+}
+
+export function freshRiderPoint(point: RiderPoint | null, updatedAt: Date | null, now: Date): RiderPoint | null {
+  if (!point || !updatedAt || !(updatedAt.getTime() > now.getTime() - GPS_FRESH_MS)) {
+    return null;
+  }
+  return point;
+}
 
 export function toCustomerDelivery(delivery: StoredDelivery) {
   return {
@@ -96,6 +151,7 @@ export function toCustomerDelivery(delivery: StoredDelivery) {
     serviceClass: delivery.serviceClass ?? null,
     deliverBy: delivery.deliverBy instanceof Date ? delivery.deliverBy.toISOString() : null,
     suggestedPrice: formatCents(centsFromDecimal(delivery.suggestedPrice)),
+    customerOffer: delivery.customerOffer == null ? null : formatCents(centsFromDecimal(delivery.customerOffer)),
     offeredPrice: delivery.price == null ? null : formatCents(centsFromDecimal(delivery.price)),
     pickup: stop(
       withheldCoordinate(delivery, 'pickup', delivery.pickupLatitude),
@@ -124,13 +180,22 @@ export function toCustomerDelivery(delivery: StoredDelivery) {
   };
 }
 
-// The current rider point is part of this delivery's response only while the
-// parcel is COLLECTING. Every other status omits the field.
+const CUSTOMER_RIDER_LOCATION_STATUSES = new Set<DeliveryStatus>([
+  DeliveryStatus.RIDER_ASSIGNED,
+  DeliveryStatus.COLLECTING,
+]);
+
+// The current rider point is included while the rider is travelling to pickup
+// or collecting. Confirming collection, and every later status, omits it.
+export function customerSharesRiderLocation(status: DeliveryStatus): boolean {
+  return CUSTOMER_RIDER_LOCATION_STATUSES.has(status);
+}
+
 export function withCollectingRiderLocation<T extends { status: DeliveryStatus }>(
   view: T,
   point: RiderPoint | null,
 ): T | (T & { riderLocation: RiderPoint }) {
-  if (view.status !== DeliveryStatus.COLLECTING || point == null) {
+  if (!customerSharesRiderLocation(view.status) || point == null) {
     return view;
   }
   return {
@@ -138,8 +203,23 @@ export function withCollectingRiderLocation<T extends { status: DeliveryStatus }
     riderLocation: {
       latitude: point.latitude,
       longitude: point.longitude,
+      ...(point.updatedAt ? { updatedAt: point.updatedAt } : {}),
     },
   };
+}
+
+export function withPickupApproach<T>(
+  view: T,
+  approach: PickupApproachView | null,
+): T | (T & { pickupApproach: PickupApproachView }) {
+  if (!approach) {
+    return view;
+  }
+  return { ...view, pickupApproach: approach };
+}
+
+export function finiteDistance(value: number | null | undefined): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.round(value) : null;
 }
 
 function moneyOrNull(value: string | { toFixed(digits: number): string } | null | undefined): string | null {

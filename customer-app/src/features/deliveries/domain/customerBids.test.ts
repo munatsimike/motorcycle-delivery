@@ -38,6 +38,8 @@ function delivery(patch: Partial<CustomerDeliveryDetail> = {}): CustomerDelivery
     parcelDescription: 'Box',
     createdAt: null,
     riderLocation: null,
+    pickupApproach: null,
+    rider: null,
     ...patch,
   };
 }
@@ -72,6 +74,9 @@ describe('customer bids', () => {
     expect(readCustomerBids([])).toEqual([]);
     const bids = readCustomerBids([bid('bid-1', '9.00'), bid('bid-2', '7.50')]);
     expect(bids.map((item) => item.riderName)).toEqual(['Tendai Moyo', 'Rudo Ncube']);
+    expect(bids.every((item) => item.hasProfilePhoto === false)).toBe(true);
+    const withPhoto = readCustomerBids([{ ...bid('bid-1', '9.00'), rider: { ...bid('bid-1', '9.00').rider, hasProfilePhoto: true } }]);
+    expect(withPhoto[0]?.hasProfilePhoto).toBe(true);
     expect(acceptableBids(bids)).toHaveLength(2);
     expect(JSON.stringify(bids)).not.toContain('+263');
     expect(JSON.stringify(bids)).not.toContain('rider-');
@@ -105,6 +110,7 @@ describe('customer bids', () => {
       search: async (token, deliveryId) => {
         searches.push(`${token}:${deliveryId}`);
       },
+      adjustOffer: () => Promise.reject(new Error('unused')),
       cancel: () => Promise.reject(new Error('unused')),
     };
     const accepted = await acceptCustomerBid(repository, keys, 'token', 'delivery-1', 'bid-1', () => {
@@ -149,6 +155,7 @@ describe('customer bids', () => {
         });
       },
       search: () => Promise.reject(new Error('unused')),
+      adjustOffer: () => Promise.reject(new Error('unused')),
       cancel: () => Promise.reject(new Error('unused')),
     };
     const createKey = () => `fresh-${calls}`;
@@ -179,6 +186,7 @@ describe('customer bids', () => {
         throw new Error('Wallet capacity is not enough for this bid');
       },
       search: () => Promise.reject(new Error('unused')),
+      adjustOffer: () => Promise.reject(new Error('unused')),
       cancel: () => Promise.reject(new Error('unused')),
     };
     await expect(acceptCustomerBid(repository, keys, 'token', 'delivery-1', 'bid-1', () => 'wallet-key')).rejects.toThrow(

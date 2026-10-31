@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { useAuth } from './auth';
+import { CustomersPage } from './pages/CustomersPage';
 import { DeliveryPage } from './pages/DeliveryPage';
 import { DeliveriesPage } from './pages/DeliveriesPage';
 import { MotorcyclesPage } from './pages/MotorcyclesPage';
@@ -23,6 +24,7 @@ export function App() {
       <Route path="/verify" element={<VerifyPage />} />
       <Route element={auth.signedIn ? <Shell /> : <Navigate to="/sign-in" replace />}>
         <Route index element={<OverviewPage />} />
+        <Route path="customers" element={<CustomersPage />} />
         <Route path="riders" element={<RidersPage />} />
         <Route path="riders/:riderProfileId" element={<RiderPage />} />
         <Route path="motorcycles" element={<MotorcyclesPage />} />

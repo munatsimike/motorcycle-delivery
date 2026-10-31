@@ -13,9 +13,11 @@ import { RiderAuthController } from './rider-auth.controller.js';
 import { SessionController } from './session.controller.js';
 import { SessionService } from './session.service.js';
 import { DevOtpVerificationProvider, selectPhoneVerificationProvider } from './dev-otp.js';
-import { MetaWhatsAppVerificationProvider, PhoneVerificationProvider, TwilioWhatsAppVerificationProvider } from './phone-verification.provider.js';
+import { InfobipWhatsAppClient, InfobipWhatsAppVerificationProvider } from './infobip-whatsapp.js';
+import { PhoneVerificationProvider, TwilioWhatsAppVerificationProvider } from './phone-verification.provider.js';
 import { HttpTwilioVerifyClient, TwilioVerifyClient } from './twilio-verify.client.js';
 import { WhatsAppAuthService } from './whatsapp-auth.service.js';
+import { assertSelectedWhatsAppProvider } from './whatsapp-verification.js';
 
 import { AdminOtpEmailService } from './admin-otp-email.service.js';
 
@@ -48,16 +50,20 @@ import { AdminAuthController } from './admin-auth.controller.js';
     HttpTwilioVerifyClient,
     { provide: TwilioVerifyClient, useExisting: HttpTwilioVerifyClient },
     TwilioWhatsAppVerificationProvider,
-    MetaWhatsAppVerificationProvider,
+    InfobipWhatsAppClient,
+    InfobipWhatsAppVerificationProvider,
     DevOtpVerificationProvider,
     {
       provide: PhoneVerificationProvider,
       useFactory: (
         twilio: TwilioWhatsAppVerificationProvider,
-        meta: MetaWhatsAppVerificationProvider,
         devOtp: DevOtpVerificationProvider,
-      ) => selectPhoneVerificationProvider(process.env, twilio, meta, devOtp),
-      inject: [TwilioWhatsAppVerificationProvider, MetaWhatsAppVerificationProvider, DevOtpVerificationProvider],
+        infobip: InfobipWhatsAppVerificationProvider,
+      ) => {
+        assertSelectedWhatsAppProvider(process.env);
+        return selectPhoneVerificationProvider(process.env, twilio, devOtp, infobip);
+      },
+      inject: [TwilioWhatsAppVerificationProvider, DevOtpVerificationProvider, InfobipWhatsAppVerificationProvider],
     },
     WhatsAppAuthService,
   ],

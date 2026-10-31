@@ -88,7 +88,7 @@ describe('HttpTwilioVerifyClient', () => {
       message: 'WhatsApp verification is unavailable',
     });
 
-    const logged = warn.mock.calls.map((call) => String(call[0])).join('\n');
+    const logged = warn.mock.calls.map((call: unknown[]) => String(call[0])).join('\n');
     expect(logged).toContain('httpStatus=401');
     expect(logged).toContain('twilioCode=20003');
     expect(logged).toContain('accountSidSuffix=aaaa');
@@ -110,7 +110,7 @@ describe('HttpTwilioVerifyClient', () => {
       message: 'WhatsApp verification is unavailable',
     });
 
-    const logged = warn.mock.calls.map((call) => String(call[0])).join('\n');
+    const logged = warn.mock.calls.map((call: unknown[]) => String(call[0])).join('\n');
     expect(logged).toContain('httpStatus=403');
     expect(logged).toContain('twilioCode=21608');
     expect(logged).toContain('destinationCountry=+31');
@@ -127,7 +127,7 @@ describe('HttpTwilioVerifyClient', () => {
 
     await expect(client.startVerification('+263771234567', whatsapp)).rejects.toBeInstanceOf(ServiceUnavailableException);
 
-    const logged = warn.mock.calls.map((call) => String(call[0])).join('\n');
+    const logged = warn.mock.calls.map((call: unknown[]) => String(call[0])).join('\n');
     expect(logged).toContain('httpStatus=none');
     expect(logged).toContain('twilioCode=none');
     expect(logged).toContain('accountSidSuffix=aaaa');

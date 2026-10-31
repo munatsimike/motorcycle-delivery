@@ -16,13 +16,7 @@ class RiderOfferMessagingService : FirebaseMessagingService() {
 
     override fun onMessageReceived(message: RemoteMessage) {
         when (val notice = parseRiderNotice(message.data)) {
-            is RiderNotice.Offer -> {
-                if (!shown.markIfNew(notice.assignmentId)) {
-                    return
-                }
-                pending.offerArrived(notice.assignmentId)
-                poster.show(notice.assignmentId)
-            }
+            is RiderNotice.Offer -> return
             is RiderNotice.BidAccepted -> {
                 if (!shown.markIfNew("accepted:${notice.deliveryId}")) {
                     return

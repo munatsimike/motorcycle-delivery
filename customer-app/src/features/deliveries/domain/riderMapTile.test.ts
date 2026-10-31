@@ -14,7 +14,7 @@ import {
 import type { CustomerDeliveryDetail } from './customerDeliveryDetail';
 
 const DELIVERY = 'delivery-1';
-const HARARE = { deliveryId: DELIVERY, latitude: -17.8292, longitude: 31.0522 };
+const HARARE = { deliveryId: DELIVERY, latitude: -17.8292, longitude: 31.0522, updatedAt: null };
 
 function collecting(id: string, riderLocation: CustomerDeliveryDetail['riderLocation']): CustomerDeliveryDetail {
   return {
@@ -35,6 +35,8 @@ function collecting(id: string, riderLocation: CustomerDeliveryDetail['riderLoca
     parcelDescription: 'Box',
     createdAt: null,
     riderLocation,
+    pickupApproach: null,
+    rider: null,
   };
 }
 
@@ -43,7 +45,7 @@ const configured = readMapTileProvider({ EXPO_PUBLIC_MAP_TILE_KEY: TILE_KEY });
 
 describe('rider location map', () => {
   it('builds one MapTiler tile for an active collecting rider and hides it when the screen is inactive', () => {
-    const visible = locationPresentation(DELIVERY, collecting(DELIVERY, { latitude: HARARE.latitude, longitude: HARARE.longitude }));
+    const visible = locationPresentation(DELIVERY, collecting(DELIVERY, { latitude: HARARE.latitude, longitude: HARARE.longitude, updatedAt: null }));
     expect(visible.kind).toBe('rider');
     const point = visible.kind === 'rider' ? visible : null;
     const frame = riderMapFrame(true, point, configured);
@@ -110,11 +112,14 @@ describe('rider location map', () => {
     expect(configured.tileUrl(-1, 0, RIDER_MAP_ZOOM)).toBeNull();
   });
 
-  it('does not frame a V1 search or a delivery that has left collecting', () => {
+  it('frames an assigned rider and drops the frame once the parcel is collected', () => {
     expect(riderMapFrame(true, null, configured)).toBeNull();
-    const assigned = locationPresentation(DELIVERY, { ...collecting(DELIVERY, HARARE), status: 'RIDER_ASSIGNED', serviceClass: null });
-    expect(assigned).toEqual({ kind: 'none' });
-    expect(riderMapFrame(true, assigned.kind === 'rider' ? assigned : null, configured)).toBeNull();
+    const assigned = locationPresentation(DELIVERY, { ...collecting(DELIVERY, HARARE), status: 'RIDER_ASSIGNED' });
+    expect(assigned.kind).toBe('rider');
+    expect(riderMapFrame(true, assigned.kind === 'rider' ? assigned : null, configured)?.url).toBeTruthy();
+    const collected = locationPresentation(DELIVERY, { ...collecting(DELIVERY, HARARE), status: 'COLLECTED' });
+    expect(collected).toEqual({ kind: 'none' });
+    expect(riderMapFrame(true, collected.kind === 'rider' ? collected : null, configured)).toBeNull();
   });
 });
 

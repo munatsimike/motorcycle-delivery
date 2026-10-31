@@ -11,6 +11,7 @@ import com.riders.rider.core.session.MemorySessionStore
 import com.riders.rider.feature.auth.data.AuthRepository
 import com.riders.rider.feature.auth.data.VerifyOutcome
 import com.riders.rider.feature.auth.domain.authEntryActions
+import com.riders.rider.feature.auth.domain.fitOtpDigits
 import com.riders.rider.feature.auth.domain.isVerificationCode
 import kotlinx.coroutines.test.runTest
 import okhttp3.mockwebserver.MockResponse
@@ -45,23 +46,29 @@ class RiderWhatsAppAuthTest {
     }
 
     @Test
+    fun pastedCodeFitsSixBoxes() {
+        assertEquals("123456", fitOtpDigits("123456"))
+        assertEquals("123456", fitOtpDigits("code 12-34 56 now"))
+        assertEquals("123456", fitOtpDigits("1234567890"))
+        assertEquals("12", fitOtpDigits("12a"))
+    }
+
+    @Test
     fun whatsAppRegistrationStartsWithoutASession() = runTest {
         val server = MockWebServer()
         server.enqueue(json("""{"status":"pending"}"""))
         server.start()
         try {
             val store = MemorySessionStore()
-            val result = AuthRepository(server.auth(), store).registerWithPassword(
-                "+263771234567",
-                "Tendai Moyo",
-                "12 Samora Machel Avenue",
-            )
+            val result = AuthRepository(server.auth(), store).startWhatsAppRegistration("+263771234567")
             assertTrue(result is ApiResult.Ok)
             assertNull(store.read())
             val recorded = server.takeRequest()
             assertEquals("/auth/rider/register/whatsapp", recorded.path)
             val body = recorded.body.readUtf8()
             assertTrue(body.contains(""""whatsappConsent":true"""))
+            assertFalse(body.contains("fullName"))
+            assertFalse(body.contains("address"))
             assertFalse(body.contains("accessToken"))
         } finally {
             server.shutdown()

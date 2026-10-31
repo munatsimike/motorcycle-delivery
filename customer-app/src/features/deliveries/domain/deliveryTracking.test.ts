@@ -26,6 +26,8 @@ function delivery(
     parcelDescription: 'Documents',
     createdAt: null,
     riderLocation: null,
+    pickupApproach: null,
+    rider: null,
     ...extra,
   };
 }
@@ -301,7 +303,8 @@ describe('delivery tracking updates', () => {
         calls += 1;
         return Promise.resolve(delivery(status, 'delivery-1', {
           serviceClass: 'FLEXIBLE',
-          riderLocation: status === 'COLLECTING' ? { latitude: -17.8, longitude: 31.1 } : null,
+          deliverBy: '2026-10-26T18:00:00.000Z',
+          riderLocation: status === 'COLLECTING' ? { latitude: -17.8, longitude: 31.1, updatedAt: null } : null,
         }));
       },
       clock: timer.tracking,

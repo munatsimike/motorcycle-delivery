@@ -1,4 +1,4 @@
-import { apiGet, apiPatch } from '../../../services/api/apiClient';
+import { apiDelete, apiGet, apiPatch, apiUpload } from '../../../services/api/apiClient';
 import { readCustomerAccount, type CustomerAccount } from '../domain/customerAccount';
 import type { ProfileEditChange } from '../domain/profileEdit';
 import type { CustomerAccountRepository } from '../domain/repositories/CustomerAccountRepository';
@@ -16,6 +16,18 @@ export class CustomerAccountApiRepository implements CustomerAccountRepository {
       address: change.address,
     }, { accessToken });
     return readCustomerAccount(body);
+  }
+
+  async uploadProfilePhoto(
+    accessToken: string,
+    file: { uri: string; name: string; type: string },
+    onProgress: (percent: number) => void,
+  ): Promise<void> {
+    await apiUpload('/customers/me/profile-photo', file, { accessToken, onProgress });
+  }
+
+  async deleteProfilePhoto(accessToken: string): Promise<void> {
+    await apiDelete('/customers/me/profile-photo', undefined, { accessToken });
   }
 }
 

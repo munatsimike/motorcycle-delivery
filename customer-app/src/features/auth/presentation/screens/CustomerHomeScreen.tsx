@@ -2,7 +2,7 @@ import { CompositeNavigationProp, useNavigation } from '@react-navigation/native
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
-import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import CustomerAvatar from '../../../../components/CustomerAvatar';
@@ -12,11 +12,14 @@ import type { CustomerTabParamList, RootStackParamList } from '../../../../navig
 import { colors, radius, spacing, typography } from '../../../../theme';
 import { customerFirstName, customerGreeting } from '../../../account/domain/customerGreeting';
 import { useCustomerAccount } from '../../../account/presentation/viewmodels/useCustomerAccount';
+import { useCustomerProfilePhoto } from '../../../account/presentation/viewmodels/useCustomerProfilePhoto';
 import { customerDeliveryRepository } from '../../../deliveries/data/CustomerDeliveryApiRepository';
 import DeliverySection from '../../../deliveries/presentation/components/DeliverySection';
 import { deliveryTrackingTarget } from '../../../deliveries/domain/customerDeliveryList';
 import { savedDeliveryMessage } from '../../../deliveries/domain/recentDeliveryCache';
 import { useCustomerDeliveries } from '../../../deliveries/presentation/viewmodels/useCustomerDeliveries';
+import { nearbyHomeCountLabel } from '../../../riders/domain/nearbyCard';
+import { useNearbyRiders } from '../../../riders/presentation/viewmodels/useNearbyRiders';
 import { useSession } from '../viewmodels/useSession';
 
 type HomeNavigation = CompositeNavigationProp<
@@ -28,12 +31,13 @@ export default function CustomerHomeScreen() {
   const navigation = useNavigation<HomeNavigation>();
   const { accessToken, customerId } = useSession();
   const { account } = useCustomerAccount(accessToken);
+  const photo = useCustomerProfilePhoto(accessToken, account);
   const { deliveries, isLoading, isRefreshing, error, refresh, reload, showingSaved, savedAt } = useCustomerDeliveries(accessToken, customerId);
+  const nearby = useNearbyRiders(accessToken);
   const offlineNote = showingSaved && savedAt ? savedDeliveryMessage(savedAt) : null;
   const firstName = account ? customerFirstName(account) : null;
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
-  const horizontalPadding = width < 360 ? spacing.lg : spacing.xl;
+  const horizontalPadding = spacing.lg;
   const recentDeliveries = deliveries.slice(0, 2);
 
   return (
@@ -44,7 +48,10 @@ export default function CustomerHomeScreen() {
         refreshControl={(
           <RefreshControl
             refreshing={isRefreshing}
-            onRefresh={refresh}
+            onRefresh={() => {
+              void refresh();
+              void nearby.tryAgain();
+            }}
             tintColor={colors.primary}
             colors={[colors.primary]}
           />
@@ -63,7 +70,7 @@ export default function CustomerHomeScreen() {
               kind={account?.kind ?? 'INDIVIDUAL'}
               name={account?.name ?? null}
               customerId={account?.id}
-              photoUrl={account?.photoUrl}
+              photoUrl={photo.uri}
               size={48}
             />
             <View style={styles.greetingBlock}>
@@ -79,50 +86,54 @@ export default function CustomerHomeScreen() {
               onPress={() => navigation.navigate('Requests')}
               style={styles.notificationButton}
             >
-              <MaterialDesignIcons name="bell" color={colors.text} size={22} />
+              <MaterialDesignIcons name="bell-outline" color={colors.text} size={22} />
             </Pressable>
           </View>
 
           <View style={styles.actionsCard}>
             <View style={styles.deliveryIntro}>
-              <Image
-                source={require('../../../../../assets/rider-image.png')}
-                style={styles.riderImage}
-                resizeMode="contain"
-                accessibilityIgnoresInvertColors
-              />
+              <View style={styles.riderFrame}>
+                <Image
+                  source={require('../../../../../assets/rider-image.png')}
+                  style={styles.riderImage}
+                  resizeMode="contain"
+                  accessibilityIgnoresInvertColors
+                />
+              </View>
               <View style={styles.deliveryCopy}>
                 <View style={styles.deliveryText}>
-                  <Text style={styles.deliveryTitle}>Motorbike delivery</Text>
-                  <Text style={styles.deliveryMessage}>Get your parcels picked up and delivered by a motorbike.</Text>
+                  <Text style={styles.deliveryTitle}>Nearby riders</Text>
+                  {nearby.state.status === 'loading' ? (
+                    <View style={styles.checkingRow}>
+                      <ActivityIndicator size="small" color={colors.textSecondary} />
+                      <Text style={styles.checkingText}>{nearbyHomeCountLabel(nearby.state)}</Text>
+                    </View>
+                  ) : (
+                    <Text
+                      style={styles.deliveryMessage}
+                      onPress={nearby.state.status === 'ready' ? undefined : () => {
+                        if (nearby.state.status === 'services-off') {
+                          void nearby.turnOnLocation();
+                          return;
+                        }
+                        if (nearby.state.status === 'permission-denied') {
+                          void nearby.allowLocation();
+                          return;
+                        }
+                        void nearby.tryAgain();
+                      }}
+                    >
+                      {nearbyHomeCountLabel(nearby.state)}
+                    </Text>
+                  )}
                 </View>
-              </View>
-            </View>
-            <View style={styles.promises}>
-              <View style={styles.promise}>
-                <View style={[styles.promiseIcon, { backgroundColor: '#FFF1E0' }]}>
-                  <MaterialDesignIcons name="flash" color="#E07A2F" size={16} />
-                </View>
-                <Text style={styles.promiseLabel}>Fast</Text>
-              </View>
-              <View style={styles.promise}>
-                <View style={[styles.promiseIcon, { backgroundColor: '#E8F1FF' }]}>
-                  <MaterialDesignIcons name="check" color="#3B6FE8" size={16} />
-                </View>
-                <Text style={styles.promiseLabel}>Reliable</Text>
-              </View>
-              <View style={styles.promise}>
-                <View style={[styles.promiseIcon, { backgroundColor: colors.primaryLight }]}>
-                  <MaterialDesignIcons name="cash" color={colors.primary} size={16} />
-                </View>
-                <Text style={styles.promiseLabel}>Affordable</Text>
               </View>
             </View>
             <View style={styles.actionsDivider} />
             <View style={styles.sendWrap}>
               <PrimaryButton
                 label="Send a Parcel"
-                icon="package-variant"
+                icon="package-variant-closed"
                 onPress={() => navigation.navigate('ParcelRequest')}
               />
             </View>
@@ -220,14 +231,21 @@ const styles = StyleSheet.create({
   deliveryIntro: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
-    paddingBottom: spacing.xs,
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.sm,
+  },
+  riderFrame: {
+    width: 112,
+    height: 86,
+    overflow: 'hidden',
   },
   riderImage: {
-    width: 129,
-    height: 97,
+    width: 132,
+    height: 99,
+    marginLeft: -10,
+    marginTop: -2,
   },
   deliveryCopy: {
     flex: 1,
@@ -240,39 +258,29 @@ const styles = StyleSheet.create({
   },
   deliveryTitle: {
     fontSize: 18,
-    lineHeight: 17,
-    fontWeight: '800',
+    lineHeight: 22,
+    fontWeight: '700',
     color: colors.text,
     includeFontPadding: false,
   },
   deliveryMessage: {
     fontSize: typography.caption,
     lineHeight: 18,
-    marginTop: spacing.xs,
+    marginTop: spacing.sm,
     color: colors.textSecondary,
     includeFontPadding: false,
   },
-  promises: {
+  checkingRow: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingHorizontal: spacing.md,
-    paddingBottom: spacing.md,
-  },
-  promise: {
     alignItems: 'center',
     gap: spacing.xs,
+    marginTop: spacing.sm,
   },
-  promiseIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  promiseLabel: {
+  checkingText: {
     fontSize: typography.caption,
-    fontWeight: '700',
-    color: colors.text,
+    lineHeight: 18,
+    color: colors.textSecondary,
+    includeFontPadding: false,
   },
   sendWrap: {
     padding: spacing.lg,

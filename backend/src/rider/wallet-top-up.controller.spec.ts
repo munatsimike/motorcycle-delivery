@@ -28,7 +28,7 @@ describe('admin wallet top-up authorization', () => {
         credited = true;
         return {};
       },
-    } as never);
+    } as never, {} as never);
     const guard = new AdminAccessGuard(ctx.service);
 
     await expect(guard.canActivate(http({ headers: { authorization: ctx.token(UserRole.RIDER) } })))

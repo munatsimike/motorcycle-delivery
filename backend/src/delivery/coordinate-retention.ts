@@ -192,7 +192,7 @@ export async function runRetention(
   now: Date,
   clock: () => Date = () => now,
   log: (message: string) => void = () => undefined,
-  owner = randomUUID(),
+  owner: string = randomUUID(),
 ): Promise<RetentionRunResult> {
   const result: RetentionRunResult = { status: 'finished', refreshed: 0, cleared: 0, refreshFailed: 0 };
   const claimed = await store.claim(owner, clock(), COORDINATE_RETENTION_LEASE_MS);

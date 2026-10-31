@@ -28,9 +28,7 @@ const NOW = new Date('2026-10-24T08:00:00.000Z');
 const DEADLINE = new Date('2026-10-24T18:00:00.000Z');
 const LATE = new Date('2026-10-24T07:00:00.000Z');
 const V2_STEPS = [
-  DeliveryStatus.COLLECTING,
   DeliveryStatus.COLLECTED,
-  DeliveryStatus.OUT_FOR_DELIVERY,
   DeliveryStatus.DELIVERED,
 ] as const;
 const RECIPIENT_CHECK = `
@@ -203,20 +201,20 @@ it('writes one customer event for each V2 status, skips a replay, and rolls a fa
   const opened = await acceptJob(hired, '10.00');
   await expect(prisma.v2OutboxEvent.create({
     data: {
-      eventType: 'COLLECTING',
+      eventType: 'COLLECTED',
       deliveryId: opened.deliveryId,
       assignmentId: opened.assignmentId,
       riderProfileId: hired.riderProfileId,
     },
   })).rejects.toThrow();
-  expect(await prisma.v2OutboxEvent.count({ where: { assignmentId: opened.assignmentId, eventType: 'COLLECTING' } })).toBe(0);
-  await expect(step(hired.rider, opened.deliveryId, DeliveryStatus.COLLECTED)).rejects.toThrow('This delivery status cannot be changed');
+  expect(await prisma.v2OutboxEvent.count({ where: { assignmentId: opened.assignmentId, eventType: 'COLLECTED' } })).toBe(0);
+  await expect(step(hired.rider, opened.deliveryId, DeliveryStatus.COLLECTING)).rejects.toThrow('This delivery status cannot be changed');
   expect(await prisma.v2OutboxEvent.count({ where: { assignmentId: opened.assignmentId, eventType: 'COLLECTED' } })).toBe(0);
 
-  const collectingKey = `collect-${opened.deliveryId}`;
-  await dispatch.progress(hired.rider, opened.deliveryId, { status: 'COLLECTING' }, NOW, collectingKey);
-  await dispatch.progress(hired.rider, opened.deliveryId, { status: 'COLLECTING' }, NOW, collectingKey);
-  expect(await prisma.v2OutboxEvent.count({ where: { assignmentId: opened.assignmentId, eventType: 'COLLECTING' } })).toBe(1);
+  const collectedKey = `collected-${opened.deliveryId}`;
+  await dispatch.progress(hired.rider, opened.deliveryId, { status: 'COLLECTED' }, NOW, collectedKey);
+  await dispatch.progress(hired.rider, opened.deliveryId, { status: 'COLLECTED' }, NOW, collectedKey);
+  expect(await prisma.v2OutboxEvent.count({ where: { assignmentId: opened.assignmentId, eventType: 'COLLECTED' } })).toBe(1);
 
   for (const status of V2_STEPS.slice(1)) {
     await step(hired.rider, opened.deliveryId, status);
@@ -231,7 +229,7 @@ it('writes one customer event for each V2 status, skips a replay, and rolls a fa
   expect((await prisma.walletFeeReservation.findFirstOrThrow({ where: { assignmentId: opened.assignmentId } })).status).toBe('CAPTURED');
 
   const rolled = await acceptJob(await hire(), '10.00');
-  for (const status of V2_STEPS.slice(0, 3)) {
+  for (const status of V2_STEPS.slice(0, 1)) {
     await step(rolled.rider, rolled.deliveryId, status);
   }
   await installWalletRefusal();
@@ -240,7 +238,7 @@ it('writes one customer event for each V2 status, skips a replay, and rolls a fa
   } finally {
     await removeWalletRefusal();
   }
-  expect((await prisma.delivery.findUniqueOrThrow({ where: { id: rolled.deliveryId } })).status).toBe('OUT_FOR_DELIVERY');
+  expect((await prisma.delivery.findUniqueOrThrow({ where: { id: rolled.deliveryId } })).status).toBe('COLLECTED');
   expect(await prisma.v2OutboxEvent.count({ where: { assignmentId: rolled.assignmentId, eventType: 'DELIVERED' } })).toBe(0);
   expect((await prisma.walletFeeReservation.findFirstOrThrow({ where: { assignmentId: rolled.assignmentId } })).status).toBe('OPEN');
   expect(await feeCount(rolled.assignmentId)).toBe(0);
@@ -250,37 +248,41 @@ it('writes one customer event for each V2 status, skips a replay, and rolls a fa
   expect(await feeCount(rolled.assignmentId)).toBe(1);
 }, 60_000);
 
-it('does not write a V2 status event for V1 progression', async () => {
+it('does not write a V2 status event when a stored legacy assignment stays assigned', async () => {
   const hired = await hire();
-  await prisma.riderLocation.create({
-    data: { riderProfileId: hired.riderProfileId, latitude: '-17.8292000', longitude: '31.0522000', updatedAt: NOW },
-  });
   const delivery = await prisma.delivery.create({
     data: {
       ...deliveryData(),
       serviceClass: null,
       deliverBy: null,
-      status: 'SEARCHING',
+      status: 'ASSIGNED',
       searchGeneration: 1,
       price: '6.00',
       payer: 'SENDER',
       paymentMethod: 'CASH',
     },
   });
+  const motorcycle = await prisma.motorcycle.findFirstOrThrow({
+    where: { riderProfileId: hired.riderProfileId, isActive: true },
+  });
   const assignment = await prisma.deliveryAssignment.create({
     data: {
       deliveryId: delivery.id,
       riderProfileId: hired.riderProfileId,
-      status: 'OFFERED',
-      offerExpiresAt: new Date(NOW.getTime() + 60_000),
+      motorcycleId: motorcycle.id,
+      status: 'ACCEPTED',
+      respondedAt: NOW,
       searchGeneration: 1,
+      acceptedPlatformFee: '0.30',
+      acceptedFeeConfigVersion: 1,
+      acceptedCommissionModel: 'ON_COMPLETION',
+      acceptedCommissionPolicyVersion: 1,
     },
   });
-  await dispatch.accept(hired.rider, assignment.id, `v1-${assignment.id}`, NOW);
-  for (const status of ['ARRIVED_AT_PICKUP', 'PICKED_UP', 'IN_TRANSIT', 'ARRIVED_AT_DROPOFF', 'DELIVERED'] as const) {
-    await dispatch.progress(hired.rider, delivery.id, { status }, NOW);
-  }
-  expect((await prisma.delivery.findUniqueOrThrow({ where: { id: delivery.id } })).status).toBe('DELIVERED');
+  await expect(dispatch.progress(hired.rider, delivery.id, { status: 'ARRIVED_AT_PICKUP' }, NOW))
+    .rejects.toThrow('This delivery status cannot be changed');
+  expect((await prisma.delivery.findUniqueOrThrow({ where: { id: delivery.id } })).status).toBe('ASSIGNED');
+  expect((await prisma.deliveryAssignment.findUniqueOrThrow({ where: { id: assignment.id } })).status).toBe('ACCEPTED');
   expect(await prisma.v2OutboxEvent.count({ where: { deliveryId: delivery.id } })).toBe(0);
 }, 60_000);
 
@@ -407,7 +409,7 @@ it('registers a customer FCM device for that customer only', async () => {
 it('sends a status notice, retries a real failure, and leaves a missing device pending', async () => {
   const hired = await hire();
   const quiet = await acceptJob(hired, '10.00');
-  await step(hired.rider, quiet.deliveryId, DeliveryStatus.COLLECTING);
+  await step(hired.rider, quiet.deliveryId, DeliveryStatus.COLLECTED);
   await markAcceptedSent(quiet.assignmentId);
   await prisma.customerFcmDevice.deleteMany();
   await parkPendingExcept([quiet.assignmentId]);
@@ -415,28 +417,28 @@ it('sends a status notice, retries a real failure, and leaves a missing device p
   push.outcome = 'accepted';
   await notices.drain(NOW);
   const quietRow = await prisma.v2OutboxEvent.findFirstOrThrow({
-    where: { assignmentId: quiet.assignmentId, eventType: 'COLLECTING' },
+    where: { assignmentId: quiet.assignmentId, eventType: 'COLLECTED' },
   });
   expect(quietRow.status).toBe('PENDING');
   expect(quietRow.attemptCount).toBe(0);
   expect(quietRow.sentAt).toBeNull();
   expect(quietRow.nextAttemptAt?.getTime()).toBe(NOW.getTime() + V2_NOTICE_IDLE_MS);
   expect(push.messages).toHaveLength(0);
-  expect((await prisma.delivery.findUniqueOrThrow({ where: { id: quiet.deliveryId } })).status).toBe('COLLECTING');
+  expect((await prisma.delivery.findUniqueOrThrow({ where: { id: quiet.deliveryId } })).status).toBe('COLLECTED');
 
   await devices.register(customer, 'status-token');
   await notices.drain(new Date(NOW.getTime() + V2_NOTICE_IDLE_MS));
   const sent = await prisma.v2OutboxEvent.findFirstOrThrow({
-    where: { assignmentId: quiet.assignmentId, eventType: 'COLLECTING' },
+    where: { assignmentId: quiet.assignmentId, eventType: 'COLLECTED' },
   });
   expect(sent.status).toBe('SENT');
   expect(sent.sentAt).toBeTruthy();
   expect(sent.attemptCount).toBe(0);
-  expect(push.messages.map((message) => message.type)).toEqual(['v2_collecting']);
+  expect(push.messages.map((message) => message.type)).toEqual(['v2_collected']);
   expect(push.messages[0]?.token).toBe('status-token');
 
   const failed = await acceptJob(await hire(), '10.00');
-  await step(failed.rider, failed.deliveryId, DeliveryStatus.COLLECTING);
+  await step(failed.rider, failed.deliveryId, DeliveryStatus.COLLECTED);
   await markAcceptedSent(failed.assignmentId);
   await parkPendingExcept([failed.assignmentId]);
   const ledgerBefore = await prisma.riderWalletEntry.count({ where: { riderWalletId: failed.walletId } });
@@ -445,7 +447,7 @@ it('sends a status notice, retries a real failure, and leaves a missing device p
   push.outcome = 'temporary';
   await notices.drain(NOW);
   const retry = await prisma.v2OutboxEvent.findFirstOrThrow({
-    where: { assignmentId: failed.assignmentId, eventType: 'COLLECTING' },
+    where: { assignmentId: failed.assignmentId, eventType: 'COLLECTED' },
   });
   expect(retry.status).toBe('PENDING');
   expect(retry.attemptCount).toBe(1);
@@ -458,10 +460,10 @@ it('sends a status notice, retries a real failure, and leaves a missing device p
   push.outcome = 'accepted';
   await notices.drain(new Date(NOW.getTime() + 2_000));
   expect((await prisma.v2OutboxEvent.findFirstOrThrow({
-    where: { assignmentId: failed.assignmentId, eventType: 'COLLECTING' },
+    where: { assignmentId: failed.assignmentId, eventType: 'COLLECTED' },
   })).status).toBe('SENT');
   const deliveryAfter = await prisma.delivery.findUniqueOrThrow({ where: { id: failed.deliveryId } });
-  expect(deliveryAfter.status).toBe('COLLECTING');
+  expect(deliveryAfter.status).toBe('COLLECTED');
   expect(deliveryAfter.updatedAt.getTime()).toBe(deliveryBefore.updatedAt.getTime());
   expect((await prisma.deliveryAssignment.findUniqueOrThrow({ where: { id: failed.assignmentId } })).status).toBe('ACCEPTED');
   expect((await prisma.walletFeeReservation.findFirstOrThrow({ where: { assignmentId: failed.assignmentId } })).status).toBe('OPEN');
@@ -481,8 +483,8 @@ it('sends a status notice, retries a real failure, and leaves a missing device p
 it('claims distinct events concurrently and recovers an abandoned claim', async () => {
   const first = await acceptJob(await hire(), '10.00');
   const second = await acceptJob(await hire(), '11.00');
-  await step(first.rider, first.deliveryId, DeliveryStatus.COLLECTING);
-  await step(second.rider, second.deliveryId, DeliveryStatus.COLLECTING);
+  await step(first.rider, first.deliveryId, DeliveryStatus.COLLECTED);
+  await step(second.rider, second.deliveryId, DeliveryStatus.COLLECTED);
   await markAcceptedSent(first.assignmentId);
   await markAcceptedSent(second.assignmentId);
   await prisma.customerFcmDevice.deleteMany();
@@ -504,27 +506,27 @@ it('claims distinct events concurrently and recovers an abandoned claim', async 
   expect(sentIds).toEqual([first.assignmentId, second.assignmentId].sort());
   expect(new Set(sentIds).size).toBe(2);
   expect(await prisma.v2OutboxEvent.count({
-    where: { assignmentId: { in: [first.assignmentId, second.assignmentId] }, eventType: 'COLLECTING', status: 'SENT' },
+    where: { assignmentId: { in: [first.assignmentId, second.assignmentId] }, eventType: 'COLLECTED', status: 'SENT' },
   })).toBe(2);
 
   const abandoned = await acceptJob(await hire(), '12.00');
-  await step(abandoned.rider, abandoned.deliveryId, DeliveryStatus.COLLECTING);
+  await step(abandoned.rider, abandoned.deliveryId, DeliveryStatus.COLLECTED);
   await markAcceptedSent(abandoned.assignmentId);
   await parkPendingExcept([abandoned.assignmentId]);
   await prisma.v2OutboxEvent.updateMany({
-    where: { assignmentId: abandoned.assignmentId, eventType: 'COLLECTING' },
+    where: { assignmentId: abandoned.assignmentId, eventType: 'COLLECTED' },
     data: { claimedAt: NOW, claimToken: randomUUID() },
   });
   push.messages.length = 0;
   await notices.drain(NOW);
   expect(push.messages).toHaveLength(0);
   expect((await prisma.v2OutboxEvent.findFirstOrThrow({
-    where: { assignmentId: abandoned.assignmentId, eventType: 'COLLECTING' },
+    where: { assignmentId: abandoned.assignmentId, eventType: 'COLLECTED' },
   })).status).toBe('PENDING');
   await notices.drain(new Date(NOW.getTime() + V2_NOTICE_CLAIM_STALE_MS + 1));
   expect(push.messages.map((message) => message.assignmentId)).toEqual([abandoned.assignmentId]);
   const recovered = await prisma.v2OutboxEvent.findFirstOrThrow({
-    where: { assignmentId: abandoned.assignmentId, eventType: 'COLLECTING' },
+    where: { assignmentId: abandoned.assignmentId, eventType: 'COLLECTED' },
   });
   expect(recovered.status).toBe('SENT');
   expect(recovered.sentAt).toBeTruthy();
@@ -534,7 +536,7 @@ it('claims distinct events concurrently and recovers an abandoned claim', async 
 it('keeps a claim while a provider response is still inside the timeout', async () => {
   const hired = await hire();
   const parcel = await acceptJob(hired, '10.00');
-  await step(hired.rider, parcel.deliveryId, DeliveryStatus.COLLECTING);
+  await step(hired.rider, parcel.deliveryId, DeliveryStatus.COLLECTED);
   await markAcceptedSent(parcel.assignmentId);
   await prisma.customerFcmDevice.deleteMany();
   await devices.register(customer, 'slow-token');
@@ -555,7 +557,7 @@ it('keeps a claim while a provider response is still inside the timeout', async 
     expect(await notices.drain(new Date(NOW.getTime() + Math.floor(timing.leaseMs / 2)))).toBe(0);
     expect(push.messages).toHaveLength(1);
     const held = await prisma.v2OutboxEvent.findFirstOrThrow({
-      where: { assignmentId: parcel.assignmentId, eventType: 'COLLECTING' },
+      where: { assignmentId: parcel.assignmentId, eventType: 'COLLECTED' },
     });
     expect(held.status).toBe('PENDING');
     expect(held.claimedAt).not.toBeNull();
@@ -566,7 +568,7 @@ it('keeps a claim while a provider response is still inside the timeout', async 
   }
   await running;
   const sent = await prisma.v2OutboxEvent.findFirstOrThrow({
-    where: { assignmentId: parcel.assignmentId, eventType: 'COLLECTING' },
+    where: { assignmentId: parcel.assignmentId, eventType: 'COLLECTED' },
   });
   expect(sent.status).toBe('SENT');
   expect(sent.sentAt).toBeTruthy();
@@ -577,7 +579,7 @@ it('keeps a claim while a provider response is still inside the timeout', async 
 it('counts a provider timeout as a genuine failure and fences a replaced claim', async () => {
   const hired = await hire();
   const timedOut = await acceptJob(hired, '10.00');
-  await step(hired.rider, timedOut.deliveryId, DeliveryStatus.COLLECTING);
+  await step(hired.rider, timedOut.deliveryId, DeliveryStatus.COLLECTED);
   await markAcceptedSent(timedOut.assignmentId);
   await prisma.customerFcmDevice.deleteMany();
   await devices.register(customer, 'timeout-token');
@@ -587,7 +589,7 @@ it('counts a provider timeout as a genuine failure and fences a replaced claim',
   push.outcome = 'timeout';
   await notices.drain(NOW);
   const row = await prisma.v2OutboxEvent.findFirstOrThrow({
-    where: { assignmentId: timedOut.assignmentId, eventType: 'COLLECTING' },
+    where: { assignmentId: timedOut.assignmentId, eventType: 'COLLECTED' },
   });
   expect(row.status).toBe('PENDING');
   expect(row.attemptCount).toBe(1);
@@ -598,7 +600,7 @@ it('counts a provider timeout as a genuine failure and fences a replaced claim',
   expect(await noticeEffects(timedOut.deliveryId, timedOut.assignmentId, hired.walletId)).toEqual(before);
 
   const fenced = await acceptJob(await hire(), '11.00');
-  await step(fenced.rider, fenced.deliveryId, DeliveryStatus.COLLECTING);
+  await step(fenced.rider, fenced.deliveryId, DeliveryStatus.COLLECTED);
   await markAcceptedSent(fenced.assignmentId);
   await parkPendingExcept([fenced.assignmentId]);
   const fencedBefore = await noticeEffects(fenced.deliveryId, fenced.assignmentId, fenced.walletId);
@@ -607,7 +609,7 @@ it('counts a provider timeout as a genuine failure and fences a replaced claim',
   push.messages.length = 0;
   push.stealClaim = async (message) => {
     await prisma.v2OutboxEvent.updateMany({
-      where: { assignmentId: message.assignmentId, eventType: 'COLLECTING', status: 'PENDING' },
+      where: { assignmentId: message.assignmentId, eventType: 'COLLECTED', status: 'PENDING' },
       data: { claimToken: replacement, claimedAt: NOW },
     });
   };
@@ -617,7 +619,7 @@ it('counts a provider timeout as a genuine failure and fences a replaced claim',
     push.stealClaim = null;
   }
   const stolen = await prisma.v2OutboxEvent.findFirstOrThrow({
-    where: { assignmentId: fenced.assignmentId, eventType: 'COLLECTING' },
+    where: { assignmentId: fenced.assignmentId, eventType: 'COLLECTED' },
   });
   expect(stolen.status).toBe('PENDING');
   expect(stolen.claimToken).toBe(replacement);
@@ -626,7 +628,7 @@ it('counts a provider timeout as a genuine failure and fences a replaced claim',
   expect(push.messages).toHaveLength(1);
   await notices.drain(new Date(NOW.getTime() + v2NoticeConfig().leaseMs + 1));
   const recovered = await prisma.v2OutboxEvent.findFirstOrThrow({
-    where: { assignmentId: fenced.assignmentId, eventType: 'COLLECTING' },
+    where: { assignmentId: fenced.assignmentId, eventType: 'COLLECTED' },
   });
   expect(recovered.status).toBe('SENT');
   expect(push.messages).toHaveLength(2);
@@ -636,7 +638,7 @@ it('counts a provider timeout as a genuine failure and fences a replaced claim',
 it('stops after the configured number of genuine failures and ignores a missing provider', async () => {
   const hired = await hire();
   const parcel = await acceptJob(hired, '10.00');
-  await step(hired.rider, parcel.deliveryId, DeliveryStatus.COLLECTING);
+  await step(hired.rider, parcel.deliveryId, DeliveryStatus.COLLECTED);
   await markAcceptedSent(parcel.assignmentId);
   await prisma.customerFcmDevice.deleteMany();
   await devices.register(customer, 'exhaust-token');
@@ -649,7 +651,7 @@ it('stops after the configured number of genuine failures and ignores a missing 
   try {
     await notices.drain(NOW);
     const once = await prisma.v2OutboxEvent.findFirstOrThrow({
-      where: { assignmentId: parcel.assignmentId, eventType: 'COLLECTING' },
+      where: { assignmentId: parcel.assignmentId, eventType: 'COLLECTED' },
     });
     expect(once.status).toBe('PENDING');
     expect(once.attemptCount).toBe(1);
@@ -657,7 +659,7 @@ it('stops after the configured number of genuine failures and ignores a missing 
     expect(once.failedAt).toBeNull();
     await notices.drain(new Date(NOW.getTime() + 2_000));
     const failed = await prisma.v2OutboxEvent.findFirstOrThrow({
-      where: { assignmentId: parcel.assignmentId, eventType: 'COLLECTING' },
+      where: { assignmentId: parcel.assignmentId, eventType: 'COLLECTED' },
     });
     expect(failed.status).toBe('FAILED');
     expect(failed.attemptCount).toBe(2);
@@ -677,7 +679,7 @@ it('stops after the configured number of genuine failures and ignores a missing 
   expect(await noticeEffects(parcel.deliveryId, parcel.assignmentId, hired.walletId)).toEqual(before);
 
   const quiet = await acceptJob(await hire(), '12.00');
-  await step(quiet.rider, quiet.deliveryId, DeliveryStatus.COLLECTING);
+  await step(quiet.rider, quiet.deliveryId, DeliveryStatus.COLLECTED);
   await markAcceptedSent(quiet.assignmentId);
   await parkPendingExcept([quiet.assignmentId]);
   push.ready = false;
@@ -685,14 +687,14 @@ it('stops after the configured number of genuine failures and ignores a missing 
   try {
     await notices.drain(NOW);
     const row = await prisma.v2OutboxEvent.findFirstOrThrow({
-      where: { assignmentId: quiet.assignmentId, eventType: 'COLLECTING' },
+      where: { assignmentId: quiet.assignmentId, eventType: 'COLLECTED' },
     });
     expect(row.status).toBe('PENDING');
     expect(row.attemptCount).toBe(0);
     expect(row.lastFailure).toBeNull();
     expect(row.failedAt).toBeNull();
     expect(push.messages).toHaveLength(0);
-    expect((await prisma.delivery.findUniqueOrThrow({ where: { id: quiet.deliveryId } })).status).toBe('COLLECTING');
+    expect((await prisma.delivery.findUniqueOrThrow({ where: { id: quiet.deliveryId } })).status).toBe('COLLECTED');
   } finally {
     push.ready = true;
   }
@@ -735,9 +737,16 @@ async function lateParcel(
   status: 'RIDER_ASSIGNED' | 'COLLECTING' | 'COLLECTED' | 'OUT_FOR_DELIVERY' | 'DELIVERED',
 ) {
   const opened = await acceptJob(hired, '10.00');
-  const chain = V2_STEPS.slice(0, V2_STEPS.indexOf(status as typeof V2_STEPS[number]) + 1);
-  for (const stepStatus of chain) {
-    await step(hired.rider, opened.deliveryId, stepStatus);
+  if (status === 'COLLECTING') {
+    await prisma.delivery.update({ where: { id: opened.deliveryId }, data: { status: 'COLLECTING' } });
+  } else if (status === 'OUT_FOR_DELIVERY') {
+    await step(hired.rider, opened.deliveryId, DeliveryStatus.COLLECTED);
+    await prisma.delivery.update({ where: { id: opened.deliveryId }, data: { status: 'OUT_FOR_DELIVERY' } });
+  } else if (status !== 'RIDER_ASSIGNED') {
+    const chain = V2_STEPS.slice(0, V2_STEPS.indexOf(status) + 1);
+    for (const stepStatus of chain) {
+      await step(hired.rider, opened.deliveryId, stepStatus);
+    }
   }
   await prisma.delivery.update({ where: { id: opened.deliveryId }, data: { deliverBy: LATE } });
   return { ...opened, status };

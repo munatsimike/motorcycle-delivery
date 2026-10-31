@@ -262,14 +262,14 @@ function context() {
         throw new Prisma.PrismaClientKnownRequestError('Unique constraint failed', { code: 'P2002', clientVersion: '7.1.0' });
       }
       const row: ImageRow = {
-        contentType: null,
-        byteSize: null,
-        sha256: null,
-        uploadedAt: null,
-        supersededAt: null,
-        purgeAfter: null,
-        purgedAt: null,
         ...data,
+        contentType: data.contentType ?? null,
+        byteSize: data.byteSize ?? null,
+        sha256: data.sha256 ?? null,
+        uploadedAt: data.uploadedAt ?? null,
+        supersededAt: data.supersededAt ?? null,
+        purgeAfter: data.purgeAfter ?? null,
+        purgedAt: data.purgedAt ?? null,
       };
       images.push(row);
       return row;
@@ -335,7 +335,7 @@ function context() {
       }
       return [];
     },
-    async $transaction<T>(callback: (tx: typeof db) => Promise<T>) {
+    async $transaction<T>(callback: (tx: object) => Promise<T>) {
       const imageSnapshot = structuredClone(images);
       const profileSnapshot = structuredClone(profiles);
       try {

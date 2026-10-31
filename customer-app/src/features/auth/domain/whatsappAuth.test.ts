@@ -6,7 +6,7 @@ vi.mock('react-native', () => ({
 
 import { CustomerAuthApiRepository } from '../data/repositories/CustomerAuthApiRepository';
 import { authEntryActions } from './whatsappRelease';
-import { isVerificationCode } from './verificationCode';
+import { fitOtpDigits, isVerificationCode } from './verificationCode';
 
 const originalFetch = globalThis.fetch;
 const repository = new CustomerAuthApiRepository();
@@ -51,6 +51,13 @@ describe('verification code contract', () => {
     expect(isVerificationCode('123')).toBe(false);
     expect(isVerificationCode('12345678901')).toBe(false);
     expect(isVerificationCode('12345a')).toBe(false);
+  });
+
+  it('fits a pasted code into six boxes', () => {
+    expect(fitOtpDigits('123456')).toBe('123456');
+    expect(fitOtpDigits('code 12-34 56 now')).toBe('123456');
+    expect(fitOtpDigits('1234567890')).toBe('123456');
+    expect(fitOtpDigits('12a')).toBe('12');
   });
 });
 

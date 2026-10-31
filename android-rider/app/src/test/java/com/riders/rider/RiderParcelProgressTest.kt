@@ -7,14 +7,15 @@ import com.riders.rider.feature.delivery.domain.TransitionAttempt
 import com.riders.rider.feature.delivery.domain.cancellationAttempt
 import com.riders.rider.feature.delivery.domain.cancellationNoteError
 import com.riders.rider.feature.delivery.domain.cancellationResultMessage
-import com.riders.rider.feature.delivery.domain.deliveryActionLabel
 import com.riders.rider.feature.delivery.domain.isIdempotencyConflict
-import com.riders.rider.feature.delivery.domain.nextDeliveryStatus
 import com.riders.rider.feature.delivery.domain.progressAttempt
 import com.riders.rider.feature.delivery.domain.progressAttemptAfterRefresh
 import com.riders.rider.feature.delivery.domain.targetForParcel
 import com.riders.rider.feature.delivery.domain.updateParcelStatus
+import com.riders.rider.feature.delivery.domain.navigationActionLabel
 import com.riders.rider.feature.delivery.domain.v2ActionLabel
+import com.riders.rider.feature.delivery.domain.v2RiderAction
+import com.riders.rider.feature.delivery.domain.v2TapTarget
 import com.riders.rider.feature.delivery.domain.v2CancellationVisible
 import com.riders.rider.feature.delivery.domain.v2NextStatus
 import org.junit.Assert.assertEquals
@@ -26,16 +27,30 @@ import org.junit.Test
 class RiderParcelProgressTest {
     @Test
     fun v2ProgressShowsOneActionAndStopsAtDelivered() {
-        assertEquals("COLLECTING", v2NextStatus("RIDER_ASSIGNED"))
-        assertEquals("Start Collecting", v2ActionLabel("COLLECTING"))
+        assertEquals("COLLECTED", v2NextStatus("RIDER_ASSIGNED"))
+        assertEquals("Confirm pickup", v2RiderAction("RIDER_ASSIGNED"))
+        assertNull(v2ActionLabel("COLLECTING"))
         assertEquals("COLLECTED", v2NextStatus("COLLECTING"))
-        assertEquals("Confirm Collected", v2ActionLabel("COLLECTED"))
-        assertEquals("OUT_FOR_DELIVERY", v2NextStatus("COLLECTED"))
-        assertEquals("Out for Delivery", v2ActionLabel("OUT_FOR_DELIVERY"))
+        assertEquals("Confirm pickup", v2RiderAction("COLLECTING"))
+        assertEquals("Confirm pickup", v2ActionLabel("COLLECTED"))
+        assertNull(v2ActionLabel("OUT_FOR_DELIVERY"))
+        assertEquals("DELIVERED", v2NextStatus("COLLECTED"))
+        assertEquals("Mark as delivered", v2RiderAction("COLLECTED"))
         assertEquals("DELIVERED", v2NextStatus("OUT_FOR_DELIVERY"))
-        assertEquals("Confirm Delivered", v2ActionLabel("DELIVERED"))
+        assertEquals("Mark as delivered", v2RiderAction("OUT_FOR_DELIVERY"))
+        assertEquals("Mark as delivered", v2ActionLabel("DELIVERED"))
         assertNull(v2NextStatus("DELIVERED"))
+        assertNull(v2RiderAction("DELIVERED"))
         assertNull(v2ActionLabel("RIDER_ASSIGNED"))
+        assertEquals("Navigate to pickup", navigationActionLabel("RIDER_ASSIGNED"))
+        assertEquals("Navigate to drop-off", navigationActionLabel("COLLECTED"))
+        assertEquals("Navigate to drop-off", navigationActionLabel("OUT_FOR_DELIVERY"))
+        assertEquals(listOf("COLLECTED"), tapTargets("RIDER_ASSIGNED"))
+        assertEquals(listOf("COLLECTED"), tapTargets("COLLECTING"))
+        assertEquals(listOf("DELIVERED"), tapTargets("COLLECTED"))
+        assertEquals(listOf("DELIVERED"), tapTargets("OUT_FOR_DELIVERY"))
+        assertEquals("DELIVERED", v2TapTarget("COLLECTED", "OUT_FOR_DELIVERY"))
+        assertEquals(emptyList<String>(), tapTargets("DELIVERED"))
     }
 
     @Test
@@ -56,8 +71,8 @@ class RiderParcelProgressTest {
             parcel("flex-b", "RIDER_ASSIGNED"),
             parcel("express-1", "COLLECTING"),
         )
-        val updated = updateParcelStatus(assignments, "flex-a", "COLLECTING")
-        assertEquals("COLLECTING", updated[0].status)
+        val updated = updateParcelStatus(assignments, "flex-a", "COLLECTED")
+        assertEquals("COLLECTED", updated[0].status)
         assertEquals("RIDER_ASSIGNED", updated[1].status)
         assertEquals("COLLECTING", updated[2].status)
         assertEquals("flex-b", updated[1].deliveryId)
@@ -65,20 +80,29 @@ class RiderParcelProgressTest {
 
     @Test
     fun anUncertainProgressRetryKeepsTheSameKeyAndTarget() {
-        val first = progressAttempt(null, "flex-a", "COLLECTING", "key-1")
-        val retry = progressAttempt(first, "flex-a", "COLLECTING", "key-2")
-        val skipped = progressAttempt(first, "flex-a", "COLLECTED", "key-3")
+        val first = progressAttempt(null, "flex-a", "COLLECTED", "key-1")
+        val retry = progressAttempt(first, "flex-a", "COLLECTED", "key-2")
+        val replaced = progressAttempt(TransitionAttempt("flex-a", "COLLECTING", "key-old"), "flex-a", "COLLECTED", "key-3")
         assertEquals("key-1", retry.key)
-        assertEquals("COLLECTING", skipped.targetStatus)
-        assertEquals("COLLECTING", targetForParcel("RIDER_ASSIGNED", first, "flex-a"))
+        assertEquals("COLLECTED", replaced.targetStatus)
+        assertEquals("key-3", replaced.key)
+        assertEquals("COLLECTED", targetForParcel("RIDER_ASSIGNED", first, "flex-a"))
         val afterTimeout = progressAttemptAfterRefresh(first, "RIDER_ASSIGNED")
         assertEquals(first, afterTimeout)
+        val ahead = TransitionAttempt("flex-a", "OUT_FOR_DELIVERY", "key-ahead")
+        val held = progressAttempt(ahead, "flex-a", "COLLECTED", "key-next")
+        val delivered = progressAttempt(ahead, "flex-a", "DELIVERED", "key-done")
+        assertEquals("COLLECTED", held.targetStatus)
+        assertEquals("key-next", held.key)
+        assertEquals("DELIVERED", delivered.targetStatus)
+        assertEquals("key-done", delivered.key)
+        assertEquals("COLLECTED", v2TapTarget("RIDER_ASSIGNED", "OUT_FOR_DELIVERY"))
     }
 
     @Test
     fun aConfirmedStatusClearsThePendingTransitionAndDoesNotSkipAhead() {
-        val pending = TransitionAttempt("flex-a", "COLLECTING", "key-1")
-        assertNull(progressAttemptAfterRefresh(pending, "COLLECTING"))
+        val pending = TransitionAttempt("flex-a", "COLLECTED", "key-1")
+        assertNull(progressAttemptAfterRefresh(pending, "COLLECTED"))
         assertEquals("COLLECTED", targetForParcel("COLLECTING", null, "flex-a"))
         val next = progressAttempt(null, "flex-a", "COLLECTED", "key-2")
         assertEquals("key-2", next.key)
@@ -87,11 +111,12 @@ class RiderParcelProgressTest {
 
     @Test
     fun anIdempotencyConflictKeepsTheAttemptUntilTheServerShowsItCommitted() {
-        val pending = TransitionAttempt("flex-a", "COLLECTING", "key-1")
+        val pending = TransitionAttempt("flex-a", "COLLECTED", "key-1")
         assertTrue(isIdempotencyConflict(ApiError.Conflict("This idempotency key was already used")))
         assertFalse(isIdempotencyConflict(ApiError.Conflict("This delivery status cannot be changed")))
         assertEquals(pending, progressAttemptAfterRefresh(pending, "RIDER_ASSIGNED"))
-        assertNull(progressAttemptAfterRefresh(pending, "COLLECTING"))
+        assertEquals(pending, progressAttemptAfterRefresh(pending, "COLLECTING"))
+        assertNull(progressAttemptAfterRefresh(pending, "COLLECTED"))
     }
 
     @Test
@@ -108,16 +133,9 @@ class RiderParcelProgressTest {
         assertEquals("assignment-a", first.assignmentId)
     }
 
-    @Test
-    fun theV1ChainStillReachesDelivered() {
-        assertEquals("ARRIVED_AT_PICKUP", nextDeliveryStatus("ASSIGNED"))
-        assertEquals("PICKED_UP", nextDeliveryStatus("ARRIVED_AT_PICKUP"))
-        assertEquals("IN_TRANSIT", nextDeliveryStatus("PICKED_UP"))
-        assertEquals("ARRIVED_AT_DROPOFF", nextDeliveryStatus("IN_TRANSIT"))
-        assertEquals("DELIVERED", nextDeliveryStatus("ARRIVED_AT_DROPOFF"))
-        assertNull(nextDeliveryStatus("DELIVERED"))
-        assertEquals("Arrived at pickup", deliveryActionLabel("ASSIGNED"))
-        assertEquals("Confirm delivery", deliveryActionLabel("ARRIVED_AT_DROPOFF"))
+    private fun tapTargets(current: String): List<String> {
+        val next = v2TapTarget(current) ?: return emptyList()
+        return listOf(next)
     }
 
     private fun parcel(deliveryId: String, status: String) = CommittedParcel(

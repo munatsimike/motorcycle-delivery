@@ -91,6 +91,9 @@ fun shouldShareLocation(
     if (!hasSession || !permissionGranted) {
         return false
     }
+    if (availability == "OFFLINE") {
+        return hasCommittedAssignment(deliveryStatuses)
+    }
     if (receivingRequests == true || hasCommittedAssignment(deliveryStatuses)) {
         return true
     }
@@ -120,6 +123,7 @@ enum class LocationCommand {
 fun commandAfterUploadFailure(error: ApiError): LocationCommand {
     return when (error) {
         ApiError.SessionEnded,
+        ApiError.SignedInElsewhere,
         ApiError.Forbidden,
         -> LocationCommand.Stop
         else -> LocationCommand.KeepSharing

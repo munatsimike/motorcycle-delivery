@@ -4,7 +4,7 @@ import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { ComponentProps } from 'react';
 import { useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import CustomerAvatar from '../../../../components/CustomerAvatar';
@@ -16,6 +16,7 @@ import type { CustomerTabParamList, RootStackParamList } from '../../../../navig
 import { colors, radius, spacing, typography } from '../../../../theme';
 import { useSession } from '../../../auth/presentation/viewmodels/useSession';
 import { useCustomerAccount } from '../viewmodels/useCustomerAccount';
+import { useCustomerProfilePhoto } from '../viewmodels/useCustomerProfilePhoto';
 
 type ProfileNavigation = CompositeNavigationProp<
   BottomTabNavigationProp<CustomerTabParamList, 'Profile'>,
@@ -27,6 +28,7 @@ type IconName = ComponentProps<typeof MaterialDesignIcons>['name'];
 export default function ProfileScreen() {
   const { accessToken, logout } = useSession();
   const { account, isLoading, error } = useCustomerAccount(accessToken);
+  const photo = useCustomerProfilePhoto(accessToken, account);
   const navigation = useNavigation<ProfileNavigation>();
   const insets = useSafeAreaInsets();
   const [signingOut, setSigningOut] = useState(false);
@@ -50,17 +52,54 @@ export default function ProfileScreen() {
         <GreenSurface style={[styles.header, { paddingTop: insets.top + spacing.lg }]}>
           {account ? (
             <>
-              <CustomerAvatar
-                kind={account.kind}
-                name={account.name}
-                customerId={account.id}
-                photoUrl={account.photoUrl}
-                size={80}
-              />
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Change profile photo"
+                disabled={photo.phase !== 'idle'}
+                onPress={() => {
+                  void photo.changePhoto();
+                }}
+              >
+                <CustomerAvatar
+                  kind={account.kind}
+                  name={account.name}
+                  customerId={account.id}
+                  photoUrl={photo.uri}
+                  size={80}
+                />
+              </Pressable>
+              {photo.phase === 'uploading' ? (
+                <Text style={styles.photoStatus}>Uploading {photo.progress ?? 0}%</Text>
+              ) : null}
+              {photo.phase === 'removing' ? <Text style={styles.photoStatus}>Removing photo</Text> : null}
+              {photo.phase === 'idle' && (account.hasProfilePhoto || photo.uri) ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Remove photo"
+                  onPress={() => {
+                    Alert.alert(
+                      'Remove profile photo?',
+                      'Your initials will be shown instead.',
+                      [
+                        { text: 'Keep photo', style: 'cancel' },
+                        {
+                          text: 'Remove photo',
+                          style: 'destructive',
+                          onPress: () => {
+                            void photo.removePhoto();
+                          },
+                        },
+                      ],
+                    );
+                  }}
+                >
+                  <Text style={styles.removePhoto}>Remove photo</Text>
+                </Pressable>
+              ) : null}
               <Text style={styles.name}>{account.name}</Text>
               <View style={styles.kind}>
                 <MaterialDesignIcons
-                  name={account.kind === 'BUSINESS' ? 'office-building' : 'account'}
+                  name={account.kind === 'BUSINESS' ? 'office-building-outline' : 'account-outline'}
                   size={16}
                   color={colors.primaryDark}
                 />
@@ -76,23 +115,19 @@ export default function ProfileScreen() {
           <View style={styles.overlap}>
             <View style={styles.settingCard}>
               <InfoRow
-                icon="phone"
+                icon="phone-outline"
                 label="WhatsApp number"
                 value={account.phone}
                 flag={account.phone.startsWith('+263')}
-                iconColor="#3B6FE8"
-                backgroundColor="#E8F1FF"
               />
-              {account.email ? <InfoRow icon="email" label="Email address" value={account.email} /> : null}
+              {account.email ? <InfoRow icon="email-outline" label="Email address" value={account.email} /> : null}
               <InfoRow
-                icon="map-marker"
+                icon="map-marker-outline"
                 label="Address"
                 value={account.address}
-                iconColor={colors.primary}
-                backgroundColor={colors.primaryLight}
               />
               {account.contactName ? (
-                <InfoRow icon="account" label="Contact person" value={account.contactName} />
+                <InfoRow icon="account-outline" label="Contact person" value={account.contactName} />
               ) : null}
             </View>
           </View>
@@ -101,6 +136,7 @@ export default function ProfileScreen() {
         <View style={styles.body}>
         {isLoading ? <LoadingIndicator /> : null}
         {!isLoading && error ? <ErrorMessage message={error} /> : null}
+        {photo.error ? <ErrorMessage message={photo.error} /> : null}
 
         {account ? (
           <View style={styles.edit}>
@@ -111,7 +147,7 @@ export default function ProfileScreen() {
             >
               <View style={styles.editButton}>
                 <View style={styles.editLabelRow}>
-                  <MaterialDesignIcons name="pencil" color={colors.textInverse} size={20} />
+                  <MaterialDesignIcons name="pencil-outline" color={colors.textInverse} size={20} />
                   <Text style={styles.editLabel}>Edit Profile</Text>
                 </View>
                 <MaterialDesignIcons
@@ -130,6 +166,7 @@ export default function ProfileScreen() {
             label="Log out"
             icon="logout"
             tone="danger"
+            bordered={false}
             loading={signingOut}
             disabled={signingOut}
             onPress={() => {
@@ -148,21 +185,15 @@ function InfoRow({
   label,
   value,
   flag = false,
-  iconColor = colors.primaryDark,
-  backgroundColor = colors.background,
 }: {
   icon: IconName;
   label: string;
   value: string;
   flag?: boolean;
-  iconColor?: string;
-  backgroundColor?: string;
 }) {
   return (
     <View style={styles.row}>
-      <View style={[styles.iconBox, { backgroundColor }]}>
-        <MaterialDesignIcons name={icon} size={20} color={iconColor} />
-      </View>
+      <MaterialDesignIcons name={icon} size={20} color="#000000" />
       <View style={styles.rowCopy}>
         <Text style={styles.rowLabel}>{label}</Text>
         <View style={styles.rowValueLine}>
@@ -191,13 +222,13 @@ const styles = StyleSheet.create({
   header: {
     alignItems: 'center',
     overflow: 'hidden',
-    paddingHorizontal: spacing.xl,
+    paddingHorizontal: spacing.lg,
     paddingBottom: spacing.xl,
     gap: spacing.sm,
   },
   overlap: {
     marginTop: -spacing.xxxl,
-    marginHorizontal: spacing.xl,
+    marginRight: spacing.lg,
   },
   body: {
     marginTop: spacing.lg,
@@ -207,6 +238,18 @@ const styles = StyleSheet.create({
     fontSize: typography.title,
     fontWeight: '700',
     color: colors.text,
+    textAlign: 'center',
+  },
+  photoStatus: {
+    fontSize: typography.caption,
+    fontWeight: '600',
+    color: colors.primaryDark,
+    textAlign: 'center',
+  },
+  removePhoto: {
+    fontSize: typography.caption,
+    fontWeight: '600',
+    color: colors.error,
     textAlign: 'center',
   },
   kind: {
@@ -220,11 +263,11 @@ const styles = StyleSheet.create({
   },
   kindText: {
     fontSize: typography.caption,
-    fontWeight: '600',
+    fontWeight: '400',
     color: colors.primaryDark,
   },
   edit: {
-    marginHorizontal: spacing.xl,
+    marginHorizontal: spacing.lg,
     gap: spacing.md,
   },
   pressed: {
@@ -267,14 +310,6 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     paddingVertical: spacing.md,
   },
-  iconBox: {
-    width: 36,
-    height: 36,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.background,
-  },
   rowCopy: {
     flex: 1,
     gap: spacing.xs,
@@ -297,7 +332,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: typography.body,
     lineHeight: 22,
-    fontWeight: '600',
+    fontWeight: '400',
     color: colors.text,
   },
   passwordHint: {

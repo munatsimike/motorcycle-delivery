@@ -9,15 +9,22 @@ import com.riders.rider.feature.availability.domain.GpsFix
 import com.riders.rider.feature.availability.domain.LocationRelay
 import com.riders.rider.feature.auth.domain.AppEntry
 import com.riders.rider.feature.auth.domain.DEBUG_REGISTRATION_FULL_NAME
+import com.riders.rider.feature.auth.domain.DeviceReplacementNotice
 import com.riders.rider.feature.auth.domain.appEntry
+import com.riders.rider.feature.auth.domain.resumedAssignmentId
+import com.riders.rider.feature.auth.domain.signedOutStart
+import com.riders.rider.feature.availability.domain.LocationCommand
+import com.riders.rider.feature.availability.domain.commandAfterUploadFailure
+import com.riders.rider.feature.home.DashboardFailure
+import com.riders.rider.feature.home.dashboardFailure
+import com.riders.rider.feature.offers.domain.shouldPollOffers
 import com.riders.rider.feature.auth.domain.normalizeRiderAddress
 import com.riders.rider.feature.auth.domain.normalizeRiderName
 import com.riders.rider.feature.auth.domain.registrationFullName
 import com.riders.rider.feature.auth.domain.normalizeRiderPhone
 import com.riders.rider.feature.auth.domain.riderPhoneEntry
-import com.riders.rider.feature.delivery.domain.canRelease
-import com.riders.rider.feature.delivery.domain.nextDeliveryStatus
 import com.riders.rider.feature.offers.domain.AcceptKeys
+import com.riders.rider.feature.offers.domain.leavesAcceptUnresolved
 import com.riders.rider.feature.onboarding.domain.RiderOnboarding
 import com.riders.rider.feature.onboarding.domain.riderReadiness
 import kotlinx.coroutines.test.runTest
@@ -98,7 +105,7 @@ class RiderDomainTest {
         val ready = readiness("""{"licenceVerificationStatus":"VERIFIED","approvalStatus":"APPROVED","availability":"AVAILABLE","licenceNumber":"12345","licenceClass":"B","verifiedMotorcycleCount":1,"activeVerifiedMotorcycle":true}""")
         assertTrue(ready.canAcceptDeliveries)
         assertFalse(ready.canGoOnline)
-        assertEquals("Available", ready.availabilityLabel)
+        assertEquals("Online", ready.availabilityLabel)
 
         val offline = readiness("""{"licenceVerificationStatus":"VERIFIED","approvalStatus":"APPROVED","availability":"OFFLINE","verifiedMotorcycleCount":1,"activeVerifiedMotorcycle":true}""")
         assertTrue(offline.canGoOnline)
@@ -123,6 +130,19 @@ class RiderDomainTest {
     }
 
     @Test
+    fun replacedSessionStopsTrackingAndReturnsToSignIn() {
+        val error = mapHttpFailure(401, """{"message":"${DeviceReplacementNotice.MESSAGE}"}""")
+        assertTrue(error is ApiError.SignedInElsewhere)
+        assertEquals(DeviceReplacementNotice.MESSAGE, error.text())
+        assertEquals(LocationCommand.Stop, commandAfterUploadFailure(error))
+        assertEquals(DashboardFailure.Authentication, dashboardFailure(error))
+        assertEquals("sign-in", signedOutStart(error.text()))
+        assertFalse(shouldPollOffers(false))
+        assertFalse(error.leavesAcceptUnresolved())
+        assertEquals("delivery-1", resumedAssignmentId(listOf("delivery-1")))
+    }
+
+    @Test
     fun protectedUnauthorizedEndsTheSession() {
         val error = mapHttpFailure(401, """{"message":"Authentication failed"}""")
         assertEquals("Your session has ended. Sign in again.", error.text())
@@ -143,20 +163,6 @@ class RiderDomainTest {
         val other = keys.keyFor("assignment-2")
         assertEquals(first, second)
         assertFalse(first == other)
-    }
-
-    @Test
-    fun deliveryOffersOnlyTheNextStatus() {
-        assertEquals("ARRIVED_AT_PICKUP", nextDeliveryStatus("ASSIGNED"))
-        assertEquals("PICKED_UP", nextDeliveryStatus("ARRIVED_AT_PICKUP"))
-        assertEquals("IN_TRANSIT", nextDeliveryStatus("PICKED_UP"))
-        assertEquals("ARRIVED_AT_DROPOFF", nextDeliveryStatus("IN_TRANSIT"))
-        assertEquals("DELIVERED", nextDeliveryStatus("ARRIVED_AT_DROPOFF"))
-        assertNull(nextDeliveryStatus("DELIVERED"))
-        assertTrue(canRelease("ASSIGNED"))
-        assertTrue(canRelease("ARRIVED_AT_PICKUP"))
-        assertFalse(canRelease("PICKED_UP"))
-        assertFalse(canRelease("DELIVERED"))
     }
 
     @Test

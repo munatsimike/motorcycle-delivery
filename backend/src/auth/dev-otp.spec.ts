@@ -189,17 +189,21 @@ describe('local mock OTP', () => {
 
   it('refuses mock OTP outside local development and does not print a code', () => {
     const twilio = stubProvider();
-    const meta = stubProvider();
     const devOtp = stubProvider();
     const local = localEnv();
-    expect(selectPhoneVerificationProvider(local, twilio, meta, devOtp)).toBe(devOtp);
+    expect(selectPhoneVerificationProvider(local, twilio, devOtp)).toBe(devOtp);
     expect(devOtpAllowed({ ...local, PUBLIC_URL: 'http://127.0.0.1:3000', HOST: '0.0.0.0' })).toBe(true);
-    expect(selectPhoneVerificationProvider({ ...local, DEV_OTP_ENABLED: 'false' }, twilio, meta, devOtp)).toBe(twilio);
-    expect(selectPhoneVerificationProvider({ NODE_ENV: 'development', WHATSAPP_VERIFICATION_PROVIDER: 'meta' }, twilio, meta, devOtp)).toBe(meta);
+    expect(selectPhoneVerificationProvider({ ...local, DEV_OTP_ENABLED: 'false' }, twilio, devOtp)).toBe(twilio);
+    expect(() => selectPhoneVerificationProvider({ NODE_ENV: 'development', WHATSAPP_VERIFICATION_PROVIDER: 'meta' }, twilio, devOtp)).toThrow(ServiceUnavailableException);
+    expect(() => selectPhoneVerificationProvider({ WHATSAPP_VERIFICATION_PROVIDER: 'other' }, twilio, devOtp)).toThrow(ServiceUnavailableException);
+    const infobip = stubProvider();
+    expect(selectPhoneVerificationProvider({ WHATSAPP_VERIFICATION_PROVIDER: 'infobip' }, twilio, devOtp, infobip)).toBe(infobip);
+    expect(selectPhoneVerificationProvider({ WHATSAPP_VERIFICATION_PROVIDER: 'twilio' }, twilio, devOtp, infobip)).toBe(twilio);
+    expect(() => selectPhoneVerificationProvider({ WHATSAPP_VERIFICATION_PROVIDER: 'infobip' }, twilio, devOtp)).toThrow(ServiceUnavailableException);
     expect(devOtpAllowed({ NODE_ENV: 'development' })).toBe(false);
 
     for (const env of rejectedEnvironments()) {
-      expect(() => selectPhoneVerificationProvider(env, twilio, meta, devOtp)).toThrow(DevOtpConfigurationError);
+      expect(() => selectPhoneVerificationProvider(env, twilio, devOtp)).toThrow(DevOtpConfigurationError);
       expect(devOtpAllowed(env)).toBe(false);
     }
 

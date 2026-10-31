@@ -43,7 +43,14 @@ export function appendDeliveries(current: CustomerDelivery[], incoming: Customer
 export function deliveryTrackingTarget(deliveryId: string) {
   return {
     screen: 'DeliveryTracking' as const,
-    params: { deliveryId },
+    params: { deliveryId, riderConfirmed: false },
+  };
+}
+
+export function riderAcceptedTrackingTarget(deliveryId: string) {
+  return {
+    screen: 'DeliveryTracking' as const,
+    params: { deliveryId, riderConfirmed: true },
   };
 }
 
@@ -70,12 +77,14 @@ function readCustomerDelivery(value: unknown): CustomerDelivery {
   const suggestedPrice = readMoney(value.suggestedPrice);
   const offeredPrice = readMoney(value.offeredPrice);
   const currency = readCurrency(value.currency);
+  const openBidCount = readOpenBidCount(value.openBidCount);
   if (
     serviceClass === undefined
     || deliverBy === undefined
     || suggestedPrice === undefined
     || offeredPrice === undefined
     || currency === undefined
+    || openBidCount === undefined
   ) {
     throw new Error('Deliveries are unavailable.');
   }
@@ -90,6 +99,9 @@ function readCustomerDelivery(value: unknown): CustomerDelivery {
     currency,
     suggestedPrice,
     offeredPrice,
+    distanceMeters: readDistance(value.distanceMeters),
+    parcelDescription: readParcelDescription(value.parcel),
+    openBidCount,
   };
 }
 
@@ -123,6 +135,23 @@ function readMoney(value: unknown): string | null | undefined {
   return value;
 }
 
+function readDistance(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    return null;
+  }
+  return Math.round(value);
+}
+
+function readOpenBidCount(value: unknown): number | undefined {
+  if (value === undefined || value === null) {
+    return 0;
+  }
+  if (typeof value === 'number' && Number.isInteger(value) && value >= 0) {
+    return value;
+  }
+  return undefined;
+}
+
 function readCurrency(value: unknown): string | null | undefined {
   if (value === undefined || value === null || value === '') {
     return null;
@@ -131,6 +160,14 @@ function readCurrency(value: unknown): string | null | undefined {
     return undefined;
   }
   return 'USD';
+}
+
+function readParcelDescription(value: unknown): string | null {
+  if (!isRecord(value) || typeof value.description !== 'string') {
+    return null;
+  }
+  const description = value.description.trim();
+  return description.length > 0 ? description.slice(0, 500) : null;
 }
 
 function addressOf(value: unknown): string | null {

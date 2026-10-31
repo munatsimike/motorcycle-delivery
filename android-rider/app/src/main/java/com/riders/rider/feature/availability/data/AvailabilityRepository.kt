@@ -8,7 +8,6 @@ import androidx.core.content.ContextCompat
 import com.riders.rider.core.network.ApiError
 import com.riders.rider.core.network.ApiResult
 import com.riders.rider.core.network.AvailabilityResponse
-import com.riders.rider.core.network.ReceivingRequest
 import com.riders.rider.core.network.LocationRequest
 import com.riders.rider.core.network.RiderService
 import com.riders.rider.core.network.apiCall
@@ -28,8 +27,6 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 data class AvailabilityUpdate(val availability: String, val message: String?)
-
-data class ReceivingUpdate(val availability: String, val receiving: Boolean)
 
 @Singleton
 class AvailabilityRepository @Inject constructor(
@@ -56,16 +53,6 @@ class AvailabilityRepository @Inject constructor(
             applySharing()
         }
         return result
-    }
-
-    suspend fun setReceiving(receiving: Boolean): ApiResult<ReceivingUpdate> {
-        return when (val result = apiCall { riders.receiving(ReceivingRequest(receiving)) }) {
-            is ApiResult.Ok -> {
-                applySharing()
-                ApiResult.Ok(ReceivingUpdate(result.value.availability, result.value.receiving))
-            }
-            is ApiResult.Err -> result
-        }
     }
 
     suspend fun applySharing() {
@@ -156,5 +143,5 @@ private fun ApiResult<AvailabilityResponse>.mapAvailability(): ApiResult<Availab
 
 private fun authoritativeLocationStop(result: ApiResult<*>): Boolean {
     val error = (result as? ApiResult.Err)?.error ?: return false
-    return error is ApiError.SessionEnded || error is ApiError.Forbidden
+    return error is ApiError.SessionEnded || error is ApiError.SignedInElsewhere || error is ApiError.Forbidden
 }

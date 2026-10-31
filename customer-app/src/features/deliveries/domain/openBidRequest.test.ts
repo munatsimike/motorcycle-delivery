@@ -48,17 +48,38 @@ describe('open bid booking', () => {
       search: async () => {
         calls.push('search');
       },
+      adjustOffer: () => Promise.reject(new Error('unused')),
       cancel: () => Promise.reject(new Error('unused')),
     };
     const created = await createOpenRequest(repository, 'token', {
       serviceClass: 'FLEXIBLE',
       deliverBy: '2026-10-24T16:30:00.000Z',
-    } as PreparedBooking);
+    } as PreparedBooking, '8.00');
     expect(created.id).toBe('delivery-1');
     expect(openBidConfirmation(created)).toBe('Open for rider bids');
     expect(startsRiderSearch()).toBe(false);
     expect(waitsForRiderConfirmation()).toBe(false);
     expect(calls).toEqual([]);
+
+    await expect(createOpenRequest(repository, 'token', {
+      serviceClass: 'EXPRESS',
+      deliverBy: null,
+    } as PreparedBooking, '8.00')).resolves.toMatchObject({ id: 'delivery-1', status: 'CREATED' });
+  });
+
+  it('reads a deadline-free Express or Flexible request', () => {
+    const request = readOpenBidRequest({
+      id: 'delivery-2',
+      status: 'CREATED',
+      serviceClass: 'EXPRESS',
+      deliverBy: null,
+      suggestedPrice: '9.00',
+      currency: 'USD',
+      offeredPrice: null,
+      searchGeneration: 0,
+    });
+    expect(request.deliverBy).toBeNull();
+    expect(openBidConfirmation(request)).toBe('Open for rider bids');
   });
 
   it('rejects a created delivery that already has an offer or a search', () => {

@@ -13,7 +13,6 @@ import {
   DeliveryStatus,
   Prisma,
   RiderAvailability,
-  ServiceClass,
 } from '../generated/prisma/client.js';
 import type { CustomerContext } from '../auth/customer-access.service.js';
 import { v2MarketplaceEnabled } from '../auth/v2-flags.js';
@@ -23,7 +22,7 @@ import { motorcycleForAcceptance } from '../rider/motorcycle-eligibility.js';
 import { assertV2CommissionCapacity, IDEMPOTENCY_CONFLICT, openV2CommissionReservation } from '../rider/wallet-ledger.js';
 import { snapshotCommission } from './commission-calculator.js';
 import { centsFromDecimal, formatCents } from './money.js';
-import { closeUnassignedV2Deliveries } from './v2-deadline.js';
+import { closeUnassignedV2Deliveries, v2RequestRemainsOpen } from './v2-deadline.js';
 import { recordBidAccepted } from './v2-outbox.js';
 
 const UUID_TEXT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -124,13 +123,12 @@ export class BidAcceptanceService {
     if (!bid || bid.deliveryId !== delivery.id) {
       throw new NotFoundException('Bid not found');
     }
-    if (delivery.deliverBy && delivery.deliverBy.getTime() <= now.getTime()) {
+    if (delivery.serviceClass && !v2RequestRemainsOpen(delivery.deliverBy, now)) {
       throw new ConflictException('The bidding window has closed');
     }
     if (
       delivery.status !== DeliveryStatus.CREATED
       || delivery.serviceClass == null
-      || delivery.deliverBy == null
       || delivery.searchGeneration !== 0
     ) {
       throw new ConflictException('This delivery is not open for bids');
@@ -138,17 +136,7 @@ export class BidAcceptanceService {
     if (bid.status !== BidStatus.OPEN) {
       throw new ConflictException('This bid is not open');
     }
-    const commitments = await tx.deliveryAssignment.findMany({
-      where: { riderProfileId: profile.id, status: AssignmentStatus.ACCEPTED },
-      select: { acceptedBidAmount: true, serviceClass: true },
-    });
-    if (commitments.some((row) => row.acceptedBidAmount == null)) {
-      throw new ConflictException('This rider already has an accepted delivery');
-    }
-    if (commitments.some((row) => row.serviceClass === ServiceClass.EXPRESS)) {
-      throw new ConflictException('This rider already has an Express delivery');
-    }
-    if (profile.availability !== RiderAvailability.AVAILABLE) {
+    if (profile.availability === RiderAvailability.OFFLINE) {
       throw new ConflictException('This rider is not available');
     }
     if (profile.receivingRequests !== true) {

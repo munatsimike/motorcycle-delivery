@@ -108,6 +108,11 @@ export function readRecentDeliverySnapshot(value: unknown, customerId: string): 
   };
 }
 
+export function deliveryListFailure(error: unknown): 'authentication' | 'unavailable' {
+  const status = typeof error === 'object' && error !== null && 'status' in error ? error.status : null;
+  return status === 401 || status === 403 ? 'authentication' : 'unavailable';
+}
+
 export function savedDeliveryMessage(savedAt: string): string | null {
   const date = new Date(savedAt);
   if (Number.isNaN(date.getTime())) {
@@ -122,6 +127,10 @@ export function savedDeliveryMessage(savedAt: string): string | null {
 
 export function shouldRefreshSavedDeliveries(appState: string, showingSaved: boolean): boolean {
   return appState === 'active' && showingSaved;
+}
+
+export function shouldRefreshDeliveriesOnForeground(appState: string, focused: boolean): boolean {
+  return appState === 'active' && focused;
 }
 
 export function splitSecureValue(value: string, limit = SECURE_STORE_VALUE_LIMIT): string[] {
@@ -154,6 +163,8 @@ function limitDeliveries(deliveries: readonly CustomerDelivery[]): CustomerDeliv
       currency: delivery.currency ?? null,
       suggestedPrice: delivery.suggestedPrice ?? null,
       offeredPrice: delivery.offeredPrice ?? null,
+      distanceMeters: delivery.distanceMeters ?? null,
+      parcelDescription: delivery.parcelDescription ?? null,
     });
     if (unique.length === RECENT_DELIVERY_CACHE_LIMIT) {
       break;
@@ -190,6 +201,12 @@ function readCachedDelivery(value: unknown): CustomerDelivery | null {
     currency: value.currency === 'USD' ? 'USD' : null,
     suggestedPrice: typeof value.suggestedPrice === 'string' && value.suggestedPrice.trim() ? value.suggestedPrice : null,
     offeredPrice: typeof value.offeredPrice === 'string' && value.offeredPrice.trim() ? value.offeredPrice : null,
+    distanceMeters: typeof value.distanceMeters === 'number' && Number.isFinite(value.distanceMeters) && value.distanceMeters >= 0
+      ? Math.round(value.distanceMeters)
+      : null,
+    parcelDescription: typeof value.parcelDescription === 'string' && value.parcelDescription.trim()
+      ? value.parcelDescription.trim()
+      : null,
   };
 }
 

@@ -120,4 +120,7 @@ private fun WalletSummaryResponse.toSummary(): WalletSummary = WalletSummary(
     reservedFees = reservedFees,
     availableCapacity = availableCapacity,
     currency = currency,
+    promotionalBalance = promotionalBalance,
+    availablePromotionalCredit = availablePromotionalCredit,
+    newDeliveriesRestricted = newDeliveriesRestricted,
 )

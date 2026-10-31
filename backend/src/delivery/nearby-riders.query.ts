@@ -17,10 +17,33 @@ export async function countNearbyAvailableRiders(
     SELECT COUNT(*)::int AS "count"
     FROM "rider_locations" l
     INNER JOIN "rider_profiles" p ON p."id" = l."rider_profile_id"
-    WHERE p."availability" = 'AVAILABLE'::"rider_availability"
-      AND p."approval_status" = 'APPROVED'::"rider_approval_status"
+    WHERE p."approval_status" = 'APPROVED'::"rider_approval_status"
       AND p."verification_status" = 'VERIFIED'::"rider_verification_status"
       AND l."updated_at" > ${input.freshAfter}
+      AND (
+        (
+          p."availability" = 'AVAILABLE'::"rider_availability"
+          AND p."receiving_requests" IS NOT FALSE
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM "delivery_assignments" a
+          INNER JOIN "deliveries" d ON d."id" = a."delivery_id"
+          WHERE a."rider_profile_id" = p."id"
+            AND a."status" = 'ACCEPTED'::"assignment_status"
+            AND d."status" IN (
+              'ASSIGNED'::"delivery_status",
+              'RIDER_ASSIGNED'::"delivery_status",
+              'COLLECTING'::"delivery_status",
+              'COLLECTED'::"delivery_status",
+              'OUT_FOR_DELIVERY'::"delivery_status",
+              'ARRIVED_AT_PICKUP'::"delivery_status",
+              'PICKED_UP'::"delivery_status",
+              'IN_TRANSIT'::"delivery_status",
+              'ARRIVED_AT_DROPOFF'::"delivery_status"
+            )
+        )
+      )
       AND ST_DWithin(
         l."position",
         ST_SetSRID(

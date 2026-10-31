@@ -8,7 +8,7 @@ describe('motorcycle controllers', () => {
     const motorcycles = new MotorcycleController({} as never);
     expect(() => motorcycles.list({})).toThrow(ForbiddenException);
 
-    const reviews = new MotorcycleReviewController({} as never);
+    const reviews = new MotorcycleReviewController({} as never, {} as never);
     expect(() => reviews.review({}, 'bike-1', { decision: 'VERIFY' })).toThrow(ForbiddenException);
     expect(() => reviews.review({ admin: { userId: 'admin-1' } }, 'bike-1', { decision: 'CLOSE' })).toThrow(BadRequestException);
   });

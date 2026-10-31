@@ -5,7 +5,6 @@ import {
   Get,
   Header,
   HttpCode,
-  Logger,
   NotFoundException,
   Param,
   Post,
@@ -16,7 +15,6 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiConflictResponse, ApiCreatedResponse, ApiForbiddenResponse, ApiNotFoundResponse, ApiOkResponse, ApiOperation, ApiParam, ApiQuery, ApiTags, ApiUnauthorizedResponse } from '@nestjs/swagger';
 import { CustomerAccessGuard, type CustomerRequest } from '../auth/customer-access.guard.js';
-import { v2MarketplaceEnabled } from '../auth/v2-flags.js';
 import { CreateDeliveryBody, QuoteBody, QuoteResponse } from '../openapi/schemas.js';
 import { DeliveryService } from './delivery.service.js';
 import { DispatchService } from './dispatch.service.js';
@@ -29,8 +27,6 @@ import { PlacesService } from './places.service.js';
 @Controller('customers/me/deliveries')
 @UseGuards(CustomerAccessGuard)
 export class DeliveryController {
-  private readonly logger = new Logger(DeliveryController.name);
-
   constructor(
     private readonly deliveries: DeliveryService,
     private readonly dispatch: DispatchService,
@@ -49,35 +45,12 @@ export class DeliveryController {
   }
 
   @Post()
-  @ApiOperation({ summary: 'Create a parcel delivery and start rider search' })
+  @ApiOperation({ summary: 'Create an Express or Flexible parcel delivery' })
   @ApiBody({ type: CreateDeliveryBody })
-  @ApiCreatedResponse({ description: 'The created delivery. Search starts automatically when dispatch accepts it.' })
+  @ApiCreatedResponse({ description: 'The created Express or Flexible delivery.' })
   @ApiConflictResponse({ description: 'Delivery pricing is not configured' })
   async create(@Req() request: CustomerRequest, @Body() body: unknown) {
-    const customer = requiredCustomer(request);
-    const created = await this.deliveries.create(customer, body);
-    if (v2MarketplaceEnabled()) {
-      return created;
-    }
-    let started: { status: string; searchGeneration: number };
-    try {
-      started = await this.dispatch.search(customer, created.id);
-    } catch (error) {
-      this.logger.error(`Automatic search failed deliveryId=${created.id} error=${errorName(error)}`);
-      return created;
-    }
-    try {
-      return await this.deliveries.getById(customer, created.id);
-    } catch (error) {
-      this.logger.error(`Automatic search reload failed deliveryId=${created.id} error=${errorName(error)}`);
-      return {
-        ...created,
-        status: started.status,
-        searchGeneration: started.searchGeneration,
-        autoRetryCount: 0,
-        nextRetryAt: null,
-      };
-    }
+    return this.deliveries.create(requiredCustomer(request), body);
   }
 
   @Get()
@@ -117,18 +90,28 @@ export class DeliveryController {
   @Get(':deliveryId')
   @ApiOperation({ summary: 'Read one customer delivery' })
   @ApiParam({ name: 'deliveryId', format: 'uuid' })
-  @ApiOkResponse({ description: 'The delivery, including pickup, drop-off, and current status. riderLocation is included only while this delivery is COLLECTING.' })
+  @ApiOkResponse({ description: 'The delivery, including pickup, drop-off, and current status. riderLocation and pickupApproach are included while this delivery is RIDER_ASSIGNED or COLLECTING and the accepted rider point is fresh.' })
   @ApiNotFoundResponse({ description: 'Delivery not found' })
   getById(@Req() request: CustomerRequest, @Param('deliveryId') deliveryId: string) {
     return this.deliveries.getById(requiredCustomer(request), deliveryId);
   }
   @Post(':deliveryId/search')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Start or restart rider search for a delivery' })
+  @ApiOperation({ summary: 'Restart search for an Express or Flexible delivery' })
   @ApiParam({ name: 'deliveryId', format: 'uuid' })
   @ApiOkResponse({ description: 'Search was accepted for this delivery.' })
   search(@Req() request: CustomerRequest, @Param('deliveryId') deliveryId: string) {
     return this.dispatch.search(requiredCustomer(request), deliveryId);
+  }
+
+  @Post(':deliveryId/offer')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Change the customer offer after no rider was found' })
+  @ApiParam({ name: 'deliveryId', format: 'uuid' })
+  @ApiOkResponse({ description: 'The updated customer offer. Search is not restarted.' })
+  @ApiConflictResponse({ description: 'The delivery is no longer waiting for a new search.' })
+  adjustOffer(@Req() request: CustomerRequest, @Param('deliveryId') deliveryId: string, @Body() body: unknown) {
+    return this.dispatch.adjustOffer(requiredCustomer(request), deliveryId, body);
   }
 
   @Post(':deliveryId/cancellation')
@@ -154,10 +137,6 @@ function finiteCoordinate(value: string | null): number | null {
   }
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : null;
-}
-
-function errorName(error: unknown): string {
-  return error instanceof Error ? error.name : 'Error';
 }
 
 

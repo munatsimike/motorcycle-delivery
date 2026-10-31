@@ -10,13 +10,14 @@
   ParseUUIDPipe,
   Query,
   Post,
+  Put,
   Req,
   StreamableFile,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiExtraModels, ApiForbiddenResponse, ApiHeader, ApiOkResponse, ApiOperation, ApiParam, ApiQuery, ApiTags, ApiUnauthorizedResponse, getSchemaPath } from '@nestjs/swagger';
 import { AdminAccessGuard, type AdminRequest } from '../auth/admin-access.guard.js';
-import { ApprovalBody, LicenceRejectBody, LicenceVerifyBody, WalletTopUpBody } from '../openapi/schemas.js';
+import { ApprovalBody, LicenceRejectBody, LicenceVerifyBody, NegativeWalletLimitBody, WalletTopUpBody } from '../openapi/schemas.js';
 import { LicenceReviewService, readLicenceReview } from './licence-review.service.js';
 import { readApprovalDecision, RiderApprovalService } from './rider-approval.service.js';
 import { WalletService } from './wallet.service.js';
@@ -91,6 +92,30 @@ export class RiderAdminController {
   approval(@Req() request: AdminRequest, @Param('riderProfileId') riderProfileId: string, @Body() body: unknown) {
     const admin = requiredAdmin(request);
     return this.approvals.decide(admin, riderProfileId, readApprovalDecision(body));
+  }
+
+  @Get(':riderProfileId/wallet')
+  @ApiOperation({ summary: 'Read the effective negative wallet limit' })
+  @ApiParam({ name: 'riderProfileId', format: 'uuid' })
+  @ApiOkResponse({ description: 'Balance, effective limit, limit source, reserved fees, and available capacity. This does not change the wallet.' })
+  wallet(@Req() request: AdminRequest, @Param('riderProfileId', new ParseUUIDPipe({ version: '7' })) riderProfileId: string) {
+    requiredAdmin(request);
+    return this.wallets.summary(riderProfileId);
+  }
+
+  @Put(':riderProfileId/wallet/negative-limit')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Set or clear a rider negative wallet limit' })
+  @ApiParam({ name: 'riderProfileId', format: 'uuid' })
+  @ApiBody({ type: NegativeWalletLimitBody })
+  @ApiOkResponse({ description: 'The effective limit after the change. The balance and open reservations stay as they were. Null uses the global default.' })
+  setNegativeWalletLimit(
+    @Req() request: AdminRequest,
+    @Param('riderProfileId', new ParseUUIDPipe({ version: '7' })) riderProfileId: string,
+    @Body() body: unknown,
+  ) {
+    const admin = requiredAdmin(request);
+    return this.wallets.setBorrowingLimit(admin, riderProfileId, body);
   }
 
   @Post(':riderProfileId/wallet/top-ups')

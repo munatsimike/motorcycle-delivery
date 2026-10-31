@@ -4,7 +4,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import type { RiderContext } from '../auth/rider-access.service.js';
 import { v2MarketplaceEnabled } from '../auth/v2-flags.js';
 import { motorcycleForAcceptance, type AcceptanceRider } from './motorcycle-eligibility.js';
-import { hasAcceptedAssignment, lockRiderMotorcycles, lockRiderProfile } from './motorcycle-lock.js';
+import { lockRiderMotorcycles, lockRiderProfile } from './motorcycle-lock.js';
 
 export const AVAILABILITY_NO_LONGER_ELIGIBLE_REASON = 'no_longer_eligible';
 export const AVAILABILITY_NO_LONGER_ELIGIBLE_MESSAGE = 'Rider is no longer eligible to be online';
@@ -39,18 +39,19 @@ export class RiderAvailabilityService {
       throw new NotFoundException('Bidding is not available');
     }
     const receiving = readReceiving(body);
-    return this.prisma.$transaction((tx) => setReceiving(tx, rider, receiving, now));
+    const result = receiving ? await this.online(rider, now) : await this.offline(rider, now);
+    return { availability: result.availability, receiving: result.receiving === true };
   }
 }
 
 async function goOnline(tx: Prisma.TransactionClient, rider: RiderContext, now: Date): Promise<RiderAvailabilityResponse> {
   const profile = await lockedProfile(tx, rider);
-  if (profile.availability === RiderAvailability.BUSY) {
+  if (profile.availability === RiderAvailability.BUSY && await legacyBusyLock(tx, profile.id)) {
     throw new ConflictException('Availability cannot be changed while busy');
   }
   const eligibility = await readEligibility(tx, profile);
   if (profile.availability === RiderAvailability.AVAILABLE) {
-    return reconcileAvailable(tx, profile.id, eligibility, now);
+    return reconcileAvailable(tx, profile, eligibility, now);
   }
   motorcycleForAcceptance(eligibility);
   await tx.riderProfile.update({
@@ -62,7 +63,7 @@ async function goOnline(tx: Prisma.TransactionClient, rider: RiderContext, now: 
 
 async function reconcileAvailable(
   tx: Prisma.TransactionClient,
-  riderProfileId: string,
+  profile: { id: string; receivingRequests: boolean | null },
   eligibility: AcceptanceRider,
   now: Date,
 ): Promise<RiderAvailabilityResponse> {
@@ -72,15 +73,12 @@ async function reconcileAvailable(
     if (!(error instanceof ConflictException)) {
       throw error;
     }
-    if (await acceptedAssignmentBlocksOffline(tx, riderProfileId)) {
-      throw new ConflictException('You cannot go offline during a delivery');
-    }
     await tx.riderProfile.update({
-      where: { id: riderProfileId },
+      where: { id: profile.id },
       data: offlineData(now),
     });
     return {
-      ...offlineResponse(),
+      ...offlineResponse(false),
       eligible: false,
       reason: AVAILABILITY_NO_LONGER_ELIGIBLE_REASON,
       message: AVAILABILITY_NO_LONGER_ELIGIBLE_MESSAGE,
@@ -89,8 +87,11 @@ async function reconcileAvailable(
   if (!v2MarketplaceEnabled()) {
     return { availability: RiderAvailability.AVAILABLE };
   }
+  if (profile.receivingRequests === true) {
+    return { availability: RiderAvailability.AVAILABLE, receiving: true };
+  }
   await tx.riderProfile.update({
-    where: { id: riderProfileId },
+    where: { id: profile.id },
     data: { receivingRequests: true, updatedAt: now },
   });
   return { availability: RiderAvailability.AVAILABLE, receiving: true };
@@ -98,48 +99,39 @@ async function reconcileAvailable(
 
 async function goOffline(tx: Prisma.TransactionClient, rider: RiderContext, now: Date): Promise<RiderAvailabilityResponse> {
   const profile = await lockedProfile(tx, rider);
-  if (profile.availability === RiderAvailability.BUSY) {
-    throw new ConflictException('Availability cannot be changed while busy');
-  }
-  if (profile.availability === RiderAvailability.OFFLINE) {
-    if (v2MarketplaceEnabled() && profile.receivingRequests !== false) {
-      await tx.riderProfile.update({
-        where: { id: profile.id },
-        data: { receivingRequests: false, updatedAt: now },
-      });
-      return { availability: RiderAvailability.OFFLINE, receiving: false };
+  if (!v2MarketplaceEnabled()) {
+    if (profile.availability === RiderAvailability.OFFLINE) {
+      return { availability: RiderAvailability.OFFLINE };
     }
+    await tx.riderProfile.update({
+      where: { id: profile.id },
+      data: { availability: RiderAvailability.OFFLINE, updatedAt: now },
+    });
     return { availability: RiderAvailability.OFFLINE };
   }
-  if (await acceptedAssignmentBlocksOffline(tx, profile.id)) {
-    throw new ConflictException('You cannot go offline during a delivery');
+  if (profile.availability === RiderAvailability.OFFLINE && profile.receivingRequests === false) {
+    return { availability: RiderAvailability.OFFLINE, receiving: false };
   }
   await tx.riderProfile.update({
     where: { id: profile.id },
     data: offlineData(now),
   });
-  return offlineResponse();
+  return { availability: RiderAvailability.OFFLINE, receiving: false };
 }
 
-async function setReceiving(
-  tx: Prisma.TransactionClient,
-  rider: RiderContext,
-  receiving: boolean,
-  now: Date,
-): Promise<ReceivingPreferenceResponse> {
-  const profile = await lockedProfile(tx, rider);
-  if (profile.availability === RiderAvailability.BUSY) {
-    throw new ConflictException('Availability cannot be changed while busy');
+async function legacyBusyLock(tx: Prisma.TransactionClient, riderProfileId: string): Promise<boolean> {
+  if (!v2MarketplaceEnabled()) {
+    return true;
   }
-  if (profile.availability !== RiderAvailability.AVAILABLE) {
-    throw new ConflictException('Receiving requests can be changed while you are online');
-  }
-  motorcycleForAcceptance(await readEligibility(tx, profile));
-  await tx.riderProfile.update({
-    where: { id: profile.id },
-    data: { receivingRequests: receiving, updatedAt: now },
+  const legacy = await tx.deliveryAssignment.findFirst({
+    where: {
+      riderProfileId,
+      status: AssignmentStatus.ACCEPTED,
+      acceptedBidAmount: null,
+    },
+    select: { id: true },
   });
-  return { availability: profile.availability, receiving };
+  return legacy != null;
 }
 
 async function lockedProfile(tx: Prisma.TransactionClient, rider: RiderContext) {
@@ -152,9 +144,10 @@ async function lockedProfile(tx: Prisma.TransactionClient, rider: RiderContext) 
 }
 
 function onlineData(now: Date): { availability: RiderAvailability; updatedAt: Date; receivingRequests?: boolean } {
-  return v2MarketplaceEnabled()
-    ? { availability: RiderAvailability.AVAILABLE, receivingRequests: true, updatedAt: now }
-    : { availability: RiderAvailability.AVAILABLE, updatedAt: now };
+  if (v2MarketplaceEnabled()) {
+    return { availability: RiderAvailability.AVAILABLE, receivingRequests: true, updatedAt: now };
+  }
+  return { availability: RiderAvailability.AVAILABLE, updatedAt: now };
 }
 
 function offlineData(now: Date): { availability: RiderAvailability; updatedAt: Date; receivingRequests?: boolean } {
@@ -169,19 +162,11 @@ function onlineResponse(): RiderAvailabilityResponse {
     : { availability: RiderAvailability.AVAILABLE };
 }
 
-function offlineResponse(): RiderAvailabilityResponse {
-  return v2MarketplaceEnabled()
-    ? { availability: RiderAvailability.OFFLINE, receiving: false }
-    : { availability: RiderAvailability.OFFLINE };
-}
-
-async function acceptedAssignmentBlocksOffline(tx: Prisma.TransactionClient, riderProfileId: string): Promise<boolean> {
-  if (!v2MarketplaceEnabled()) return hasAcceptedAssignment(tx, riderProfileId);
-  const v1Accepted = await tx.deliveryAssignment.findFirst({
-    where: { riderProfileId, status: AssignmentStatus.ACCEPTED, acceptedBidAmount: null },
-    select: { id: true },
-  });
-  return v1Accepted !== null;
+function offlineResponse(receivingRequests: boolean | null): RiderAvailabilityResponse {
+  if (!v2MarketplaceEnabled() || receivingRequests == null) {
+    return { availability: RiderAvailability.OFFLINE };
+  }
+  return { availability: RiderAvailability.OFFLINE, receiving: receivingRequests };
 }
 
 function readReceiving(body: unknown): boolean {

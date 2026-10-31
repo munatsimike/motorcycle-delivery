@@ -6,6 +6,7 @@ import type { PrismaService } from '../prisma/prisma.service.js';
 import { AccessTokenService } from './access-token.service.js';
 import { REFRESH_ABSOLUTE_MS, REFRESH_INACTIVITY_MS, REFRESH_REUSE_GRACE_MS } from './auth.constants.js';
 import { SessionService } from './session.service.js';
+import { RIDER_SIGNED_IN_ELSEWHERE } from './rider-session-policy.js';
 import { hashSecret } from './token-hash.js';
 
 const SECRET = '0123456789abcdef0123456789abcdef';
@@ -17,6 +18,7 @@ type UserRow = {
   accountStatus: AccountStatus;
   phoneVerifiedAt: Date | null;
   passwordHash?: string | null;
+  riderProfile?: { id: string } | null;
 };
 
 type SessionRow = {
@@ -128,11 +130,11 @@ describe('SessionService', () => {
   });
 
   it('rejects a wrong, foreign, revoked, replaced, or expired refresh token without changing other sessions', async () => {
-    const user = rider();
+    const user = account(UserRole.CUSTOMER);
     const store = memoryStore(user);
     const service = new SessionService(store.db as unknown as PrismaService, tokens);
-    const first = await service.issue(store.db as unknown as Prisma.TransactionClient, user.id, UserRole.RIDER);
-    const second = await service.issue(store.db as unknown as Prisma.TransactionClient, user.id, UserRole.RIDER);
+    const first = await service.issue(store.db as unknown as Prisma.TransactionClient, user.id, UserRole.CUSTOMER);
+    const second = await service.issue(store.db as unknown as Prisma.TransactionClient, user.id, UserRole.CUSTOMER);
     const firstSession = store.sessions[0];
     const secondSession = store.sessions[1];
 
@@ -229,7 +231,7 @@ describe('SessionService', () => {
       release = resolve;
     });
     const original = store.db.refreshSession.findUnique.bind(store.db.refreshSession);
-    store.db.refreshSession.findUnique = async (args) => {
+    store.db.refreshSession.findUnique = async (args: { where: { tokenHash?: string; id?: string } }) => {
       const row = await original(args);
       if (args.where.tokenHash === presented) {
         waiting += 1;
@@ -305,18 +307,86 @@ describe('SessionService', () => {
     expect(store.sessions[1].revokedAt).toBeInstanceOf(Date);
   });
 
-  it('logout revokes one session and logout-all revokes every session for the user', async () => {
-    const user = rider();
+  it('applies rider single-device rules to a customer role that has a rider profile', async () => {
+    const user = account(UserRole.CUSTOMER);
+    user.riderProfile = { id: randomUUID() };
     const store = memoryStore(user);
     const service = new SessionService(store.db as unknown as PrismaService, tokens);
-    const first = await service.issue(store.db as unknown as Prisma.TransactionClient, user.id, UserRole.RIDER);
-    const second = await service.issue(store.db as unknown as Prisma.TransactionClient, user.id, UserRole.RIDER);
-    await service.revoke(tokens.verify(first.accessToken).sid, user.id);
+    const first = await service.issue(store.db as unknown as Prisma.TransactionClient, user.id, UserRole.CUSTOMER, new Date(), { riderMembership: true });
+    const second = await service.issue(store.db as unknown as Prisma.TransactionClient, user.id, UserRole.CUSTOMER, new Date(), { riderMembership: true });
+
+    expect(tokens.verify(second.accessToken).role).toBe(UserRole.CUSTOMER);
+    expect(store.sessions.filter((session) => session.revokedAt === null)).toHaveLength(1);
+    expect(store.queries.some((query) => query.includes('FOR UPDATE'))).toBe(true);
+    await expect(service.refresh(first.refreshToken)).rejects.toThrow(RIDER_SIGNED_IN_ELSEWHERE);
+
+    const rotated = await service.refresh(second.refreshToken);
+    expect(rotated.refreshToken).not.toBe(second.refreshToken);
+    expect(tokens.verify(rotated.accessToken).role).toBe(UserRole.CUSTOMER);
+    await expect(service.refresh(second.refreshToken)).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(store.sessions.some((session) => session.revokedAt === null)).toBe(true);
+  });
+
+  it('replaces every active rider session and forgets the previous GPS point', async () => {
+    const store = memoryStore(rider());
+    const service = new SessionService(store.db as unknown as PrismaService, tokens);
+    const first = await service.issue(store.db as unknown as Prisma.TransactionClient, store.users[0].id, UserRole.RIDER);
+    const second = await service.issue(store.db as unknown as Prisma.TransactionClient, store.users[0].id, UserRole.RIDER);
+
+    expect(store.sessions.filter((session) => session.revokedAt === null)).toHaveLength(1);
+    expect(store.sessions[0].revokedAt).toBeInstanceOf(Date);
+    expect(store.sessions[0].replacedBySessionId).toBeNull();
+    expect(tokens.verify(second.accessToken).sid).toBe(store.sessions[1].id);
+    expect(store.queries.some((query) => query.includes('FOR UPDATE'))).toBe(true);
+    expect(store.statements.some((statement) => statement.includes('rider_locations'))).toBe(true);
+    expect(store.statements.some((statement) => statement.includes('delivery_assignments'))).toBe(false);
+
+    const continued = await service.refresh(second.refreshToken);
+    expect(tokens.verify(continued.accessToken).sid).not.toBe(store.sessions[0].id);
+    await expect(service.refresh(first.refreshToken)).rejects.toThrow(RIDER_SIGNED_IN_ELSEWHERE);
+    await expect(service.revokeAllCurrent(store.sessions[0].id, store.users[0].id)).rejects.toThrow(RIDER_SIGNED_IN_ELSEWHERE);
+    expect(store.sessions.some((session) => session.revokedAt === null)).toBe(true);
+  });
+
+  it('keeps a customer or admin signed in on more than one device', async () => {
+    const customer = memoryStore(account(UserRole.CUSTOMER));
+    const service = new SessionService(customer.db as unknown as PrismaService, tokens);
+    await service.issue(customer.db as unknown as Prisma.TransactionClient, customer.users[0].id, UserRole.CUSTOMER);
+    await service.issue(customer.db as unknown as Prisma.TransactionClient, customer.users[0].id, UserRole.CUSTOMER);
+    expect(customer.sessions.filter((session) => session.revokedAt === null)).toHaveLength(2);
+    expect(customer.queries).toEqual([]);
+
+    const admin = memoryStore(account(UserRole.ADMIN));
+    const adminSessions = new SessionService(admin.db as unknown as PrismaService, tokens);
+    await adminSessions.issue(admin.db as unknown as Prisma.TransactionClient, admin.users[0].id, UserRole.ADMIN);
+    await adminSessions.issue(admin.db as unknown as Prisma.TransactionClient, admin.users[0].id, UserRole.ADMIN);
+    expect(admin.sessions.filter((session) => session.revokedAt === null)).toHaveLength(2);
+    expect(admin.queries).toEqual([]);
+  });
+
+  it('serializes two rider sign-ins so only the last session stays active', async () => {
+    const store = memoryStore(rider());
+    const service = new SessionService(store.db as unknown as PrismaService, tokens);
+    const userId = store.users[0].id;
+    await Promise.all([
+      service.issue(store.db as unknown as Prisma.TransactionClient, userId, UserRole.RIDER),
+      service.issue(store.db as unknown as Prisma.TransactionClient, userId, UserRole.RIDER),
+    ]);
+    expect(store.sessions.filter((session) => session.revokedAt === null)).toHaveLength(1);
+  });
+
+  it('logout revokes one session and logout-all revokes every session for the user', async () => {
+    const user = account(UserRole.CUSTOMER);
+    const store = memoryStore(user);
+    const service = new SessionService(store.db as unknown as PrismaService, tokens);
+    const first = await service.issue(store.db as unknown as Prisma.TransactionClient, user.id, UserRole.CUSTOMER);
+    const second = await service.issue(store.db as unknown as Prisma.TransactionClient, user.id, UserRole.CUSTOMER);
+    await service.revokeCurrent(tokens.verify(first.accessToken).sid, user.id);
     expect(store.sessions[0].revokedAt).toBeInstanceOf(Date);
     expect(store.sessions[1].revokedAt).toBeNull();
 
-    await service.revokeAll(user.id);
-    expect(store.sessions[1].revokedAt).toBeInstanceOf(Date);
+    await service.revokeAllCurrent(tokens.verify(second.accessToken).sid, user.id);
+    expect(store.sessions.every((session) => session.revokedAt instanceof Date)).toBe(true);
     await expect(service.refresh(second.refreshToken)).rejects.toBeInstanceOf(UnauthorizedException);
   });
 });
@@ -337,12 +407,27 @@ function account(role: UserRole): UserRow {
 function memoryStore(user: UserRow) {
   const users = [user];
   const sessions: SessionRow[] = [];
+  const queries: string[] = [];
+  const statements: string[] = [];
   const db = {
     users,
     sessions,
+    queries,
+    statements,
+    async $queryRaw(strings: TemplateStringsArray) {
+      queries.push(strings.join(' '));
+      return [];
+    },
+    async $executeRaw(strings: TemplateStringsArray) {
+      statements.push(strings.join(' '));
+      return 0;
+    },
     refreshSession: {
       async findUnique({ where }: { where: { tokenHash?: string; id?: string } }) {
         return sessions.find((row) => where.tokenHash ? row.tokenHash === where.tokenHash : row.id === where.id) ?? null;
+      },
+      async findFirst({ where }: { where: { userId: string; revokedAt: null; id: { not: string } } }) {
+        return sessions.find((row) => row.userId === where.userId && row.revokedAt === null && row.id !== where.id.not) ?? null;
       },
       async create({ data }: { data: Omit<SessionRow, 'id' | 'revokedAt' | 'replacedBySessionId'> }) {
         const row: SessionRow = { id: randomUUID(), revokedAt: null, replacedBySessionId: null, ...data };
@@ -370,9 +455,9 @@ function memoryStore(user: UserRow) {
         return users.find((item) => item.id === where.id) ?? null;
       },
     },
-    async $transaction<T>(callback: (tx: typeof db) => Promise<T>) {
+    async $transaction<T>(callback: (tx: object) => Promise<T>) {
       return callback(db);
     },
   };
-  return { db, sessions, users };
+  return { db, sessions, users, queries, statements };
 }

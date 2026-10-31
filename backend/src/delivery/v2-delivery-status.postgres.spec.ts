@@ -24,9 +24,7 @@ const DISPOSABLE_URL = `postgresql://postgres:postgres@${HOST}:${PORT}/${DATABAS
 const NOW = new Date('2026-10-24T08:00:00.000Z');
 const DEADLINE = new Date('2026-10-24T18:00:00.000Z');
 const V2_STEPS = [
-  DeliveryStatus.COLLECTING,
   DeliveryStatus.COLLECTED,
-  DeliveryStatus.OUT_FOR_DELIVERY,
   DeliveryStatus.DELIVERED,
 ] as const;
 const V1_STEPS = [
@@ -177,34 +175,29 @@ it('walks the native V2 chain and captures the snapshot only at delivery', async
   expect(fee.entryType).toBe(WalletEntryType.PLATFORM_FEE);
   expect(signedCentsFromDecimal(fee.amount)).toBe(-100);
   expect(await prisma.v2OutboxEvent.count({ where: { assignmentId: accepted.assignmentId, eventType: 'BID_ACCEPTED' } })).toBe(1);
-  for (const eventType of ['COLLECTING', 'COLLECTED', 'OUT_FOR_DELIVERY', 'DELIVERED'] as const) {
+  for (const eventType of ['COLLECTED', 'DELIVERED'] as const) {
     expect(await prisma.v2OutboxEvent.count({ where: { assignmentId: accepted.assignmentId, eventType } })).toBe(1);
   }
-  expect(await prisma.v2OutboxEvent.count({ where: { assignmentId: accepted.assignmentId } })).toBe(5);
+  expect(await prisma.v2OutboxEvent.count({ where: { assignmentId: accepted.assignmentId, eventType: 'COLLECTING' } })).toBe(0);
+  expect(await prisma.v2OutboxEvent.count({ where: { assignmentId: accepted.assignmentId, eventType: 'OUT_FOR_DELIVERY' } })).toBe(0);
+  expect(await prisma.v2OutboxEvent.count({ where: { assignmentId: accepted.assignmentId } })).toBe(3);
   expect((await prisma.riderProfile.findUniqueOrThrow({ where: { id: hired.riderProfileId } })).receivingRequests).toBe(true);
 });
 
-it('rejects a V1 delivery that asks for a V2 status and still completes the V1 chain', async () => {
+it('refuses to progress a stored legacy assignment', async () => {
   const hired = await hire();
   const offered = await offerV1(hired);
-  const accepted = await dispatch.accept(hired.rider, offered.assignmentId, `v1-${offered.assignmentId}`, NOW);
-  expect(accepted).toMatchObject({ status: 'ASSIGNED', availability: 'BUSY' });
-  for (const status of [DeliveryStatus.RIDER_ASSIGNED, DeliveryStatus.COLLECTING, DeliveryStatus.COLLECTED, DeliveryStatus.OUT_FOR_DELIVERY]) {
-    await expect(dispatch.progress(hired.rider, offered.deliveryId, { status }, NOW, `v1-v2-${status}`))
+  await recordHistoricalAcceptance(prisma, hired.rider, offered.assignmentId, NOW);
+  for (const status of [...V1_STEPS, DeliveryStatus.RIDER_ASSIGNED, DeliveryStatus.COLLECTING, DeliveryStatus.COLLECTED, DeliveryStatus.OUT_FOR_DELIVERY]) {
+    await expect(dispatch.progress(hired.rider, offered.deliveryId, { status }, NOW, `stored-${status}`))
       .rejects.toThrow('This delivery status cannot be changed');
   }
   expect((await prisma.delivery.findUniqueOrThrow({ where: { id: offered.deliveryId } })).status).toBe('ASSIGNED');
-  for (const status of V1_STEPS) {
-    const moved = await dispatch.progress(hired.rider, offered.deliveryId, { status }, NOW);
-    expect(moved.status).toBe(status);
-  }
-  const fee = await prisma.riderWalletEntry.findFirstOrThrow({
-    where: { riderWalletId: hired.walletId, entryType: 'PLATFORM_FEE' },
-  });
-  expect(signedCentsFromDecimal(fee.amount)).toBe(-150);
+  expect((await prisma.deliveryAssignment.findUniqueOrThrow({ where: { id: offered.assignmentId } })).status).toBe('ACCEPTED');
+  expect(await prisma.riderWalletEntry.count({ where: { riderWalletId: hired.walletId, entryType: 'PLATFORM_FEE' } })).toBe(0);
   expect(await prisma.deliveryProgressCommand.count({ where: { deliveryId: offered.deliveryId } })).toBe(0);
   expect(await prisma.v2OutboxEvent.count({ where: { deliveryId: offered.deliveryId } })).toBe(0);
-  expect((await prisma.riderProfile.findUniqueOrThrow({ where: { id: hired.riderProfileId } })).availability).toBe('AVAILABLE');
+  expect((await prisma.riderProfile.findUniqueOrThrow({ where: { id: hired.riderProfileId } })).availability).toBe('BUSY');
 });
 
 it('progresses Flexible parcels independently while an Express assignment stays exclusive', async () => {
@@ -213,19 +206,16 @@ it('progresses Flexible parcels independently while an Express assignment stays 
   const first = await acceptJob(hired, 'FLEXIBLE', '10.00');
   const second = await acceptJob(hired, 'FLEXIBLE', '20.00');
   const express = await acceptJob(hired, 'EXPRESS', '12.00');
-  await step(hired.rider, first.deliveryId, 'COLLECTING');
+  await step(hired.rider, first.deliveryId, 'COLLECTED');
   expect((await prisma.delivery.findUniqueOrThrow({ where: { id: second.deliveryId } })).status).toBe('RIDER_ASSIGNED');
   expect((await prisma.delivery.findUniqueOrThrow({ where: { id: express.deliveryId } })).status).toBe('RIDER_ASSIGNED');
-  await step(hired.rider, second.deliveryId, 'COLLECTING');
   await step(hired.rider, second.deliveryId, 'COLLECTED');
-  expect((await prisma.delivery.findUniqueOrThrow({ where: { id: first.deliveryId } })).status).toBe('COLLECTING');
-  await step(hired.rider, express.deliveryId, 'COLLECTING');
+  expect((await prisma.delivery.findUniqueOrThrow({ where: { id: first.deliveryId } })).status).toBe('COLLECTED');
+  await step(hired.rider, express.deliveryId, 'COLLECTED');
   expect((await prisma.delivery.findUniqueOrThrow({ where: { id: second.deliveryId } })).status).toBe('COLLECTED');
   const later = await openJob(hired.riderProfileId, 'FLEXIBLE', '8.00');
-  await expect(acceptance.accept(customer, later.deliveryId, later.bidId, `blocked-${later.deliveryId}`, NOW))
-    .rejects.toThrow('This rider already has an Express delivery');
-  await step(hired.rider, first.deliveryId, 'COLLECTED');
-  await step(hired.rider, first.deliveryId, 'OUT_FOR_DELIVERY');
+  await acceptance.accept(customer, later.deliveryId, later.bidId, `blocked-${later.deliveryId}`, NOW);
+  expect((await prisma.delivery.findUniqueOrThrow({ where: { id: later.deliveryId } })).status).toBe('RIDER_ASSIGNED');
   await step(hired.rider, first.deliveryId, 'DELIVERED');
   expect((await prisma.delivery.findUniqueOrThrow({ where: { id: second.deliveryId } })).status).toBe('COLLECTED');
   expect((await prisma.deliveryAssignment.findUniqueOrThrow({ where: { id: second.assignmentId } })).status).toBe('ACCEPTED');
@@ -242,8 +232,7 @@ it('cancels at rider assigned and collecting, and refuses cancellation after col
   const assigned = await acceptJob(hired, 'FLEXIBLE', '10.00');
   const collecting = await acceptJob(hired, 'FLEXIBLE', '10.00');
   const collected = await acceptJob(hired, 'FLEXIBLE', '10.00');
-  await step(hired.rider, collecting.deliveryId, 'COLLECTING');
-  await step(hired.rider, collected.deliveryId, 'COLLECTING');
+  await prisma.delivery.update({ where: { id: collecting.deliveryId }, data: { status: 'COLLECTING' } });
   await step(hired.rider, collected.deliveryId, 'COLLECTED');
 
   const riderCancel = await dispatch.cancelBeforePickup(
@@ -268,9 +257,8 @@ it('cancels at rider assigned and collecting, and refuses cancellation after col
   expect((await prisma.walletFeeReservation.findFirstOrThrow({ where: { assignmentId: collected.assignmentId } })).status).toBe('OPEN');
 
   const out = await acceptJob(hired, 'FLEXIBLE', '10.00');
-  await step(hired.rider, out.deliveryId, 'COLLECTING');
   await step(hired.rider, out.deliveryId, 'COLLECTED');
-  await step(hired.rider, out.deliveryId, 'OUT_FOR_DELIVERY');
+  await prisma.delivery.update({ where: { id: out.deliveryId }, data: { status: 'OUT_FOR_DELIVERY' } });
   await expect(dispatch.cancelBeforePickup(hired.rider, out.assignmentId, `out-${out.assignmentId}`, { reason: 'BREAKDOWN' }, NOW))
     .rejects.toThrow('This delivery cannot be cancelled');
   await step(hired.rider, out.deliveryId, 'DELIVERED');
@@ -308,10 +296,10 @@ it('finishes committed Flexible deliveries after the marketplace flag is turned 
     )).rejects.toThrow('Delivery not found');
     await expect(availability.setReceiving(hired.rider, true, NOW)).rejects.toThrow('Bidding is not available');
     const outsider = await hire();
-    await expect(step(outsider.rider, first.deliveryId, 'COLLECTING')).rejects.toThrow('Delivery not found');
+    await expect(step(outsider.rider, first.deliveryId, 'COLLECTED')).rejects.toThrow('Delivery not found');
     expect((await dispatch.liveAssignments(outsider.rider, NOW)).assignments).toEqual([]);
-    await step(hired.rider, first.deliveryId, 'COLLECTING');
-    expect(await deliveries.getById(customer, first.deliveryId)).toMatchObject({ serviceClass: 'FLEXIBLE', status: 'COLLECTING' });
+    await step(hired.rider, first.deliveryId, 'COLLECTED');
+    expect(await deliveries.getById(customer, first.deliveryId)).toMatchObject({ serviceClass: 'FLEXIBLE', status: 'COLLECTED' });
     expect((await prisma.delivery.findUniqueOrThrow({ where: { id: second.deliveryId } })).status).toBe('RIDER_ASSIGNED');
     const cancelled = await dispatch.cancelBeforePickup(
       hired.rider,
@@ -322,8 +310,6 @@ it('finishes committed Flexible deliveries after the marketplace flag is turned 
     );
     expect(cancelled).toMatchObject({ reopened: true, released: true, status: 'CREATED' });
     expect((await prisma.walletFeeReservation.findFirstOrThrow({ where: { assignmentId: second.assignmentId } })).status).toBe('RELEASED');
-    await step(hired.rider, first.deliveryId, 'COLLECTED');
-    await step(hired.rider, first.deliveryId, 'OUT_FOR_DELIVERY');
     await step(hired.rider, first.deliveryId, 'DELIVERED');
     expect(await feeCount(first.assignmentId)).toBe(1);
     const another = await openJob(hired.riderProfileId, 'FLEXIBLE', '9.00');
@@ -343,9 +329,6 @@ it('finishes committed Flexible deliveries after the marketplace flag is turned 
     })).rejects.toThrow();
     expect(await prisma.delivery.count({ where: { serviceClass: { not: null } } })).toBe(beforeRequests);
     expect(await dispatch.liveAssignments(hired.rider, NOW)).toMatchObject({ assignments: [] });
-    const offered = await offerV1(hired);
-    const accepted = await dispatch.accept(hired.rider, offered.assignmentId, `v1-off-${offered.assignmentId}`, NOW);
-    expect(accepted.status).toBe('ASSIGNED');
   } finally {
     process.env.V2_MARKETPLACE_ENABLED = 'true';
   }
@@ -356,19 +339,23 @@ it('replays a V2 progress key and rejects a different payload', async () => {
   const hired = await hire();
   const opened = await acceptJob(hired, 'FLEXIBLE', '10.00');
   const key = `progress-${opened.deliveryId}`;
-  await expect(dispatch.progress(hired.rider, opened.deliveryId, { status: 'COLLECTING' }, NOW))
+  await expect(dispatch.progress(hired.rider, opened.deliveryId, { status: 'COLLECTED' }, NOW))
     .rejects.toThrow('Enter an idempotency key');
-  const first = await dispatch.progress(hired.rider, opened.deliveryId, { status: 'COLLECTING' }, NOW, key);
-  const replay = await dispatch.progress(hired.rider, opened.deliveryId, { status: 'COLLECTING' }, NOW, key);
+  await expect(dispatch.progress(hired.rider, opened.deliveryId, { status: 'COLLECTING' }, NOW, `rejected-${opened.deliveryId}`))
+    .rejects.toThrow('This delivery status cannot be changed');
+  const first = await dispatch.progress(hired.rider, opened.deliveryId, { status: 'COLLECTED' }, NOW, key);
+  const replay = await dispatch.progress(hired.rider, opened.deliveryId, { status: 'COLLECTED' }, NOW, key);
   expect(replay).toEqual(first);
-  expect(await prisma.deliveryStatusEvent.count({ where: { deliveryId: opened.deliveryId, newStatus: 'COLLECTING' } })).toBe(1);
+  expect(await prisma.deliveryStatusEvent.count({ where: { deliveryId: opened.deliveryId, newStatus: 'COLLECTED' } })).toBe(1);
   expect(await prisma.deliveryProgressCommand.count({ where: { assignmentId: opened.assignmentId } })).toBe(1);
-  expect(await prisma.v2OutboxEvent.count({ where: { assignmentId: opened.assignmentId, eventType: 'COLLECTING' } })).toBe(1);
+  expect(await prisma.v2OutboxEvent.count({ where: { assignmentId: opened.assignmentId, eventType: 'COLLECTED' } })).toBe(1);
   expect((await prisma.deliveryAssignment.findUniqueOrThrow({ where: { id: opened.assignmentId } })).idempotencyKey)
     .toBe(opened.acceptKey);
-  await expect(dispatch.progress(hired.rider, opened.deliveryId, { status: 'COLLECTED' }, NOW, key))
+  await expect(dispatch.progress(hired.rider, opened.deliveryId, { status: 'DELIVERED' }, NOW, key))
     .rejects.toThrow('This idempotency key was already used');
-  expect((await prisma.delivery.findUniqueOrThrow({ where: { id: opened.deliveryId } })).status).toBe('COLLECTING');
+  await expect(dispatch.progress(hired.rider, opened.deliveryId, { status: 'OUT_FOR_DELIVERY' }, NOW, `start-${opened.deliveryId}`))
+    .rejects.toThrow('This delivery status cannot be changed');
+  expect((await prisma.delivery.findUniqueOrThrow({ where: { id: opened.deliveryId } })).status).toBe('COLLECTED');
   expect(await feeCount(opened.assignmentId)).toBe(0);
 });
 
@@ -376,39 +363,35 @@ it('lets one of two concurrent status commands commit and does not skip a step',
   await setRate(1_000);
   const same = await acceptJob(await hire(), 'FLEXIBLE', '10.00');
   const sameResults = await Promise.all([
-    dispatch.progress(same.rider, same.deliveryId, { status: 'COLLECTING' }, NOW, `same-${same.deliveryId}`),
-    dispatch.progress(same.rider, same.deliveryId, { status: 'COLLECTING' }, NOW, `same-${same.deliveryId}`),
+    dispatch.progress(same.rider, same.deliveryId, { status: 'COLLECTED' }, NOW, `same-${same.deliveryId}`),
+    dispatch.progress(same.rider, same.deliveryId, { status: 'COLLECTED' }, NOW, `same-${same.deliveryId}`),
   ]);
-  expect(sameResults.every((result) => result.status === 'COLLECTING')).toBe(true);
-  expect(await prisma.deliveryStatusEvent.count({ where: { deliveryId: same.deliveryId, newStatus: 'COLLECTING' } })).toBe(1);
+  expect(sameResults.every((result) => result.status === 'COLLECTED')).toBe(true);
+  expect(await prisma.deliveryStatusEvent.count({ where: { deliveryId: same.deliveryId, newStatus: 'COLLECTED' } })).toBe(1);
   expect(await prisma.deliveryProgressCommand.count({ where: { idempotencyKey: `same-${same.deliveryId}` } })).toBe(1);
-  expect(await prisma.v2OutboxEvent.count({ where: { deliveryId: same.deliveryId, eventType: 'COLLECTING' } })).toBe(1);
+  expect(await prisma.v2OutboxEvent.count({ where: { deliveryId: same.deliveryId, eventType: 'COLLECTED' } })).toBe(1);
 
   const raced = await acceptJob(await hire(), 'FLEXIBLE', '10.00');
   const racedResults = await Promise.allSettled([
-    dispatch.progress(raced.rider, raced.deliveryId, { status: 'COLLECTING' }, NOW, `one-${raced.deliveryId}`),
-    dispatch.progress(raced.rider, raced.deliveryId, { status: 'COLLECTING' }, NOW, `two-${raced.deliveryId}`),
+    dispatch.progress(raced.rider, raced.deliveryId, { status: 'COLLECTED' }, NOW, `one-${raced.deliveryId}`),
+    dispatch.progress(raced.rider, raced.deliveryId, { status: 'COLLECTED' }, NOW, `two-${raced.deliveryId}`),
   ]);
   expect(racedResults.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
   expect(racedResults.filter((result) => result.status === 'rejected')).toHaveLength(1);
-  expect((await prisma.delivery.findUniqueOrThrow({ where: { id: raced.deliveryId } })).status).toBe('COLLECTING');
+  expect((await prisma.delivery.findUniqueOrThrow({ where: { id: raced.deliveryId } })).status).toBe('COLLECTED');
 
   const skipped = await acceptJob(await hire(), 'FLEXIBLE', '10.00');
-  await Promise.allSettled([
+  const skippedResults = await Promise.allSettled([
     dispatch.progress(skipped.rider, skipped.deliveryId, { status: 'COLLECTING' }, NOW, `keep-${skipped.deliveryId}`),
     dispatch.progress(skipped.rider, skipped.deliveryId, { status: 'COLLECTED' }, NOW, `skip-${skipped.deliveryId}`),
   ]);
+  expect(skippedResults[0]?.status).toBe('rejected');
+  expect(skippedResults[1]?.status).toBe('fulfilled');
   const riderEvents = await prisma.deliveryStatusEvent.findMany({
     where: { deliveryId: skipped.deliveryId, actorType: 'RIDER' },
   });
-  expect(riderEvents.some((event) => event.previousStatus === 'RIDER_ASSIGNED' && event.newStatus === 'COLLECTED')).toBe(false);
-  const stored = (await prisma.delivery.findUniqueOrThrow({ where: { id: skipped.deliveryId } })).status;
-  if (stored === 'COLLECTED') {
-    expect(riderEvents.map((event) => event.newStatus).sort()).toEqual(['COLLECTED', 'COLLECTING']);
-  } else {
-    expect(stored).toBe('COLLECTING');
-    expect(riderEvents.map((event) => event.newStatus)).toEqual(['COLLECTING']);
-  }
+  expect(riderEvents.map((event) => event.newStatus)).toEqual(['COLLECTED']);
+  expect((await prisma.delivery.findUniqueOrThrow({ where: { id: skipped.deliveryId } })).status).toBe('COLLECTED');
   expect((await prisma.deliveryAssignment.findUniqueOrThrow({ where: { id: skipped.assignmentId } })).status).toBe('ACCEPTED');
   expect(await feeCount(skipped.assignmentId)).toBe(0);
 });
@@ -449,6 +432,37 @@ async function acceptJob(hired: Hired, serviceClass: 'FLEXIBLE' | 'EXPRESS', amo
     assignmentId: accepted.assignmentId,
     acceptKey: `accept-${opened.deliveryId}`,
   };
+}
+
+async function recordHistoricalAcceptance(
+  db: PrismaService,
+  rider: { riderProfileId: string },
+  assignmentId: string,
+  now: Date,
+) {
+  const motorcycle = await db.motorcycle.findFirst({
+    where: { riderProfileId: rider.riderProfileId, isActive: true },
+  });
+  const assignment = await db.deliveryAssignment.update({
+    where: { id: assignmentId },
+    data: {
+      status: 'ACCEPTED',
+      motorcycleId: motorcycle?.id ?? null,
+      respondedAt: now,
+      acceptedPlatformFee: '0.30',
+      acceptedFeeConfigVersion: 1,
+      acceptedCommissionModel: 'ON_COMPLETION',
+      acceptedCommissionPolicyVersion: 1,
+    },
+  });
+  await db.delivery.update({
+    where: { id: assignment.deliveryId },
+    data: { status: 'ASSIGNED', updatedAt: now },
+  });
+  await db.riderProfile.update({
+    where: { id: rider.riderProfileId },
+    data: { availability: 'BUSY', updatedAt: now },
+  });
 }
 
 async function offerV1(hired: Hired) {

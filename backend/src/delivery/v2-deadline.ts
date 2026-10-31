@@ -6,6 +6,11 @@ import {
   Prisma,
 } from '../generated/prisma/client.js';
 
+// A missing deadline stays open. A stored deadline stays open only until that instant.
+export function v2RequestRemainsOpen(deliverBy: Date | null, at: Date): boolean {
+  return deliverBy == null || deliverBy.getTime() > at.getTime();
+}
+
 // Closes a V2 request that reached deliverBy with no committed assignment.
 // OPEN bids become EXPIRED and stay in the table. An accepted delivery is
 // left active. Callers already include the bid submit, list, withdraw, and

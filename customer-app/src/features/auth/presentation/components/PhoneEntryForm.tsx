@@ -1,7 +1,5 @@
 import type { ReactNode } from 'react';
 import {
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -9,11 +7,11 @@ import {
   View,
 } from 'react-native';
 
-import { useHeaderHeight } from '@react-navigation/elements';
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
 import type { ComponentProps } from 'react';
 
 import BrandMark from '../../../../components/BrandMark';
+import { KeyboardFieldFocusContext, useKeyboardLift } from '../../../../components/useKeyboardLift';
 import ErrorMessage from '../../../../components/ErrorMessage';
 import PrimaryButton from '../../../../components/PrimaryButton';
 import SecondaryButton from '../../../../components/SecondaryButton';
@@ -58,18 +56,23 @@ export default function PhoneEntryForm({
   secondaryLabel,
   onSecondary,
 }: PhoneEntryFormProps) {
-  const headerHeight = useHeaderHeight();
+  const keyboard = useKeyboardLift();
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? headerHeight : 0}
-    >
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
-      >
+    <KeyboardFieldFocusContext.Provider value={keyboard.revealFocusedField}>
+      <View style={styles.container}>
+        <ScrollView
+          ref={keyboard.scrollRef}
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingBottom: keyboard.keyboardInset },
+          ]}
+          keyboardShouldPersistTaps="handled"
+          onScroll={(event) => {
+            keyboard.onScroll(event.nativeEvent.contentOffset.y);
+          }}
+          scrollEventThrottle={16}
+        >
         <View style={styles.content}>
           <BrandMark style={styles.logo} />
           <Text style={styles.title}>{title}</Text>
@@ -102,8 +105,9 @@ export default function PhoneEntryForm({
             </Pressable>
           </View>
         </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+        </ScrollView>
+      </View>
+    </KeyboardFieldFocusContext.Provider>
   );
 }
 
@@ -116,7 +120,7 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
   content: {
-    paddingHorizontal: spacing.xl,
+    paddingHorizontal: spacing.lg,
     paddingTop: spacing.lg,
     paddingBottom: spacing.xxl,
   },

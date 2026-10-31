@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { readCustomerDeliveryDetail } from './customerDeliveryDetail';
+import { displayedCustomerOffer, readCustomerDeliveryDetail } from './customerDeliveryDetail';
 import {
   canOfferQuotedPrice,
   customerOfferForBooking,
@@ -150,6 +150,7 @@ describe('createDelivery', () => {
       listBids: () => Promise.reject(new Error('unused')),
       acceptBid: () => Promise.reject(new Error('unused')),
       search: () => Promise.reject(new Error('unused')),
+      adjustOffer: () => Promise.reject(new Error('unused')),
       cancel: () => Promise.reject(new Error('unused')),
       createOpenRequest: () => Promise.reject(new Error('unused')),
     };
@@ -177,9 +178,30 @@ describe('readCustomerDeliveryDetail', () => {
       id: 'delivery-1',
       status: 'CREATED',
       offeredPrice: '4.50',
+      customerOffer: null,
       pickupAddress: '12 Samora Machel Avenue',
       dropoffAddress: '4 Jason Moyo Avenue',
     });
+  });
+
+  it('reads the customer offer and falls back to the suggested price', () => {
+    const saved = readCustomerDeliveryDetail({
+      id: 'delivery-1',
+      status: 'NO_RIDER_FOUND',
+      currency: 'USD',
+      offeredPrice: null,
+      customerOffer: '4.00',
+      suggestedPrice: '8.88',
+      distanceMeters: 800,
+      pickup: { address: '12 Samora Machel Avenue', latitude: '-17.8292000', longitude: '31.0522000' },
+      dropoff: { address: '4 Jason Moyo Avenue' },
+      parcel: { description: 'Documents' },
+    });
+    expect(saved.customerOffer).toBe('4.00');
+    expect(saved.offeredPrice).toBeNull();
+    expect(displayedCustomerOffer(saved)).toBe('4.00');
+    expect(displayedCustomerOffer({ customerOffer: null, suggestedPrice: '8.88' })).toBe('8.88');
+    expect(displayedCustomerOffer({ suggestedPrice: '8.88' })).toBe('8.88');
   });
 
   it('keeps the address, status, and price when coordinates are missing', () => {
@@ -222,7 +244,7 @@ describe('readCustomerDeliveryDetail', () => {
     })).toThrow('Delivery details are unavailable.');
   });
 
-  it('reads a V2 delivery with no agreed price and ignores a rider point before collecting', () => {
+  it('reads a V2 delivery with no agreed price and keeps a fresh rider point after assignment', () => {
     const detail = readCustomerDeliveryDetail({
       id: 'delivery-1',
       status: 'RIDER_ASSIGNED',
@@ -239,7 +261,8 @@ describe('readCustomerDeliveryDetail', () => {
     });
     expect(detail.offeredPrice).toBeNull();
     expect(detail.serviceClass).toBe('EXPRESS');
-    expect(detail.riderLocation).toBeNull();
+    expect(detail.riderLocation).toEqual({ latitude: -17.801, longitude: 31.109, updatedAt: null });
+    expect(detail.pickupApproach).toBeNull();
   });
 
   it('keeps a collecting rider point and drops it once the parcel is collected', () => {
@@ -256,9 +279,19 @@ describe('readCustomerDeliveryDetail', () => {
       pickup: { address: 'Pickup' },
       dropoff: { address: 'Drop-off' },
       parcel: { description: 'Box' },
-      riderLocation: point,
+      riderLocation: { ...point, updatedAt: '2026-10-28T16:40:00.000Z' },
+      pickupApproach: {
+        metres: 2400,
+        seconds: 420,
+        line: [{ latitude: -17.801, longitude: 31.109 }, { latitude: -17.82, longitude: 31.05 }],
+      },
     });
-    expect(collecting.riderLocation).toEqual({ latitude: -17.801, longitude: 31.109 });
+    expect(collecting.riderLocation).toEqual({ latitude: -17.801, longitude: 31.109, updatedAt: '2026-10-28T16:40:00.000Z' });
+    expect(collecting.pickupApproach).toEqual({
+      metres: 2400,
+      seconds: 420,
+      line: [{ latitude: -17.801, longitude: 31.109 }, { latitude: -17.82, longitude: 31.05 }],
+    });
     const collected = readCustomerDeliveryDetail({
       id: 'delivery-1',
       status: 'COLLECTED',
@@ -272,8 +305,10 @@ describe('readCustomerDeliveryDetail', () => {
       dropoff: { address: 'Drop-off' },
       parcel: { description: 'Box' },
       riderLocation: point,
+      pickupApproach: { metres: 2400, seconds: 420, line: [] },
     });
     expect(collected.riderLocation).toBeNull();
+    expect(collected.pickupApproach).toBeNull();
   });
 });
 

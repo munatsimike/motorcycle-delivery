@@ -38,6 +38,7 @@ type StoredClassTariff = {
   pricePerKilometre: string | { toFixed(digits: number): string };
   minimumTripMetres: number;
   maximumTripMetres: number;
+  includedMetres: number | null;
   isActive: boolean;
   tiers: StoredTier[];
   windows: StoredWindow[];
@@ -101,6 +102,7 @@ export class ClassPricingService {
         pricePerKilometreCents: centsFromDecimal(active.pricePerKilometre),
         minimumTripMetres: active.minimumTripMetres,
         maximumTripMetres: active.maximumTripMetres,
+        includedMetres: active.includedMetres,
         tiers: active.tiers.map((tier) => ({
           position: tier.position,
           upToMetres: tier.upToMetres,
@@ -183,6 +185,7 @@ export class ClassPricingService {
         pricePerKilometre: formatCents(input.pricePerKilometreCents),
         minimumTripMetres: input.minimumTripMetres,
         maximumTripMetres: input.maximumTripMetres,
+        includedMetres: input.includedMetres,
         isActive: true,
         createdById: admin.userId,
         tiers: {
@@ -226,6 +229,7 @@ function toClassResponse(row: StoredClassTariff) {
     pricePerKilometre: formatCents(centsFromDecimal(row.pricePerKilometre)),
     minimumTripMetres: row.minimumTripMetres,
     maximumTripMetres: row.maximumTripMetres,
+    includedMetres: row.includedMetres,
     isActive: row.isActive,
     tiers: [...row.tiers]
       .sort((left, right) => left.position - right.position)

@@ -1,11 +1,30 @@
 import { isKnownDeliveryStatus, type DeliveryStatus } from './deliveryStatus';
+import { readAssignedRider, type AssignedRider } from './trackingJourney';
 
 export type ServiceClass = 'EXPRESS' | 'FLEXIBLE';
 
 export type RiderPoint = {
   latitude: number;
   longitude: number;
+  updatedAt: string | null;
 };
+
+export type RoutePoint = {
+  latitude: number;
+  longitude: number;
+};
+
+export type PickupApproach = {
+  metres: number;
+  seconds: number;
+  line: RoutePoint[];
+};
+
+const VISIBLE_RIDER_LOCATION_STATUSES = new Set<DeliveryStatus>(['RIDER_ASSIGNED', 'COLLECTING']);
+
+export function keepsRiderLocation(status: DeliveryStatus): boolean {
+  return VISIBLE_RIDER_LOCATION_STATUSES.has(status);
+}
 
 export type CustomerDeliveryDetail = {
   id: string;
@@ -13,6 +32,7 @@ export type CustomerDeliveryDetail = {
   currency: string;
   offeredPrice: string | null;
   suggestedPrice: string;
+  customerOffer?: string | null;
   serviceClass: ServiceClass | null;
   deliverBy: string | null;
   distanceMeters: number;
@@ -25,6 +45,8 @@ export type CustomerDeliveryDetail = {
   parcelDescription: string;
   createdAt: string | null;
   riderLocation: RiderPoint | null;
+  pickupApproach: PickupApproach | null;
+  rider: AssignedRider | null;
 };
 
 export function readCustomerDeliveryDetail(value: unknown): CustomerDeliveryDetail {
@@ -67,6 +89,7 @@ export function readCustomerDeliveryDetail(value: unknown): CustomerDeliveryDeta
     currency,
     offeredPrice,
     suggestedPrice,
+    customerOffer: moneyOrNull(value.customerOffer) ?? null,
     serviceClass,
     deliverBy,
     distanceMeters: value.distanceMeters,
@@ -78,7 +101,9 @@ export function readCustomerDeliveryDetail(value: unknown): CustomerDeliveryDeta
     dropoffLongitude: dropoffPoint.longitude,
     parcelDescription,
     createdAt: typeof value.createdAt === 'string' && value.createdAt.trim() ? value.createdAt : null,
-    riderLocation: value.status === 'COLLECTING' ? readRiderPoint(value.riderLocation) : null,
+    riderLocation: keepsRiderLocation(value.status) ? readRiderPoint(value.riderLocation) : null,
+    pickupApproach: keepsRiderLocation(value.status) ? readPickupApproach(value.pickupApproach) : null,
+    rider: readAssignedRider(value.rider),
   };
 }
 
@@ -118,7 +143,32 @@ function readRiderPoint(value: unknown): RiderPoint | null {
   if (latitude === null || longitude === null) {
     return null;
   }
-  return { latitude, longitude };
+  return { latitude, longitude, updatedAt: readInstant(value.updatedAt) };
+}
+
+function readPickupApproach(value: unknown): PickupApproach | null {
+  if (!isRecord(value) || typeof value.metres !== 'number' || typeof value.seconds !== 'number') {
+    return null;
+  }
+  if (!Number.isFinite(value.metres) || value.metres < 0 || !Number.isFinite(value.seconds) || value.seconds < 0) {
+    return null;
+  }
+  const line = Array.isArray(value.line) ? value.line.flatMap((point) => {
+    if (!isRecord(point)) {
+      return [];
+    }
+    const latitude = coordinate(point.latitude, 90);
+    const longitude = coordinate(point.longitude, 180);
+    return latitude === null || longitude === null ? [] : [{ latitude, longitude }];
+  }) : [];
+  return { metres: value.metres, seconds: value.seconds, line };
+}
+
+function readInstant(value: unknown): string | null {
+  if (typeof value !== 'string' || Number.isNaN(new Date(value).getTime())) {
+    return null;
+  }
+  return value;
 }
 
 function coordinatePair(latitude: unknown, longitude: unknown): { latitude: number | null; longitude: number | null } {
@@ -128,6 +178,11 @@ function coordinatePair(latitude: unknown, longitude: unknown): { latitude: numb
     return { latitude: null, longitude: null };
   }
   return { latitude: parsedLatitude, longitude: parsedLongitude };
+}
+
+export function displayedCustomerOffer(delivery: { customerOffer?: string | null; suggestedPrice: string }): string {
+  const offer = delivery.customerOffer?.trim();
+  return offer ? offer : delivery.suggestedPrice;
 }
 
 export function deliveryHasMapCoordinates(delivery: CustomerDeliveryDetail): boolean {

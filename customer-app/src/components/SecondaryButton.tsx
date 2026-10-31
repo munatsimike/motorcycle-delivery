@@ -12,6 +12,7 @@ type SecondaryButtonProps = {
   tone?: 'primary' | 'danger';
   icon?: ComponentProps<typeof MaterialDesignIcons>['name'];
   soft?: boolean;
+  bordered?: boolean;
 };
 
 export default function SecondaryButton({
@@ -21,6 +22,7 @@ export default function SecondaryButton({
   loading,
   tone = 'primary',
   icon,
+  bordered = true,
 }: SecondaryButtonProps) {
   const inactive = disabled || loading;
   const accent = tone === 'danger' ? colors.error : colors.primary;
@@ -38,7 +40,8 @@ export default function SecondaryButton({
       <View
         style={[
           styles.button,
-          { borderColor: accent, backgroundColor: colors.background },
+          bordered ? { borderColor: accent, borderWidth: 1 } : styles.borderless,
+          { backgroundColor: colors.background },
         ]}
       >
         {loading ? (
@@ -58,12 +61,13 @@ const styles = StyleSheet.create({
   button: {
     minHeight: 56,
     backgroundColor: colors.background,
-    borderWidth: 1,
-    borderColor: colors.primary,
     borderRadius: radius.lg,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: spacing.lg,
+  },
+  borderless: {
+    borderWidth: 0,
   },
   inactive: {
     opacity: 0.6,

@@ -9,6 +9,7 @@ import retrofit2.Response
 import retrofit2.Retrofit
 import okhttp3.MultipartBody
 import retrofit2.http.Body
+import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.HTTP
 import retrofit2.http.Header
@@ -19,6 +20,7 @@ import retrofit2.http.PUT
 import retrofit2.http.Part
 import retrofit2.http.Path
 import retrofit2.http.Query
+import retrofit2.http.Streaming
 import java.util.concurrent.TimeUnit
 
 val ApiJson: Json = Json {
@@ -34,7 +36,7 @@ interface AuthService {
     suspend fun resendWhatsAppLogin(@Body body: PhoneRequest): PendingResponse
 
     @POST("auth/rider/login/whatsapp/verify")
-    suspend fun verifyWhatsAppLogin(@Body body: VerifyRequest): SessionResponse
+    suspend fun verifyWhatsAppLogin(@Body body: VerifyRequest): RiderVerificationResponse
 
     @POST("auth/rider/register/whatsapp")
     suspend fun startWhatsAppRegistration(@Body body: RiderWhatsAppRegistrationRequest): PendingResponse
@@ -43,7 +45,10 @@ interface AuthService {
     suspend fun resendWhatsAppRegistration(@Body body: PhoneRequest): PendingResponse
 
     @POST("auth/rider/register/whatsapp/verify")
-    suspend fun verifyWhatsAppRegistration(@Body body: VerifyRequest): SessionResponse
+    suspend fun verifyWhatsAppRegistration(@Body body: VerifyRequest): RiderVerificationResponse
+
+    @POST("auth/rider/register/whatsapp/complete")
+    suspend fun completeWhatsAppRegistration(@Body body: RiderRegistrationCompleteRequest): SessionResponse
 
     @POST("auth/session/refresh")
     suspend fun refresh(@Body body: RefreshRequest): SessionResponse
@@ -67,6 +72,17 @@ interface AuthService {
 interface RiderService {
     @GET("riders/me/profile")
     suspend fun profile(): RiderProfileResponse
+
+    @Streaming
+    @GET("riders/me/profile-photo")
+    suspend fun profilePhoto(): ResponseBody
+
+    @Multipart
+    @POST("riders/me/profile-photo")
+    suspend fun uploadProfilePhoto(@Part image: MultipartBody.Part): ResponseBody
+
+    @DELETE("riders/me/profile-photo")
+    suspend fun deleteProfilePhoto(): Response<ResponseBody>
 
     @GET("riders/me/onboarding")
     suspend fun onboarding(): OnboardingResponse
@@ -117,6 +133,9 @@ interface RiderService {
     @GET("riders/me/assignments")
     suspend fun assignments(): LiveAssignmentsResponse
 
+    @GET("riders/me/assignments/completed")
+    suspend fun completedAssignments(): LiveAssignmentsResponse
+
     @GET("riders/me/assignments/active")
     suspend fun activeAssignment(): ActiveAssignmentResponse
 
@@ -125,18 +144,6 @@ interface RiderService {
         @Path("assignmentId") assignmentId: String,
         @Header("Idempotency-Key") idempotencyKey: String,
     ): AcceptanceResponse
-
-    @POST("riders/me/offers/{assignmentId}/release")
-    suspend fun release(
-        @Path("assignmentId") assignmentId: String,
-        @Body body: ReleaseRequest,
-    ): ProgressResponse
-
-    @POST("riders/me/deliveries/{deliveryId}/status")
-    suspend fun progress(
-        @Path("deliveryId") deliveryId: String,
-        @Body body: StatusRequest,
-    ): ProgressResponse
 
     @POST("riders/me/deliveries/{deliveryId}/status")
     suspend fun progressWithKey(
@@ -186,6 +193,39 @@ fun apiBaseUrl(configured: String): String {
         throw IllegalStateException("The app is missing its API address.")
     }
     return "$trimmed/"
+}
+
+const val EMULATOR_API_BASE_URL = "http://10.0.2.2:3000"
+const val DEVICE_LOOPBACK_API_BASE_URL = "http://127.0.0.1:3000"
+
+fun resolveDebugApiBaseUrl(override: String, emulator: Boolean): String {
+    val configured = override.trim().trimEnd('/')
+    if (configured.isNotEmpty()) {
+        return configured
+    }
+    return if (emulator) EMULATOR_API_BASE_URL else DEVICE_LOOPBACK_API_BASE_URL
+}
+
+fun looksLikeEmulator(
+    fingerprint: String,
+    model: String,
+    hardware: String,
+    product: String,
+    manufacturer: String,
+): Boolean {
+    val fp = fingerprint.lowercase()
+    val hw = hardware.lowercase()
+    val prod = product.lowercase()
+    return fp.startsWith("generic")
+        || fp.contains("emulator")
+        || fp.contains("sdk_gphone")
+        || model.contains("Emulator", ignoreCase = true)
+        || model.contains("Android SDK built for", ignoreCase = true)
+        || hw.contains("goldfish")
+        || hw.contains("ranchu")
+        || prod.contains("sdk_gphone")
+        || prod == "google_sdk"
+        || manufacturer.contains("Genymotion", ignoreCase = true)
 }
 
 fun retrofit(baseUrl: String, client: OkHttpClient): Retrofit {

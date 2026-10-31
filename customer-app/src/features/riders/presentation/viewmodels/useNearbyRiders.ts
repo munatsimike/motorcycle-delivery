@@ -50,13 +50,23 @@ export function useNearbyRiders(accessToken: string | null) {
   }, [apply]);
 
   useFocusEffect(useCallback(() => {
+    let active = true;
     void refresh();
+    const timer = setInterval(() => {
+      if (active) {
+        void refresh();
+      }
+    }, 20_000);
     const subscription = AppState.addEventListener('change', (next) => {
       if (next === 'active') {
         void refresh();
       }
     });
-    return () => subscription.remove();
+    return () => {
+      active = false;
+      clearInterval(timer);
+      subscription.remove();
+    };
   }, [refresh]));
 
   const turnOnLocation = useCallback(async () => {

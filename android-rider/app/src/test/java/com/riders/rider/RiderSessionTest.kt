@@ -17,6 +17,7 @@ import com.riders.rider.core.session.AuthSession
 import com.riders.rider.core.session.MemorySessionStore
 import com.riders.rider.core.session.SessionStore
 import com.riders.rider.feature.auth.data.AuthRepository
+import com.riders.rider.feature.auth.domain.DeviceReplacementNotice
 import com.riders.rider.feature.auth.data.LoginStart
 import com.riders.rider.feature.auth.data.VerifyOutcome
 import com.riders.rider.feature.offers.domain.AcceptKeys
@@ -70,7 +71,7 @@ class RiderSessionTest {
         try {
             val store = MemorySessionStore()
             val result = AuthRepository(server.auth(), store).requestLogin("+263771234567")
-            assertEquals(ApiResult.Ok(LoginStart.AccountMissing), result)
+            assertTrue(result is ApiResult.Err)
             assertNull(store.read())
             val recorded = server.takeRequest()
             assertEquals("/auth/rider/login/whatsapp", recorded.path)
@@ -110,22 +111,18 @@ class RiderSessionTest {
     }
 
     @Test
-    fun debugRegistrationSendsTheTemporaryNameWithThePhone() = runTest {
+    fun registrationSendsOnlyThePhoneBeforeVerification() = runTest {
         val server = MockWebServer()
         server.enqueue(json("""{"status":"pending"}"""))
         server.start()
         try {
-            val result = AuthRepository(server.auth(), MemorySessionStore()).registerWithPassword(
-                "+263771234567",
-                "Tonderai Moyo",
-                "12 Samora Machel Avenue",
-            )
+            val result = AuthRepository(server.auth(), MemorySessionStore()).startWhatsAppRegistration("+263771234567")
             assertTrue(result is ApiResult.Ok)
             val recorded = server.takeRequest()
             assertEquals("/auth/rider/register/whatsapp", recorded.path)
             val body = recorded.body.readUtf8()
             assertTrue(body.contains("+263771234567"))
-            assertTrue(body.contains("\"fullName\":\"Tonderai Moyo\""))
+            assertFalse(body.contains("fullName"))
             assertFalse(body.contains("password"))
             assertFalse(body.contains("accountKind"))
             assertFalse(body.contains("register/complete"))
@@ -214,9 +211,32 @@ class RiderSessionTest {
                 "Tendai Moyo",
                 "12 Samora Machel Avenue",
             )
-            assertTrue(result is ApiResult.Err)
+            assertEquals(ApiResult.Ok(VerifyOutcome.SignedIn), result)
+            assertEquals("access-1", store.read()?.accessToken)
+            val recorded = server.takeRequest()
+            assertEquals("/auth/rider/register/whatsapp/complete", recorded.path)
+            val body = recorded.body.readUtf8()
+            assertTrue(body.contains("proof-token"))
+            assertTrue(body.contains("Tendai Moyo"))
+            assertTrue(body.contains("12 Samora Machel Avenue"))
+            assertFalse(body.contains("accountKind"))
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    fun verifiedProofOpensRegistrationWithoutASession() = runTest {
+        val server = MockWebServer()
+        server.enqueue(json("""{"status":"verified","registrationToken":"proof-token","fullName":"Rudo Ncube","readOnly":["fullName"]}"""))
+        server.start()
+        try {
+            val store = MemorySessionStore()
+            val result = AuthRepository(server.auth(), store).verify("login", "+263771234567", "123456")
+            val outcome = (result as ApiResult.Ok).value as VerifyOutcome.NeedsAccount
+            assertEquals("proof-token", outcome.registrationToken)
+            assertEquals("Rudo Ncube", outcome.fullName)
+            assertTrue(outcome.lockDetails)
             assertNull(store.read())
-            assertEquals(0, server.requestCount)
         } finally {
             server.shutdown()
         }
@@ -288,6 +308,29 @@ class RiderSessionTest {
             assertTrue(refresh.body.readUtf8().contains("refresh-1"))
             assertEquals("Bearer access-2", server.takeRequest().getHeader("Authorization"))
         } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun replacedSessionClearsCredentialsAndDoesNotRefreshAgain() = runTest {
+        val server = MockWebServer()
+        val replaced = """{"message":"${DeviceReplacementNotice.MESSAGE}","error":"Unauthorized","statusCode":401}"""
+        server.enqueue(json(replaced, 401))
+        server.enqueue(json(replaced, 401))
+        server.start()
+        try {
+            DeviceReplacementNotice.clear()
+            val store = MemorySessionStore(AuthSession("access-1", "refresh-1", "soon", "later"))
+            val result = apiCall { server.riders(store).onboarding() }
+            val error = (result as ApiResult.Err).error
+            assertTrue(error is ApiError.SignedInElsewhere)
+            assertEquals(DeviceReplacementNotice.MESSAGE, error.text())
+            assertNull(store.read())
+            assertEquals(DeviceReplacementNotice.MESSAGE, DeviceReplacementNotice.peek())
+            assertEquals(1, server.refreshCount())
+        } finally {
+            DeviceReplacementNotice.clear()
             server.shutdown()
         }
     }

@@ -46,7 +46,7 @@ export function OverviewPage() {
         <Link className="kpi" to="/riders?approvalStatus=PENDING"><span>Riders awaiting approval</span><b>{data.riders.pending}</b></Link>
         <Link className="kpi" to="/riders?verificationStatus=PENDING"><span>Licence review queue</span><b>Open</b></Link>
         <Link className="kpi" to="/motorcycles?verificationStatus=PENDING"><span>Motorcycles to review</span><b>{data.motorcycles.pending}</b></Link>
-        <article className="kpi"><span>Customers</span><b>{data.customers.total}</b><span>{data.customers.individual} individual · {data.customers.business} business</span></article>
+        <Link className="kpi" to="/customers"><span>Customers</span><b>{data.customers.total}</b><span>{data.customers.individual} individual · {data.customers.business} business</span></Link>
       </section>
       <div className="split">
         <section className="panel">

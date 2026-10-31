@@ -53,6 +53,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.riders.rider.R
+import com.riders.rider.core.design.RidersChangingText
 import com.riders.rider.core.design.RidersColors
 import com.riders.rider.core.design.RidersEmptyState
 import com.riders.rider.core.design.RidersFailureNotice
@@ -64,25 +65,18 @@ import com.riders.rider.core.design.RidersType
 import com.riders.rider.feature.wallet.domain.WalletEntry
 import com.riders.rider.feature.wallet.domain.WalletSummary
 import com.riders.rider.feature.wallet.domain.walletBalanceIsNegative
+import com.riders.rider.feature.wallet.domain.statementAmount
+import com.riders.rider.feature.wallet.domain.statementReference
 import com.riders.rider.feature.wallet.domain.walletActivityLabel
 import com.riders.rider.feature.wallet.domain.walletEntryLabel
+import com.riders.rider.feature.wallet.domain.WALLET_TOP_UP_REQUIRED
+import com.riders.rider.feature.wallet.domain.signedWalletLabel
 import com.riders.rider.feature.wallet.domain.walletMoneyLabel
 import com.riders.rider.feature.wallet.domain.walletPaymentMethodLabel
 
 private val HeaderGreen = Color(0xFFC9EFD9)
 private val HeaderMid = Color(0xFFE5F7EE)
 private val HeaderFade = Color(0xFFF7FCF9)
-private val CapacityFill = Color(0xFFE7F2FC)
-private val CapacityTint = Color(0xFF3B78D8)
-private val BorrowingFill = Color(0xFFF3EEFB)
-private val BorrowingTint = Color(0xFF7B61B0)
-private val CashTint = Color(0xFFC56A2D)
-private val CashFill = Color(0xFFFFF1E6)
-private val EcoCashTint = Color(0xFF0077C8)
-private val EcoCashFill = Color(0xFFE5F4FC)
-private val GiftFill = Color(0xFFE9F8EF)
-private val FeeFill = Color(0xFFF2F4F3)
-private val FeeTint = Color(0xFF8A9690)
 
 @Composable
 fun WalletScreen(
@@ -144,7 +138,7 @@ fun WalletScreen(
                 Modifier
                     .fillMaxWidth()
                     .then(if (inShell) Modifier else Modifier.statusBarsPadding())
-                    .padding(horizontal = RidersSpacing.xl)
+                    .padding(horizontal = RidersSpacing.lg)
                     .padding(top = RidersSpacing.lg, bottom = 40.dp),
                 verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
             ) {
@@ -168,7 +162,7 @@ fun WalletScreen(
                     .pullUp(32.dp)
                     .clip(RoundedCornerShape(topStart = RidersRadius.xl, topEnd = RidersRadius.xl))
                     .background(RidersColors.background)
-                    .padding(horizontal = RidersSpacing.xl)
+                    .padding(horizontal = RidersSpacing.lg)
                     .padding(top = RidersSpacing.xl, bottom = RidersSpacing.xxl),
                 verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
             ) {
@@ -198,7 +192,7 @@ fun WalletScreen(
                                 Box(
                                     Modifier
                                         .fillMaxWidth()
-                                        .padding(start = 48.dp)
+                                        .padding(start = 34.dp)
                                         .height(1.dp)
                                         .background(RidersColors.border),
                                 )
@@ -277,7 +271,6 @@ private fun WalletBackdrop(modifier: Modifier = Modifier) {
 
 @Composable
 private fun BalanceCard(summary: WalletSummary, onTopUp: () -> Unit) {
-    val negative = walletBalanceIsNegative(summary.balance)
     val shape = RoundedCornerShape(RidersRadius.xl)
     Column(
         Modifier
@@ -294,25 +287,22 @@ private fun BalanceCard(summary: WalletSummary, onTopUp: () -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md),
         ) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs)) {
-                Text("Balance", style = RidersType.caption, color = RidersColors.textSecondary)
-                Text(
-                    walletMoneyLabel(summary.currency, summary.balance),
+                Text("Wallet balance", style = RidersType.caption, color = RidersColors.textSecondary)
+                RidersChangingText(
+                    value = signedWalletLabel(summary.currency, summary.balance),
                     style = RidersType.title.copy(fontSize = 32.sp, fontWeight = FontWeight.Bold, lineHeight = 38.sp),
-                    color = if (negative) RidersColors.error else RidersColors.text,
+                    color = if (walletBalanceIsNegative(summary.balance)) RidersColors.error else RidersColors.text,
                 )
-                if (negative) {
-                    Text("Amount owed to the platform", style = RidersType.caption, color = RidersColors.error)
-                }
             }
             Text(
                 "Top up",
                 style = RidersType.bodyStrong,
                 color = RidersColors.textInverse,
                 modifier = Modifier
-                    .clip(RoundedCornerShape(RidersRadius.pill))
+                    .clip(RoundedCornerShape(RidersRadius.lg))
                     .background(RidersColors.primary)
                     .clickable(role = Role.Button, onClick = onTopUp)
-                    .padding(horizontal = RidersSpacing.lg, vertical = RidersSpacing.md),
+                    .padding(horizontal = RidersSpacing.xxl, vertical = RidersSpacing.md),
             )
         }
         Row(
@@ -320,21 +310,25 @@ private fun BalanceCard(summary: WalletSummary, onTopUp: () -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md),
         ) {
             BalanceOption(
-                icon = R.drawable.ic_gauge,
-                label = "Available capacity",
-                value = walletMoneyLabel(summary.currency, summary.availableCapacity),
-                fill = CapacityFill,
-                tint = CapacityTint,
+                icon = R.drawable.ic_hand_coin_outline,
+                label = "Credit limit",
+                value = walletMoneyLabel(summary.currency, summary.borrowingLimit),
                 modifier = Modifier.weight(1f),
             )
             BalanceOption(
-                icon = R.drawable.ic_coins,
-                label = "Borrowing limit",
-                value = walletMoneyLabel(summary.currency, summary.borrowingLimit),
-                fill = BorrowingFill,
-                tint = BorrowingTint,
+                icon = R.drawable.ic_gauge_outline,
+                label = "Reserved",
+                value = walletMoneyLabel(summary.currency, summary.reservedFees),
                 modifier = Modifier.weight(1f),
             )
+        }
+        Text(
+            "Remaining capacity  ${walletMoneyLabel(summary.currency, summary.availableCapacity)}",
+            style = RidersType.caption,
+            color = RidersColors.textSecondary,
+        )
+        if (summary.newDeliveriesRestricted) {
+            Text(WALLET_TOP_UP_REQUIRED, style = RidersType.body, color = RidersColors.error)
         }
     }
 }
@@ -344,8 +338,6 @@ private fun BalanceOption(
     icon: Int,
     label: String,
     value: String,
-    fill: Color,
-    tint: Color,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -353,22 +345,20 @@ private fun BalanceOption(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
     ) {
-        Box(
-            Modifier
-                .size(40.dp)
-                .clip(RoundedCornerShape(RidersRadius.md))
-                .background(fill),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                painter = painterResource(icon),
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-                tint = tint,
-            )
-        }
+        Icon(
+            painter = painterResource(icon),
+            contentDescription = null,
+            modifier = Modifier.size(22.dp),
+            tint = Color.Black,
+        )
         Text(label, style = RidersType.caption, color = RidersColors.textSecondary, textAlign = TextAlign.Center, maxLines = 2)
-        Text(value, style = RidersType.bodyStrong, color = RidersColors.text, textAlign = TextAlign.Center, maxLines = 1)
+        RidersChangingText(
+            value = value,
+            style = RidersType.bodyStrong,
+            color = RidersColors.text,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+        )
     }
 }
 
@@ -406,43 +396,33 @@ private fun EntryRow(entry: WalletEntry) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md),
     ) {
-        SoftIcon(tone.icon, tone.fill, tone.tint, rounded = rowMethodLabel(entry) != null)
+        Icon(
+            painter = painterResource(tone.icon),
+            contentDescription = null,
+            modifier = Modifier.size(22.dp),
+            tint = Color.Black,
+        )
+        val method = rowMethodLabel(entry)
+        val reference = statementReference(entry.receipt, entry.reason)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(rowMethodLabel(entry) ?: tone.title, style = RidersType.bodyStrong, color = RidersColors.text, maxLines = 1)
+            Text(method ?: tone.title, style = RidersType.bodyStrong, color = RidersColors.text, maxLines = 1)
             Text(walletActivityLabel(entry.createdAt), style = RidersType.caption, color = RidersColors.textSecondary, maxLines = 1)
+            if (reference != null && method != "EcoCash" && method != "Cash") {
+                Text(reference, style = RidersType.caption, color = RidersColors.textSecondary, maxLines = 1)
+            }
         }
         Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(activityAmount(entry.currency, entry.amount), style = RidersType.bodyStrong, color = tone.amount, maxLines = 1)
-            if (detail != null) {
+            Text(statementAmount(entry.currency, entry.type, entry.amount), style = RidersType.bodyStrong, color = tone.amount, maxLines = 1)
+            if (detail != null && detail != reference && method != "Cash") {
                 Text(detail, style = RidersType.caption, color = RidersColors.textSecondary, maxLines = 1)
             }
         }
     }
 }
 
-@Composable
-private fun SoftIcon(icon: Int, fill: Color, tint: Color, rounded: Boolean = false) {
-    Box(
-        Modifier
-            .size(36.dp)
-            .clip(if (rounded) RoundedCornerShape(RidersRadius.lg) else CircleShape)
-            .background(fill),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            painter = painterResource(icon),
-            contentDescription = null,
-            modifier = Modifier.size(18.dp),
-            tint = tint,
-        )
-    }
-}
-
 private data class EntryTone(
     val title: String,
     val icon: Int,
-    val tint: Color,
-    val fill: Color,
     val amount: Color,
 )
 
@@ -458,19 +438,17 @@ private fun rowMethodLabel(entry: WalletEntry): String? {
 
 private fun entryTone(entry: WalletEntry): EntryTone {
     when (rowMethodLabel(entry)) {
-        "Cash" -> return EntryTone("Top-up", R.drawable.ic_cash, CashTint, CashFill, RidersColors.primary)
-        "EcoCash" -> return EntryTone("Top-up", R.drawable.ic_cellphone, EcoCashTint, EcoCashFill, RidersColors.primary)
+        "Cash" -> return EntryTone("Top-up", R.drawable.ic_cash, RidersColors.primary)
+        "EcoCash" -> return EntryTone("Top-up", R.drawable.ic_cellphone, RidersColors.primary)
     }
     if (entry.type == "PLATFORM_FEE") {
-        return EntryTone("Platform fee", R.drawable.ic_motorbike, FeeTint, FeeFill, RidersColors.error)
+        return EntryTone("Platform fee", R.drawable.ic_motorbike, RidersColors.error)
     }
     val credit = entryCredit(entry.amount)
     val welcome = entry.type == "WELCOME_BONUS" || entry.type == "PROMOTIONAL_CREDIT"
     return EntryTone(
         title = walletEntryLabel(entry.type),
         icon = if (welcome || credit) R.drawable.ic_gift else R.drawable.ic_receipt,
-        tint = if (credit) RidersColors.primary else FeeTint,
-        fill = if (credit) GiftFill else FeeFill,
         amount = if (credit) RidersColors.primary else RidersColors.error,
     )
 }
@@ -487,10 +465,3 @@ private fun historyDetail(entry: WalletEntry): String? {
 }
 
 private fun entryCredit(amount: String): Boolean = !walletBalanceIsNegative(amount)
-
-private fun activityAmount(currency: String, amount: String): String {
-    val trimmed = amount.trim()
-    val negative = trimmed.startsWith("-")
-    val digits = trimmed.removePrefix("-").removePrefix("+")
-    return if (negative) "−$currency $digits" else "+$currency $digits"
-}

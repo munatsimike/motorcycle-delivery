@@ -1,4 +1,4 @@
-import { ConflictException, ForbiddenException } from '@nestjs/common';
+import { ForbiddenException } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 import { UserRole } from '../generated/prisma/client.js';
 import { DeliveryController } from './delivery.controller.js';
@@ -32,6 +32,9 @@ describe('DeliveryController', () => {
     async cancel() {
       return { status: 'CANCELLED' };
     },
+    async adjustOffer() {
+      return { customerOffer: '1.00' };
+    },
   } as never, {} as never);
 
   it('requires an authenticated customer account', async () => {
@@ -40,11 +43,11 @@ describe('DeliveryController', () => {
     expect(() => controller.list({}, {})).toThrow(ForbiddenException);
     expect(() => controller.getById({}, 'delivery-1')).toThrow(ForbiddenException);
     expect(() => controller.search({}, 'delivery-1')).toThrow(ForbiddenException);
+    expect(() => controller.adjustOffer({}, 'delivery-1', {})).toThrow(ForbiddenException);
     expect(() => controller.cancel({}, 'delivery-1')).toThrow(ForbiddenException);
   });
 
-  it('does not start V1 search when the marketplace flag is on', async () => {
-    process.env.V2_MARKETPLACE_ENABLED = 'true';
+  it('returns the created booking without starting a search', async () => {
     const created = { id: 'delivery-v2', status: 'CREATED', searchGeneration: 0 };
     let searched = false;
     const flagged = new DeliveryController({
@@ -57,65 +60,17 @@ describe('DeliveryController', () => {
         return { deliveryId: created.id, status: 'SEARCHING', searchGeneration: 1 };
       },
     } as never, {} as never);
-    try {
-      await expect(flagged.create({ customer: CUSTOMER }, {})).resolves.toEqual(created);
-      expect(searched).toBe(false);
-    } finally {
-      delete process.env.V2_MARKETPLACE_ENABLED;
-    }
-  });
+    delete process.env.V2_MARKETPLACE_ENABLED;
+    await expect(flagged.create({ customer: CUSTOMER }, {})).resolves.toEqual(created);
+    process.env.V2_MARKETPLACE_ENABLED = 'true';
+    await expect(flagged.create({ customer: CUSTOMER }, {})).resolves.toEqual(created);
+    delete process.env.V2_MARKETPLACE_ENABLED;
+    expect(searched).toBe(false);
 
-  it('searches only after the booking is committed and returns the persisted status', async () => {
     const response = await controller.create({ customer: CUSTOMER }, { customerId: 'other-account' });
     expect(seen.accountId).toBe('account-1');
-    expect(seen.deliveryId).toBe('delivery-1');
-    expect(response).toEqual({ id: 'delivery-1', status: 'SEARCHING' });
-  });
-
-  it('keeps the committed booking when automatic search fails', async () => {
-    const created = { id: 'delivery-9', status: 'CREATED', searchGeneration: 0 };
-    let reloaded = false;
-    const failing = new DeliveryController({
-      async create() {
-        return created;
-      },
-      async getById() {
-        reloaded = true;
-        return { id: 'delivery-9', status: 'SEARCHING' };
-      },
-    } as never, {
-      async search() {
-        throw new ConflictException('A search is already running');
-      },
-    } as never, {} as never);
-
-    const response = await failing.create({ customer: CUSTOMER }, {});
-    expect(response).toEqual(created);
-    expect(reloaded).toBe(false);
-  });
-
-  it('returns the search result when the delivery cannot be reloaded', async () => {
-    const created = { id: 'delivery-4', status: 'CREATED', searchGeneration: 0, autoRetryCount: 0, nextRetryAt: null };
-    const reloading = new DeliveryController({
-      async create() {
-        return created;
-      },
-      async getById() {
-        throw new Error('database unavailable');
-      },
-    } as never, {
-      async search() {
-        return { deliveryId: 'delivery-4', status: 'SEARCHING', searchGeneration: 1 };
-      },
-    } as never, {} as never);
-
-    await expect(reloading.create({ customer: CUSTOMER }, {})).resolves.toEqual({
-      id: 'delivery-4',
-      status: 'SEARCHING',
-      searchGeneration: 1,
-      autoRetryCount: 0,
-      nextRetryAt: null,
-    });
+    expect(seen.deliveryId).toBeUndefined();
+    expect(response).toEqual({ id: 'delivery-1', status: 'CREATED', customerAccountId: 'account-1' });
   });
 
   it('draws the cached route from pickup and dropoff', async () => {

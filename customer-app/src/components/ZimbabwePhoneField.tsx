@@ -23,7 +23,7 @@ export default function ZimbabwePhoneField({
   const focus = useInputFocus();
 
   return (
-    <>
+    <View>
       <Text style={styles.label}>{label}</Text>
       <View style={[styles.inputContainer, focus.style, invalid ? inputErrorStyle : null]}>
         <View style={styles.countryCode}>
@@ -52,7 +52,7 @@ export default function ZimbabwePhoneField({
           onBlur={focus.onBlur}
         />
       </View>
-    </>
+    </View>
   );
 }
 
@@ -61,7 +61,7 @@ const styles = StyleSheet.create({
     fontSize: typography.caption,
     fontWeight: '700',
     color: colors.text,
-    marginBottom: spacing.sm,
+    marginBottom: spacing.xs,
   },
   inputContainer: {
     flexDirection: 'row',

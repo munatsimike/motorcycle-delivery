@@ -10,8 +10,15 @@ describe('Geoapify responses', () => {
       }],
     })).toEqual({
       metres: 1540.2,
+      seconds: null,
       line: [[31.05, -17.82], [31.06, -17.83]],
     });
+    expect(readRoadRoute({
+      features: [{
+        properties: { distance: 1200, time: 420.4 },
+        geometry: { type: 'LineString', coordinates: [[31.05, -17.82], [31.06, -17.83]] },
+      }],
+    })?.seconds).toBe(420.4);
     expect(readRoadRoute({ features: [] })).toBeNull();
   });
 

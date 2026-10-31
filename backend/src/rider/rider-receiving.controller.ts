@@ -15,7 +15,7 @@ export class RiderReceivingController {
 
   @Put('receiving')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Pause or resume receiving marketplace requests while online' })
+  @ApiOperation({ summary: 'Match receiving requests to online or offline' })
   @ApiBody({ type: ReceivingPreferenceBody })
   @ApiOkResponse({ type: ReceivingPreferenceResponse })
   receiving(@Req() request: RiderRequest, @Body() body: unknown) {

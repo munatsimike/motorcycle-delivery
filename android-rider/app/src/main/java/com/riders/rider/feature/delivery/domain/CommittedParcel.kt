@@ -1,10 +1,6 @@
 package com.riders.rider.feature.delivery.domain
 
 import com.riders.rider.core.network.ActiveAssignmentBody
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-import java.util.Locale
 
 data class CommittedParcel(
     val deliveryId: String,
@@ -23,6 +19,9 @@ data class CommittedParcel(
     val dropoffLandmark: String? = null,
     val dropoffInstructions: String? = null,
     val contacts: DeliveryContacts? = null,
+    val distanceMeters: Int? = null,
+    val createdAt: String? = null,
+    val completedAt: String? = null,
 )
 
 fun ActiveAssignmentBody.toCommittedParcel(): CommittedParcel {
@@ -43,26 +42,48 @@ fun ActiveAssignmentBody.toCommittedParcel(): CommittedParcel {
         dropoffLandmark = dropoff.landmark,
         dropoffInstructions = dropoff.instructions,
         contacts = toContacts(),
+        distanceMeters = distanceMeters,
+        createdAt = createdAt,
+        completedAt = completedAt,
     )
+}
+
+fun completedDeliveries(parcels: List<CommittedParcel>): List<CommittedParcel> {
+    return parcels
+        .filter { it.status == "DELIVERED" }
+        .sortedWith(compareByDescending<CommittedParcel> { it.completedAt ?: "" }.thenByDescending { it.assignmentId })
+}
+
+data class CompletedBoard(
+    val loading: Boolean = false,
+    val refreshing: Boolean = false,
+    val loaded: Boolean = false,
+    val deliveries: List<CommittedParcel> = emptyList(),
+    val error: String? = null,
+)
+
+fun requestCompletedBoard(current: CompletedBoard, force: Boolean): CompletedBoard? {
+    if (!force && current.loaded && current.error == null) {
+        return null
+    }
+    return current.copy(
+        loading = current.deliveries.isEmpty(),
+        refreshing = force && (current.deliveries.isNotEmpty() || current.error != null),
+        error = null,
+    )
+}
+
+fun applyCompletedBoard(current: CompletedBoard, incoming: List<CommittedParcel>?, error: String?): CompletedBoard {
+    if (incoming != null) {
+        return CompletedBoard(loaded = true, deliveries = completedDeliveries(incoming))
+    }
+    return current.copy(loading = false, refreshing = false, error = error)
 }
 
 fun serviceClassLabel(serviceClass: String?): String? = when (serviceClass) {
     "FLEXIBLE" -> "Flexible"
-    "EXPRESS" -> "Express"
+    "EXPRESS" -> "Urgent"
     else -> null
-}
-
-fun deadlineLabel(deliverBy: String?, zone: ZoneId = ZoneId.systemDefault()): String? {
-    val raw = deliverBy?.trim().orEmpty()
-    if (raw.isEmpty()) {
-        return null
-    }
-    val formatted = try {
-        Instant.parse(raw).atZone(zone).format(DEADLINE)
-    } catch (_: Exception) {
-        raw
-    }
-    return "Deliver by $formatted"
 }
 
 fun agreedPriceLabel(agreedPrice: String?): String? {
@@ -81,17 +102,23 @@ fun hasCommittedV2(serviceClasses: Collection<String?>): Boolean {
     return serviceClasses.any(::isCommittedV2Parcel)
 }
 
+fun showsMarketplaceAssignment(parcel: CommittedParcel): Boolean {
+    return isCommittedV2Parcel(parcel.serviceClass) && v2RiderAction(parcel.status) != null
+}
+
 fun committedAssignmentsForDisplay(
     assignments: List<CommittedParcel>,
     @Suppress("UNUSED_PARAMETER") availability: String?,
     @Suppress("UNUSED_PARAMETER") receiving: Boolean?,
-): List<CommittedParcel> = assignments
+): List<CommittedParcel> = assignments.filter(::showsMarketplaceAssignment)
 
 fun selectedParcel(assignments: List<CommittedParcel>, deliveryId: String): CommittedParcel? {
     return assignments.firstOrNull { it.deliveryId == deliveryId }
 }
 
-fun parcelRoute(deliveryId: String): String = "delivery/$deliveryId"
+fun parcelRoute(deliveryId: String, completed: Boolean = false): String {
+    return if (completed) "delivery/$deliveryId?completed=true" else "delivery/$deliveryId"
+}
 
 fun applyAssignmentRefresh(
     current: List<CommittedParcel>,
@@ -104,5 +131,3 @@ fun applyAssignmentRefresh(
     }
     return incoming
 }
-
-private val DEADLINE = DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm", Locale.US)

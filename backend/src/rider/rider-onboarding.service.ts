@@ -7,6 +7,7 @@ import {
   MotorcycleVerificationStatus,
   RiderApprovalStatus,
   RiderAvailability,
+  ProfilePhotoStatus,
   RiderVerificationStatus,
   UserRole,
 } from '../generated/prisma/client.js';
@@ -18,6 +19,7 @@ export type RiderProfileResponse = {
   fullName: string;
   phone: string;
   address: string | null;
+  hasProfilePhoto: boolean;
 };
 
 export type RiderOnboardingResponse = {
@@ -51,7 +53,7 @@ export class RiderOnboardingService {
     const [riderProfile, customer, registration] = await Promise.all([
       this.prisma.riderProfile.findUnique({
         where: { userId: user.id },
-        select: { address: true },
+        select: { id: true, address: true },
       }),
       this.prisma.customerAccount.findUnique({
         where: { userId: user.id },
@@ -68,10 +70,17 @@ export class RiderOnboardingService {
         select: { address: true },
       }),
     ]);
+    const photo = riderProfile
+      ? await this.prisma.riderProfilePhoto.findFirst({
+        where: { riderProfileId: riderProfile.id, status: ProfilePhotoStatus.STORED },
+        select: { id: true },
+      })
+      : null;
     return {
       fullName: user.fullName,
       phone: user.phone,
       address: storedAddress(riderProfile?.address) ?? storedAddress(customer?.address) ?? storedAddress(registration?.address),
+      hasProfilePhoto: photo !== null,
     };
   }
 

@@ -1,7 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { ActivityIndicator, Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import FormInput from '../../../../components/FormInput';
+import { useReduceMotion } from '../../../../components/useMotion';
+import { SERVICE_UNAVAILABLE_MESSAGE } from '../../../../services/api/apiClient';
+import { motionDuration, SUGGESTION_MS, suggestionListFades } from '../../../../navigation/screenMotion';
 import { colors, radius, spacing, typography } from '../../../../theme';
 import { confirmMapPin, typedHouseNumber } from '../../domain/addressResolution';
 import type { StopDraft } from '../../domain/bookingDraft';
@@ -9,6 +12,19 @@ import { createPlaceSessionToken } from '../../domain/placeSession';
 import { selectedAddressLabel, type PlaceSuggestion, type ResolvedPlace } from '../../domain/placeSuggestion';
 
 const SEARCH_DELAY_MS = 500;
+const SUGGESTIONS_UNAVAILABLE = 'Address suggestions are unavailable. You can type the address.';
+const ROUTE_MISS = /^Cannot (GET|POST|PUT|PATCH|DELETE) \//;
+
+function searchFailureMessage(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return SUGGESTIONS_UNAVAILABLE;
+  }
+  const message = error.message.trim();
+  if (!message || message === SERVICE_UNAVAILABLE_MESSAGE || ROUTE_MISS.test(message)) {
+    return SUGGESTIONS_UNAVAILABLE;
+  }
+  return message;
+}
 
 type AddressFieldProps = {
   stop: StopDraft;
@@ -20,6 +36,7 @@ type AddressFieldProps = {
   showMatchNote?: boolean;
   editable?: boolean;
   onFocus?: () => void;
+  locationAction?: ReactNode;
 };
 
 export default function AddressField({
@@ -32,6 +49,7 @@ export default function AddressField({
   showMatchNote = true,
   editable = true,
   onFocus,
+  locationAction = null,
 }: AddressFieldProps) {
   const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
   const [searching, setSearching] = useState(false);
@@ -41,6 +59,9 @@ export default function AddressField({
   const resolvePlaceRef = useRef(resolvePlace);
   const sessionToken = useRef(createPlaceSessionToken());
   const typedByUser = useRef(false);
+  const reduceMotion = useReduceMotion();
+  const suggestionOpacity = useRef(new Animated.Value(0)).current;
+  const suggestionCount = useRef(0);
   searchPlacesRef.current = searchPlaces;
   resolvePlaceRef.current = resolvePlace;
 
@@ -79,11 +100,7 @@ export default function AddressField({
           }
           setSuggestions([]);
           setSearched(false);
-          setSearchError(
-            error instanceof Error && error.message.trim()
-              ? error.message
-              : 'Address suggestions are unavailable. You can type the address.',
-          );
+          setSearchError(searchFailureMessage(error));
         })
         .finally(() => {
           if (active) {
@@ -130,15 +147,35 @@ export default function AddressField({
         coordinateSource: location.provider === 'google_places' ? 'GOOGLE_PLACES' : 'DEVICE_GEOCODER',
       });
     } catch (caught) {
-      setSearchError(
-        caught instanceof Error && caught.message.trim()
-          ? caught.message
-          : 'Address suggestions are unavailable. You can type the address.',
-      );
+      setSearchError(searchFailureMessage(caught));
     } finally {
       setSearching(false);
     }
   }
+
+  const suggestionItems = areaChoices.length > 0 ? areaChoices : suggestions;
+
+  useEffect(() => {
+    const nextCount = suggestionItems.length;
+    const fadeIn = suggestionListFades(suggestionCount.current, nextCount);
+    suggestionCount.current = nextCount;
+    if (!fadeIn) {
+      suggestionOpacity.setValue(nextCount === 0 ? 0 : 1);
+      return;
+    }
+    const duration = motionDuration(SUGGESTION_MS, reduceMotion);
+    if (duration === 0) {
+      suggestionOpacity.setValue(1);
+      return;
+    }
+    suggestionOpacity.setValue(0);
+    Animated.timing(suggestionOpacity, {
+      toValue: 1,
+      duration,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [reduceMotion, suggestionItems.length, suggestionOpacity]);
 
   return (
     <View style={styles.wrap}>
@@ -164,6 +201,7 @@ export default function AddressField({
         editable={editable}
         onFocus={onFocus}
       />
+      {locationAction}
       {searching ? (
         <View style={styles.statusRow}>
           <ActivityIndicator color={colors.primary} size="small" />
@@ -174,21 +212,23 @@ export default function AddressField({
       {searched && !searching && suggestions.length === 0 && areaChoices.length === 0 && !searchError ? (
         <Text style={styles.status}>No matching addresses yet. You can keep what you typed and continue.</Text>
       ) : null}
-      {areaChoices.length > 0 ? <Text style={styles.status}>Confirm a nearby area</Text> : null}
-      {(areaChoices.length > 0 ? areaChoices : suggestions).map((suggestion) => (
-        <Pressable
-          key={`${suggestion.placeId ?? suggestion.latitude},${suggestion.label}`}
-          style={styles.suggestion}
-          onPress={() => {
-            void selectSuggestion(suggestion);
-          }}
-        >
-          <Text style={styles.suggestionText}>{suggestion.label}</Text>
-          {suggestion.exact ? null : <Text style={styles.area}>Area match</Text>}
-        </Pressable>
-      ))}
-      {suggestions.length > 0 || areaChoices.length > 0 ? (
-        <Text style={styles.attribution}>Google Maps</Text>
+      {suggestionItems.length > 0 ? (
+        <Animated.View style={[styles.suggestions, { opacity: suggestionOpacity }]}>
+          {areaChoices.length > 0 ? <Text style={styles.status}>Confirm a nearby area</Text> : null}
+          {suggestionItems.map((suggestion) => (
+            <Pressable
+              key={`${suggestion.placeId ?? suggestion.latitude},${suggestion.label}`}
+              style={styles.suggestion}
+              onPress={() => {
+                void selectSuggestion(suggestion);
+              }}
+            >
+              <Text style={styles.suggestionText}>{suggestion.label}</Text>
+              {suggestion.exact ? null : <Text style={styles.area}>Area match</Text>}
+            </Pressable>
+          ))}
+          <Text style={styles.attribution}>Google Maps</Text>
+        </Animated.View>
       ) : null}
       {showMatchNote && (stop.precision === 'unverified' || stop.precision === 'area') ? (
         <Text style={styles.note}>
@@ -203,6 +243,9 @@ const styles = StyleSheet.create({
   wrap: {
     gap: spacing.sm,
   },
+  suggestions: {
+    gap: spacing.sm,
+  },
   statusRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -214,7 +257,7 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
   },
   suggestion: {
-    backgroundColor: '#FFF1E0',
+    backgroundColor: colors.primaryLight,
     borderRadius: radius.md,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
