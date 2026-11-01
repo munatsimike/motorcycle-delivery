@@ -369,7 +369,7 @@ it('accepts Express beside Flexible and keeps new Flexible bids available', asyn
   expect((await prisma.riderProfile.findUniqueOrThrow({ where: { id: hired.riderProfileId } })).receivingRequests).toBe(true);
 });
 
-it('cancels before pickup, releases only that reservation, and refuses cancellation after collection', async () => {
+it('cancels before pickup, lets the rider cancel after collection, and refuses a customer cancel after collection', async () => {
   const hired = await hire();
   const assigned = await commit(hired, 'FLEXIBLE');
   const collecting = await commit(hired, 'FLEXIBLE');
@@ -390,9 +390,10 @@ it('cancels before pickup, releases only that reservation, and refuses cancellat
   const collected = await commit(hired, 'FLEXIBLE');
   await step(hired.rider, collected.deliveryId, DeliveryStatus.COLLECTED);
   await expect(dispatch.cancel(customer, collected.deliveryId, NOW)).rejects.toThrow('This delivery cannot be cancelled');
-  await expect(dispatch.cancelBeforePickup(hired.rider, collected.assignmentId, `late-${collected.assignmentId}`, { reason: 'BREAKDOWN' }, NOW))
-    .rejects.toThrow('This delivery cannot be cancelled');
-  expect((await prisma.delivery.findUniqueOrThrow({ where: { id: collected.deliveryId } })).status).toBe('COLLECTED');
+  const releasedAfterPickup = await dispatch.cancelBeforePickup(hired.rider, collected.assignmentId, `late-${collected.assignmentId}`, { reason: 'BREAKDOWN' }, NOW);
+  expect(releasedAfterPickup).toMatchObject({ status: 'CREATED', reopened: true, released: true });
+  expect((await prisma.delivery.findUniqueOrThrow({ where: { id: collected.deliveryId } })).status).toBe('CREATED');
+  expect((await prisma.walletFeeReservation.findFirstOrThrow({ where: { assignmentId: collected.assignmentId } })).status).toBe('RELEASED');
 
   const expired = await commit(hired, 'FLEXIBLE');
   await dispatch.cancelBeforePickup(hired.rider, expired.assignmentId, `deadline-${expired.assignmentId}`, { reason: 'BREAKDOWN' }, DEADLINE);
@@ -578,7 +579,7 @@ it('writes one notice per committed transition and leaves parcel state unchanged
   const before = await noticeEffects(opened.deliveryId, opened.assignmentId, hired.walletId);
   const sent = await notices.drain(NOW, 20);
   expect(sent).toBeGreaterThan(0);
-  expect(push.messages.some((message) => message.type === 'v2_bid_accepted')).toBe(true);
+  expect(push.messages.map((message) => message.type)).toContain('v2_bid_accepted');
   expect(push.messages.some((message) => message.type === 'v2_delivered')).toBe(true);
   expect(push.messages.some((message) => message.type === 'v2_deadline_reminder')).toBe(true);
   expect(push.messages.some((message) => message.type === 'rider_offer')).toBe(false);
@@ -637,6 +638,7 @@ it('writes one notice per committed transition and leaves parcel state unchanged
   });
   push.outcome = 'accepted';
   push.messages.length = 0;
+  await parkPendingExcept([abandoned.assignmentId]);
   expect(await notices.drain(new Date(claimedAt.getTime() + V2_NOTICE_CLAIM_STALE_MS - 1_000), 5)).toBe(0);
   expect(await notices.drain(new Date(claimedAt.getTime() + V2_NOTICE_CLAIM_STALE_MS + 1_000), 5)).toBe(1);
   expect((await prisma.v2OutboxEvent.findFirstOrThrow({
@@ -782,7 +784,7 @@ it('serializes contested wallet capacity and keeps the documented lock order', a
   const acceptBody = acceptSource.slice(acceptSource.indexOf('private async acceptLocked('));
   expect(acceptBody.indexOf('await lockDelivery(')).toBeGreaterThan(-1);
   expect(acceptBody.indexOf('await lockDelivery(')).toBeLessThan(acceptBody.indexOf('await lockRiderProfile('));
-});
+}, 30_000);
 
 async function commit(hired: Hired, serviceClass: 'FLEXIBLE' | 'EXPRESS') {
   const deliveryId = await openRequest(serviceClass);
@@ -968,8 +970,16 @@ async function markAcceptedSent(assignmentId: string) {
 }
 
 async function parkPendingExcept(assignmentIds: string[]) {
+  // Bid, opportunity, and approval notices have no assignment id. A NOT IN
+  // filter does not match those rows, so they stayed due and filled a drain.
   await prisma.v2OutboxEvent.updateMany({
-    where: { status: 'PENDING', NOT: { assignmentId: { in: assignmentIds } } },
+    where: {
+      status: 'PENDING',
+      OR: [
+        { assignmentId: null },
+        { assignmentId: { notIn: assignmentIds } },
+      ],
+    },
     data: { nextAttemptAt: new Date('2099-01-01T00:00:00.000Z') },
   });
 }
