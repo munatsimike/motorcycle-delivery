@@ -9,9 +9,10 @@ type OtpCodeBoxesProps = {
   onChangeText: (value: string) => void;
   editable?: boolean;
   invalid?: boolean;
+  onFocus?: () => void;
 };
 
-export default function OtpCodeBoxes({ value, onChangeText, editable = true, invalid = false }: OtpCodeBoxesProps) {
+export default function OtpCodeBoxes({ value, onChangeText, editable = true, invalid = false, onFocus }: OtpCodeBoxesProps) {
   const inputRef = useRef<TextInput>(null);
   const digits = fitOtpDigits(value);
   const activeIndex = Math.min(digits.length, OTP_BOX_COUNT - 1);
@@ -57,6 +58,7 @@ export default function OtpCodeBoxes({ value, onChangeText, editable = true, inv
         caretHidden
         maxLength={OTP_BOX_COUNT}
         editable={editable}
+        onFocus={onFocus}
         underlineColorAndroid="transparent"
         style={styles.capture}
       />

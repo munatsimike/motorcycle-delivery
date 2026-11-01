@@ -95,7 +95,7 @@ export function useIncomingOffers(
       if (request.current !== current) {
         return;
       }
-      const message = errorMessage(caught, 'Bids are unavailable.');
+      const message = errorMessage(caught, 'Offers are unavailable.');
       if (/bidding is not available/i.test(message)) {
         setListen(false);
         heldError.current = null;
@@ -155,7 +155,7 @@ export function useIncomingOffers(
       setChosen(true);
       onAccepted(accepted, currentOffer);
     } catch (caught: unknown) {
-      const message = errorMessage(caught, 'This bid could not be accepted.');
+      const message = errorMessage(caught, 'This offer could not be accepted.');
       heldError.current = message;
       setError(message);
       void load();

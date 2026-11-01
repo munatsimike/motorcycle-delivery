@@ -92,7 +92,7 @@ function WelcomeScreen({ navigation }: WelcomeProps) {
         </Text>
         <View style={styles.bottom}>
           <PrimaryButton
-            label="Sign In"
+            label="Sign in"
             trailingIcon="chevron-right"
             onPress={() => navigation.navigate('SignIn')}
           />
@@ -175,7 +175,7 @@ export default function AppNavigator() {
             <Stack.Screen
               name="SignIn"
               component={SignInScreen}
-              options={{ title: 'Sign In' }}
+              options={{ title: 'Sign in' }}
             />
             <Stack.Screen
               name="SignUp"
@@ -345,7 +345,7 @@ const styles = StyleSheet.create({
 
   heading: {
     fontSize: typography.title,
-    fontWeight: '800',
+    fontWeight: '700',
     color: colors.text,
     textAlign: 'center',
     lineHeight: 32,

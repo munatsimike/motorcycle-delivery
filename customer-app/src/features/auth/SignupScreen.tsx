@@ -34,7 +34,7 @@ export default function SignUpScreen({ navigation, route }: SignUpProps) {
       }}
       helperText="Enter a Zimbabwe mobile number. We'll send a one-time WhatsApp code."
       footerText="Already have an account?"
-      footerAction="Sign In"
+      footerAction="Sign in"
       onFooterPress={() => navigation.navigate('SignIn')}
     />
   );

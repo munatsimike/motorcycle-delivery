@@ -100,7 +100,7 @@ export function visibleBidError(status: string, error: string | null): string | 
     return null;
   }
   if (/bidding is not available/i.test(error)) {
-    return 'New bids are unavailable.';
+    return 'New offers are unavailable.';
   }
   return error;
 }

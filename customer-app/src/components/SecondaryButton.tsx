@@ -13,6 +13,7 @@ type SecondaryButtonProps = {
   icon?: ComponentProps<typeof MaterialDesignIcons>['name'];
   soft?: boolean;
   bordered?: boolean;
+  compact?: boolean;
 };
 
 export default function SecondaryButton({
@@ -23,6 +24,7 @@ export default function SecondaryButton({
   tone = 'primary',
   icon,
   bordered = true,
+  compact = false,
 }: SecondaryButtonProps) {
   const inactive = disabled || loading;
   const accent = tone === 'danger' ? colors.error : colors.primary;
@@ -33,6 +35,7 @@ export default function SecondaryButton({
       disabled={inactive}
       onPress={onPress}
       style={({ pressed }) => [
+        compact && styles.compact,
         inactive && styles.inactive,
         pressed && !inactive && styles.pressed,
       ]}
@@ -40,6 +43,7 @@ export default function SecondaryButton({
       <View
         style={[
           styles.button,
+          compact && styles.compactButton,
           bordered ? { borderColor: accent, borderWidth: 1 } : styles.borderless,
           { backgroundColor: colors.background },
         ]}
@@ -64,6 +68,13 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: spacing.lg,
+  },
+  compact: {
+    alignSelf: 'flex-end',
+  },
+  compactButton: {
+    minHeight: 40,
     paddingHorizontal: spacing.lg,
   },
   borderless: {

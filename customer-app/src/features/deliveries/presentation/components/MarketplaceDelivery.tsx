@@ -197,7 +197,7 @@ export default function MarketplaceDelivery({
           {pendingRiderName && !delivery.rider ? <Text style={styles.body}>{pendingRiderName} is assigned to this delivery.</Text> : null}
           {deadline ? <Text style={styles.body}>Deliver by {deadline}</Text> : null}
           {!delivery.offeredPrice ? (
-            <Text style={styles.note}>Riders bid their own price. This suggestion is not the agreed price.</Text>
+            <Text style={styles.note}>Riders offer their own price. This suggestion is not the agreed price.</Text>
           ) : null}
           {delivery.rider && headline ? (
             <View style={styles.riderRow}>
@@ -216,10 +216,10 @@ export default function MarketplaceDelivery({
               {riderDialUrl(delivery.rider.phone) ? (
                 <View style={styles.riderActions}>
                   <Pressable accessibilityRole="button" accessibilityLabel={`Call ${delivery.rider.name}`} hitSlop={8} onPress={callRider}>
-                    <MaterialDesignIcons name="phone-outline" size={22} color="#000000" />
+                    <MaterialDesignIcons name="phone-outline" size={22} color={colors.text} />
                   </Pressable>
                   <Pressable accessibilityRole="button" accessibilityLabel={`WhatsApp ${delivery.rider.name}`} hitSlop={8} onPress={callWhatsApp}>
-                    <MaterialDesignIcons name="whatsapp" size={22} color="#000000" />
+                    <MaterialDesignIcons name="whatsapp" size={22} color={colors.text} />
                   </Pressable>
                 </View>
               ) : null}
@@ -445,7 +445,7 @@ const styles = StyleSheet.create({
   kicker: {
     fontSize: typography.caption,
     fontWeight: '700',
-    color: '#000000',
+    color: colors.text,
   },
   title: {
     fontSize: typography.heading,

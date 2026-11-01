@@ -589,7 +589,7 @@ private fun SummaryTile(
             painter = painterResource(icon),
             contentDescription = null,
             modifier = Modifier.size(22.dp),
-            tint = Color.Black,
+            tint = RidersColors.text,
         )
         Text(
             label,

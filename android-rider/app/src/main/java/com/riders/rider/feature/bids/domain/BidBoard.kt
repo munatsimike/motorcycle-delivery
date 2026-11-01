@@ -11,9 +11,10 @@ import com.riders.rider.feature.offers.domain.leavesAcceptUnresolved
 import com.riders.rider.feature.offers.domain.offerSentConfirmation
 import kotlinx.serialization.Serializable
 
-const val EXPRESS_BIDS_UNAVAILABLE = "New bids are unavailable while an Urgent delivery is active."
-const val BID_AMOUNT_INVALID = "Enter a bid amount ($)."
+const val EXPRESS_BIDS_UNAVAILABLE = "New offers are unavailable while an Urgent delivery is active."
+const val BID_AMOUNT_INVALID = "Enter an offer amount ($)."
 const val MARKETPLACE_DISABLED = "Bidding is not available"
+const val OFFERS_NOT_AVAILABLE = "Offers are not available"
 const val BID_LIST_UNAVAILABLE = "Your existing offers could not be loaded. Try again before sending another offer."
 const val REQUEST_NO_LONGER_OPEN = "This request is no longer open for offers."
 const val AWAITING_CUSTOMER_RESPONSE = "Awaiting customer response"
@@ -162,7 +163,7 @@ fun bidOutcome(
     amount: String? = null,
 ): String? = when {
     status == "ACCEPTED" && serviceClass == "EXPRESS" -> "You've been selected!"
-    status == "ACCEPTED" -> "Your bid was accepted."
+    status == "ACCEPTED" -> "Your offer was accepted."
     status == "SUPERSEDED" && serviceClass == "EXPRESS" -> "Not selected — another rider was chosen."
     status == "SUPERSEDED" -> "Another rider was chosen."
     status == "EXPIRED" -> "This offer has expired."
@@ -243,6 +244,7 @@ fun marketplaceBidButtonsVisible(serviceClass: String?, ownBidsKnown: Boolean, f
         return false
     }
     return failure != MARKETPLACE_DISABLED
+        && failure != OFFERS_NOT_AVAILABLE
         && failure != BID_LIST_UNAVAILABLE
         && failure != "This delivery is not open for bids"
         && failure != "The bidding window has closed"
@@ -250,7 +252,7 @@ fun marketplaceBidButtonsVisible(serviceClass: String?, ownBidsKnown: Boolean, f
 
 fun bidListProblemMessage(error: ApiError): String {
     return if (error is ApiError.Unexpected && error.message == MARKETPLACE_DISABLED) {
-        MARKETPLACE_DISABLED
+        OFFERS_NOT_AVAILABLE
     } else {
         BID_LIST_UNAVAILABLE
     }

@@ -183,14 +183,14 @@ function InfoRow({
 }) {
   return (
     <View style={styles.row}>
-      <MaterialDesignIcons name={icon} size={20} color="#000000" />
+      <MaterialDesignIcons name={icon} size={20} color={colors.text} />
       <View style={styles.rowCopy}>
         <Text style={styles.rowLabel}>{label}</Text>
         <Text style={styles.rowValue}>{value}</Text>
       </View>
       {onEdit ? (
         <Pressable accessibilityRole="button" accessibilityLabel={`Edit ${label}`} hitSlop={8} onPress={onEdit}>
-          <MaterialDesignIcons name="pencil-outline" size={20} color="#000000" />
+          <MaterialDesignIcons name="pencil-outline" size={20} color={colors.text} />
         </Pressable>
       ) : null}
     </View>
@@ -214,7 +214,7 @@ const styles = StyleSheet.create({
   },
   overlap: {
     marginTop: -spacing.xxxl,
-    marginRight: spacing.lg,
+    marginHorizontal: spacing.lg,
   },
   body: {
     marginTop: spacing.lg,

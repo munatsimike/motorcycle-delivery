@@ -127,13 +127,13 @@ function RouteStop({ label, stop, last }: { label: string; stop: StopDraft; last
         <Text style={styles.stopAddress}>{deliveryCardAddress(stop.address.trim())}</Text>
         {name ? (
           <View style={styles.meta}>
-            <MaterialDesignIcons name="account-outline" size={16} color="#000000" />
+            <MaterialDesignIcons name="account-outline" size={16} color={colors.text} />
             <Text style={styles.stopName}>{name}</Text>
           </View>
         ) : null}
         {phone ? (
           <View style={styles.meta}>
-            <MaterialDesignIcons name="phone-outline" size={16} color="#000000" />
+            <MaterialDesignIcons name="phone-outline" size={16} color={colors.text} />
             <Text style={styles.stopPhone}>{phone}</Text>
           </View>
         ) : null}

@@ -16,7 +16,7 @@ export async function acceptCustomerBid(
   const key = await keys.keyFor(deliveryId, bidId, createKey);
   const accepted = await repository.acceptBid(accessToken, deliveryId, bidId, key);
   if (accepted.status !== 'RIDER_ASSIGNED' || accepted.deliveryId !== deliveryId || accepted.bidId !== bidId) {
-    throw new Error('This bid could not be accepted.');
+    throw new Error('This offer could not be accepted.');
   }
   await keys.clear(deliveryId, bidId);
   return accepted;

@@ -9,7 +9,7 @@ export type OpenBidRequest = {
   currency: 'USD';
 };
 
-export const OPEN_FOR_BIDS = 'Open for rider bids';
+export const OPEN_FOR_BIDS = 'Open for rider offers';
 
 export function readOpenBidRequest(value: unknown): OpenBidRequest {
   if (!isRecord(value) || typeof value.id !== 'string' || !value.id.trim()) {

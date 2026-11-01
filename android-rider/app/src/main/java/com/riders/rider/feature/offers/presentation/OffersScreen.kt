@@ -507,10 +507,10 @@ private fun BidPage(
     if (confirmSend) {
         AlertDialog(
             onDismissRequest = { if (!submitting) confirmSend = false },
-            title = { Text("Send bid", style = RidersType.heading, color = RidersColors.text) },
+            title = { Text("Send offer", style = RidersType.heading, color = RidersColors.text) },
             text = {
                 Text(
-                    "You are sending a bid of ${offerPriceLabel(offer.currency, amount)} to deliver the ${deliveryKindWord(content.label)}.",
+                    "You are sending an offer of ${offerPriceLabel(offer.currency, amount)} to deliver the ${deliveryKindWord(content.label)}.",
                     style = RidersType.body,
                     color = RidersColors.text,
                 )
@@ -523,7 +523,7 @@ private fun BidPage(
                     },
                     enabled = !submitting,
                 ) {
-                    Text("Send bid", color = RidersColors.primary)
+                    Text("Send offer", color = RidersColors.primary)
                 }
             },
             dismissButton = {
@@ -543,7 +543,7 @@ private fun BidPage(
         RidersFailureNotice(message = error, onRetry = onRetry)
     }
     Column(verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm)) {
-            Text("Your bid amount", style = RidersType.caption, color = RidersColors.textSecondary)
+            Text("Your offer amount", style = RidersType.caption, color = RidersColors.textSecondary)
             Row(
                 horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
                 verticalAlignment = Alignment.CenterVertically,
@@ -569,7 +569,7 @@ private fun BidPage(
                 }
             }
             Text(
-                "Suggested bid (based on distance and demand)",
+                "Suggested offer (based on distance and demand)",
                 style = RidersType.caption,
                 color = RidersColors.textSecondary,
             )
@@ -612,7 +612,7 @@ private fun BidPage(
             }
         }
         RidersPrimaryButton(
-            label = "Send bid",
+            label = "Send offer",
             onClick = { confirmSend = true },
             enabled = canAct && !submitting,
             loading = submitting,

@@ -165,7 +165,7 @@ export default function ParcelFields({ draft, onChange, marketplace = false }: P
                   <MaterialDesignIcons
                     name={option.icon}
                     size={16}
-                    color="#000000"
+                    color={colors.text}
                     style={optionIconStyle(option.icon)}
                   />
                   <Text style={[styles.deliveryRadioLabel, styles.deliveryTypeLabel]}>{option.label}</Text>
@@ -411,7 +411,7 @@ const styles = StyleSheet.create({
     includeFontPadding: false,
   },
   deliveryTypeLabel: {
-    color: '#000000',
+    color: colors.text,
   },
   deliveryRadioSelected: {
     borderColor: colors.primary,

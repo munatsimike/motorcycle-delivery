@@ -111,7 +111,7 @@ export function deliveryStatusLabel(status: DeliveryStatus): string {
 
 export function deliveryListLabel(delivery: Pick<CustomerDelivery, 'status' | 'serviceClass' | 'deliverBy'>): string {
   if (delivery.serviceClass && delivery.status === 'CREATED') {
-    return 'Waiting for bids';
+    return 'Waiting for offers';
   }
   return STATUS_LABELS[delivery.status];
 }
@@ -125,10 +125,10 @@ export function showsViewBids(delivery: Pick<CustomerDelivery, 'status' | 'servi
 export function deliveryCardStatusLabel(delivery: Pick<CustomerDelivery, 'status' | 'serviceClass' | 'deliverBy' | 'openBidCount'>): string {
   const count = showsViewBids(delivery) ? delivery.openBidCount ?? 0 : 0;
   if (count === 1) {
-    return '1 bid received';
+    return '1 offer received';
   }
   if (count > 1) {
-    return `${count} bids received`;
+    return `${count} offers received`;
   }
   if (delivery.status === 'COLLECTED') {
     return 'In transit';

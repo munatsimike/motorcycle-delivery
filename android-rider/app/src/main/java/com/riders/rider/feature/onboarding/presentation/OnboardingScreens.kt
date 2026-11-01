@@ -297,7 +297,7 @@ private fun StatusLine(
         Icon(
             painter = painterResource(icon),
             contentDescription = null,
-            tint = Color.Black,
+            tint = RidersColors.text,
             modifier = Modifier.size(22.dp),
         )
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs)) {

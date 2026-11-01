@@ -47,7 +47,7 @@ import com.riders.rider.feature.delivery.domain.deliveryWhenLabel
 import com.riders.rider.feature.delivery.domain.shortDeliveryReference
 import com.riders.rider.feature.offers.domain.offerDistanceLabel
 
-private val markColor = Color.Black
+private val markColor = RidersColors.text
 private val markSize = 18.dp
 private val badgeIconSize = 16.dp
 private val noFontPadding = PlatformTextStyle(includeFontPadding = false)
@@ -154,7 +154,7 @@ fun ServiceClassBadge(serviceClass: String?, modifier: Modifier = Modifier) {
                 fontWeight = FontWeight.Medium,
                 platformStyle = noFontPadding,
             ),
-            color = Color.Black,
+            color = RidersColors.text,
         )
     }
 }

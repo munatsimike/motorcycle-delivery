@@ -98,7 +98,7 @@ fun BidBoardScreen(
                     onRetry = model::refresh,
                 )
                 BidBoardPhase.Empty -> RidersEmptyState(
-                    title = filteredContentTitle(contentKind, "No pending bids"),
+                    title = filteredContentTitle(contentKind, "No pending offers"),
                     body = "Offers awaiting customer responses will appear here.",
                     image = R.drawable.parcel_box,
                     modifier = Modifier.fillMaxWidth(),
@@ -114,7 +114,7 @@ fun BidBoardScreen(
                     )
                     if (shown.isEmpty()) {
                         RidersEmptyState(
-                            title = filteredContentTitle(contentKind, "No pending bids"),
+                            title = filteredContentTitle(contentKind, "No pending offers"),
                             body = "Offers awaiting customer responses will appear here.",
                             image = R.drawable.parcel_box,
                             modifier = Modifier.fillMaxWidth(),
@@ -199,7 +199,7 @@ private fun OwnBidRow(
                 Text(
                     if (withdrawing) "Withdrawing" else "Withdraw",
                     style = RidersType.captionStrong,
-                    color = RidersColors.primaryDark,
+                    color = RidersColors.error,
                     modifier = Modifier.clickable(enabled = !withdrawing, role = Role.Button, onClick = onWithdraw),
                 )
             }

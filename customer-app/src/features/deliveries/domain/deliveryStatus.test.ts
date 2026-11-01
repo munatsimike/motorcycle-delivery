@@ -110,8 +110,8 @@ describe('deliveryUsesPackageIcon', () => {
 
 describe('marketplace list labels', () => {
   it('waits for bids on an open V2 request and keeps V1 search on the V1 path', () => {
-    expect(deliveryListLabel({ status: 'CREATED', serviceClass: 'FLEXIBLE', deliverBy: '2026-10-24T16:30:00.000Z' })).toBe('Waiting for bids');
-    expect(deliveryListLabel({ status: 'CREATED', serviceClass: 'FLEXIBLE', deliverBy: null })).toBe('Waiting for bids');
+    expect(deliveryListLabel({ status: 'CREATED', serviceClass: 'FLEXIBLE', deliverBy: '2026-10-24T16:30:00.000Z' })).toBe('Waiting for offers');
+    expect(deliveryListLabel({ status: 'CREATED', serviceClass: 'FLEXIBLE', deliverBy: null })).toBe('Waiting for offers');
     expect(deliveryListLabel({ status: 'CREATED', serviceClass: null, deliverBy: null })).toBe('Pending');
     expect(deliveryListLabel({ status: 'CREATED', serviceClass: null })).toBe('Pending');
     expect(deliveryListLabel({ status: 'SEARCHING', serviceClass: null })).toBe('Finding a rider');
@@ -125,11 +125,11 @@ describe('marketplace list labels', () => {
 
   it('shows a bid count only while a marketplace request has actionable bids', () => {
     const waiting = { status: 'CREATED' as const, serviceClass: 'FLEXIBLE' as const, deliverBy: '2026-10-24T16:30:00.000Z' };
-    expect(deliveryCardStatusLabel({ ...waiting, openBidCount: 0 })).toBe('Waiting for bids');
+    expect(deliveryCardStatusLabel({ ...waiting, openBidCount: 0 })).toBe('Waiting for offers');
     expect(showsViewBids({ ...waiting, openBidCount: 0 })).toBe(false);
-    expect(deliveryCardStatusLabel({ ...waiting, openBidCount: 1 })).toBe('1 bid received');
+    expect(deliveryCardStatusLabel({ ...waiting, openBidCount: 1 })).toBe('1 offer received');
     expect(showsViewBids({ ...waiting, openBidCount: 1 })).toBe(true);
-    expect(deliveryCardStatusLabel({ ...waiting, openBidCount: 4 })).toBe('4 bids received');
+    expect(deliveryCardStatusLabel({ ...waiting, openBidCount: 4 })).toBe('4 offers received');
     expect(showsViewBids({ ...waiting, openBidCount: 4 })).toBe(true);
     expect(deliveryCardStatusLabel({ status: 'SEARCHING', serviceClass: null, openBidCount: 3 })).toBe('Finding a rider');
     expect(showsViewBids({ status: 'SEARCHING', serviceClass: null, openBidCount: 3 })).toBe(false);

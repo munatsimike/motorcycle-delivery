@@ -344,7 +344,7 @@ private fun BalanceOption(
             painter = painterResource(icon),
             contentDescription = null,
             modifier = Modifier.size(22.dp),
-            tint = Color.Black,
+            tint = RidersColors.text,
         )
         Text(label, style = RidersType.caption, color = RidersColors.textSecondary, textAlign = TextAlign.Center, maxLines = 2)
         RidersChangingText(
@@ -395,7 +395,7 @@ private fun EntryRow(entry: WalletEntry) {
             painter = painterResource(tone.icon),
             contentDescription = null,
             modifier = Modifier.size(22.dp),
-            tint = Color.Black,
+            tint = RidersColors.text,
         )
         val method = rowMethodLabel(entry)
         val reference = statementReference(entry.receipt, entry.reason)

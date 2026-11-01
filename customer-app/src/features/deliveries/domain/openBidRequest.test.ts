@@ -64,7 +64,7 @@ describe('open bid booking', () => {
       deliverBy: '2026-10-24T16:30:00.000Z',
     } as PreparedBooking, '8.00', 'booking-1');
     expect(created.id).toBe('delivery-1');
-    expect(openBidConfirmation(created)).toBe('Open for rider bids');
+    expect(openBidConfirmation(created)).toBe('Open for rider offers');
     expect(startsRiderSearch()).toBe(false);
     expect(waitsForRiderConfirmation()).toBe(false);
     expect(calls).toEqual([]);
@@ -88,7 +88,7 @@ describe('open bid booking', () => {
       searchGeneration: 0,
     });
     expect(request.deliverBy).toBeNull();
-    expect(openBidConfirmation(request)).toBe('Open for rider bids');
+    expect(openBidConfirmation(request)).toBe('Open for rider offers');
   });
 
   it('rejects a created delivery that already has an offer or a search', () => {

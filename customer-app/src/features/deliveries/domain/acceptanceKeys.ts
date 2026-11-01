@@ -21,7 +21,7 @@ export function createAcceptanceKeys(storage: KeyValueStore): AcceptanceKeys {
       }
       const key = createKey().trim();
       if (!key || key.length > 200) {
-        throw new Error('This bid could not be accepted.');
+        throw new Error('This offer could not be accepted.');
       }
       saved[id] = key;
       await storage.setItem(STORAGE_KEY, JSON.stringify(saved));

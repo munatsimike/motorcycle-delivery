@@ -32,23 +32,23 @@ export type BidAcceptance = {
 
 export function readCustomerBids(value: unknown): CustomerBid[] {
   if (!Array.isArray(value)) {
-    throw new Error('Bids are unavailable.');
+    throw new Error('Offers are unavailable.');
   }
   return value.map(readCustomerBid);
 }
 
 export function readBidAcceptance(value: unknown): BidAcceptance {
   if (!isRecord(value) || value.status !== 'RIDER_ASSIGNED') {
-    throw new Error('This bid could not be accepted.');
+    throw new Error('This offer could not be accepted.');
   }
   if (typeof value.deliveryId !== 'string' || !value.deliveryId.trim()) {
-    throw new Error('This bid could not be accepted.');
+    throw new Error('This offer could not be accepted.');
   }
   if (typeof value.bidId !== 'string' || !value.bidId.trim()) {
-    throw new Error('This bid could not be accepted.');
+    throw new Error('This offer could not be accepted.');
   }
   if (typeof value.acceptedBidAmount !== 'string' || !MONEY.test(value.acceptedBidAmount)) {
-    throw new Error('This bid could not be accepted.');
+    throw new Error('This offer could not be accepted.');
   }
   return {
     deliveryId: value.deliveryId,
@@ -122,30 +122,30 @@ export function bidsAfterFailure(current: readonly CustomerBid[]): CustomerBid[]
 
 function readCustomerBid(value: unknown): CustomerBid {
   if (!isRecord(value) || typeof value.id !== 'string' || !value.id.trim()) {
-    throw new Error('Bids are unavailable.');
+    throw new Error('Offers are unavailable.');
   }
   if (typeof value.deliveryId !== 'string' || !value.deliveryId.trim()) {
-    throw new Error('Bids are unavailable.');
+    throw new Error('Offers are unavailable.');
   }
   if (typeof value.amount !== 'string' || !MONEY.test(value.amount) || value.currency !== 'USD') {
-    throw new Error('Bids are unavailable.');
+    throw new Error('Offers are unavailable.');
   }
   if (typeof value.status !== 'string' || !BID_STATUSES.includes(value.status as CustomerBidStatus)) {
-    throw new Error('Bids are unavailable.');
+    throw new Error('Offers are unavailable.');
   }
   if (typeof value.createdAt !== 'string' || Number.isNaN(new Date(value.createdAt).getTime())) {
-    throw new Error('Bids are unavailable.');
+    throw new Error('Offers are unavailable.');
   }
   const riderName = isRecord(value.rider) && typeof value.rider.name === 'string' ? value.rider.name.trim() : '';
   if (!riderName) {
-    throw new Error('Bids are unavailable.');
+    throw new Error('Offers are unavailable.');
   }
   const completedDeliveries = readCount(isRecord(value.rider) ? value.rider.completedDeliveries : undefined);
   const distanceMeters = readDistance(isRecord(value.rider) ? value.rider.distanceMeters : undefined);
   const motorcycle = readMotorcycle(isRecord(value.rider) ? value.rider.motorcycle : undefined);
   const registrationNumber = readMotorcycle(isRecord(value.rider) ? value.rider.registrationNumber : undefined);
   if (completedDeliveries === undefined || distanceMeters === undefined || motorcycle === undefined || registrationNumber === undefined) {
-    throw new Error('Bids are unavailable.');
+    throw new Error('Offers are unavailable.');
   }
   return {
     id: value.id,

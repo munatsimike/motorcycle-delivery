@@ -23,7 +23,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -456,16 +455,6 @@ private fun ProfileAvatar(
         } else {
             Text(profileInitials(name), style = RidersType.title, color = RidersColors.textInverse)
         }
-        if (busy) {
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.35f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                CircularProgressIndicator(color = Color.White, strokeWidth = 3.dp)
-            }
-        }
     }
 }
 
@@ -614,7 +603,7 @@ private fun InfoRow(
             painter = painterResource(icon),
             contentDescription = null,
             modifier = Modifier.size(22.dp),
-            tint = Color.Black,
+            tint = RidersColors.text,
         )
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs)) {
             Text(label, style = RidersType.caption, color = RidersColors.textSecondary)
@@ -634,14 +623,14 @@ private fun InfoRow(
                 modifier = Modifier
                     .size(20.dp)
                     .clickable(role = Role.Button, onClick = onEdit),
-                tint = Color.Black,
+                tint = RidersColors.text,
             )
         } else if (onClick != null) {
             Icon(
                 painter = painterResource(R.drawable.ic_chevron_right_outline),
                 contentDescription = null,
                 modifier = Modifier.size(20.dp),
-                tint = Color.Black,
+                tint = RidersColors.text,
             )
         }
     }

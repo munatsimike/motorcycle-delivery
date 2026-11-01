@@ -117,14 +117,14 @@ export default function DeliveryCard({
         {canViewBids ? (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`View bids for delivery ${delivery.id}`}
+            accessibilityLabel={`View offers for delivery ${delivery.id}`}
             onPress={(event) => {
               event.stopPropagation();
               onOpenDetails?.(delivery.id);
             }}
             style={styles.searchButton}
           >
-            <Text style={styles.searchText}>View bids</Text>
+            <Text style={styles.searchText}>View offers</Text>
           </Pressable>
         ) : null}
         {canSearch ? (

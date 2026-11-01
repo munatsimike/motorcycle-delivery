@@ -114,8 +114,8 @@ describe('marketplace tracking', () => {
     expect(isMarketplaceDelivery(delivery('ASSIGNED'))).toBe(false);
     expect(shouldPollDelivery(assigned)).toBe(true);
     expect(visibleBidError('RIDER_ASSIGNED', 'Bidding is not available')).toBeNull();
-    expect(visibleBidError('CREATED', 'Bidding is not available')).toBe('New bids are unavailable.');
-    expect(visibleBidError('CREATED', 'Bids are unavailable.')).toBe('Bids are unavailable.');
+    expect(visibleBidError('CREATED', 'Bidding is not available')).toBe('New offers are unavailable.');
+    expect(visibleBidError('CREATED', 'Offers are unavailable.')).toBe('Offers are unavailable.');
     expect(visibleBidError('COLLECTING', 'Network request failed')).toBeNull();
   });
 });

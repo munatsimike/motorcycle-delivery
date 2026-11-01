@@ -587,7 +587,13 @@ function OfferCard({
         </View>
       </View>
       {bidCanAccept(bid) ? (
-        <PrimaryButton label="Choose rider" loading={loading} disabled={busy} onPress={onChoose} />
+        <SecondaryButton
+          label="Choose rider"
+          compact
+          loading={loading}
+          disabled={busy}
+          onPress={onChoose}
+        />
       ) : (
         <Text style={styles.offerMeta}>This offer is no longer available.</Text>
       )}

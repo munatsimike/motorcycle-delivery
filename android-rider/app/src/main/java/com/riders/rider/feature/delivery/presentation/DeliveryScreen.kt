@@ -417,7 +417,7 @@ private fun CancellationSection(
     val locked = pendingReason != null
     Text("Cancel this delivery?", style = RidersType.bodyStrong, color = RidersColors.text)
     Text(
-        "If this request is still open, it becomes available to other riders. A previous bid does not become active again.",
+        "If this request is still open, it becomes available to other riders. A previous offer does not become active again.",
         style = RidersType.caption,
         color = RidersColors.textSecondary,
     )

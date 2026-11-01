@@ -6,8 +6,8 @@ import type { DeliveryContentKind } from '../domain/deliveryCard';
 
 export const deliveryIcon = {
   size: 18,
-  color: '#000000',
-  pickup: '#000000',
+  color: colors.text,
+  pickup: colors.text,
   dropoff: colors.text,
 } as const;
 
@@ -53,7 +53,7 @@ export function ServiceClassBadge({ serviceClass }: { serviceClass?: 'EXPRESS' |
     <View style={styles.classChip}>
       <MaterialDesignIcons
         name={urgent ? 'flash-outline' : 'message-text-outline'}
-        color="#000000"
+        color={colors.text}
         size={16}
         style={urgent ? styles.urgentIcon : undefined}
       />
@@ -95,7 +95,7 @@ const styles = StyleSheet.create({
     fontSize: typography.caption,
     lineHeight: 18,
     fontWeight: '500',
-    color: '#000000',
+    color: colors.text,
     includeFontPadding: false,
   },
 });

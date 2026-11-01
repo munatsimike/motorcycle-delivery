@@ -81,10 +81,10 @@ export default function DeliveryOutcome({
               {riderDialUrl(phone) ? (
                 <View style={styles.riderActions}>
                   <Pressable accessibilityRole="button" accessibilityLabel={`Call ${rider.name}`} hitSlop={8} onPress={callRider}>
-                    <MaterialDesignIcons name="phone-outline" size={22} color="#000000" />
+                    <MaterialDesignIcons name="phone-outline" size={22} color={colors.text} />
                   </Pressable>
                   <Pressable accessibilityRole="button" accessibilityLabel={`WhatsApp ${rider.name}`} hitSlop={8} onPress={callWhatsApp}>
-                    <MaterialDesignIcons name="whatsapp" size={22} color="#000000" />
+                    <MaterialDesignIcons name="whatsapp" size={22} color={colors.text} />
                   </Pressable>
                 </View>
               ) : null}

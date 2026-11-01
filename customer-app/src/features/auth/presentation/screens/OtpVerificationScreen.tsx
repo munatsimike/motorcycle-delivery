@@ -1,16 +1,14 @@
 import { useState } from 'react';
 import {
-  KeyboardAvoidingView,
-  Platform,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
-import { useHeaderHeight } from '@react-navigation/elements';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import ErrorMessage from '../../../../components/ErrorMessage';
+import { useKeyboardLift } from '../../../../components/useKeyboardLift';
 import PrimaryButton from '../../../../components/PrimaryButton';
 import OtpCodeBoxes from '../components/OtpCodeBoxes';
 import SecondaryButton from '../../../../components/SecondaryButton';
@@ -83,17 +81,18 @@ export default function OtpVerificationScreen({ navigation, route }: OtpProps) {
   const resendLabel = secondsRemaining > 0
     ? `Send another code in ${secondsRemaining}s`
     : 'Send another code';
-  const headerHeight = useHeaderHeight();
+  const keyboard = useKeyboardLift();
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? headerHeight : 0}
-    >
+    <View style={styles.container}>
       <ScrollView
-        contentContainerStyle={styles.content}
+        ref={keyboard.scrollRef}
+        contentContainerStyle={[styles.content, { paddingBottom: spacing.xxl + keyboard.keyboardInset }]}
         keyboardShouldPersistTaps="handled"
+        onScroll={(event) => {
+          keyboard.onScroll(event.nativeEvent.contentOffset.y);
+        }}
+        scrollEventThrottle={16}
       >
         <Text style={styles.title}>Verify your number</Text>
         <Text style={styles.subtitle}>
@@ -104,6 +103,7 @@ export default function OtpVerificationScreen({ navigation, route }: OtpProps) {
           onChangeText={setCode}
           editable={!isLoading}
           invalid={Boolean(saveError ?? error)}
+          onFocus={keyboard.revealFocusedField}
         />
         <ErrorMessage message={saveError ?? error} />
         <PrimaryButton
@@ -127,7 +127,7 @@ export default function OtpVerificationScreen({ navigation, route }: OtpProps) {
           />
         </View>
       </ScrollView>
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 
@@ -140,11 +140,10 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.lg,
-    paddingBottom: spacing.xxl,
   },
   title: {
-    fontSize: 30,
-    fontWeight: '800',
+    fontSize: typography.title,
+    fontWeight: '700',
     color: colors.text,
     marginBottom: spacing.md,
   },

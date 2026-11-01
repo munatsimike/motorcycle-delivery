@@ -32,6 +32,7 @@ import com.riders.rider.core.network.ParcelResponse
 import com.riders.rider.core.network.StopResponse
 import com.riders.rider.feature.bids.domain.BID_LIST_UNAVAILABLE
 import com.riders.rider.feature.bids.domain.MARKETPLACE_DISABLED
+import com.riders.rider.feature.bids.domain.OFFERS_NOT_AVAILABLE
 import com.riders.rider.feature.bids.domain.REQUEST_NO_LONGER_OPEN
 import com.riders.rider.feature.bids.domain.AWAITING_CUSTOMER_RESPONSE
 import com.riders.rider.feature.bids.domain.availableRequests
@@ -92,7 +93,7 @@ class RiderBidBoardTest {
         assertNull(bidAmountCents("0.00"))
         assertNull(bidAmountCents("-1"))
         assertNull(bidAmountCents("12.345"))
-        assertEquals(BID_AMOUNT_INVALID, "Enter a bid amount ($).")
+        assertEquals(BID_AMOUNT_INVALID, "Enter an offer amount ($).")
     }
 
     @Test
@@ -139,7 +140,7 @@ class RiderBidBoardTest {
         val open = ownBid("bid-4", "OPEN").copy(updatedAt = "2026-10-20T10:00:00.000Z")
         val shown = visibleBids(listOf(recent, older, open), null, now)
         assertEquals(listOf(recent, open), shown)
-        assertEquals("Your bid was accepted.", bidOutcome("ACCEPTED"))
+        assertEquals("Your offer was accepted.", bidOutcome("ACCEPTED"))
         assertEquals("Another rider was chosen.", bidOutcome("SUPERSEDED"))
         assertEquals("You've been selected!", bidOutcome("ACCEPTED", "EXPRESS"))
         assertEquals("Not selected — another rider was chosen.", bidOutcome("SUPERSEDED", "EXPRESS"))
@@ -384,7 +385,7 @@ class RiderBidBoardTest {
         assertFalse(marketplaceBidButtonsVisible("FLEXIBLE", ownBidsKnown = true, failure = "This delivery is not open for bids"))
         assertTrue(marketplaceBidButtonsVisible("FLEXIBLE", ownBidsKnown = true, failure = "Network request failed. Check your connection and try again."))
         assertTrue(marketplaceBidButtonsVisible(null, ownBidsKnown = false, failure = MARKETPLACE_DISABLED))
-        assertEquals(MARKETPLACE_DISABLED, bidListProblemMessage(ApiError.Unexpected(MARKETPLACE_DISABLED)))
+        assertEquals(OFFERS_NOT_AVAILABLE, bidListProblemMessage(ApiError.Unexpected(MARKETPLACE_DISABLED)))
         assertEquals(BID_LIST_UNAVAILABLE, bidListProblemMessage(ApiError.Network))
         assertEquals(REQUEST_NO_LONGER_OPEN, displayedBidProblem(true, null, "The bidding window has closed"))
         assertEquals(MARKETPLACE_DISABLED, displayedBidProblem(true, MARKETPLACE_DISABLED, null))

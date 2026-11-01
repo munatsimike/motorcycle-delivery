@@ -25,6 +25,7 @@ import com.riders.rider.feature.delivery.domain.retryWhenConnectivityReturns
 import com.riders.rider.feature.delivery.domain.ActiveDelivery
 import com.riders.rider.feature.delivery.domain.DeliveryRecoveryCoordinator
 import com.riders.rider.feature.bids.data.BidRepository
+import com.riders.rider.feature.bids.domain.OFFERS_NOT_AVAILABLE
 import com.riders.rider.feature.bids.domain.OpenBidRequest
 import com.riders.rider.feature.bids.domain.OwnBid
 import com.riders.rider.feature.bids.domain.availableRequests
@@ -326,8 +327,8 @@ class HomeViewModel @Inject constructor(
                 !notice.isNullOrBlank() -> notice
                 onboard is ApiResult.Err && dashboardFailure(onboard.error) == DashboardFailure.Authentication -> onboard.error.text()
                 listed is ApiResult.Err && dashboardFailure(listed.error) == DashboardFailure.Authentication -> listed.error.text()
-                onboard is ApiResult.Err && dashboardFailure(onboard.error) == DashboardFailure.MarketplaceDisabled -> onboard.error.text()
-                assignmentError != null && dashboardFailure(assignmentError) == DashboardFailure.MarketplaceDisabled -> assignmentError.text()
+                onboard is ApiResult.Err && dashboardFailure(onboard.error) == DashboardFailure.MarketplaceDisabled -> OFFERS_NOT_AVAILABLE
+                assignmentError != null && dashboardFailure(assignmentError) == DashboardFailure.MarketplaceDisabled -> OFFERS_NOT_AVAILABLE
                 onboard is ApiResult.Err && !onboard.error.isRecoverable() -> onboard.error.text()
                 assignmentsUnknown -> ASSIGNMENT_RECOVERY_MESSAGE
                 recovery.offline && shift.recoveryMessage == null -> "Your current delivery could not be loaded. Check your connection and try again."
