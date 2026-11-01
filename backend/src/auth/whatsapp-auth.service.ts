@@ -287,10 +287,10 @@ export class WhatsAppAuthService {
     const claims = readCustomerProof(token, now);
     const challenge = await this.prisma.authChallenge.findFirst({ where: { id: claims.challengeId } });
     await this.assertProviderReady(claims.phone, challenge?.purpose ?? AuthPurpose.WHATSAPP_REGISTRATION);
-    if (recoverableConsumedCustomerProof(challenge, claims.phone)) {
+    if (challenge && recoverableConsumedCustomerProof(challenge, claims.phone)) {
       return this.reissueCompletedCustomerSession(challenge, claims.phone, now);
     }
-    if (!usableCustomerProof(challenge, claims.phone)) {
+    if (!challenge || !usableCustomerProof(challenge, claims.phone)) {
       throw new UnauthorizedException(GENERIC_FAILURE);
     }
     const privateTestAccount = isPrivateTestChallenge(challenge.twilioSid);
@@ -1135,7 +1135,7 @@ function readCustomerProof(token: string, now: Date) {
 function recoverableConsumedCustomerProof(
   challenge: { id: string; phone: string; subjectRole: AuthSubjectRole; purpose: AuthPurpose; status: AuthChallengeStatus; twilioSid: string | null } | null,
   phone: string,
-): challenge is { id: string; phone: string; subjectRole: AuthSubjectRole; purpose: AuthPurpose; status: AuthChallengeStatus; twilioSid: string | null } {
+): boolean {
   return !!challenge
     && challenge.phone === phone
     && challenge.subjectRole === AuthSubjectRole.CUSTOMER
@@ -1146,7 +1146,7 @@ function recoverableConsumedCustomerProof(
 function usableCustomerProof(
   challenge: { id: string; phone: string; subjectRole: AuthSubjectRole; purpose: AuthPurpose; status: AuthChallengeStatus; twilioSid: string | null } | null,
   phone: string,
-): challenge is { id: string; phone: string; subjectRole: AuthSubjectRole; purpose: AuthPurpose; status: AuthChallengeStatus; twilioSid: string | null } {
+): boolean {
   return !!challenge
     && challenge.phone === phone
     && challenge.subjectRole === AuthSubjectRole.CUSTOMER
