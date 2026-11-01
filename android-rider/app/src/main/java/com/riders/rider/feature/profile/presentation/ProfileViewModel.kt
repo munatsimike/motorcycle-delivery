@@ -264,12 +264,12 @@ class ProfileViewModel @Inject constructor(
 
     private suspend fun finishLocalSignOut() {
         endAvailabilityForSignOut()
+        offerPush.forget()
         auth.logout()
         assignments.clearSession()
         availability.applySharing()
         deliveries.clear()
         acceptKeys.clearAll()
-        offerPush.forget()
         state.update { it.copy(signingOut = false) }
     }
 

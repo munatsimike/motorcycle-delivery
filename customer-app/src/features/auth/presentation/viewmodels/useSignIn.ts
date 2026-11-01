@@ -1,8 +1,8 @@
 import { useRef, useState } from 'react';
 
 import { customerAuthRepository } from '../../data/repositories/CustomerAuthApiRepository';
-import type { LoginStart } from '../../domain/auth.types';
-import { normalizePhone } from '../../domain/normalizePhone';
+import type { SignInCodeRequest } from '../../domain/customerAuthJourney';
+import { requestSignInCode } from '../../domain/customerAuthJourney';
 import { errorMessage } from '../errorMessage';
 
 export function useSignIn() {
@@ -10,7 +10,7 @@ export function useSignIn() {
   const [error, setError] = useState<string | null>(null);
   const inFlight = useRef(false);
 
-  async function startWhatsAppLogin(phone: string): Promise<LoginStart & { phone?: string } | null> {
+  async function startWhatsAppLogin(phone: string): Promise<SignInCodeRequest | null> {
     if (inFlight.current) {
       return null;
     }
@@ -18,13 +18,12 @@ export function useSignIn() {
     setIsLoading(true);
     setError(null);
     try {
-      const normalized = normalizePhone(phone);
-      const started = await customerAuthRepository.startWhatsAppLogin(normalized);
+      const started = await requestSignInCode(customerAuthRepository, phone);
       if (started.status === 'unavailable') {
         setError('Account not found. Create an account to continue.');
-        return { status: 'unavailable' };
+        return started;
       }
-      return { status: 'pending', phone: normalized };
+      return started;
     } catch (caught) {
       setError(errorMessage(caught, 'WhatsApp verification is unavailable'));
       return null;

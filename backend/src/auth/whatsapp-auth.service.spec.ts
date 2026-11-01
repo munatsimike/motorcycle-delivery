@@ -25,6 +25,7 @@ describe('WhatsApp verification', () => {
     delete process.env.WHATSAPP_VERIFICATION_SERVICE_SID;
     delete process.env.WHATSAPP_VERIFICATION_SENDER;
     delete process.env.PRIVATE_TEST_AUTH_ENABLED;
+    delete process.env.DEV_OTP_ENABLED;
   });
 
   it('does not create an account or call the provider when the rollout flag is off', async () => {
@@ -905,6 +906,339 @@ describe('WhatsApp verification', () => {
     expect(devOtp).not.toContain('PRIVATE_TEST_AUTH');
   });
 
+  it('verifies a new customer phone before collecting personal details', async () => {
+    const ctx = harness();
+    process.env.PRIVATE_TEST_AUTH_ENABLED = 'true';
+    delete process.env.WHATSAPP_VERIFICATION_ENABLED;
+    delete process.env.WHATSAPP_VERIFICATION_PROVIDER;
+    await expect(ctx.service.startRegistration(AuthSubjectRole.CUSTOMER, { phone: PHONE, whatsappConsent: true }, '203.0.113.95'))
+      .resolves.toEqual({ status: 'pending' });
+    expect(ctx.users).toHaveLength(0);
+    expect(ctx.sent).toEqual([]);
+    const proof = await ctx.service.verifyRegistration(AuthSubjectRole.CUSTOMER, { phone: PHONE, code: '000000' });
+    expect(proof).toMatchObject({ status: 'verified' });
+    expect(proof).not.toHaveProperty('accessToken');
+    const tokens = await ctx.service.completeCustomerRegistration({
+      registrationToken: registrationToken(proof),
+      accountKind: 'INDIVIDUAL',
+      fullName: 'Rudo Ncube',
+      address: '4 Jason Moyo',
+    });
+    expect(tokens).toMatchObject({ accessToken: 'access' });
+    expect(ctx.users).toHaveLength(1);
+    expect(ctx.users[0]).toMatchObject({ privateTestAccount: true, phone: PHONE });
+    expect(ctx.users[0]?.customerAccount).toBeTruthy();
+    expect(ctx.issued).toEqual([ctx.users[0]?.id]);
+  });
+
+  it('returns the session again when completion already saved the account and the response was lost', async () => {
+    const ctx = harness();
+    process.env.PRIVATE_TEST_AUTH_ENABLED = 'true';
+    delete process.env.WHATSAPP_VERIFICATION_ENABLED;
+    delete process.env.WHATSAPP_VERIFICATION_PROVIDER;
+    await ctx.service.startRegistration(AuthSubjectRole.CUSTOMER, { phone: PHONE, whatsappConsent: true }, '203.0.113.95');
+    const proof = await ctx.service.verifyRegistration(AuthSubjectRole.CUSTOMER, { phone: PHONE, code: '000000' });
+    const body = {
+      registrationToken: registrationToken(proof),
+      accountKind: 'INDIVIDUAL' as const,
+      fullName: 'Rudo Ncube',
+      address: '4 Jason Moyo',
+    };
+    await ctx.service.completeCustomerRegistration(body);
+    const accountId = ctx.users[0]?.customerAccount?.id;
+    const retried = await ctx.service.completeCustomerRegistration(body);
+    expect(retried).toMatchObject({ accessToken: 'access' });
+    expect(ctx.users).toHaveLength(1);
+    expect(ctx.users[0]?.customerAccount?.id).toBe(accountId);
+    expect(ctx.issued).toEqual([ctx.users[0]?.id, ctx.users[0]?.id]);
+  });
+
+  it('does not renew an expired registration proof after the account was saved', async () => {
+    const ctx = harness();
+    process.env.PRIVATE_TEST_AUTH_ENABLED = 'true';
+    delete process.env.WHATSAPP_VERIFICATION_ENABLED;
+    delete process.env.WHATSAPP_VERIFICATION_PROVIDER;
+    await ctx.service.startRegistration(AuthSubjectRole.CUSTOMER, { phone: PHONE, whatsappConsent: true }, '203.0.113.95');
+    const proof = await ctx.service.verifyRegistration(AuthSubjectRole.CUSTOMER, { phone: PHONE, code: '000000' });
+    const body = {
+      registrationToken: registrationToken(proof),
+      accountKind: 'INDIVIDUAL' as const,
+      fullName: 'Rudo Ncube',
+      address: '4 Jason Moyo',
+    };
+    await ctx.service.completeCustomerRegistration(body);
+    ctx.now.setTime(ctx.now.getTime() + 15 * 60_000 + 6_000);
+    await expect(ctx.service.completeCustomerRegistration(body)).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(ctx.issued).toHaveLength(1);
+    expect(ctx.users).toHaveLength(1);
+  });
+
+  it('does not create a customer profile for a consumed proof that never finished registration', async () => {
+    const ctx = harness();
+    process.env.PRIVATE_TEST_AUTH_ENABLED = 'true';
+    delete process.env.WHATSAPP_VERIFICATION_ENABLED;
+    delete process.env.WHATSAPP_VERIFICATION_PROVIDER;
+    await ctx.service.startRegistration(AuthSubjectRole.CUSTOMER, { phone: PHONE, whatsappConsent: true }, '203.0.113.95');
+    const proof = await ctx.service.verifyRegistration(AuthSubjectRole.CUSTOMER, { phone: PHONE, code: '000000' });
+    ctx.challenges[0]!.status = AuthChallengeStatus.SUPERSEDED;
+    await expect(ctx.service.completeCustomerRegistration({
+      registrationToken: registrationToken(proof),
+      accountKind: 'INDIVIDUAL',
+      fullName: 'Rudo Ncube',
+      address: '4 Jason Moyo',
+    })).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(ctx.users).toHaveLength(0);
+    expect(ctx.issued).toEqual([]);
+  });
+
+  it('signs in an existing customer who starts from create account', async () => {
+    const ctx = harness();
+    const account = user({
+      role: UserRole.CUSTOMER,
+      accountStatus: AccountStatus.ACTIVE,
+      phoneVerifiedAt: NOW,
+      whatsappConsentAt: NOW,
+      customerAccount: { id: 'customer-1' },
+      riderProfile: null,
+    });
+    ctx.users.push(account);
+    await ctx.service.startRegistration(AuthSubjectRole.CUSTOMER, { phone: PHONE, whatsappConsent: true }, '203.0.113.96');
+    const tokens = await ctx.service.verifyRegistration(AuthSubjectRole.CUSTOMER, { phone: PHONE, code: CODE });
+    expect(tokens).toMatchObject({ accessToken: 'access' });
+    expect(ctx.users).toHaveLength(1);
+    expect(ctx.users[0]?.customerAccount?.id).toBe('customer-1');
+  });
+
+  it('resumes registration when sign-in verifies a phone with no customer profile', async () => {
+    const ctx = harness();
+    ctx.users.push(user({
+      role: UserRole.CUSTOMER,
+      accountStatus: AccountStatus.ACTIVE,
+      phoneVerifiedAt: NOW,
+      whatsappConsentAt: NOW,
+      fullName: 'Rudo Ncube',
+      customerAccount: null,
+      riderProfile: null,
+    }));
+    await ctx.service.startLogin(AuthSubjectRole.CUSTOMER, { phone: PHONE, whatsappConsent: true }, '203.0.113.97');
+    const proof = await ctx.service.verifyLogin(AuthSubjectRole.CUSTOMER, { phone: PHONE, code: CODE });
+    expect(proof).toMatchObject({ status: 'verified', fullName: 'Rudo Ncube' });
+    expect(proof).not.toHaveProperty('accessToken');
+    expect(ctx.issued).toEqual([]);
+    const tokens = await ctx.service.completeCustomerRegistration({
+      registrationToken: registrationToken(proof),
+      accountKind: 'INDIVIDUAL',
+      fullName: 'Rudo Ncube',
+      address: '4 Jason Moyo',
+    });
+    expect(tokens).toMatchObject({ accessToken: 'access' });
+    expect(ctx.users).toHaveLength(1);
+    expect(ctx.users[0]?.customerAccount).toBeTruthy();
+  });
+
+  it('does not grant a session when the customer registration code is rejected', async () => {
+    const ctx = harness();
+    await ctx.service.startRegistration(AuthSubjectRole.CUSTOMER, { phone: PHONE, whatsappConsent: true }, '203.0.113.98');
+    await expect(ctx.service.verifyRegistration(AuthSubjectRole.CUSTOMER, { phone: PHONE, code: '000000' }))
+      .rejects.toBeInstanceOf(UnauthorizedException);
+    expect(ctx.issued).toEqual([]);
+    expect(ctx.users).toHaveLength(0);
+  });
+
+  it('does not send a customer sign-in code for an unknown number', async () => {
+    const ctx = harness();
+    await expect(ctx.service.startLogin(AuthSubjectRole.CUSTOMER, { phone: PHONE, whatsappConsent: true }, '203.0.113.99'))
+      .resolves.toEqual({ status: 'unavailable' });
+    expect(ctx.sent).toEqual([]);
+    expect(ctx.issued).toEqual([]);
+  });
+
+  it('registers a new private-test customer when WhatsApp is not configured', async () => {
+    const ctx = harness();
+    process.env.PRIVATE_TEST_AUTH_ENABLED = 'true';
+    process.env.DEV_OTP_ENABLED = 'false';
+    disableWhatsAppProvider();
+
+    await expect(ctx.service.startRegistration(AuthSubjectRole.CUSTOMER, customerBody(), '203.0.113.100'))
+      .resolves.toEqual({ status: 'pending' });
+    expect(ctx.sent).toEqual([]);
+    expect(ctx.checks).toEqual([]);
+    expect(ctx.challenges[0]?.twilioSid?.startsWith('private-test-auth:')).toBe(true);
+    expect(ctx.challenges[0]?.expiresAt.getTime()).toBe(NOW.getTime() + OTP_CHALLENGE_TTL_MS);
+    expect(JSON.stringify(ctx.challenges[0])).not.toContain('000000');
+
+    const tokens = await ctx.service.verifyRegistration(AuthSubjectRole.CUSTOMER, { phone: PHONE, code: '000000' });
+    expect(tokens).toMatchObject({ accessToken: 'access', refreshToken: 'refresh' });
+    expect(ctx.users).toHaveLength(1);
+    expect(ctx.users[0]).toMatchObject({ privateTestAccount: true, phoneVerifiedAt: NOW, accountStatus: AccountStatus.ACTIVE });
+    expect(process.env.DEV_OTP_ENABLED).toBe('false');
+  });
+
+  it('registers a new private-test rider when WhatsApp is not configured and leaves approval pending', async () => {
+    const ctx = harness();
+    process.env.PRIVATE_TEST_AUTH_ENABLED = 'true';
+    process.env.DEV_OTP_ENABLED = 'false';
+    disableWhatsAppProvider();
+
+    await expect(ctx.service.startRegistration(AuthSubjectRole.RIDER, { phone: PHONE, whatsappConsent: true }, '203.0.113.101'))
+      .resolves.toEqual({ status: 'pending' });
+    expect(ctx.users).toHaveLength(0);
+    expect(ctx.sent).toEqual([]);
+    const proof = await ctx.service.verifyRegistration(AuthSubjectRole.RIDER, { phone: PHONE, code: '000000' });
+    expect(proof).toMatchObject({ status: 'verified' });
+    expect(proof).not.toHaveProperty('accessToken');
+
+    const tokens = await ctx.service.completeRiderRegistration({
+      registrationToken: registrationToken(proof),
+      fullName: 'Tatenda Moyo',
+      address: '12 Samora Machel Avenue',
+    });
+    expect(tokens).toMatchObject({ accessToken: 'access' });
+    expect(ctx.users).toHaveLength(1);
+    expect(ctx.users[0]).toMatchObject({ role: UserRole.RIDER, privateTestAccount: true, accountStatus: AccountStatus.ACTIVE });
+    expect(ctx.users[0]?.riderProfile?.approvalStatus).toBe(RiderApprovalStatus.PENDING);
+    expect(ctx.wallets).toHaveLength(1);
+    expect(ctx.sent).toEqual([]);
+  });
+
+  it('signs in an existing private-test account when WhatsApp is not configured', async () => {
+    const ctx = harness();
+    process.env.PRIVATE_TEST_AUTH_ENABLED = 'true';
+    process.env.DEV_OTP_ENABLED = 'false';
+    disableWhatsAppProvider();
+    const account = user({
+      role: UserRole.CUSTOMER,
+      accountStatus: AccountStatus.ACTIVE,
+      phoneVerifiedAt: NOW,
+      whatsappConsentAt: NOW,
+      privateTestAccount: true,
+      customerAccount: { id: 'test-customer' },
+      riderProfile: null,
+    });
+    ctx.users.push(account);
+
+    await expect(ctx.service.startLogin(AuthSubjectRole.CUSTOMER, { phone: PHONE, whatsappConsent: true }, '203.0.113.102'))
+      .resolves.toEqual({ status: 'pending' });
+    expect(ctx.sent).toEqual([]);
+    const tokens = await ctx.service.verifyLogin(AuthSubjectRole.CUSTOMER, { phone: PHONE, code: '000000' });
+    expect(tokens).toMatchObject({ accessToken: 'access' });
+    expect(ctx.users).toHaveLength(1);
+    expect(ctx.users[0]?.privateTestAccount).toBe(true);
+    expect(ctx.issued).toEqual([account.id]);
+  });
+
+  it('returns WhatsApp unavailable for a normal account when WhatsApp is not configured', async () => {
+    const ctx = harness();
+    process.env.PRIVATE_TEST_AUTH_ENABLED = 'true';
+    process.env.DEV_OTP_ENABLED = 'false';
+    disableWhatsAppProvider();
+    ctx.users.push(user({
+      role: UserRole.CUSTOMER,
+      accountStatus: AccountStatus.ACTIVE,
+      phoneVerifiedAt: NOW,
+      whatsappConsentAt: NOW,
+      privateTestAccount: false,
+      customerAccount: { id: 'real-customer' },
+      riderProfile: null,
+    }));
+
+    await expect(ctx.service.startLogin(AuthSubjectRole.CUSTOMER, { phone: PHONE, whatsappConsent: true }, '203.0.113.103'))
+      .rejects.toBeInstanceOf(ServiceUnavailableException);
+    await expect(ctx.service.verifyLogin(AuthSubjectRole.CUSTOMER, { phone: PHONE, code: '000000' }))
+      .rejects.toBeInstanceOf(ServiceUnavailableException);
+    expect(ctx.sent).toEqual([]);
+    expect(ctx.issued).toEqual([]);
+    expect(ctx.users[0]?.privateTestAccount).toBe(false);
+  });
+
+  it('rejects the shared code for an existing normal account', async () => {
+    const ctx = harness();
+    process.env.PRIVATE_TEST_AUTH_ENABLED = 'true';
+    process.env.DEV_OTP_ENABLED = 'false';
+    ctx.users.push(user({
+      role: UserRole.CUSTOMER,
+      accountStatus: AccountStatus.ACTIVE,
+      phoneVerifiedAt: NOW,
+      whatsappConsentAt: NOW,
+      privateTestAccount: false,
+      customerAccount: { id: 'real-customer' },
+      riderProfile: null,
+    }));
+
+    await expect(ctx.service.startLogin(AuthSubjectRole.CUSTOMER, { phone: PHONE, whatsappConsent: true }, '203.0.113.104'))
+      .resolves.toEqual({ status: 'pending' });
+    expect(ctx.sent).toEqual([PHONE]);
+    expect(ctx.challenges[0]?.twilioSid?.startsWith('private-test-auth:')).toBe(false);
+    await expect(ctx.service.verifyLogin(AuthSubjectRole.CUSTOMER, { phone: PHONE, code: '000000' }))
+      .rejects.toBeInstanceOf(UnauthorizedException);
+    expect(ctx.issued).toEqual([]);
+    expect(ctx.users[0]?.privateTestAccount).toBe(false);
+  });
+
+  it('requires WhatsApp configuration when private testing is disabled', async () => {
+    const ctx = harness();
+    delete process.env.PRIVATE_TEST_AUTH_ENABLED;
+    process.env.DEV_OTP_ENABLED = 'false';
+    disableWhatsAppProvider();
+
+    await expect(ctx.service.startRegistration(AuthSubjectRole.CUSTOMER, customerBody(), '203.0.113.105'))
+      .rejects.toBeInstanceOf(ServiceUnavailableException);
+    await expect(ctx.service.startRegistration(AuthSubjectRole.RIDER, { phone: PHONE, whatsappConsent: true }, '203.0.113.106'))
+      .rejects.toBeInstanceOf(ServiceUnavailableException);
+    expect(ctx.users).toHaveLength(0);
+    expect(ctx.sent).toEqual([]);
+    expect(ctx.issued).toEqual([]);
+  });
+
+  it('does not accept the shared code when private testing is disabled', async () => {
+    const ctx = harness();
+    delete process.env.PRIVATE_TEST_AUTH_ENABLED;
+    process.env.DEV_OTP_ENABLED = 'false';
+
+    await ctx.service.startRegistration(AuthSubjectRole.CUSTOMER, customerBody(), '203.0.113.107');
+    expect(ctx.sent).toEqual([PHONE]);
+    expect(ctx.challenges[0]?.twilioSid?.startsWith('private-test-auth:')).toBe(false);
+    await expect(ctx.service.verifyRegistration(AuthSubjectRole.CUSTOMER, { phone: PHONE, code: '000000' }))
+      .rejects.toBeInstanceOf(UnauthorizedException);
+    expect(ctx.users[0]?.phoneVerifiedAt).toBeNull();
+    expect(ctx.users[0]?.privateTestAccount).toBe(false);
+    expect(ctx.issued).toEqual([]);
+  });
+
+  it('expires a private-test challenge when WhatsApp is not configured', async () => {
+    const ctx = harness();
+    process.env.PRIVATE_TEST_AUTH_ENABLED = 'true';
+    process.env.DEV_OTP_ENABLED = 'false';
+    disableWhatsAppProvider();
+
+    await ctx.service.startRegistration(AuthSubjectRole.RIDER, { phone: PHONE, whatsappConsent: true }, '203.0.113.108');
+    expect(ctx.challenges[0]?.expiresAt.getTime()).toBe(NOW.getTime() + OTP_CHALLENGE_TTL_MS);
+    ctx.now.setTime(ctx.challenges[0]!.expiresAt.getTime());
+    await expect(ctx.service.verifyRegistration(AuthSubjectRole.RIDER, { phone: PHONE, code: '000000' }))
+      .rejects.toBeInstanceOf(UnauthorizedException);
+    expect(ctx.users).toHaveLength(0);
+    expect(ctx.issued).toEqual([]);
+    expect(ctx.challenges[0]?.status).toBe(AuthChallengeStatus.EXPIRED);
+  });
+
+  it('locks a private-test challenge after repeated wrong codes when WhatsApp is not configured', async () => {
+    const ctx = harness();
+    process.env.PRIVATE_TEST_AUTH_ENABLED = 'true';
+    process.env.DEV_OTP_ENABLED = 'false';
+    disableWhatsAppProvider();
+
+    await ctx.service.startRegistration(AuthSubjectRole.CUSTOMER, { phone: PHONE, whatsappConsent: true }, '203.0.113.109');
+    for (let attempt = 0; attempt < OTP_MAX_CHECK_ATTEMPTS; attempt += 1) {
+      await expect(ctx.service.verifyRegistration(AuthSubjectRole.CUSTOMER, { phone: PHONE, code: '111111' }))
+        .rejects.toBeInstanceOf(UnauthorizedException);
+    }
+    await expect(ctx.service.verifyRegistration(AuthSubjectRole.CUSTOMER, { phone: PHONE, code: '000000' }))
+      .rejects.toBeInstanceOf(TooManyRequestsException);
+    expect(ctx.users).toHaveLength(0);
+    expect(ctx.issued).toEqual([]);
+    expect(ctx.checks).toEqual([]);
+  });
+
   it('leaves the one-accepted rider index and historical checksums untouched', () => {
     const sql = readFileSync('prisma/migrations/20261023200000_whatsapp_verification/migration.sql', 'utf8');
     expect(sql).toContain('WHATSAPP_REGISTRATION');
@@ -922,6 +1256,13 @@ function riderBody() {
     address: '12 Samora Machel Avenue',
     whatsappConsent: true,
   };
+}
+
+function disableWhatsAppProvider(): void {
+  delete process.env.WHATSAPP_VERIFICATION_ENABLED;
+  delete process.env.WHATSAPP_VERIFICATION_PROVIDER;
+  delete process.env.WHATSAPP_VERIFICATION_SERVICE_SID;
+  delete process.env.WHATSAPP_VERIFICATION_SENDER;
 }
 
 function customerBody() {

@@ -477,11 +477,7 @@ private fun OtpContent(
         Text("Verify your number", style = RidersType.title, color = RidersColors.text)
         Spacer(Modifier.height(RidersSpacing.md))
         Text(
-            if (whatsapp) {
-                "Enter the WhatsApp code sent to $phone. The account stays signed out until this code is accepted."
-            } else {
-                "Enter the WhatsApp code sent to $phone. The account stays signed out until this code is accepted."
-            },
+            "Enter the WhatsApp code sent to $phone.",
             style = RidersType.body,
             color = RidersColors.textSecondary,
         )
@@ -503,6 +499,7 @@ private fun OtpContent(
                 label = "Send another code",
                 onClick = onResend,
                 enabled = !loading,
+                bordered = false,
                 modifier = Modifier.fillMaxWidth(),
             )
         }

@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { Image, StyleSheet, Text, TextInput, View } from 'react-native';
+import { StyleSheet, Text, TextInput, View } from 'react-native';
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
 
 import LoadingIndicator from '../../../../components/LoadingIndicator';
@@ -134,13 +134,6 @@ function RouteStop({ label, stop, last }: { label: string; stop: StopDraft; last
         {phone ? (
           <View style={styles.meta}>
             <MaterialDesignIcons name="phone-outline" size={16} color="#000000" />
-            {phone.startsWith('+263') && !last ? (
-              <Image
-                source={require('../../../../../assets/zimbabwe-flag.png')}
-                style={styles.flag}
-                resizeMode="cover"
-              />
-            ) : null}
             <Text style={styles.stopPhone}>{phone}</Text>
           </View>
         ) : null}
@@ -277,11 +270,6 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: typography.caption,
     color: colors.textSecondary,
-  },
-  flag: {
-    width: 22,
-    height: 16,
-    borderRadius: 2,
   },
   stopPhone: {
     flex: 1,

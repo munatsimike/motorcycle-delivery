@@ -43,6 +43,7 @@ import kotlinx.coroutines.launch
 data class AssignmentListUi(
     val loading: Boolean = true,
     val refreshing: Boolean = false,
+    val loaded: Boolean = false,
     val assignments: List<CommittedParcel> = emptyList(),
     val error: String? = null,
 )
@@ -51,7 +52,7 @@ data class AssignmentListUi(
 class AssignmentListViewModel @Inject constructor(
     private val assignments: AssignmentRepository,
 ) : ViewModel() {
-    private val state = MutableStateFlow(AssignmentListUi(assignments = assignments.current(), loading = assignments.current().isEmpty()))
+    private val state = MutableStateFlow(initialAssignmentList(assignments.current(), assignments.hasConfirmedAssignments()))
     val ui: StateFlow<AssignmentListUi> = state.asStateFlow()
     private var busy = false
     private var rerun = false
@@ -63,23 +64,28 @@ class AssignmentListViewModel @Inject constructor(
         }
         busy = true
         val current = state.value
+        val firstLoad = !current.loaded && current.assignments.isEmpty() && current.error == null
         state.value = current.copy(
-            refreshing = current.assignments.isNotEmpty() || current.error != null,
-            loading = current.assignments.isEmpty() && current.error == null,
+            refreshing = !firstLoad,
+            loading = firstLoad,
             error = null,
         )
         viewModelScope.launch {
             try {
                 when (val result = assignments.refreshList()) {
-                    is ApiResult.Ok -> state.value = AssignmentListUi(assignments = result.value)
+                    is ApiResult.Ok -> state.value = AssignmentListUi(assignments = result.value, loaded = true)
                     is ApiResult.Err -> state.value = state.value.copy(
                         loading = false,
                         refreshing = false,
+                        loaded = current.loaded,
                         assignments = assignments.current(),
                         error = result.error.text(),
                     )
                 }
             } finally {
+                if (state.value.loading) {
+                    state.value = state.value.copy(loading = false, refreshing = false)
+                }
                 busy = false
                 if (rerun) {
                     rerun = false
@@ -88,6 +94,14 @@ class AssignmentListViewModel @Inject constructor(
             }
         }
     }
+}
+
+private fun initialAssignmentList(assignments: List<CommittedParcel>, confirmed: Boolean): AssignmentListUi {
+    return AssignmentListUi(
+        assignments = assignments,
+        loading = !confirmed && assignments.isEmpty(),
+        loaded = confirmed,
+    )
 }
 
 @Composable

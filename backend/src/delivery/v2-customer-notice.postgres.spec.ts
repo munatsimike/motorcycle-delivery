@@ -202,6 +202,7 @@ it('writes one customer event for each V2 status, skips a replay, and rolls a fa
   await expect(prisma.v2OutboxEvent.create({
     data: {
       eventType: 'COLLECTED',
+      dedupeKey: `manual:${opened.assignmentId}:COLLECTED`,
       deliveryId: opened.deliveryId,
       assignmentId: opened.assignmentId,
       riderProfileId: hired.riderProfileId,
@@ -779,7 +780,7 @@ async function parkPendingExcept(assignmentIds: string[]) {
   await prisma.v2OutboxEvent.updateMany({
     where: {
       status: 'PENDING',
-      assignmentId: { notIn: assignmentIds },
+      NOT: { assignmentId: { in: assignmentIds } },
     },
     data: { nextAttemptAt: new Date('2099-01-01T00:00:00.000Z') },
   });

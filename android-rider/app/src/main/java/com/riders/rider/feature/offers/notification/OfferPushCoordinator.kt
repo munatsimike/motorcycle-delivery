@@ -4,10 +4,12 @@ import android.content.Context
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.FirebaseApp
 import com.google.firebase.messaging.FirebaseMessaging
+import com.riders.rider.core.network.ApiResult
 import com.riders.rider.core.network.PushDeviceRequest
 import com.riders.rider.core.network.RiderService
 import com.riders.rider.core.network.apiCall
 import com.riders.rider.core.session.SessionStore
+import com.riders.rider.feature.offers.domain.canRemovePushDevice
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -42,13 +44,20 @@ class OfferPushCoordinator @Inject constructor(
 
     suspend fun forget() {
         val token = readToken()
-        if (token != null && sessions.read() != null) {
-            apiCall { riders.removePushDevice(PushDeviceRequest(token)) }
+        val signedIn = sessions.read() != null
+        if (canRemovePushDevice(signedIn, token) && token != null) {
+            val removed = apiCall { riders.removePushDevice(PushDeviceRequest(token)) }
+            if (removed is ApiResult.Ok) {
+                writeToken(null)
+                registeredToken = null
+            }
+        } else if (!signedIn) {
+            writeToken(null)
+            registeredToken = null
         }
-        writeToken(null)
-        registeredToken = null
         shown.clear()
         pending.clear()
+        pending.clearApproval()
     }
 
     private suspend fun registerCurrentToken() {

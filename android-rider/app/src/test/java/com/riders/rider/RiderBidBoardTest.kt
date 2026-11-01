@@ -63,7 +63,11 @@ import com.riders.rider.feature.delivery.domain.completedDeliveries
 import com.riders.rider.feature.delivery.domain.parcelRoute
 import com.riders.rider.feature.offers.domain.acceptedBidDeliveryId
 import com.riders.rider.feature.offers.domain.notificationRequestCanOpen
+import com.riders.rider.feature.offers.domain.RiderNoticeAction
+import com.riders.rider.feature.offers.domain.canRemovePushDevice
 import com.riders.rider.feature.offers.domain.parseRiderNotice
+import com.riders.rider.feature.offers.domain.pushDeviceRemovedBeforeSession
+import com.riders.rider.feature.offers.domain.riderNoticeAction
 import com.riders.rider.feature.offers.domain.parseRiderOffer
 import com.riders.rider.feature.offers.domain.riderOfferOpensV1Offers
 import com.riders.rider.navigation.deliveriesShowsBidBoard
@@ -250,6 +254,28 @@ class RiderBidBoardTest {
         assertNull(acceptedBidDeliveryId(offer))
         assertFalse(deliveriesShowsBidBoard(null))
         assertFalse(deliveriesShowsOffers("AVAILABLE"))
+        val action = riderNoticeAction(offer)
+        assertEquals("delivery-1", (action as RiderNoticeAction.ShowOffer).deliveryId)
+        val openEnded = parseRiderNotice(mapOf("type" to "rider_offer", "deliveryId" to "delivery-2"))
+        assertEquals("delivery-2", (riderNoticeAction(openEnded) as RiderNoticeAction.ShowOffer).deliveryId)
+        assertFalse(notificationRequestCanOpen(listed = false, expiresAt = null, nowMillis = 0))
+        assertFalse(notificationRequestCanOpen(listed = true, expiresAt = "2026-10-24T08:00:00.000Z", nowMillis = 1_900_000_000_000))
+        assertTrue(notificationRequestCanOpen(listed = true, expiresAt = "", nowMillis = 1_900_000_000_000))
+    }
+
+    @Test
+    fun approvalOpensHomeAndLogoutRemovesTheTokenBeforeTheSession() {
+        val approved = parseRiderNotice(mapOf(
+            "type" to "rider_account_approved",
+            "approvedAt" to "2026-11-01T16:00:00.000Z",
+        ))
+        assertEquals("2026-11-01T16:00:00.000Z", (riderNoticeAction(approved) as RiderNoticeAction.ShowApproved).approvedAt)
+        assertNull(parseRiderNotice(mapOf("type" to "rider_account_approved")))
+        assertTrue(riderNoticeAction(null) is RiderNoticeAction.Ignore)
+        assertTrue(pushDeviceRemovedBeforeSession())
+        assertTrue(canRemovePushDevice(sessionPresent = true, token = "device-token"))
+        assertFalse(canRemovePushDevice(sessionPresent = false, token = "device-token"))
+        assertFalse(canRemovePushDevice(sessionPresent = true, token = " "))
     }
 
     @Test

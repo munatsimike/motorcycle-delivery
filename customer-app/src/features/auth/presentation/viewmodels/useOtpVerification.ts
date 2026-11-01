@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { customerAuthRepository } from '../../data/repositories/CustomerAuthApiRepository';
-import type { AuthFlow, AuthSession } from '../../domain/auth.types';
+import type { AuthFlow } from '../../domain/auth.types';
+import { submitVerificationCode, type VerificationDestination } from '../../domain/customerAuthJourney';
 import { isVerificationCode } from '../../domain/verificationCode';
 import { errorMessage } from '../errorMessage';
 
 const RESEND_COOLDOWN_MS = 60_000;
-
-export type OtpVerificationResult = { flow: 'session'; session: AuthSession };
 
 export function useOtpVerification(phone: string, flow: AuthFlow) {
   const [code, setCode] = useState('');
@@ -24,7 +23,7 @@ export function useOtpVerification(phone: string, flow: AuthFlow) {
 
   const secondsRemaining = Math.max(0, Math.ceil((resendAvailableAt - now) / 1000));
 
-  async function verify(): Promise<OtpVerificationResult | null> {
+  async function verify(): Promise<VerificationDestination | null> {
     if (inFlight.current) {
       return null;
     }
@@ -37,10 +36,7 @@ export function useOtpVerification(phone: string, flow: AuthFlow) {
     setIsLoading(true);
     setError(null);
     try {
-      const session = flow === 'whatsapp_login'
-        ? await customerAuthRepository.verifyWhatsAppLogin(phone, code)
-        : await customerAuthRepository.verifyWhatsAppRegistration(phone, code);
-      return { flow: 'session', session };
+      return await submitVerificationCode(customerAuthRepository, flow, phone, code);
     } catch (caught) {
       setError(errorMessage(caught, 'Verification failed.'));
       return null;

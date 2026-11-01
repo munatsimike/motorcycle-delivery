@@ -85,8 +85,12 @@ export class WhatsAppAuthService {
       await this.sendRiderCode(phone, AuthPurpose.WHATSAPP_REGISTRATION, remoteAddress);
       return { status: 'pending' };
     }
+    if (isPhoneOnlyRegistration(body)) {
+      await this.sendCustomerCode(phone, AuthPurpose.WHATSAPP_REGISTRATION, remoteAddress);
+      return { status: 'pending' };
+    }
     const profile = readCustomerProfile(body);
-    this.assertConfigured();
+    await this.assertProviderReady(phone, AuthPurpose.WHATSAPP_REGISTRATION);
     const now = this.clock.now();
     await this.assertRegistrationSendAllowed(phone, role, hashSecret(remoteAddress), now);
     const user = await this.savePendingAccount(role, phone, profile, null, now);
@@ -110,14 +114,14 @@ export class WhatsAppAuthService {
       await this.resendRiderCode(phone, AuthPurpose.WHATSAPP_REGISTRATION, remoteAddress);
       return { status: 'pending' };
     }
-    this.assertConfigured();
     const now = this.clock.now();
-    await this.assertRegistrationSendAllowed(phone, role, hashSecret(remoteAddress), now);
     const user = await this.prisma.user.findUnique({ where: { phone }, include: accountInclude });
     if (!user || !isPendingRegistration(user, role)) {
-      await this.recordConcealed(phone, role, AuthPurpose.WHATSAPP_REGISTRATION, hashSecret(remoteAddress), now);
+      await this.resendCustomerCode(phone, AuthPurpose.WHATSAPP_REGISTRATION, remoteAddress);
       return { status: 'pending' };
     }
+    await this.assertProviderReady(phone, AuthPurpose.WHATSAPP_REGISTRATION);
+    await this.assertRegistrationSendAllowed(phone, role, hashSecret(remoteAddress), now);
     await this.sendChallenge({
       phone,
       role,
@@ -135,7 +139,7 @@ export class WhatsAppAuthService {
     }
     const phone = readPhone(body);
     const code = readCode(body, 'Verification code is invalid');
-    this.assertConfigured();
+    await this.assertProviderReady(phone, AuthPurpose.WHATSAPP_REGISTRATION);
     const now = this.clock.now();
     if (await this.locked(phone, role, now)) {
       throw new TooManyRequestsException();
@@ -149,7 +153,11 @@ export class WhatsAppAuthService {
       await this.recordCheckFailure(challenge.id, challenge.checkAttempts, now);
       throw new UnauthorizedException('Verification code is invalid');
     }
-    return this.activateRegistration(challenge.id, phone, role, now);
+    const user = await this.prisma.user.findUnique({ where: { phone }, include: accountInclude });
+    if (user && isPendingRegistration(user, role)) {
+      return this.activateRegistration(challenge.id, phone, role, now);
+    }
+    return this.issueCustomerVerification(challenge, phone, now);
   }
 
   async startLogin(role: AuthSubjectRole, body: unknown, remoteAddress: string): Promise<LoginStart> {
@@ -159,13 +167,13 @@ export class WhatsAppAuthService {
       await this.sendRiderCode(phone, AuthPurpose.LOGIN, remoteAddress);
       return { status: 'pending' };
     }
-    this.assertConfigured();
+    await this.assertProviderReady(phone, AuthPurpose.LOGIN);
     const now = this.clock.now();
     if (await this.loginSendBlocked(phone, role, hashSecret(remoteAddress), now)) {
       throw new TooManyRequestsException();
     }
     const user = await this.prisma.user.findUnique({ where: { phone }, include: accountInclude });
-    if (!canSignIn(user, role)) {
+    if (!user || customerAccessClosed(user)) {
       return { status: 'unavailable' };
     }
     if (!user.whatsappConsentAt) {
@@ -188,13 +196,13 @@ export class WhatsAppAuthService {
       await this.resendRiderCode(phone, AuthPurpose.LOGIN, remoteAddress);
       return { status: 'pending' };
     }
-    this.assertConfigured();
+    await this.assertProviderReady(phone, AuthPurpose.LOGIN);
     const now = this.clock.now();
     if (await this.loginSendBlocked(phone, role, hashSecret(remoteAddress), now)) {
       throw new TooManyRequestsException();
     }
     const user = await this.prisma.user.findUnique({ where: { phone }, include: accountInclude });
-    if (!canSignIn(user, role)) {
+    if (!user || customerAccessClosed(user)) {
       return { status: 'unavailable' };
     }
     await this.sendChallenge({
@@ -214,7 +222,7 @@ export class WhatsAppAuthService {
     }
     const phone = readPhone(body);
     const code = readCode(body, 'Verification code is invalid');
-    this.assertConfigured();
+    await this.assertProviderReady(phone, AuthPurpose.LOGIN);
     const now = this.clock.now();
     if (await this.locked(phone, role, now)) {
       throw new TooManyRequestsException();
@@ -228,33 +236,16 @@ export class WhatsAppAuthService {
       await this.recordCheckFailure(challenge.id, challenge.checkAttempts, now);
       throw new UnauthorizedException('Verification code is invalid');
     }
-    return this.prisma.$transaction(async (tx) => {
-      const consumed = await tx.authChallenge.updateMany({
-        where: { id: challenge.id, status: AuthChallengeStatus.PENDING },
-        data: { status: AuthChallengeStatus.VERIFIED },
-      });
-      if (consumed.count !== 1) {
-        throw new UnauthorizedException('Verification code is invalid');
-      }
-      const user = await tx.user.findUnique({ where: { phone }, include: accountInclude });
-      if (!canSignIn(user, role)) {
-        throw new UnauthorizedException('Verification code is invalid');
-      }
-      const challengeRow = await tx.authChallenge.findFirst({ where: { id: challenge.id } });
-      if (challengeRow && isPrivateTestChallenge(challengeRow.twilioSid) && !user.privateTestAccount) {
-        throw new UnauthorizedException('Verification code is invalid');
-      }
-      return this.sessions.issue(tx, user.id, user.role, now);
-    });
+    return this.issueCustomerVerification(challenge, phone, now);
   }
 
   async completeRiderRegistration(body: unknown): Promise<AuthTokens> {
     const details = readRiderAccount(body);
     const token = readRegistrationToken(body);
-    this.assertConfigured();
     const now = this.clock.now();
     const claims = readRiderProof(token, now);
     const challenge = await this.prisma.authChallenge.findFirst({ where: { id: claims.challengeId } });
+    await this.assertProviderReady(claims.phone, challenge?.purpose ?? AuthPurpose.WHATSAPP_REGISTRATION);
     if (!usableRiderProof(challenge, claims.phone)) {
       throw new UnauthorizedException(GENERIC_FAILURE);
     }
@@ -289,8 +280,121 @@ export class WhatsAppAuthService {
     }
   }
 
+  async completeCustomerRegistration(body: unknown): Promise<AuthTokens> {
+    const profile = readCustomerProfile(body);
+    const token = readRegistrationToken(body);
+    const now = this.clock.now();
+    const claims = readCustomerProof(token, now);
+    const challenge = await this.prisma.authChallenge.findFirst({ where: { id: claims.challengeId } });
+    await this.assertProviderReady(claims.phone, challenge?.purpose ?? AuthPurpose.WHATSAPP_REGISTRATION);
+    if (recoverableConsumedCustomerProof(challenge, claims.phone)) {
+      return this.reissueCompletedCustomerSession(challenge, claims.phone, now);
+    }
+    if (!usableCustomerProof(challenge, claims.phone)) {
+      throw new UnauthorizedException(GENERIC_FAILURE);
+    }
+    const privateTestAccount = isPrivateTestChallenge(challenge.twilioSid);
+    try {
+      const outcome = await this.prisma.$transaction(async (tx) => {
+        const consumed = await tx.authChallenge.updateMany({
+          where: { id: challenge.id, phone: claims.phone, status: AuthChallengeStatus.VERIFIED },
+          data: { status: AuthChallengeStatus.SUPERSEDED },
+        });
+        if (consumed.count !== 1) {
+          return { kind: 'invalid' as const };
+        }
+        await tx.$queryRaw`SELECT "id" FROM "users" WHERE "phone" = ${claims.phone} FOR UPDATE`;
+        const existing = await tx.user.findUnique({ where: { phone: claims.phone }, include: accountInclude });
+        if (customerAccessClosed(existing) || (privateTestAccount && existing && !existing.privateTestAccount)) {
+          return { kind: 'invalid' as const };
+        }
+        if (existing?.customerAccount) {
+          const tokens = await this.activateCustomer(tx, existing, now);
+          return { kind: 'created' as const, tokens };
+        }
+        const userId = existing
+          ? existing.id
+          : (await tx.user.create({
+            data: {
+              fullName: profile.personName,
+              phone: claims.phone,
+              role: UserRole.CUSTOMER,
+              accountStatus: AccountStatus.ACTIVE,
+              phoneVerifiedAt: now,
+              whatsappConsentAt: now,
+              privateTestAccount,
+            },
+          })).id;
+        if (existing) {
+          await tx.user.update({
+            where: { id: existing.id },
+            data: {
+              fullName: existing.fullName.trim() === '' ? profile.personName : existing.fullName,
+              accountStatus: AccountStatus.ACTIVE,
+              phoneVerifiedAt: existing.phoneVerifiedAt ?? now,
+              whatsappConsentAt: existing.whatsappConsentAt ?? now,
+            },
+          });
+        }
+        await tx.customerAccount.create({
+          data: {
+            userId,
+            kind: profile.kind,
+            name: profile.name,
+            contactName: profile.contactName,
+            address: profile.address,
+            updatedAt: now,
+          },
+        });
+        const owner = await tx.user.findUniqueOrThrow({ where: { id: userId }, include: accountInclude });
+        const tokens = await this.sessions.issue(tx, owner.id, owner.role, now);
+        return { kind: 'created' as const, tokens };
+      });
+      if (outcome.kind === 'created') {
+        return outcome.tokens;
+      }
+      throw new UnauthorizedException(GENERIC_FAILURE);
+    } catch (error) {
+      if (error instanceof UnauthorizedException || error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new UnauthorizedException(GENERIC_FAILURE);
+    }
+  }
+
+  // The original proof is still within its signed expiry, and completion already
+  // consumed that same challenge. Issue the session that the lost response
+  // should have carried. This does not create a profile or move the expiry.
+  private async reissueCompletedCustomerSession(
+    challenge: { id: string; twilioSid: string | null },
+    phone: string,
+    now: Date,
+  ): Promise<AuthTokens> {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const current = await tx.authChallenge.findFirst({ where: { id: challenge.id } });
+        if (!current || current.status !== AuthChallengeStatus.SUPERSEDED || current.phone !== phone || current.subjectRole !== AuthSubjectRole.CUSTOMER) {
+          throw new UnauthorizedException(GENERIC_FAILURE);
+        }
+        const existing = await tx.user.findUnique({ where: { phone }, include: accountInclude });
+        if (!existing?.customerAccount || customerAccessClosed(existing)) {
+          throw new UnauthorizedException(GENERIC_FAILURE);
+        }
+        if (isPrivateTestChallenge(current.twilioSid) && !existing.privateTestAccount) {
+          throw new UnauthorizedException(GENERIC_FAILURE);
+        }
+        return this.activateCustomer(tx, existing, now);
+      });
+    } catch (error) {
+      if (error instanceof UnauthorizedException || error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new UnauthorizedException(GENERIC_FAILURE);
+    }
+  }
+
   private async sendRiderCode(phone: string, purpose: AuthPurpose, remoteAddress: string): Promise<void> {
-    this.assertConfigured();
+    await this.assertProviderReady(phone, purpose);
     const now = this.clock.now();
     if (purpose === AuthPurpose.LOGIN) {
       if (await this.loginSendBlocked(phone, AuthSubjectRole.RIDER, hashSecret(remoteAddress), now)) {
@@ -310,7 +414,7 @@ export class WhatsAppAuthService {
   }
 
   private async resendRiderCode(phone: string, purpose: AuthPurpose, remoteAddress: string): Promise<void> {
-    this.assertConfigured();
+    await this.assertProviderReady(phone, purpose);
     const now = this.clock.now();
     if (purpose === AuthPurpose.LOGIN) {
       if (await this.loginSendBlocked(phone, AuthSubjectRole.RIDER, hashSecret(remoteAddress), now)) {
@@ -343,10 +447,128 @@ export class WhatsAppAuthService {
     });
   }
 
+  private async sendCustomerCode(phone: string, purpose: AuthPurpose, remoteAddress: string): Promise<void> {
+    await this.assertProviderReady(phone, purpose);
+    const now = this.clock.now();
+    if (purpose === AuthPurpose.LOGIN) {
+      if (await this.loginSendBlocked(phone, AuthSubjectRole.CUSTOMER, hashSecret(remoteAddress), now)) {
+        throw new TooManyRequestsException();
+      }
+    } else {
+      await this.assertRegistrationSendAllowed(phone, AuthSubjectRole.CUSTOMER, hashSecret(remoteAddress), now);
+    }
+    await this.sendChallenge({
+      phone,
+      role: AuthSubjectRole.CUSTOMER,
+      purpose,
+      remoteAddress,
+      now,
+      concealFailure: false,
+    });
+  }
+
+  private async resendCustomerCode(phone: string, purpose: AuthPurpose, remoteAddress: string): Promise<void> {
+    await this.assertProviderReady(phone, purpose);
+    const now = this.clock.now();
+    if (purpose === AuthPurpose.LOGIN) {
+      if (await this.loginSendBlocked(phone, AuthSubjectRole.CUSTOMER, hashSecret(remoteAddress), now)) {
+        throw new TooManyRequestsException();
+      }
+    } else {
+      await this.assertRegistrationSendAllowed(phone, AuthSubjectRole.CUSTOMER, hashSecret(remoteAddress), now);
+    }
+    const prior = await this.prisma.authChallenge.findFirst({
+      where: {
+        phone,
+        subjectRole: AuthSubjectRole.CUSTOMER,
+        purpose,
+        channel: VerificationChannel.WHATSAPP,
+        sendCount: { gt: 0 },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!prior) {
+      await this.recordConcealed(phone, AuthSubjectRole.CUSTOMER, purpose, hashSecret(remoteAddress), now);
+      return;
+    }
+    await this.sendChallenge({
+      phone,
+      role: AuthSubjectRole.CUSTOMER,
+      purpose,
+      remoteAddress,
+      now,
+      concealFailure: false,
+    });
+  }
+
+  private async issueCustomerVerification(
+    challenge: { id: string; twilioSid: string | null },
+    phone: string,
+    now: Date,
+  ): Promise<RiderVerificationResult> {
+    const outcome = await this.prisma.$transaction(async (tx) => {
+      const consumed = await tx.authChallenge.updateMany({
+        where: { id: challenge.id, status: AuthChallengeStatus.PENDING },
+        data: { status: AuthChallengeStatus.VERIFIED },
+      });
+      if (consumed.count !== 1) {
+        return { kind: 'invalid' as const };
+      }
+      const user = await tx.user.findUnique({ where: { phone }, include: accountInclude });
+      if (isPrivateTestChallenge(challenge.twilioSid) && user && !user.privateTestAccount) {
+        await tx.authChallenge.updateMany({
+          where: { id: challenge.id, status: AuthChallengeStatus.VERIFIED },
+          data: { status: AuthChallengeStatus.SUPERSEDED },
+        });
+        return { kind: 'denied' as const };
+      }
+      if (customerAccessClosed(user)) {
+        return { kind: 'denied' as const };
+      }
+      if (user?.customerAccount) {
+        const tokens = await this.activateCustomer(tx, user, now);
+        return { kind: 'session' as const, tokens };
+      }
+      return {
+        kind: 'proof' as const,
+        fullName: user && user.fullName.trim() !== '' ? user.fullName : undefined,
+      };
+    });
+    if (outcome.kind === 'invalid' || outcome.kind === 'denied') {
+      throw new UnauthorizedException('Verification code is invalid');
+    }
+    if (outcome.kind === 'session') {
+      return outcome.tokens;
+    }
+    const proof: RiderRegistrationProof = {
+      status: 'verified',
+      registrationToken: signRegistrationProof(challenge.id, phone, now, 'customer-registration'),
+    };
+    if (outcome.fullName) {
+      proof.fullName = outcome.fullName;
+      proof.readOnly = ['fullName'];
+    }
+    return proof;
+  }
+
+  private async activateCustomer(tx: Prisma.TransactionClient, user: AccountRecord, now: Date): Promise<AuthTokens> {
+    if (user.accountStatus !== AccountStatus.ACTIVE || user.phoneVerifiedAt === null || !user.whatsappConsentAt) {
+      await tx.user.update({
+        where: { id: user.id },
+        data: {
+          accountStatus: AccountStatus.ACTIVE,
+          phoneVerifiedAt: user.phoneVerifiedAt ?? now,
+          whatsappConsentAt: user.whatsappConsentAt ?? now,
+        },
+      });
+    }
+    return this.sessions.issue(tx, user.id, user.role, now);
+  }
+
   private async finishRiderVerification(purpose: AuthPurpose, body: unknown): Promise<RiderVerificationResult> {
     const phone = readPhone(body);
     const code = readCode(body, 'Verification code is invalid');
-    this.assertConfigured();
+    await this.assertProviderReady(phone, purpose);
     const now = this.clock.now();
     if (await this.locked(phone, AuthSubjectRole.RIDER, now)) {
       throw new TooManyRequestsException();
@@ -502,6 +724,17 @@ export class WhatsAppAuthService {
       return;
     }
     readWhatsAppVerificationConfig();
+  }
+
+  private async assertProviderReady(phone: string, purpose: AuthPurpose): Promise<void> {
+    const account = await this.prisma.user.findUnique({
+      where: { phone },
+      select: { privateTestAccount: true },
+    });
+    if (privateTestChallengeAllowed(purpose, account)) {
+      return;
+    }
+    this.assertConfigured();
   }
 
   private async assertRegistrationSendAllowed(phone: string, role: AuthSubjectRole, ipHash: string, now: Date): Promise<void> {
@@ -866,6 +1099,59 @@ function isPendingRegistration(user: AccountRecord, role: AuthSubjectRole): bool
     && user.accountStatus === AccountStatus.PENDING
     && user.phoneVerifiedAt === null
     && user.whatsappConsentAt !== null;
+}
+
+function customerAccessClosed(user: AccountRecord | null): boolean {
+  if (!user) {
+    return false;
+  }
+  return user.role === UserRole.ADMIN
+    || user.accountStatus === AccountStatus.SUSPENDED
+    || user.accountStatus === AccountStatus.DEACTIVATED;
+}
+
+function isPhoneOnlyRegistration(body: unknown): boolean {
+  if (!isRecord(body)) {
+    return false;
+  }
+  return body.accountKind === undefined
+    && body.fullName === undefined
+    && body.businessName === undefined
+    && body.contactName === undefined
+    && body.address === undefined;
+}
+
+function readCustomerProof(token: string, now: Date) {
+  try {
+    return readRegistrationProof(token, now, 'customer-registration');
+  } catch (error) {
+    if (error instanceof UnauthorizedException) {
+      throw new UnauthorizedException(GENERIC_FAILURE);
+    }
+    throw error;
+  }
+}
+
+function recoverableConsumedCustomerProof(
+  challenge: { id: string; phone: string; subjectRole: AuthSubjectRole; purpose: AuthPurpose; status: AuthChallengeStatus; twilioSid: string | null } | null,
+  phone: string,
+): challenge is { id: string; phone: string; subjectRole: AuthSubjectRole; purpose: AuthPurpose; status: AuthChallengeStatus; twilioSid: string | null } {
+  return !!challenge
+    && challenge.phone === phone
+    && challenge.subjectRole === AuthSubjectRole.CUSTOMER
+    && challenge.status === AuthChallengeStatus.SUPERSEDED
+    && (challenge.purpose === AuthPurpose.LOGIN || challenge.purpose === AuthPurpose.WHATSAPP_REGISTRATION);
+}
+
+function usableCustomerProof(
+  challenge: { id: string; phone: string; subjectRole: AuthSubjectRole; purpose: AuthPurpose; status: AuthChallengeStatus; twilioSid: string | null } | null,
+  phone: string,
+): challenge is { id: string; phone: string; subjectRole: AuthSubjectRole; purpose: AuthPurpose; status: AuthChallengeStatus; twilioSid: string | null } {
+  return !!challenge
+    && challenge.phone === phone
+    && challenge.subjectRole === AuthSubjectRole.CUSTOMER
+    && challenge.status === AuthChallengeStatus.VERIFIED
+    && (challenge.purpose === AuthPurpose.LOGIN || challenge.purpose === AuthPurpose.WHATSAPP_REGISTRATION);
 }
 
 function readRiderProof(token: string, now: Date) {

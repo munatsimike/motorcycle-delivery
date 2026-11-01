@@ -1500,6 +1500,10 @@ enum V2OutboxEventType {
   OUT_FOR_DELIVERY
   DELIVERED
   DEADLINE_REMINDER
+  RIDER_OPPORTUNITY
+  BID_RECEIVED
+  COUNTEROFFER
+  ACCOUNT_APPROVED
 
   @@map("v2_outbox_event_type")
 }
@@ -1512,16 +1516,18 @@ enum V2OutboxStatus {
   @@map("v2_outbox_status")
 }
 
-// Durable V2 notices. One row per assignment and type.
-// BID_ACCEPTED is the rider notice. Every other type is a customer notice.
+// Durable V2 notices. Assignment events stay unique per assignment and type.
+// Marketplace events that have no assignment use dedupe_key.
+// BID_ACCEPTED, RIDER_OPPORTUNITY, and ACCOUNT_APPROVED are rider notices.
+// Bid, counteroffer, and delivery-status events are customer notices.
 // v2_outbox_events_recipient_chk is SQL-only. A worker claims due PENDING rows
-// with FOR UPDATE SKIP LOCKED, sets claimed_at and claim_token, and commits
-// before calling the push provider. The provider timeout stays inside the
-// claim lease. Success sets SENT and sent_at. A genuine send failure
-// increments attempt_count, records last_failure and last_attempt_at, and
-// sets next_attempt_at. After the configured number of genuine failures the
-// row becomes FAILED and failed_at is set. No device, and an unconfigured
-// provider, leave the row PENDING and do not increment attempt_count.
+// with FOR UPDATE SKIP LOCKED and prefers a row that has a live device token.
+// Success sets SENT and sent_at. A genuine send failure increments
+// attempt_count. After the configured number of genuine failures the row
+// becomes FAILED. A closed opportunity is FAILED and is not retried. A row
+// with no device, and an unconfigured provider, stay PENDING without
+// incrementing attempt_count. The claim orders rows with a live token first
+// so a tokenless row does not block one that can be sent.
 // A provider acceptance followed by a crash before SENT is committed can be
 // sent again after the lease. Exactly-once push delivery is not guaranteed.
 // The worker does not change the delivery, assignment, bid, reservation, or wallet.
@@ -1529,8 +1535,9 @@ model V2OutboxEvent {
   id                String            @id @default(uuid(7)) @db.Uuid
   eventType         V2OutboxEventType @map("event_type")
   status            V2OutboxStatus    @default(PENDING)
-  deliveryId        String            @map("delivery_id") @db.Uuid
-  assignmentId      String            @map("assignment_id") @db.Uuid
+  dedupeKey         String            @unique @map("dedupe_key") @db.VarChar(160)
+  deliveryId        String?           @map("delivery_id") @db.Uuid
+  assignmentId      String?           @map("assignment_id") @db.Uuid
   riderProfileId    String?           @map("rider_profile_id") @db.Uuid
   customerAccountId String?           @map("customer_account_id") @db.Uuid
   attemptCount      Int               @default(0) @map("attempt_count")
@@ -1543,8 +1550,8 @@ model V2OutboxEvent {
   sentAt            DateTime?         @map("sent_at") @db.Timestamptz(6)
   createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  delivery        Delivery           @relation(fields: [deliveryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  assignment      DeliveryAssignment @relation(fields: [assignmentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  delivery        Delivery?          @relation(fields: [deliveryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  assignment      DeliveryAssignment? @relation(fields: [assignmentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   riderProfile    RiderProfile?      @relation(fields: [riderProfileId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   customerAccount CustomerAccount?   @relation(fields: [customerAccountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 

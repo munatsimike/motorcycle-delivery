@@ -803,7 +803,7 @@ async function commit(hired: Hired, serviceClass: 'FLEXIBLE' | 'EXPRESS') {
 }
 
 async function openRequest(serviceClass: 'FLEXIBLE' | 'EXPRESS') {
-  const created = await deliveries.create(customer, requestBody(serviceClass));
+  const created = await deliveries.create(customer, requestBody(serviceClass), `request-${serviceClass}-${randomUUID()}`);
   return created.id;
 }
 
@@ -969,7 +969,7 @@ async function markAcceptedSent(assignmentId: string) {
 
 async function parkPendingExcept(assignmentIds: string[]) {
   await prisma.v2OutboxEvent.updateMany({
-    where: { status: 'PENDING', assignmentId: { notIn: assignmentIds } },
+    where: { status: 'PENDING', NOT: { assignmentId: { in: assignmentIds } } },
     data: { nextAttemptAt: new Date('2099-01-01T00:00:00.000Z') },
   });
 }

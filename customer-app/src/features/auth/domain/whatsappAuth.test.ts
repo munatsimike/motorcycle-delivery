@@ -12,9 +12,6 @@ const originalFetch = globalThis.fetch;
 const repository = new CustomerAuthApiRepository();
 const registration = {
   phone: '+263771234567',
-  accountKind: 'INDIVIDUAL' as const,
-  fullName: 'Tendai Moyo',
-  address: '12 Samora Machel Avenue',
   whatsappConsent: true as const,
 };
 const session = {
@@ -70,6 +67,32 @@ describe('customer WhatsApp authentication', () => {
     expect(calls[0]?.url).toBe('https://api.example.com/auth/customer/register/whatsapp');
     expect(calls[0]?.body).toEqual(registration);
     expect(calls[0]?.body).not.toHaveProperty('accessToken');
+  });
+
+  it('returns a registration proof when the verified number is new', async () => {
+    mockJson(200, { status: 'verified', registrationToken: 'proof-token', fullName: 'Tendai Moyo' });
+
+    await expect(repository.verifyWhatsAppRegistration('+263771234567', '123456')).resolves.toEqual({
+      status: 'verified',
+      registrationToken: 'proof-token',
+      fullName: 'Tendai Moyo',
+      address: undefined,
+    });
+  });
+
+  it('submits personal details with the registration proof and receives a session', async () => {
+    const calls = mockJson(200, session);
+    const request = {
+      registrationToken: 'proof-token',
+      accountKind: 'INDIVIDUAL' as const,
+      fullName: 'Tendai Moyo',
+      address: '12 Samora Machel Avenue',
+    };
+
+    await expect(repository.completeWhatsAppRegistration(request)).resolves.toEqual(session);
+
+    expect(calls[0]?.url).toBe('https://api.example.com/auth/customer/register/whatsapp/complete');
+    expect(calls[0]?.body).toEqual(request);
   });
 
   it('creates a session only after the verification code is accepted', async () => {

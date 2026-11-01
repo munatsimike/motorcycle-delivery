@@ -15,10 +15,8 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -41,13 +39,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.riders.rider.R
 import com.riders.rider.core.design.RidersBottomSheet
 import com.riders.rider.core.design.RidersColors
-import com.riders.rider.core.design.RidersPullRefresh
-import com.riders.rider.core.design.RidersEmptyState
-import com.riders.rider.core.design.RidersFailureNotice
 import com.riders.rider.core.design.RidersRadius
 import com.riders.rider.core.design.RidersSpacing
 import com.riders.rider.core.design.RidersType
-import com.riders.rider.core.design.RidersLoadingState
 import com.riders.rider.feature.delivery.domain.DeliveryListSort
 import com.riders.rider.feature.delivery.presentation.AssignmentListPane
 import com.riders.rider.feature.delivery.presentation.CompletedDeliveriesPane
@@ -56,7 +50,6 @@ import com.riders.rider.feature.bids.presentation.BidBoardScreen
 import com.riders.rider.feature.offers.presentation.OffersScreen
 import com.riders.rider.navigation.DeliveryBoardTab
 import com.riders.rider.navigation.defaultDeliveryBoardTab
-import com.riders.rider.navigation.deliveriesShowsAssignmentList
 import com.riders.rider.navigation.deliveryBoardTabLabel
 import com.riders.rider.navigation.deliveryBoardTabs
 
@@ -97,7 +90,6 @@ fun DeliveriesScreen(
             .background(RidersColors.background)
             .statusBarsPadding(),
     ) {
-        val committed = ui.committedV2
         val tabs = deliveryBoardTabs()
         val selected = if (tab in tabs) tab else defaultDeliveryBoardTab()
         val contentKind = content.kind()
@@ -164,43 +156,14 @@ fun DeliveriesScreen(
                 sort = sort,
                 modifier = Modifier.weight(1f),
             )
-            DeliveryBoardTab.Active -> when {
-                ui.loading && ui.onboarding == null -> RidersLoadingState("Loading your deliveries")
-                ui.assignmentsUnknown -> RidersFailureNotice(
-                    message = ui.error ?: "Your deliveries could not be loaded. Check your connection and try again.",
-                    title = "Deliveries unavailable",
-                    onRetry = model::refresh,
-                    modifier = Modifier.weight(1f),
-                )
-                deliveriesShowsAssignmentList(ui.onboarding?.receiving, committed) -> AssignmentListPane(
-                    onOpen = onOpenDelivery,
-                    availability = availability,
-                    receiving = ui.onboarding?.receiving,
-                    contentKind = contentKind,
-                    sort = sort,
-                    modifier = Modifier.weight(1f),
-                )
-                else -> RidersPullRefresh(
-                    refreshing = ui.refreshing,
-                    onRefresh = model::refresh,
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Column(
-                        Modifier
-                            .fillMaxSize()
-                            .verticalScroll(rememberScrollState())
-                            .padding(horizontal = RidersSpacing.lg)
-                            .padding(bottom = RidersSpacing.lg),
-                    ) {
-                        RidersEmptyState(
-                            title = filteredContentTitle(contentKind, "No active deliveries"),
-                            body = "Your assigned deliveries will appear here.",
-                            image = R.drawable.parcel_box,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                }
-            }
+            DeliveryBoardTab.Active -> AssignmentListPane(
+                onOpen = onOpenDelivery,
+                availability = availability,
+                receiving = ui.onboarding?.receiving,
+                contentKind = contentKind,
+                sort = sort,
+                modifier = Modifier.weight(1f),
+            )
         }
     }
 }

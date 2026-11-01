@@ -31,7 +31,7 @@ import {
   releasePlatformFeeReservation,
   captureV2CommissionReservation,
 } from '../rider/wallet-ledger.js';
-import { recordRequestReopened, recordV2CustomerStatus } from './v2-outbox.js';
+import { recordDeliveryOpportunity, recordRequestReopened, recordV2CustomerStatus } from './v2-outbox.js';
 import { offerIsOpen } from './dispatch.constants.js';
 import { centsFromDecimal, formatCents } from './money.js';
 import { readCustomerOfferCents } from './delivery-request.js';
@@ -626,6 +626,7 @@ async function cancelBeforePickup(
       assignmentId: assignment.id,
       customerAccountId: delivery.customerId,
     });
+    await recordDeliveryOpportunity(tx, { deliveryId: delivery.id, openedAt: now });
   }
   return {
     assignmentId: assignment.id,

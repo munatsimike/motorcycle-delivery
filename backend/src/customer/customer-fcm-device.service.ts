@@ -38,6 +38,7 @@ export class CustomerFcmDeviceService {
       customer.customerAccountId,
       token,
     );
+    await this.wakeCustomerNotices(customer.customerAccountId);
     return { registered: true };
   }
 
@@ -51,6 +52,21 @@ export class CustomerFcmDeviceService {
       token,
       customer.customerAccountId,
     );
+  }
+
+  private async wakeCustomerNotices(customerAccountId: string): Promise<void> {
+    try {
+      await this.prisma.$executeRawUnsafe(
+        `UPDATE "v2_outbox_events"
+         SET "next_attempt_at" = LEAST("next_attempt_at", now())
+         WHERE "status" = 'PENDING'::"v2_outbox_status"
+           AND "customer_account_id" = $1::uuid
+           AND "next_attempt_at" IS NOT NULL`,
+        customerAccountId,
+      );
+    } catch {
+      // Registration still succeeds when a deferred notice cannot be woken.
+    }
   }
 
   private assertCustomer(customer: CustomerContext): void {

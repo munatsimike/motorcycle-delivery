@@ -47,6 +47,14 @@ const CUSTOMER_DELIVERY_NOTIFICATION: Record<string, { title: string; body: stri
     title: 'Delivered',
     body: 'Your parcel has been delivered.',
   },
+  v2_bid_received: {
+    title: 'New offer',
+    body: 'A rider sent an offer on your delivery.',
+  },
+  v2_counteroffer: {
+    title: 'Counteroffer',
+    body: 'A rider sent a different offer on your delivery.',
+  },
 };
 
 export const CUSTOMER_DELIVERY_CHANNEL_ID = 'default';
@@ -166,19 +174,28 @@ export function v2ProviderFailure(error: unknown): 'timeout' | 'temporary' {
 
 export function v2FcmBody(message: V2PushMessage) {
   const notification = message.audience === 'customer' ? customerDeliveryNotification(message.type) : null;
+  const data: Record<string, string> = { type: message.type };
+  if (message.deliveryId) {
+    data.deliveryId = message.deliveryId;
+  }
+  if (message.assignmentId) {
+    data.assignmentId = message.assignmentId;
+  }
+  if (message.expiresAt) {
+    data.expiresAt = message.expiresAt;
+  }
+  if (message.approvedAt) {
+    data.approvedAt = message.approvedAt;
+  }
   return {
     message: {
       token: message.token,
-      data: {
-        type: message.type,
-        deliveryId: message.deliveryId,
-        assignmentId: message.assignmentId,
-      },
+      data,
       ...(notification ? { notification } : {}),
       android: {
         priority: 'HIGH',
-        ttl: '60s',
-        collapse_key: message.assignmentId,
+        ttl: `${message.ttlSeconds ?? 60}s`,
+        collapse_key: message.collapseKey ?? (message.assignmentId || message.type),
         ...(notification
           ? { notification: { channel_id: CUSTOMER_DELIVERY_CHANNEL_ID } }
           : {}),

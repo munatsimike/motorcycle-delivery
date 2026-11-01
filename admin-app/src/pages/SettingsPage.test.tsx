@@ -55,7 +55,7 @@ beforeEach(() => {
     const method = options?.method ?? 'GET';
     if (method === 'PUT' && path === '/admin/delivery-pricing') {
       world.puts.push(options?.body);
-      return { ...v1, pricingVersion: 5 };
+      return classTariff('EXPRESS', 5);
     }
     if (method === 'POST' && path.includes('/windows/')) {
       world.posts.push({ path, body: options?.body });

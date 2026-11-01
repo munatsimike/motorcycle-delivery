@@ -6,7 +6,12 @@ import type { AuthFlow } from '../features/auth/domain/auth.types';
 export type RootStackParamList = {
   Welcome: undefined;
   SignIn: { notice?: string } | undefined;
-  SignUp: undefined;
+  SignUp: { notice?: string } | undefined;
+  CompleteRegistration: {
+    registrationToken: string;
+    fullName?: string;
+    address?: string;
+  };
   OtpVerification: {
     phone: string;
     flow: AuthFlow;

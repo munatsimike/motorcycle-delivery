@@ -1,6 +1,6 @@
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
 import { useEffect, useRef, useState } from 'react';
-import { Animated, Easing, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Animated, Easing, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
@@ -8,7 +8,6 @@ import ErrorMessage from '../../../../components/ErrorMessage';
 import LoadingIndicator from '../../../../components/LoadingIndicator';
 import { useKeyboardLift } from '../../../../components/useKeyboardLift';
 import PrimaryButton from '../../../../components/PrimaryButton';
-import SecondaryButton from '../../../../components/SecondaryButton';
 import { bookingMode } from '../../../account/domain/customerAccount';
 import { useCustomerAccount } from '../../../account/presentation/viewmodels/useCustomerAccount';
 import { useSession } from '../../../auth/presentation/viewmodels/useSession';
@@ -48,7 +47,24 @@ export default function ParcelRequestScreen({ navigation }: ParcelRequestProps) 
   stepRef.current = booking.step;
 
   useEffect(() => {
-    navigation.setOptions({ title: bookingStepTitle(booking.step) });
+    const title = bookingStepTitle(booking.step);
+    navigation.setOptions({
+      title,
+      headerBackVisible: false,
+      headerTitleAlign: 'left',
+      headerTitle: () => (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={title}
+          hitSlop={8}
+          onPress={() => navigation.goBack()}
+          style={styles.headerBack}
+        >
+          <MaterialDesignIcons name="chevron-left" size={28} color={colors.text} />
+          <Text style={styles.headerTitle} numberOfLines={1}>{title}</Text>
+        </Pressable>
+      ),
+    });
   }, [booking.step, navigation]);
 
   useEffect(() => {
@@ -215,15 +231,6 @@ export default function ParcelRequestScreen({ navigation }: ParcelRequestProps) 
               }}
             />
           )}
-          {booking.step === 'pickup' ? null : (
-            <SecondaryButton
-              label="Back"
-              icon="arrow-left"
-              bordered={false}
-              onPress={booking.goBack}
-              disabled={Boolean(booking.busy) || booked}
-            />
-          )}
         </View>
       </ScrollView>
       {booked ? <BookingConfirmed /> : null}
@@ -292,6 +299,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.lg,
     paddingBottom: spacing.xxl,
+  },
+  headerBack: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    marginLeft: -spacing.sm,
+  },
+  headerTitle: {
+    fontSize: typography.heading,
+    fontWeight: '600',
+    color: colors.text,
   },
   actions: {
     gap: spacing.md,

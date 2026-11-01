@@ -1,6 +1,6 @@
 import { apiPost } from '../../../../services/api/apiClient';
-import type { AuthSession, CustomerProfile, LoginStart, PendingOtp } from '../../domain/auth.types';
-import type { CustomerAuthRepository } from '../../domain/repositories/CustomerAuthRepository';
+import type { AuthSession, CompleteRegistrationRequest, LoginStart, PendingOtp, RegistrationVerification } from '../../domain/auth.types';
+import type { CustomerAuthRepository, PhoneRegistrationRequest } from '../../domain/repositories/CustomerAuthRepository';
 
 export class CustomerAuthApiRepository implements CustomerAuthRepository {
   startWhatsAppLogin(phone: string): Promise<LoginStart> {
@@ -11,11 +11,11 @@ export class CustomerAuthApiRepository implements CustomerAuthRepository {
     return apiPost<unknown>('/auth/customer/login/whatsapp/resend', { phone }).then(readLoginStart);
   }
 
-  verifyWhatsAppLogin(phone: string, code: string): Promise<AuthSession> {
-    return apiPost<unknown>('/auth/customer/login/whatsapp/verify', { phone, code }).then(readSession);
+  verifyWhatsAppLogin(phone: string, code: string): Promise<RegistrationVerification> {
+    return apiPost<unknown>('/auth/customer/login/whatsapp/verify', { phone, code }).then(readVerification);
   }
 
-  startWhatsAppRegistration(request: CustomerProfile & { phone: string; whatsappConsent: true }): Promise<PendingOtp> {
+  startWhatsAppRegistration(request: PhoneRegistrationRequest): Promise<PendingOtp> {
     return apiPost<unknown>('/auth/customer/register/whatsapp', request).then(readPending);
   }
 
@@ -23,8 +23,12 @@ export class CustomerAuthApiRepository implements CustomerAuthRepository {
     return apiPost<unknown>('/auth/customer/register/whatsapp/resend', { phone }).then(readPending);
   }
 
-  verifyWhatsAppRegistration(phone: string, code: string): Promise<AuthSession> {
-    return apiPost<unknown>('/auth/customer/register/whatsapp/verify', { phone, code }).then(readSession);
+  verifyWhatsAppRegistration(phone: string, code: string): Promise<RegistrationVerification> {
+    return apiPost<unknown>('/auth/customer/register/whatsapp/verify', { phone, code }).then(readVerification);
+  }
+
+  completeWhatsAppRegistration(request: CompleteRegistrationRequest): Promise<AuthSession> {
+    return apiPost<unknown>('/auth/customer/register/whatsapp/complete', request).then(readSession);
   }
 
   refresh(refreshToken: string): Promise<AuthSession> {
@@ -56,6 +60,22 @@ function readPending(value: unknown): PendingOtp {
     throw new Error('Verification could not be started.');
   }
   return { status: 'pending' };
+}
+
+function readVerification(value: unknown): RegistrationVerification {
+  if (!isRecord(value)) {
+    throw new Error('Authentication failed.');
+  }
+  if (value.status === 'sign_in') {
+    return { status: 'sign_in' };
+  }
+  const registrationToken = textField(value.registrationToken);
+  if (value.status === 'verified' && registrationToken) {
+    const fullName = textField(value.fullName) ?? undefined;
+    const address = value.address === null ? null : textField(value.address) ?? undefined;
+    return { status: 'verified', registrationToken, fullName, address };
+  }
+  return readSession(value);
 }
 
 function readSession(value: unknown): AuthSession {

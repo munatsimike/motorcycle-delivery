@@ -6,6 +6,10 @@ export type V2PushMessage = {
   deliveryId: string;
   assignmentId: string;
   audience: V2PushAudience;
+  ttlSeconds?: number;
+  collapseKey?: string;
+  expiresAt?: string;
+  approvedAt?: string;
 };
 
 export type V2PushOutcome = 'accepted' | 'invalid' | 'temporary' | 'timeout';

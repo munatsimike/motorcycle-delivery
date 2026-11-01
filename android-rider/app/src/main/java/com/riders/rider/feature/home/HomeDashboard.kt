@@ -2,6 +2,7 @@ package com.riders.rider.feature.home
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -45,6 +46,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -110,6 +112,7 @@ fun HomeScreen(
     onDelivery: (String) -> Unit,
     onSetup: () -> Unit = {},
     inShell: Boolean = false,
+    profilePhoto: Bitmap? = null,
     model: HomeViewModel = hiltViewModel(),
     offersModel: OfferViewModel = hiltViewModel(),
 ) {
@@ -138,6 +141,7 @@ fun HomeScreen(
     }
     HomeDashboard(
         ui = ui,
+        profilePhoto = profilePhoto,
         greeting = ridersGreeting(Calendar.getInstance().get(Calendar.HOUR_OF_DAY)),
         onGoOnline = {
             val allowed = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
@@ -236,6 +240,7 @@ private fun LocationSharingPausedNotice(onRetry: () -> Unit) {
 @Composable
 fun HomeDashboard(
     ui: HomeUi,
+    profilePhoto: Bitmap? = null,
     greeting: String,
     onGoOnline: () -> Unit,
     onGoOffline: () -> Unit,
@@ -288,7 +293,7 @@ fun HomeDashboard(
                         horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        RiderInitialsAvatar(ui.fullName)
+                        RiderInitialsAvatar(ui.fullName, profilePhoto)
                         Column(
                             Modifier.weight(1f),
                             verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs),
@@ -442,7 +447,7 @@ private fun GreenHomeBackdrop(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun RiderInitialsAvatar(fullName: String) {
+private fun RiderInitialsAvatar(fullName: String, photo: Bitmap?) {
     val initials = riderInitials(fullName)
     val palette = riderAvatarColors(fullName)
     Box(
@@ -452,12 +457,21 @@ private fun RiderInitialsAvatar(fullName: String) {
             .background(palette.background),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            initials,
-            color = palette.foreground,
-            fontSize = 17.sp,
-            fontWeight = FontWeight.Bold,
-        )
+        if (photo != null) {
+            Image(
+                bitmap = photo.asImageBitmap(),
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+        } else {
+            Text(
+                initials,
+                color = palette.foreground,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.Bold,
+            )
+        }
     }
 }
 
@@ -715,6 +729,8 @@ private fun AvailabilityCard(
                 label = "View application",
                 onClick = onSetup,
                 enabled = !loading,
+                icon = R.drawable.ic_file_document_outline,
+                bordered = false,
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -723,7 +739,9 @@ private fun AvailabilityCard(
                 label = "Finish setup",
                 onClick = onSetup,
                 enabled = !loading,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .padding(top = RidersSpacing.lg)
+                    .fillMaxWidth(),
             )
         }
         if (showGoOnline) {

@@ -20,6 +20,8 @@ export type AuthSession = {
 export type RegistrationProof = {
   status: 'verified';
   registrationToken: string;
+  fullName?: string;
+  address?: string | null;
   existing?: ExistingAccountDetails;
 };
 

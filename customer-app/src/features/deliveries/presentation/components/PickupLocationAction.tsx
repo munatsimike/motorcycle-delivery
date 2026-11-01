@@ -195,7 +195,7 @@ export default function PickupLocationAction({ stop, onApply }: PickupLocationAc
               error={confirmError === 'Enter the pickup landmark' ? confirmError : null}
             />
             <PrimaryButton label="Confirm pickup location" onPress={confirm} />
-            <SecondaryButton label="Cancel" bordered={false} onPress={cancel} />
+            <SecondaryButton label="Cancel" tone="danger" bordered={false} onPress={cancel} />
           </Animated.View>
         </Animated.View>
       </Modal>

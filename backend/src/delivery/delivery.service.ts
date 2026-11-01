@@ -15,6 +15,7 @@ import {
 } from '../generated/prisma/client.js';
 import type { CustomerContext } from '../auth/customer-access.service.js';
 import { v2MarketplaceEnabled } from '../auth/v2-flags.js';
+import { recordDeliveryOpportunity } from './v2-outbox.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { readDeliveryDraft, readQuoteRequest, readV2DeliveryDraft, type QuotePins, type QuoteRequest, type V2DeliveryDraft } from './delivery-request.js';
 import { assignedRiderStatus, customerSharesRiderLocation, freshRiderPoint, toCustomerDelivery, toCustomerDeliverySummary, withAssignedRider, withCollectingRiderLocation, withPickupApproach, type AssignedRiderView, type PickupApproachView, type RiderPoint, type StoredDelivery } from './delivery-view.js';
@@ -325,6 +326,7 @@ export class DeliveryService {
             actorType: DeliveryActorType.CUSTOMER,
           },
         });
+        await recordDeliveryOpportunity(tx, { deliveryId: created.id, openedAt: now });
         return toCustomerDelivery(created as StoredDelivery);
       });
     } catch (error) {

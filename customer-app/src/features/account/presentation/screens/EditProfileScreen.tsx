@@ -82,7 +82,8 @@ export default function EditProfileScreen({ route, navigation }: EditProfileProp
         />
         <SecondaryButton
           label="Cancel"
-          soft
+          tone="danger"
+          bordered={false}
           disabled={form.isSaving}
           onPress={() => navigation.goBack()}
         />

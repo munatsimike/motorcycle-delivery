@@ -28,6 +28,7 @@ import { assertV2CommissionCapacity } from '../rider/wallet-ledger.js';
 import { commissionCents } from './commission-calculator.js';
 import { closeUnassignedV2Deliveries, v2RequestRemainsOpen } from './v2-deadline.js';
 import { expireDueV2Searches, expireLockedV2Search, v2SearchWindowElapsed } from './v2-search.js';
+import { recordCustomerBidNotice } from './v2-outbox.js';
 
 const MAX_BID_CENTS = 999_999_999_999;
 const UUID_TEXT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -402,6 +403,21 @@ export class BidService {
         createdAt: now,
       },
     });
+    const offeredSource = openForBids.customerOffer ?? openForBids.suggestedPrice;
+    if (offeredSource != null) {
+      try {
+        await recordCustomerBidNotice(tx, {
+          bidId: created.id,
+          deliveryId: delivery.id,
+          customerAccountId: openForBids.customerId,
+          amountCents: input.amountCents,
+          offeredCents: centsFromDecimal(offeredSource),
+          createdAt: now,
+        });
+      } catch {
+        // A notice failure must not reject the bid.
+      }
+    }
     return { bid: toPublicBid(created, user.fullName) };
   }
 

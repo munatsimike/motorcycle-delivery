@@ -28,12 +28,14 @@ import CustomerTabs from './CustomerTabs';
 import EditProfileScreen from '../features/account/presentation/screens/EditProfileScreen';
 import ParcelRequestScreen from '../features/deliveries/presentation/screens/ParcelRequestScreen';
 import DeliveryTrackingScreen from '../features/deliveries/presentation/screens/DeliveryTrackingScreen';
+import CompleteRegistrationScreen from '../features/auth/presentation/screens/CompleteRegistrationScreen';
 import OtpVerificationScreen from '../features/auth/presentation/screens/OtpVerificationScreen';
 import SignInScreen from '../features/auth/presentation/screens/SignInScreen';
 import { useSession } from '../features/auth/presentation/viewmodels/useSession';
 import { publishCustomerPush, useCustomerPush } from '../features/notifications/presentation/useCustomerPush';
 import { navigationRef } from './navigationRef';
 import { FORWARD_MS, motionDuration, STACK_ANIMATION } from './screenMotion';
+import { openRestoredRegistration } from './registrationRecoveryNavigation';
 import type { RootStackParamList } from './types';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -123,7 +125,15 @@ export default function AppNavigator() {
   }
 
   return (
-    <NavigationContainer ref={navigationRef} onReady={publishCustomerPush}>
+    <NavigationContainer
+      ref={navigationRef}
+      onReady={() => {
+        publishCustomerPush();
+        if (status !== 'signedIn') {
+          void openRestoredRegistration();
+        }
+      }}
+    >
       <SessionSlide signedIn={signedIn}>
       <Stack.Navigator
         screenOptions={{
@@ -176,6 +186,11 @@ export default function AppNavigator() {
               name="OtpVerification"
               component={OtpVerificationScreen}
               options={{ title: 'Verify' }}
+            />
+            <Stack.Screen
+              name="CompleteRegistration"
+              component={CompleteRegistrationScreen}
+              options={{ title: 'Your details' }}
             />
           </>
         )}

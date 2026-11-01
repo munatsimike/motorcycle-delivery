@@ -52,6 +52,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.riders.rider.R
+import com.riders.rider.core.design.RidersButtonTone
 import com.riders.rider.core.design.RidersCard
 import com.riders.rider.core.design.RidersBottomSheet
 import com.riders.rider.core.design.RidersColors
@@ -421,6 +422,8 @@ private fun IncomingOfferActions(
                     label = "Cancel",
                     onClick = { offering = false },
                     enabled = !submittingBid,
+                    tone = RidersButtonTone.Danger,
+                    bordered = false,
                     modifier = Modifier.weight(1f),
                     soft = false,
                 )
@@ -525,7 +528,7 @@ private fun BidPage(
             },
             dismissButton = {
                 TextButton(onClick = { confirmSend = false }, enabled = !submitting) {
-                    Text("Cancel", color = RidersColors.textSecondary)
+                    Text("Cancel", color = RidersColors.error)
                 }
             },
         )
@@ -616,7 +619,14 @@ private fun BidPage(
             loadingLabel = "Sending",
             modifier = Modifier.fillMaxWidth(),
         )
-    RidersSecondaryButton(label = "Cancel", onClick = onBack, modifier = Modifier.fillMaxWidth(), soft = false)
+    RidersSecondaryButton(
+        label = "Cancel",
+        onClick = onBack,
+        tone = RidersButtonTone.Danger,
+        bordered = false,
+        modifier = Modifier.fillMaxWidth(),
+        soft = false,
+    )
     }
 }
 

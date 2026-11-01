@@ -41,6 +41,7 @@ import com.riders.rider.feature.home.HomeScreen
 import com.riders.rider.feature.offers.notification.rememberOfferInbox
 import com.riders.rider.feature.offers.notification.rememberOfferPush
 import com.riders.rider.feature.home.HomeViewModel
+import com.riders.rider.feature.profile.domain.displayedProfilePhoto
 import com.riders.rider.feature.profile.presentation.ProfileScreen
 import com.riders.rider.feature.profile.presentation.ProfileViewModel
 import com.riders.rider.feature.wallet.presentation.WalletScreen
@@ -69,6 +70,7 @@ fun RiderShell(
     val offerPush = rememberOfferPush()
     val pendingRequests = rememberOfferInbox()
     val requestTap by pendingRequests.taps.collectAsStateWithLifecycle()
+    val accountApproved by pendingRequests.approvalTaps.collectAsStateWithLifecycle()
     LaunchedEffect(requestTap) {
         val requestId = requestTap?.trim().orEmpty()
         if (requestId.isEmpty()) {
@@ -81,6 +83,17 @@ fun RiderShell(
     }
     val home: HomeViewModel = hiltViewModel()
     val profile: ProfileViewModel = hiltViewModel()
+    val profileUi by profile.ui.collectAsStateWithLifecycle()
+    val profilePhoto = displayedProfilePhoto(profileUi.photo, profileUi.photoBitmap, profileUi.photoPreview)
+    LaunchedEffect(Unit) { profile.refresh() }
+    LaunchedEffect(accountApproved) {
+        if (!accountApproved) {
+            return@LaunchedEffect
+        }
+        tabName = RiderDestination.Home.name
+        home.refresh()
+        pendingRequests.clearApproval()
+    }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle, entry) {
         val observer = LifecycleEventObserver { _, event ->
@@ -168,6 +181,7 @@ fun RiderShell(
                         onDelivery = onDelivery,
                         onSetup = onSetup,
                         inShell = true,
+                        profilePhoto = profilePhoto,
                         model = home,
                     )
                     RiderDestination.Deliveries -> DeliveriesScreen(

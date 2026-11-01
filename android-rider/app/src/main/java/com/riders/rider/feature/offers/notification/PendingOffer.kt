@@ -18,11 +18,13 @@ class PendingOffer @Inject constructor() {
     private val arrivals = MutableSharedFlow<String>(extraBufferCapacity = 8)
     private val acceptedTap = MutableStateFlow<String?>(null)
     private val acceptedArrivalsFlow = MutableSharedFlow<String>(extraBufferCapacity = 8)
+    private val approval = MutableStateFlow(false)
 
     val taps: StateFlow<String?> = tap.asStateFlow()
     val arrived: SharedFlow<String> = arrivals.asSharedFlow()
     val acceptedTaps: StateFlow<String?> = acceptedTap.asStateFlow()
     val acceptedArrivals: SharedFlow<String> = acceptedArrivalsFlow.asSharedFlow()
+    val approvalTaps: StateFlow<Boolean> = approval.asStateFlow()
 
     fun offerArrived(assignmentId: String) {
         arrivals.tryEmit(assignmentId)
@@ -34,6 +36,14 @@ class PendingOffer @Inject constructor() {
 
     fun clear() {
         tap.value = null
+    }
+
+    fun accountApprovedTapped() {
+        approval.value = true
+    }
+
+    fun clearApproval() {
+        approval.value = false
     }
 
     fun acceptedBidArrived(deliveryId: String) {

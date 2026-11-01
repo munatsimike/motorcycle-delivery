@@ -223,6 +223,24 @@ fun RidersPrimaryButton(
 }
 
 @Composable
+fun RidersBackButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    Icon(
+        painter = painterResource(R.drawable.ic_chevron_left),
+        contentDescription = "Back",
+        modifier = modifier
+            .size(48.dp)
+            .alpha(if (enabled) 1f else 0.6f)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .padding(10.dp),
+        tint = RidersColors.text,
+    )
+}
+
+@Composable
 fun RidersSecondaryButton(
     label: String,
     onClick: () -> Unit,
@@ -526,7 +544,13 @@ fun RidersErrorState(
         }
         Text(message, style = RidersType.caption, color = RidersColors.error, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
         if (retryLabel != null && onRetry != null) {
-            RidersSecondaryButton(label = retryLabel, onClick = onRetry, modifier = Modifier.fillMaxWidth())
+            RidersSecondaryButton(
+                label = retryLabel,
+                onClick = onRetry,
+                bordered = false,
+                icon = R.drawable.ic_refresh,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
 }

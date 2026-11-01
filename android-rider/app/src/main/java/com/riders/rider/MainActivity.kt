@@ -13,6 +13,7 @@ import com.riders.rider.core.design.RiderTheme
 import com.riders.rider.feature.auth.domain.AppEntry
 import com.riders.rider.feature.auth.presentation.SessionViewModel
 import com.riders.rider.feature.offers.domain.ACCEPTED_BID_EXTRA_DELIVERY_ID
+import com.riders.rider.feature.offers.domain.ACCOUNT_APPROVED_EXTRA
 import com.riders.rider.feature.offers.domain.OFFER_EXTRA_ASSIGNMENT_ID
 import com.riders.rider.feature.offers.notification.OfferPushCoordinator
 import com.riders.rider.feature.offers.notification.PendingOffer
@@ -62,6 +63,10 @@ class MainActivity : FragmentActivity() {
         if (deliveryId.isNotEmpty()) {
             pendingOffer.acceptedBidTapped(deliveryId)
             intent?.removeExtra(ACCEPTED_BID_EXTRA_DELIVERY_ID)
+        }
+        if (intent?.getBooleanExtra(ACCOUNT_APPROVED_EXTRA, false) == true) {
+            pendingOffer.accountApprovedTapped()
+            intent.removeExtra(ACCOUNT_APPROVED_EXTRA)
         }
     }
 }

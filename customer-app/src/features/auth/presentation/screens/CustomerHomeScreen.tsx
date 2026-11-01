@@ -297,7 +297,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: spacing.md,
     marginTop: spacing.xs,
-    marginBottom: spacing.xs,
+    marginBottom: spacing.md,
   },
   sectionTitle: {
     fontSize: typography.heading,

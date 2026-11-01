@@ -90,12 +90,16 @@ export function createS3Client(config: StorageConfig): ObjectClient {
   return new S3Client(s3ClientOptions(config));
 }
 
+export function licenceStorageConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
+  return Boolean(env.LICENCE_STORAGE_BUCKET && env.LICENCE_STORAGE_REGION && env.LICENCE_STORAGE_ACCESS_KEY_ID && env.LICENCE_STORAGE_SECRET_ACCESS_KEY);
+}
+
 function storageConfig(): StorageConfig {
   const bucket = process.env.LICENCE_STORAGE_BUCKET ?? '';
   const region = process.env.LICENCE_STORAGE_REGION ?? '';
   const accessKeyId = process.env.LICENCE_STORAGE_ACCESS_KEY_ID ?? '';
   const secretAccessKey = process.env.LICENCE_STORAGE_SECRET_ACCESS_KEY ?? '';
-  if (!bucket || !region || !accessKeyId || !secretAccessKey) {
+  if (!licenceStorageConfigured()) {
     throw new ServiceUnavailableException('Licence image storage is unavailable');
   }
   const endpoint = process.env.LICENCE_STORAGE_ENDPOINT;

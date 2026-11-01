@@ -4,9 +4,17 @@ import { v2MarketplaceEnabled } from '../auth/v2-flags.js';
 import { remindLateV2Deliveries } from './v2-deadline-reminder.js';
 import { V2PushSender, type V2PushOutcome } from './v2-push-sender.js';
 import {
+  hasActiveVerifiedMotorcycle,
+  mayReceiveDeliveryOpportunity,
+  noticeDisposition,
+  tokenlessDeferAt,
+  v2PushAudience,
+  v2PushCollapseKey,
+  v2PushTtlSeconds,
+  v2PushType,
+} from './v2-marketplace-notice.js';
+import {
   V2_NOTICE_BATCH,
-  V2_NOTICE_IDLE_MS,
-  V2_PUSH_TYPE,
   v2NoticeConfig,
   v2RetryAt,
   type V2NoticeConfig,
@@ -15,12 +23,13 @@ import {
 type ClaimedNotice = {
   id: string;
   eventType: string;
-  deliveryId: string;
-  assignmentId: string;
+  deliveryId: string | null;
+  assignmentId: string | null;
   riderProfileId: string | null;
   customerAccountId: string | null;
   attemptCount: number;
   claimToken: string;
+  createdAt: Date;
 };
 
 type PushDeviceRow = {
@@ -83,7 +92,25 @@ export class V2OutboxSender {
          WHERE "status" = 'PENDING'::"v2_outbox_status"
            AND ("next_attempt_at" IS NULL OR "next_attempt_at" <= $1)
            AND ("claimed_at" IS NULL OR "claimed_at" < $2)
-         ORDER BY "created_at"
+         ORDER BY
+           CASE
+             WHEN "event_type" = 'RIDER_OPPORTUNITY'::"v2_outbox_event_type" AND EXISTS (
+               SELECT 1 FROM "rider_push_devices" AS device
+               WHERE device."invalidated_at" IS NULL
+             ) THEN 0
+             WHEN "rider_profile_id" IS NOT NULL AND EXISTS (
+               SELECT 1 FROM "rider_push_devices" AS device
+               WHERE device."rider_profile_id" = "v2_outbox_events"."rider_profile_id"
+                 AND device."invalidated_at" IS NULL
+             ) THEN 0
+             WHEN "customer_account_id" IS NOT NULL AND EXISTS (
+               SELECT 1 FROM "customer_fcm_devices" AS device
+               WHERE device."customer_account_id" = "v2_outbox_events"."customer_account_id"
+                 AND device."invalidated_at" IS NULL
+             ) THEN 0
+             ELSE 1
+           END,
+           "created_at"
          LIMIT $3
          FOR UPDATE SKIP LOCKED
        )
@@ -99,7 +126,8 @@ export class V2OutboxSender {
                  event."rider_profile_id" AS "riderProfileId",
                  event."customer_account_id" AS "customerAccountId",
                  event."attempt_count" AS "attemptCount",
-                 event."claim_token" AS "claimToken"`,
+                 event."claim_token" AS "claimToken",
+                 event."created_at" AS "createdAt"`,
       now,
       staleBefore,
       limit,
@@ -107,6 +135,7 @@ export class V2OutboxSender {
     return rows.map((row) => ({
       ...row,
       attemptCount: Number(row.attemptCount),
+      createdAt: row.createdAt instanceof Date ? row.createdAt : new Date(row.createdAt),
     }));
   }
 
@@ -114,29 +143,32 @@ export class V2OutboxSender {
     if (!row.claimToken) {
       return;
     }
-    const idleUntil = new Date(now.getTime() + V2_NOTICE_IDLE_MS);
-    if (!this.sender.configured()) {
+    const idleUntil = tokenlessDeferAt(now);
+    const type = v2PushType(row.eventType);
+    if (!this.sender.configured() || !type) {
       await this.releaseWithoutFailure(row, idleUntil);
+      return;
+    }
+    const openOpportunity = row.eventType === 'RIDER_OPPORTUNITY'
+      ? await this.openOpportunity(row.deliveryId, now)
+      : null;
+    if (row.eventType === 'RIDER_OPPORTUNITY' && !openOpportunity) {
+      await this.finishWithoutDelivery(row, now, 'not_available');
       return;
     }
     const devices = await this.devicesFor(row);
-    if (devices.length === 0) {
-      await this.releaseWithoutFailure(row, idleUntil);
-      return;
-    }
-    const type = V2_PUSH_TYPE[row.eventType as keyof typeof V2_PUSH_TYPE];
-    if (!type) {
-      await this.releaseWithoutFailure(row, idleUntil);
-      return;
-    }
     const results = await Promise.all(devices.map(async (device) => {
       try {
         const outcome = await this.sender.send({
           token: device.fcmToken,
           type,
-          deliveryId: row.deliveryId,
-          assignmentId: row.assignmentId,
-          audience: row.eventType === 'BID_ACCEPTED' ? 'rider' : 'customer',
+          deliveryId: row.deliveryId ?? '',
+          assignmentId: row.assignmentId ?? '',
+          audience: v2PushAudience(row.eventType),
+          ttlSeconds: v2PushTtlSeconds(type),
+          collapseKey: v2PushCollapseKey(type, row.deliveryId),
+          expiresAt: openOpportunity?.expiresAt,
+          approvedAt: row.eventType === 'ACCOUNT_APPROVED' ? row.createdAt.toISOString() : undefined,
         }, timing.timeoutMs);
         return { device, outcome };
       } catch (error) {
@@ -146,32 +178,56 @@ export class V2OutboxSender {
         return { device, outcome };
       }
     }));
-    let accepted = false;
-    let reason: FailureReason | null = null;
     for (const result of results) {
-      if (result.outcome === 'accepted') {
-        accepted = true;
-      } else if (result.outcome === 'invalid') {
+      if (result.outcome === 'invalid') {
         await this.invalidate(row, result.device.id, now);
-      } else if (result.outcome === 'timeout') {
-        reason = 'provider_timeout';
-      } else if (reason !== 'provider_timeout') {
-        reason = 'provider_unavailable';
       }
     }
-    if (accepted) {
+    const decision = noticeDisposition({
+      configured: true,
+      knownType: true,
+      deviceCount: devices.length,
+      outcomes: results.map((result) => result.outcome),
+    });
+    if (decision.disposition === 'sent') {
       await this.markSent(row, now);
       return;
     }
-    if (reason) {
-      await this.markFailure(row, now, reason, timing);
+    if (decision.disposition === 'retry' && decision.failure) {
+      await this.markFailure(row, now, decision.failure, timing);
       return;
     }
     await this.releaseWithoutFailure(row, idleUntil);
   }
 
   private async devicesFor(row: ClaimedNotice): Promise<PushDeviceRow[]> {
-    if (row.eventType === 'BID_ACCEPTED') {
+    if (row.eventType === 'RIDER_OPPORTUNITY') {
+      const devices = await this.prisma.riderPushDevice.findMany({
+        where: { invalidatedAt: null },
+        select: {
+          id: true,
+          fcmToken: true,
+          riderProfile: {
+            select: {
+              approvalStatus: true,
+              receivingRequests: true,
+              verificationStatus: true,
+              user: { select: { accountStatus: true, phoneVerifiedAt: true } },
+              motorcycles: { select: { isActive: true, verificationStatus: true } },
+            },
+          },
+        },
+      });
+      return devices.filter((device) => mayReceiveDeliveryOpportunity({
+        approvalStatus: device.riderProfile.approvalStatus,
+        accountStatus: device.riderProfile.user.accountStatus,
+        phoneVerified: device.riderProfile.user.phoneVerifiedAt != null,
+        licenceVerified: device.riderProfile.verificationStatus === 'VERIFIED',
+        receivingRequests: device.riderProfile.receivingRequests === true,
+        activeVerifiedMotorcycle: hasActiveVerifiedMotorcycle(device.riderProfile.motorcycles),
+      })).map((device) => ({ id: device.id, fcmToken: device.fcmToken }));
+    }
+    if (row.eventType === 'BID_ACCEPTED' || row.eventType === 'ACCOUNT_APPROVED') {
       if (!row.riderProfileId) {
         return [];
       }
@@ -189,10 +245,50 @@ export class V2OutboxSender {
     });
   }
 
+  private async openOpportunity(deliveryId: string | null, now: Date): Promise<{ expiresAt: string } | null> {
+    if (!deliveryId) {
+      return null;
+    }
+    const delivery = await this.prisma.delivery.findUnique({
+      where: { id: deliveryId },
+      select: { status: true, searchGeneration: true, deliverBy: true, serviceClass: true },
+    });
+    if (!delivery || delivery.status !== 'CREATED' || delivery.searchGeneration !== 0 || delivery.serviceClass == null) {
+      return null;
+    }
+    if (delivery.deliverBy && delivery.deliverBy.getTime() <= now.getTime()) {
+      return null;
+    }
+    return { expiresAt: delivery.deliverBy?.toISOString() ?? '' };
+  }
+
+  private async finishWithoutDelivery(row: ClaimedNotice, now: Date, reason: 'not_available'): Promise<void> {
+    await this.prisma.$executeRawUnsafe(
+      `UPDATE "v2_outbox_events"
+       SET "status" = 'FAILED'::"v2_outbox_status",
+           "last_failure" = $4,
+           "last_attempt_at" = $3::timestamptz,
+           "failed_at" = $3::timestamptz,
+           "claimed_at" = NULL,
+           "claim_token" = NULL,
+           "next_attempt_at" = NULL
+       WHERE "id" = $1::uuid
+         AND "claim_token" = $2::uuid
+         AND "status" = 'PENDING'::"v2_outbox_status"`,
+      row.id,
+      row.claimToken,
+      now,
+      reason,
+    );
+  }
+
   private async invalidate(row: ClaimedNotice, deviceId: string, now: Date): Promise<void> {
-    if (row.eventType === 'BID_ACCEPTED') {
+    if (row.eventType === 'BID_ACCEPTED' || row.eventType === 'ACCOUNT_APPROVED' || row.eventType === 'RIDER_OPPORTUNITY') {
       await this.prisma.riderPushDevice.updateMany({
-        where: { id: deviceId, riderProfileId: row.riderProfileId ?? undefined },
+        where: {
+          id: deviceId,
+          ...(row.riderProfileId ? { riderProfileId: row.riderProfileId } : {}),
+        },
         data: { invalidatedAt: now },
       });
       return;

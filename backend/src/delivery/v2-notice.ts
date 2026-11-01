@@ -25,6 +25,10 @@ export const V2_PUSH_TYPE: Record<V2OutboxEventType, string> = {
   OUT_FOR_DELIVERY: 'v2_out_for_delivery',
   DELIVERED: 'v2_delivered',
   DEADLINE_REMINDER: 'v2_deadline_reminder',
+  RIDER_OPPORTUNITY: 'rider_offer',
+  BID_RECEIVED: 'v2_bid_received',
+  COUNTEROFFER: 'v2_counteroffer',
+  ACCOUNT_APPROVED: 'rider_account_approved',
 };
 
 export type V2NoticeConfig = {

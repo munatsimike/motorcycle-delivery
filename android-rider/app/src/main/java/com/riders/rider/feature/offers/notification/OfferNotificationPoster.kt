@@ -16,6 +16,9 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.riders.rider.MainActivity
 import com.riders.rider.R
+import com.riders.rider.feature.offers.domain.ACCOUNT_APPROVED_BODY
+import com.riders.rider.feature.offers.domain.ACCOUNT_APPROVED_EXTRA
+import com.riders.rider.feature.offers.domain.ACCOUNT_APPROVED_TITLE
 import com.riders.rider.feature.offers.domain.ACCEPTED_BID_BODY
 import com.riders.rider.feature.offers.domain.ACCEPTED_BID_EXTRA_DELIVERY_ID
 import com.riders.rider.feature.offers.domain.ACCEPTED_BID_TITLE
@@ -97,6 +100,34 @@ class OfferNotificationPoster @Inject constructor(
             .build()
         context.getSystemService(NotificationManager::class.java)
             .notify(offerNotificationId("accepted:$deliveryId"), notification)
+    }
+
+    fun showApproved() {
+        if (!prepareChannel()) {
+            return
+        }
+        val open = Intent(context, MainActivity::class.java).apply {
+            putExtra(ACCOUNT_APPROVED_EXTRA, true)
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pending = PendingIntent.getActivity(
+            context,
+            offerNotificationId("account-approved"),
+            open,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val notification = NotificationCompat.Builder(context, OFFER_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_bell)
+            .setContentTitle(ACCOUNT_APPROVED_TITLE)
+            .setContentText(ACCOUNT_APPROVED_BODY)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setAutoCancel(true)
+            .setContentIntent(pending)
+            .build()
+        context.getSystemService(NotificationManager::class.java)
+            .notify(offerNotificationId("account-approved"), notification)
     }
 
     private fun prepareChannel(): Boolean {

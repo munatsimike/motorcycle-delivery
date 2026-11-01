@@ -47,6 +47,7 @@ function repository(refresh: CustomerAuthRepository['refresh']): CustomerAuthRep
     startWhatsAppRegistration: () => Promise.reject(new Error('unused')),
     resendWhatsAppRegistration: () => Promise.reject(new Error('unused')),
     verifyWhatsAppRegistration: () => Promise.reject(new Error('unused')),
+    completeWhatsAppRegistration: () => Promise.reject(new Error('unused')),
     refresh,
     logout: () => Promise.resolve(),
   };

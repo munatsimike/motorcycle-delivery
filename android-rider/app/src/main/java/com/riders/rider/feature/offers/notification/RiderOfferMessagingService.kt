@@ -2,8 +2,9 @@ package com.riders.rider.feature.offers.notification
 
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
-import com.riders.rider.feature.offers.domain.RiderNotice
+import com.riders.rider.feature.offers.domain.RiderNoticeAction
 import com.riders.rider.feature.offers.domain.parseRiderNotice
+import com.riders.rider.feature.offers.domain.riderNoticeAction
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
@@ -15,16 +16,28 @@ class RiderOfferMessagingService : FirebaseMessagingService() {
     @Inject lateinit var shown: ShownOfferStore
 
     override fun onMessageReceived(message: RemoteMessage) {
-        when (val notice = parseRiderNotice(message.data)) {
-            is RiderNotice.Offer -> return
-            is RiderNotice.BidAccepted -> {
-                if (!shown.markIfNew("accepted:${notice.deliveryId}")) {
+        when (val action = riderNoticeAction(parseRiderNotice(message.data))) {
+            is RiderNoticeAction.ShowOffer -> {
+                if (!shown.markIfNew("offer:${action.deliveryId}:${action.expiresAt}")) {
                     return
                 }
-                pending.acceptedBidArrived(notice.deliveryId)
-                poster.showAccepted(notice.deliveryId)
+                pending.offerArrived(action.deliveryId)
+                poster.show(action.deliveryId)
             }
-            null -> return
+            is RiderNoticeAction.ShowAccepted -> {
+                if (!shown.markIfNew("accepted:${action.deliveryId}")) {
+                    return
+                }
+                pending.acceptedBidArrived(action.deliveryId)
+                poster.showAccepted(action.deliveryId)
+            }
+            is RiderNoticeAction.ShowApproved -> {
+                if (!shown.markIfNew("approved:${action.approvedAt}")) {
+                    return
+                }
+                poster.showApproved()
+            }
+            RiderNoticeAction.Ignore -> return
         }
     }
 

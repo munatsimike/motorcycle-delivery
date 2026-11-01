@@ -69,6 +69,14 @@ fun profilePhotoSampleSize(width: Int, height: Int, maxEdge: Int = PROFILE_PHOTO
 
 fun canStartProfilePhotoAction(state: ProfilePhotoState): Boolean = state.phase == ProfilePhotoPhase.Idle
 
+fun <T> displayedProfilePhoto(state: ProfilePhotoState, stored: T?, preview: T?): T? {
+    return when {
+        state.showingPreview && preview != null -> preview
+        state.showingStored || state.showingPreview -> stored
+        else -> null
+    }
+}
+
 fun profilePhotoAfterAccount(current: ProfilePhotoState, hasProfilePhoto: Boolean): ProfilePhotoState {
     if (current.phase == ProfilePhotoPhase.Uploading || current.phase == ProfilePhotoPhase.Removing) {
         return current

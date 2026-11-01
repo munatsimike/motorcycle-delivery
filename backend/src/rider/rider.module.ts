@@ -40,6 +40,8 @@ import { V2CommissionRateService } from './v2-commission-rate.service.js';
 import { WalletConfigController } from './wallet-config.controller.js';
 import { WalletConfigService } from './wallet-config.service.js';
 import { WalletService } from './wallet.service.js';
+import { ConfiguredObjectStorage } from './configured-object-storage.js';
+import { DatabaseObjectStorage } from './database-object-storage.js';
 import { ObjectStorage } from './object-storage.js';
 import { createS3Client, S3_CLIENT_FACTORY, S3ObjectStorage } from './s3-object-storage.js';
 
@@ -88,7 +90,9 @@ import { createS3Client, S3_CLIENT_FACTORY, S3ObjectStorage } from './s3-object-
     WalletService,
     { provide: S3_CLIENT_FACTORY, useValue: createS3Client },
     S3ObjectStorage,
-    { provide: ObjectStorage, useExisting: S3ObjectStorage },
+    DatabaseObjectStorage,
+    ConfiguredObjectStorage,
+    { provide: ObjectStorage, useExisting: ConfiguredObjectStorage },
   ],
 })
 export class RiderModule {}

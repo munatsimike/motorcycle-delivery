@@ -6,7 +6,7 @@ import * as Notifications from 'expo-notifications';
 import { navigationRef } from '../../../navigation/navigationRef';
 import { registerCustomerPushDevice } from '../data/customerPushApi';
 import { pushRegistrationStore } from '../data/pushRegistrationStore';
-import { customerPushSetupDiagnostic, fcmTokenFromDevice, fcmTokenWhenPermitted, readCustomerPush, trackingParams, type DevicePushToken, DELIVERY_CHANNEL_ID } from '../domain/customerPush';
+import { customerPushSetupDiagnostic, customerPushTarget, fcmTokenFromDevice, fcmTokenWhenPermitted, readCustomerPush, type DevicePushToken, DELIVERY_CHANNEL_ID } from '../domain/customerPush';
 import { installCustomerNotificationHandler } from '../domain/customerNotificationPresentation';
 import { createPushInteractions } from '../domain/customerPushNavigation';
 import { syncPushRegistration } from '../domain/customerPushRegistration';
@@ -21,7 +21,12 @@ export function publishCustomerPush(): void {
   if (!launch) {
     return;
   }
-  navigationRef.navigate('DeliveryTracking', trackingParams(launch.push));
+  const target = customerPushTarget(launch.push);
+  if (target.name === 'CustomerHome') {
+    navigationRef.navigate('CustomerHome', target.params);
+    return;
+  }
+  navigationRef.navigate('DeliveryTracking', target.params);
 }
 
 export function openCustomerPushResponse(response: Notifications.NotificationResponse | null): void {

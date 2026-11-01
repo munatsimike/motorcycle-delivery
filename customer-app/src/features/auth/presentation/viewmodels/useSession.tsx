@@ -13,6 +13,7 @@ import { logoutCustomer } from '../../domain/usecases/logoutCustomer';
 import { restoreSession, type SessionRestore } from '../../domain/usecases/restoreSession';
 import { confirmCustomerIdentity, customerIdForSession, rebindCustomerIdentity } from '../../../../services/session/customerIdentity';
 import { reconcileInstallMarker } from '../../../../services/session/installMarker';
+import { clearRegistrationRecovery } from '../../data/registrationRecoveryStore';
 import { secureSessionStore } from '../../../../services/session/secureSessionStore';
 import { installSessionAccess, SessionAccess } from '../../../../services/session/sessionAccess';
 import { removeCustomerPushDevice } from '../../../notifications/data/customerPushApi';
@@ -26,6 +27,7 @@ type SessionContextValue = {
   accessToken: string | null;
   customerId: string | null;
   saveSession: (session: AuthSession) => Promise<void>;
+  holdSession: (session: AuthSession) => Promise<'stored' | 'memory'>;
   confirmCustomer: (customerId: string) => Promise<void>;
   logout: () => Promise<void>;
   logoutNotice: string | null;
@@ -84,6 +86,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         }
         if (install === 'reinstall') {
           await secureSessionStore.clear();
+          await clearRegistrationRecovery();
           accessRef.current?.replace(null);
           setCustomerId(null);
           setSession(null);
@@ -93,6 +96,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         const restored = await restoreSession(customerAuthRepository, secureSessionStore);
         if (!active) {
           return;
+        }
+        if (restored.status === 'ready' || restored.status === 'offline') {
+          await clearRegistrationRecovery();
         }
         adoptRestoredSession(accessRef.current, restored);
         const next = await readRestoredCustomer(restored);
@@ -127,6 +133,21 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setCustomerId(null);
       setSession(next);
       setStatus('signedIn');
+    },
+    async holdSession(next) {
+      setLogoutNotice(null);
+      let stored: 'stored' | 'memory' = 'memory';
+      try {
+        await secureSessionStore.save(next);
+        stored = 'stored';
+      } catch {
+        stored = 'memory';
+      }
+      accessRef.current?.replace(next);
+      setCustomerId(null);
+      setSession(next);
+      setStatus('signedIn');
+      return stored;
     },
     async confirmCustomer(nextCustomerId) {
       const refreshToken = session?.refreshToken;

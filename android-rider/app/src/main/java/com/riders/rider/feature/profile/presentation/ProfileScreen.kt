@@ -59,7 +59,6 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.riders.rider.R
-import com.riders.rider.core.design.PhoneWithFlag
 import com.riders.rider.core.design.RidersButtonTone
 import com.riders.rider.core.design.RidersErrorState
 import com.riders.rider.core.design.RidersColors
@@ -83,6 +82,7 @@ import com.riders.rider.feature.profile.domain.PROFILE_PHOTO_MAX_BYTES
 import com.riders.rider.feature.profile.domain.ProfilePhotoPhase
 import com.riders.rider.feature.profile.domain.ProfilePhotoState
 import com.riders.rider.feature.profile.domain.canStartProfilePhotoAction
+import com.riders.rider.feature.profile.domain.displayedProfilePhoto
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -173,11 +173,7 @@ fun ProfileScreen(
     var editingAddress by rememberSaveable { mutableStateOf(false) }
     val board = ui.board
     val hasProfile = board.fullName.isNotBlank() || board.onboarding != null
-    val displayedPhoto = when {
-        ui.photo.showingPreview && ui.photoPreview != null -> ui.photoPreview
-        ui.photo.showingStored || ui.photo.showingPreview -> ui.photoBitmap
-        else -> null
-    }
+    val displayedPhoto = displayedProfilePhoto(ui.photo, ui.photoBitmap, ui.photoPreview)
     if (editingAddress) {
         AddressEditor(
             initial = board.address,
@@ -331,29 +327,42 @@ private fun ProfileHeader(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
             ) {
-                ProfileAvatar(
-                    name = name,
-                    photo = photo,
-                    busy = !canStartProfilePhotoAction(photoState),
-                    onChangePhoto = onChangePhoto,
-                )
+                Box(Modifier.padding(bottom = RidersSpacing.sm)) {
+                    Box(Modifier.size(80.dp)) {
+                        ProfileAvatar(
+                            name = name,
+                            photo = photo,
+                            busy = !canStartProfilePhotoAction(photoState),
+                            onChangePhoto = onChangePhoto,
+                        )
+                        if (photoState.hasStoredPhoto && canStartProfilePhotoAction(photoState)) {
+                            Box(
+                                Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .offset(x = 8.dp, y = 8.dp)
+                                    .size(32.dp)
+                                    .shadow(elevation = 3.dp, shape = CircleShape)
+                                    .clip(CircleShape)
+                                    .background(Color.White)
+                                    .clickable(role = Role.Button, onClick = onRemovePhoto)
+                                    .semantics { contentDescription = "Remove photo" },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    painter = painterResource(R.drawable.ic_trash_can_outline),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                    tint = RidersColors.error,
+                                )
+                            }
+                        }
+                    }
+                }
                 if (photoState.phase == ProfilePhotoPhase.Uploading) {
                     Text(
                         "Uploading ${photoState.progress ?: 0}%",
                         style = RidersType.caption,
                         color = RidersColors.text,
-                    )
-                }
-                if (photoState.hasStoredPhoto && canStartProfilePhotoAction(photoState)) {
-                    Text(
-                        "Remove photo",
-                        style = RidersType.bodyStrong,
-                        color = RidersColors.error,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(RidersRadius.pill))
-                            .clickable(role = Role.Button, onClick = onRemovePhoto)
-                            .padding(horizontal = RidersSpacing.md, vertical = RidersSpacing.xs)
-                            .semantics { contentDescription = "Remove photo" },
                     )
                 }
                 Text(
@@ -499,6 +508,8 @@ private fun AddressEditor(
             label = "Cancel",
             onClick = onCancel,
             enabled = !saving,
+            tone = RidersButtonTone.Danger,
+            bordered = false,
             modifier = Modifier.fillMaxWidth(),
         )
     }
@@ -531,7 +542,7 @@ private fun DetailsCard(
             if (phone.isBlank()) {
                 Text("Verified phone", style = RidersType.bodyStrong, color = RidersColors.text)
             } else {
-                PhoneWithFlag(phone, style = RidersType.bodyStrong, color = RidersColors.text)
+                Text(phone, style = RidersType.bodyStrong, color = RidersColors.text)
             }
         }
         Hairline()
@@ -573,7 +584,11 @@ private fun Hairline() {
             .fillMaxWidth()
             .padding(start = 34.dp)
             .height(1.dp)
-            .background(RidersColors.border),
+            .background(
+                Brush.horizontalGradient(
+                    listOf(Color.Transparent, RidersColors.border, Color.Transparent),
+                ),
+            ),
     )
 }
 

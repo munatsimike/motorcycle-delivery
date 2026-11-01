@@ -10,6 +10,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import type { AdminContext } from '../auth/admin-access.service.js';
 import { hasAcceptedAssignment, lockRiderProfile } from './motorcycle-lock.js';
 import { awardWelcomeBonus } from './wallet-ledger.js';
+import { recordRiderApproved } from '../delivery/v2-outbox.js';
 
 export type ApprovalDecision = 'APPROVE' | 'SUSPEND';
 
@@ -90,6 +91,7 @@ async function approve(
     data: { approvalStatus: RiderApprovalStatus.APPROVED, updatedAt: now },
   });
   await awardWelcomeBonus(tx, riderProfileId, admin, now);
+  await recordRiderApproved(tx, { riderProfileId, approvedAt: now });
   return toResponse(updated);
 }
 

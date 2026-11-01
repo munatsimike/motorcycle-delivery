@@ -10,7 +10,7 @@ type ReminderDb = {
 // or post a ledger entry.
 const REMINDER_SQL = `INSERT INTO "v2_outbox_events" (
   "id", "event_type", "status", "delivery_id", "assignment_id",
-  "customer_account_id", "attempt_count", "created_at"
+  "customer_account_id", "attempt_count", "created_at", "dedupe_key"
 )
 SELECT gen_random_uuid(),
        'DEADLINE_REMINDER'::"v2_outbox_event_type",
@@ -19,7 +19,8 @@ SELECT gen_random_uuid(),
        assignment."id",
        delivery."customer_id",
        0,
-       $1
+       $1,
+       'assignment:' || assignment."id"::text || ':DEADLINE_REMINDER'
 FROM "delivery_assignments" AS assignment
 INNER JOIN "deliveries" AS delivery ON delivery."id" = assignment."delivery_id"
 WHERE assignment."status" = 'ACCEPTED'::"assignment_status"

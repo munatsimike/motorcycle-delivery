@@ -15,8 +15,8 @@ export class CustomerWhatsAppRegistrationBody {
   @ApiProperty({ description: 'Zimbabwe mobile number. A national or +263 form is accepted and stored as E.164.' })
   phone!: string;
 
-  @ApiProperty({ enum: ['INDIVIDUAL', 'BUSINESS'] })
-  accountKind!: 'INDIVIDUAL' | 'BUSINESS';
+  @ApiPropertyOptional({ enum: ['INDIVIDUAL', 'BUSINESS'], description: 'Collected after the phone is verified. Older clients may still send it with the code request.' })
+  accountKind?: 'INDIVIDUAL' | 'BUSINESS';
 
   @ApiPropertyOptional({ maxLength: 200 })
   fullName?: string;
@@ -27,10 +27,10 @@ export class CustomerWhatsAppRegistrationBody {
   @ApiPropertyOptional({ maxLength: 200 })
   contactName?: string;
 
-  @ApiProperty({ minLength: 1, maxLength: 500 })
-  address!: string;
+  @ApiPropertyOptional({ minLength: 1, maxLength: 500, description: 'Collected after the phone is verified. Older clients may still send it with the code request.' })
+  address?: string;
 
-  @ApiProperty({ description: 'Must be true. The account consents to WhatsApp authentication messages.' })
+  @ApiProperty({ description: 'Must be true. The account consents to WhatsApp authentication messages. Name and address are collected after the code is verified.' })
   whatsappConsent!: boolean;
 }
 

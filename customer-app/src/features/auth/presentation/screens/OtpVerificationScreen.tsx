@@ -16,6 +16,8 @@ import OtpCodeBoxes from '../components/OtpCodeBoxes';
 import SecondaryButton from '../../../../components/SecondaryButton';
 import type { RootStackParamList } from '../../../../navigation/types';
 import { colors, spacing, typography } from '../../../../theme';
+import { clearRegistrationRecovery, loadRegistrationDraft, rememberRegistrationDraft, rememberRegistrationProof } from '../../data/registrationRecoveryStore';
+import { formSeed } from '../../domain/registrationRecovery';
 import { useSession } from '../viewmodels/useSession';
 import { useOtpVerification } from '../viewmodels/useOtpVerification';
 
@@ -46,8 +48,32 @@ export default function OtpVerificationScreen({ navigation, route }: OtpProps) {
       setSubmitted(false);
       return;
     }
+    if (result.destination === 'registration') {
+      const draft = formSeed(await loadRegistrationDraft().catch(() => ({ fullName: '', address: '' })), {
+        fullName: result.fullName,
+        address: result.address,
+      });
+      try {
+        await rememberRegistrationProof(result.registrationToken);
+        await rememberRegistrationDraft(draft);
+      } catch {
+        // This visit can still finish. A restart asks for a new code.
+      }
+      navigation.navigate('CompleteRegistration', {
+        registrationToken: result.registrationToken,
+        fullName: draft.fullName || undefined,
+        address: draft.address || undefined,
+      });
+      setSubmitted(false);
+      return;
+    }
+    if (result.destination === 'sign_in') {
+      navigation.navigate('SignIn', { notice: 'This number already has an account. Sign in to continue.' });
+      return;
+    }
     try {
       await saveSession(result.session);
+      await clearRegistrationRecovery();
     } catch {
       setSaveError('The session could not be saved on this phone.');
       setSubmitted(false);
@@ -71,7 +97,7 @@ export default function OtpVerificationScreen({ navigation, route }: OtpProps) {
       >
         <Text style={styles.title}>Verify your number</Text>
         <Text style={styles.subtitle}>
-          {`Enter the WhatsApp code sent to ${phone}. The account stays signed out until this code is accepted.`}
+          {`Enter the WhatsApp code sent to ${phone}.`}
         </Text>
         <OtpCodeBoxes
           value={code}
@@ -93,6 +119,7 @@ export default function OtpVerificationScreen({ navigation, route }: OtpProps) {
           <SecondaryButton
             label={resendLabel}
             icon="refresh"
+            bordered={false}
             onPress={() => {
               void resend();
             }}

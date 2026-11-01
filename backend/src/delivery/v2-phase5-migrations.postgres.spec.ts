@@ -87,7 +87,7 @@ it('documents the historical same-session postgis guard collision without editin
 }, 120_000);
 
 it('applies the Phase 1/2 baseline and then the pending Phase 3–5 migrations in filename order', async () => {
-  const phase3 = names.filter((name) => name >= PHASE_3_START);
+  const phase3 = names.filter((name) => name >= PHASE_3_START && name <= PHASE_5_END);
   expect(phase3[0]).toBe(PHASE_3_START);
   expect(phase3.at(-1)).toBe(PHASE_5_END);
   expect(phase3).toEqual([

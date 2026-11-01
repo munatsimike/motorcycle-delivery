@@ -6,6 +6,7 @@ import com.riders.rider.feature.profile.domain.ProfilePhotoRetry
 import com.riders.rider.feature.profile.domain.ProfilePhotoState
 import com.riders.rider.feature.profile.domain.canStartProfilePhotoAction
 import com.riders.rider.feature.profile.domain.profileAfterRefresh
+import com.riders.rider.feature.profile.domain.displayedProfilePhoto
 import com.riders.rider.feature.profile.domain.profilePhotoAfterAccount
 import com.riders.rider.feature.profile.domain.profilePhotoAwaitingStored
 import com.riders.rider.feature.profile.domain.profilePhotoDownloadFailed
@@ -13,6 +14,7 @@ import com.riders.rider.feature.profile.domain.profilePhotoIssue
 import com.riders.rider.feature.profile.domain.profilePhotoRemoved
 import com.riders.rider.feature.profile.domain.profilePhotoSampleSize
 import com.riders.rider.feature.profile.domain.profilePhotoUploadFailed
+import com.riders.rider.feature.profile.domain.profilePhotoDownloadFinished
 import com.riders.rider.feature.profile.domain.profilePhotoUploadStarted
 import com.riders.rider.feature.profile.domain.ProfileBoard
 import org.junit.Assert.assertEquals
@@ -96,5 +98,15 @@ class RiderProfilePhotoTest {
         )
         assertTrue(board.hasProfilePhoto)
         assertEquals("Test Rider", board.fullName)
+    }
+
+    @Test
+    fun theSameStoredPhotoIsShownOnHomeAndProfile() {
+        val stored = profilePhotoDownloadFinished(profilePhotoAfterAccount(ProfilePhotoState(), hasProfilePhoto = true))
+        assertEquals("photo", displayedProfilePhoto(stored, "photo", null))
+        val preview = profilePhotoUploadStarted(stored)
+        assertEquals("preview", displayedProfilePhoto(preview, "photo", "preview"))
+        assertNull(displayedProfilePhoto(profilePhotoRemoved(stored), "photo", "preview"))
+        assertNull(displayedProfilePhoto(ProfilePhotoState(), null, null))
     }
 }

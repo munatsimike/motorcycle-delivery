@@ -1,6 +1,8 @@
 const UUID_TEXT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const CUSTOMER_PUSH_TYPES = {
+  v2_bid_received: 'offers',
+  v2_counteroffer: 'offers',
   v2_request_reopened: 'request',
   v2_deadline_reminder: 'request',
   v2_collecting: 'delivery',
@@ -94,6 +96,15 @@ export function readCustomerPush(data: unknown): CustomerPush | null {
 
 export function trackingParams(push: CustomerPush): { deliveryId: string } {
   return { deliveryId: push.deliveryId };
+}
+
+export function customerPushTarget(push: CustomerPush):
+  | { name: 'DeliveryTracking'; params: { deliveryId: string } }
+  | { name: 'CustomerHome'; params: { screen: 'Requests' } } {
+  if (push.destination === 'request') {
+    return { name: 'CustomerHome', params: { screen: 'Requests' } };
+  }
+  return { name: 'DeliveryTracking', params: { deliveryId: push.deliveryId } };
 }
 
 function pushRecord(data: unknown): Record<string, unknown> | null {

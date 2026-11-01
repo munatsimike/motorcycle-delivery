@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { fcmTokenFromDevice, fcmTokenWhenPermitted, customerPushSetupDiagnostic, foregroundNotificationBehavior, readCustomerPush, trackingParams, DELIVERY_CHANNEL_ID } from './customerPush';
+import { fcmTokenFromDevice, fcmTokenWhenPermitted, customerPushSetupDiagnostic, customerPushTarget, foregroundNotificationBehavior, readCustomerPush, trackingParams, DELIVERY_CHANNEL_ID } from './customerPush';
 import { createPushInteractions } from './customerPushNavigation';
 import {
   PUSH_DEREGISTER_FAILED,
@@ -158,6 +158,20 @@ describe('customer push navigation', () => {
       expect(push).not.toHaveProperty('status');
     }
     expect(readCustomerPush({ type: 'v2_deadline_reminder', deliveryId: DELIVERY })?.destination).toBe('request');
+    expect(customerPushTarget(readCustomerPush({ type: 'v2_request_reopened', deliveryId: DELIVERY })!)).toEqual({
+      name: 'CustomerHome',
+      params: { screen: 'Requests' },
+    });
+    expect(customerPushTarget(readCustomerPush({ type: 'v2_deadline_reminder', deliveryId: DELIVERY })!)).toEqual({
+      name: 'CustomerHome',
+      params: { screen: 'Requests' },
+    });
+    const offer = readCustomerPush({ type: 'v2_bid_received', deliveryId: DELIVERY });
+    const counter = readCustomerPush({ type: 'v2_counteroffer', deliveryId: DELIVERY });
+    expect(offer?.destination).toBe('offers');
+    expect(counter?.destination).toBe('offers');
+    expect(customerPushTarget(offer!)).toEqual({ name: 'DeliveryTracking', params: { deliveryId: DELIVERY } });
+    expect(customerPushTarget(counter!)).toEqual({ name: 'DeliveryTracking', params: { deliveryId: DELIVERY } });
     expect(readCustomerPush({ type: 'v2_bid_accepted', deliveryId: DELIVERY })).toBeNull();
     expect(readCustomerPush({ type: 'rider_offer', deliveryId: DELIVERY })).toBeNull();
     expect(readCustomerPush({ type: 'v2_collecting', deliveryId: 'not-a-delivery' })).toBeNull();

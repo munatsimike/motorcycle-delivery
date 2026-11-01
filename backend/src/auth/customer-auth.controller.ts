@@ -3,7 +3,7 @@ import { ApiBadRequestResponse, ApiBody, ApiConflictResponse, ApiOkResponse, Api
 import type { Request } from 'express';
 import { AuthSubjectRole } from '../generated/prisma/client.js';
 import { rateLimitAddress } from '../http/client-address.js';
-import { CustomerWhatsAppRegistrationBody, OtpVerifyBody, PendingResponse, PhoneBody, SessionResponse, WhatsAppRecoveryBody } from '../openapi/schemas.js';
+import { CustomerRegistrationCompleteBody, CustomerWhatsAppRegistrationBody, OtpVerifyBody, PendingResponse, PhoneBody, SessionResponse, WhatsAppRecoveryBody } from '../openapi/schemas.js';
 import { WhatsAppAuthService } from './whatsapp-auth.service.js';
 
 @ApiTags('Customer authentication')
@@ -36,7 +36,7 @@ export class CustomerAuthController {
 
   @Post('login/whatsapp/verify')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Verify the customer WhatsApp sign-in code and create the session' })
+  @ApiOperation({ summary: 'Verify the customer WhatsApp sign-in code. A complete account receives a session. A number that still needs a customer profile receives a registration proof.' })
   @ApiBody({ type: OtpVerifyBody })
   @ApiOkResponse({ type: SessionResponse })
   @ApiUnauthorizedResponse({ description: 'Verification code is invalid' })
@@ -47,7 +47,7 @@ export class CustomerAuthController {
 
   @Post('register/whatsapp')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Start customer registration and send a WhatsApp verification code' })
+  @ApiOperation({ summary: 'Send a customer registration code. Phone and WhatsApp consent are enough. Profile fields remain accepted for older clients.' })
   @ApiBody({ type: CustomerWhatsAppRegistrationBody })
   @ApiOkResponse({ type: PendingResponse })
   @ApiBadRequestResponse({ description: 'The phone, password, profile, or WhatsApp consent is invalid.' })
@@ -71,14 +71,26 @@ export class CustomerAuthController {
 
   @Post('register/whatsapp/verify')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Verify the customer WhatsApp code and create the session' })
+  @ApiOperation({ summary: 'Verify the customer WhatsApp code. A complete customer account receives a session. A new or incomplete account receives a registration proof.' })
   @ApiBody({ type: OtpVerifyBody })
-  @ApiOkResponse({ type: SessionResponse })
+  @ApiOkResponse({ description: 'A session for a complete customer account, or a short-lived registration proof.', schema: { oneOf: [{ $ref: '#/components/schemas/SessionResponse' }, { $ref: '#/components/schemas/RegistrationProofResponse' }] } })
   @ApiUnauthorizedResponse({ description: 'Verification code is invalid' })
   @ApiTooManyRequestsResponse({ description: 'Too many verification attempts. Try again later.' })
   @ApiServiceUnavailableResponse({ description: 'WhatsApp verification is unavailable.' })
   verifyWhatsAppRegistration(@Body() body: unknown) {
     return this.whatsapp.verifyRegistration(AuthSubjectRole.CUSTOMER, body);
+  }
+
+  @Post('register/whatsapp/complete')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Create the customer profile for a verified phone and create the session' })
+  @ApiBody({ type: CustomerRegistrationCompleteBody })
+  @ApiOkResponse({ type: SessionResponse })
+  @ApiBadRequestResponse({ description: 'The name or address is invalid.' })
+  @ApiUnauthorizedResponse({ description: 'Authentication failed' })
+  @ApiServiceUnavailableResponse({ description: 'WhatsApp verification is unavailable.' })
+  completeWhatsAppRegistration(@Body() body: unknown) {
+    return this.whatsapp.completeCustomerRegistration(body);
   }
 
 }

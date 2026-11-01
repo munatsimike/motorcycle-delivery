@@ -1,10 +1,11 @@
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { CompositeNavigationProp, useNavigation } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { ComponentProps } from 'react';
 import { useState } from 'react';
-import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import CustomerAvatar from '../../../../components/CustomerAvatar';
@@ -52,50 +53,54 @@ export default function ProfileScreen() {
         <GreenSurface style={[styles.header, { paddingTop: insets.top + spacing.lg }]}>
           {account ? (
             <>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Change profile photo"
-                disabled={photo.phase !== 'idle'}
-                onPress={() => {
-                  void photo.changePhoto();
-                }}
-              >
-                <CustomerAvatar
-                  kind={account.kind}
-                  name={account.name}
-                  customerId={account.id}
-                  photoUrl={photo.uri}
-                  size={80}
-                />
-              </Pressable>
+              <View style={styles.avatarWrap}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Change profile photo"
+                  disabled={photo.phase !== 'idle'}
+                  onPress={() => {
+                    void photo.changePhoto();
+                  }}
+                >
+                  <CustomerAvatar
+                    kind={account.kind}
+                    name={account.name}
+                    customerId={account.id}
+                    photoUrl={photo.uri}
+                    size={80}
+                  />
+                </Pressable>
+                {photo.phase === 'idle' && (account.hasProfilePhoto || photo.uri) ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Remove photo"
+                    hitSlop={8}
+                    onPress={() => {
+                      Alert.alert(
+                        'Remove profile photo?',
+                        'Your initials will be shown instead.',
+                        [
+                          { text: 'Keep photo', style: 'cancel' },
+                          {
+                            text: 'Remove photo',
+                            style: 'destructive',
+                            onPress: () => {
+                              void photo.removePhoto();
+                            },
+                          },
+                        ],
+                      );
+                    }}
+                    style={styles.removePhoto}
+                  >
+                    <MaterialDesignIcons name="trash-can-outline" size={18} color={colors.error} />
+                  </Pressable>
+                ) : null}
+              </View>
               {photo.phase === 'uploading' ? (
                 <Text style={styles.photoStatus}>Uploading {photo.progress ?? 0}%</Text>
               ) : null}
               {photo.phase === 'removing' ? <Text style={styles.photoStatus}>Removing photo</Text> : null}
-              {photo.phase === 'idle' && (account.hasProfilePhoto || photo.uri) ? (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Remove photo"
-                  onPress={() => {
-                    Alert.alert(
-                      'Remove profile photo?',
-                      'Your initials will be shown instead.',
-                      [
-                        { text: 'Keep photo', style: 'cancel' },
-                        {
-                          text: 'Remove photo',
-                          style: 'destructive',
-                          onPress: () => {
-                            void photo.removePhoto();
-                          },
-                        },
-                      ],
-                    );
-                  }}
-                >
-                  <Text style={styles.removePhoto}>Remove photo</Text>
-                </Pressable>
-              ) : null}
               <Text style={styles.name}>{account.name}</Text>
               <View style={styles.kind}>
                 <MaterialDesignIcons
@@ -114,13 +119,9 @@ export default function ProfileScreen() {
         {account ? (
           <View style={styles.overlap}>
             <View style={styles.settingCard}>
-              <InfoRow
-                icon="phone-outline"
-                label="WhatsApp number"
-                value={account.phone}
-                flag={account.phone.startsWith('+263')}
-              />
+              <InfoRow icon="phone-outline" label="WhatsApp number" value={account.phone} />
               {account.email ? <InfoRow icon="email-outline" label="Email address" value={account.email} /> : null}
+              <ProfileDivider />
               <InfoRow
                 icon="map-marker-outline"
                 label="Address"
@@ -158,17 +159,26 @@ export default function ProfileScreen() {
   );
 }
 
+function ProfileDivider() {
+  return (
+    <LinearGradient
+      colors={['transparent', colors.border, 'transparent']}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 0 }}
+      style={styles.divider}
+    />
+  );
+}
+
 function InfoRow({
   icon,
   label,
   value,
-  flag = false,
   onEdit,
 }: {
   icon: IconName;
   label: string;
   value: string;
-  flag?: boolean;
   onEdit?: () => void;
 }) {
   return (
@@ -176,16 +186,7 @@ function InfoRow({
       <MaterialDesignIcons name={icon} size={20} color="#000000" />
       <View style={styles.rowCopy}>
         <Text style={styles.rowLabel}>{label}</Text>
-        <View style={styles.rowValueLine}>
-          {flag ? (
-            <Image
-              source={require('../../../../../assets/zimbabwe-flag.png')}
-              style={styles.flag}
-              resizeMode="cover"
-            />
-          ) : null}
-          <Text style={styles.rowValue}>{value}</Text>
-        </View>
+        <Text style={styles.rowValue}>{value}</Text>
       </View>
       {onEdit ? (
         <Pressable accessibilityRole="button" accessibilityLabel={`Edit ${label}`} hitSlop={8} onPress={onEdit}>
@@ -225,6 +226,11 @@ const styles = StyleSheet.create({
     color: colors.text,
     textAlign: 'center',
   },
+  avatarWrap: {
+    width: 80,
+    height: 80,
+    marginBottom: spacing.sm,
+  },
   photoStatus: {
     fontSize: typography.caption,
     fontWeight: '600',
@@ -232,10 +238,16 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   removePhoto: {
-    fontSize: typography.caption,
-    fontWeight: '600',
-    color: colors.error,
-    textAlign: 'center',
+    position: 'absolute',
+    right: -8,
+    bottom: -8,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.background,
+    boxShadow: '0 2px 6px rgba(23, 33, 29, 0.16)',
   },
   kind: {
     flexDirection: 'row',
@@ -264,6 +276,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm,
   },
+  divider: {
+    height: 1,
+    marginLeft: 32,
+  },
   row: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -278,18 +294,7 @@ const styles = StyleSheet.create({
     fontSize: typography.caption,
     color: colors.textSecondary,
   },
-  rowValueLine: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  flag: {
-    width: 28,
-    height: 22,
-    borderRadius: 2,
-  },
   rowValue: {
-    flex: 1,
     fontSize: typography.body,
     lineHeight: 22,
     fontWeight: '400',

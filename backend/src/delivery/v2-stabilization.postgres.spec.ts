@@ -190,6 +190,7 @@ it('keeps one outbox row across an acceptance replay and rolls a failed accept b
   await expect(prisma.v2OutboxEvent.create({
     data: {
       eventType: 'BID_ACCEPTED',
+      dedupeKey: `manual:${first.assignmentId}:BID_ACCEPTED`,
       deliveryId: delivery.id,
       assignmentId: first.assignmentId,
       riderProfileId: hired.rider.riderProfileId,
@@ -210,6 +211,7 @@ it('keeps one outbox row across an acceptance replay and rolls a failed accept b
     await tx.v2OutboxEvent.create({
       data: {
         eventType: 'REQUEST_REOPENED',
+        dedupeKey: `manual:${first.assignmentId}:REQUEST_REOPENED`,
         deliveryId: delivery.id,
         assignmentId: first.assignmentId,
         customerAccountId: customer.customerAccountId,
