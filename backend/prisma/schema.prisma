@@ -1518,6 +1518,8 @@ enum V2OutboxStatus {
 
 // Durable V2 notices. Assignment events stay unique per assignment and type.
 // Marketplace events that have no assignment use dedupe_key.
+// v2_outbox_events_assign_dedupe_key fills dedupe_key for an assignment notice
+// inserted by the previous API. Keep that trigger until that API is retired.
 // BID_ACCEPTED, RIDER_OPPORTUNITY, and ACCOUNT_APPROVED are rider notices.
 // Bid, counteroffer, and delivery-status events are customer notices.
 // v2_outbox_events_recipient_chk is SQL-only. A worker claims due PENDING rows

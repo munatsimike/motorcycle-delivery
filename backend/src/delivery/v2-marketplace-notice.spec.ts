@@ -177,6 +177,10 @@ describe('marketplace notice policy', () => {
     expect(sql).toContain("'RIDER_OPPORTUNITY'");
     expect(sql).toContain("'ACCOUNT_APPROVED'");
     expect(sql).toContain('"dedupe_key"');
+    expect(sql).toContain('v2_outbox_events_assign_dedupe_key');
+    expect(sql.indexOf('CREATE TRIGGER "v2_outbox_events_assign_dedupe_key"')).toBeLessThan(
+      sql.indexOf('ALTER COLUMN "dedupe_key" SET NOT NULL'),
+    );
     expect(sql).not.toContain('INSERT INTO "deliveries"');
     expect(sql).toContain('"customer_account_id" IS NULL');
     expect(sql).toContain('"rider_profile_id" IS NULL');
