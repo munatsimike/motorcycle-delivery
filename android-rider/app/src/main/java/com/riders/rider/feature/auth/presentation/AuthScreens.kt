@@ -268,6 +268,7 @@ fun OtpScreen(
         error = ui.error,
         signedIn = ui.completedPhone != null,
         whatsapp = flow == "whatsapp" || flow == "whatsapp_login" || flow == "login",
+        secondsRemaining = ui.secondsRemaining,
         onSubmit = { model.submit(flow, phone, code) },
         onResend = { model.resend(flow, phone) },
     )
@@ -471,6 +472,7 @@ private fun OtpContent(
     signedIn: Boolean,
     onSubmit: () -> Unit,
     whatsapp: Boolean = false,
+    secondsRemaining: Int = 0,
     onResend: () -> Unit = {},
 ) {
     AuthScaffold {
@@ -495,10 +497,15 @@ private fun OtpContent(
         )
         if (whatsapp) {
             Spacer(Modifier.height(RidersSpacing.md))
+            val resendLabel = if (secondsRemaining > 0) {
+                "Send another code in ${secondsRemaining}s"
+            } else {
+                "Send another code"
+            }
             RidersSecondaryButton(
-                label = "Send another code",
+                label = resendLabel,
                 onClick = onResend,
-                enabled = !loading,
+                enabled = !loading && secondsRemaining == 0,
                 bordered = false,
                 modifier = Modifier.fillMaxWidth(),
             )

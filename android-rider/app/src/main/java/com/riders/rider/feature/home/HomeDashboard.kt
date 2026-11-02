@@ -6,6 +6,9 @@ import android.graphics.Bitmap
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -18,6 +21,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -34,6 +38,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -47,6 +52,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -73,7 +79,9 @@ import com.riders.rider.core.design.RidersFailureNotice
 import com.riders.rider.core.design.RidersNetworkNotice
 import com.riders.rider.core.design.isConnectionFailure
 import com.riders.rider.core.design.RidersLoadingState
+import com.riders.rider.core.design.RidersMotion
 import com.riders.rider.core.design.RidersPrimaryButton
+import com.riders.rider.core.design.rememberRidersMotion
 import com.riders.rider.core.design.RidersPullRefresh
 import com.riders.rider.core.design.RidersSecondaryButton
 import com.riders.rider.core.design.RidersRadius
@@ -335,6 +343,7 @@ fun HomeDashboard(
                             readiness = readiness,
                             loading = ui.loading,
                             changingAvailability = ui.changingAvailability,
+                            pendingOnline = ui.pendingOnline,
                             showFinishSetup = ui.onboarding != null && needsOnboarding(ui.onboarding) && !readiness.canGoOnline && !ui.applicationSubmitted,
                             showViewApplication = ui.applicationSubmitted,
                             showGoOnline = ui.shift.showGoOnline && readiness.canGoOnline,
@@ -628,6 +637,7 @@ private fun AvailabilityCard(
     readiness: RiderReadiness,
     loading: Boolean,
     changingAvailability: Boolean,
+    pendingOnline: Boolean? = null,
     showFinishSetup: Boolean,
     showViewApplication: Boolean,
     showGoOnline: Boolean,
@@ -636,6 +646,22 @@ private fun AvailabilityCard(
     onGoOffline: () -> Unit,
     onSetup: () -> Unit,
 ) {
+    var heldOnline by remember { mutableStateOf<Boolean?>(null) }
+    SideEffect {
+        heldOnline = when {
+            pendingOnline != null -> pendingOnline
+            changingAvailability && heldOnline != null -> heldOnline
+            changingAvailability -> showGoOnline
+            else -> null
+        }
+    }
+    val goingOnline = changingAvailability && (pendingOnline ?: heldOnline) == true
+    val goingOffline = changingAvailability && (pendingOnline ?: heldOnline) == false
+    val displayGoOnline = showGoOnline || goingOnline
+    val displayGoOffline = (showGoOffline || goingOffline) && !goingOnline
+    val onlineNow = !goingOnline &&
+        (readiness.availabilityLabel == "Online" || readiness.availabilityLabel == "Available")
+
     RidersCard(prominent = true, modifier = Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Row(
@@ -664,7 +690,7 @@ private fun AvailabilityCard(
                 verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
                 horizontalAlignment = Alignment.Start,
             ) {
-                if (readiness.availabilityLabel == "Online" || readiness.availabilityLabel == "Available") {
+                if (onlineNow) {
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
                         verticalAlignment = Alignment.CenterVertically,
@@ -744,27 +770,51 @@ private fun AvailabilityCard(
                     .fillMaxWidth(),
             )
         }
-        if (showGoOnline) {
+        if (displayGoOnline) {
+            val motion = rememberRidersMotion()
+            var shown by remember { mutableStateOf(false) }
+            LaunchedEffect(Unit) { shown = true }
+            val appear by animateFloatAsState(
+                targetValue = if (shown) 1f else 0f,
+                animationSpec = tween(
+                    durationMillis = motion.duration(RidersMotion.DELIVERY_MS),
+                    easing = FastOutSlowInEasing,
+                ),
+                label = "go-online-appear",
+            )
             RidersPrimaryButton(
                 label = "Go online",
                 onClick = onGoOnline,
                 enabled = !loading && !changingAvailability,
-                loading = changingAvailability,
-                loadingLabel = "Going online",
+                loading = goingOnline,
+                loadingLabel = "Going online…",
                 icon = R.drawable.ic_power,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .graphicsLayer {
+                        alpha = appear
+                        val scale = 0.98f + 0.02f * appear
+                        scaleX = scale
+                        scaleY = scale
+                    }
+                    .padding(top = RidersSpacing.lg)
+                    .fillMaxWidth()
+                    .heightIn(min = 56.dp),
             )
         }
-        if (showGoOffline) {
+        if (displayGoOffline) {
             RidersSecondaryButton(
                 label = "Go offline",
                 onClick = onGoOffline,
                 enabled = !loading && !changingAvailability,
-                loading = changingAvailability,
+                loading = goingOffline,
+                loadingLabel = "Going offline…",
                 icon = R.drawable.ic_power,
                 bordered = false,
-                compact = true,
-                modifier = Modifier.fillMaxWidth(),
+                compact = !goingOffline,
+                modifier = Modifier
+                    .padding(top = if (displayGoOnline) 0.dp else RidersSpacing.sm)
+                    .fillMaxWidth()
+                    .then(if (goingOffline) Modifier.heightIn(min = 56.dp) else Modifier),
             )
         }
         }

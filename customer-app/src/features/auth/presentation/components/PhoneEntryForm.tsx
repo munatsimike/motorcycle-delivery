@@ -6,6 +6,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
 import type { ComponentProps } from 'react';
@@ -60,7 +61,7 @@ export default function PhoneEntryForm({
 
   return (
     <KeyboardFieldFocusContext.Provider value={keyboard.revealFocusedField}>
-      <View style={styles.container}>
+      <SafeAreaView style={styles.container} edges={['top']}>
         <ScrollView
           ref={keyboard.scrollRef}
           contentContainerStyle={[
@@ -106,7 +107,7 @@ export default function PhoneEntryForm({
           </View>
         </View>
         </ScrollView>
-      </View>
+      </SafeAreaView>
     </KeyboardFieldFocusContext.Provider>
   );
 }

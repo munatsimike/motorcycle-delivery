@@ -5,6 +5,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import ErrorMessage from '../../../../components/ErrorMessage';
@@ -84,7 +85,7 @@ export default function OtpVerificationScreen({ navigation, route }: OtpProps) {
   const keyboard = useKeyboardLift();
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <ScrollView
         ref={keyboard.scrollRef}
         contentContainerStyle={[styles.content, { paddingBottom: spacing.xxl + keyboard.keyboardInset }]}
@@ -127,7 +128,7 @@ export default function OtpVerificationScreen({ navigation, route }: OtpProps) {
           />
         </View>
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }
 

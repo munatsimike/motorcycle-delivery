@@ -7,6 +7,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import BrandLogo from '../../../../components/BrandLogo';
 import ErrorMessage from '../../../../components/ErrorMessage';
@@ -54,6 +55,7 @@ export default function AuthForm({
   onChangeAddress,
 }: AuthFormProps) {
   return (
+    <SafeAreaView style={styles.container} edges={['top']}>
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -98,6 +100,7 @@ export default function AuthForm({
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 

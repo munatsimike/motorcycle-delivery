@@ -252,6 +252,7 @@ fun RidersSecondaryButton(
     bordered: Boolean = true,
     compact: Boolean = false,
     icon: Int? = null,
+    loadingLabel: String? = null,
 ) {
     val inactive = !enabled || loading
     val accent = if (tone == RidersButtonTone.Danger) RidersColors.error else RidersColors.primary
@@ -277,7 +278,15 @@ fun RidersSecondaryButton(
         contentAlignment = Alignment.Center,
     ) {
         if (loading) {
-            CircularProgressIndicator(modifier = Modifier.size(22.dp), color = accent, strokeWidth = 2.dp)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
+            ) {
+                CircularProgressIndicator(modifier = Modifier.size(22.dp), color = accent, strokeWidth = 2.dp)
+                if (loadingLabel != null) {
+                    Text(loadingLabel, style = RidersType.button, color = accent)
+                }
+            }
         } else {
             ButtonLabel(label, accent, icon)
         }

@@ -4,6 +4,15 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -52,6 +61,8 @@ import com.riders.rider.core.design.RidersCard
 import com.riders.rider.core.design.RidersColors
 import com.riders.rider.core.design.RidersFailureNotice
 import com.riders.rider.core.design.RidersLoadingState
+import com.riders.rider.core.design.RidersMotion
+import com.riders.rider.core.design.rememberRidersMotion
 import com.riders.rider.core.design.RidersButtonTone
 import com.riders.rider.core.design.RidersPrimaryButton
 import com.riders.rider.core.design.RidersPullRefresh
@@ -94,9 +105,7 @@ fun OnboardingScreen(
     }
     LaunchedEffect(Unit) { model.refresh() }
     val motorcycleForm = ui.onboarding != null && ui.step == OnboardingStep.Motorcycle && (
-        ui.editingId != null
-            || ui.addingMotorcycle
-            || (!focused && ui.motorcycles.isEmpty() && ui.notice == null)
+        ui.editingId != null || ui.addingMotorcycle
         )
     val showBackHeader = ui.onboarding != null && !motorcycleForm
     RiderTheme {
@@ -173,16 +182,6 @@ fun OnboardingScreen(
                                     enabled = !ui.savingMotorcycle && !ui.uploading && (ui.step != OnboardingStep.Licence || licenceUploaded),
                                     loading = ui.savingMotorcycle,
                                     loadingLabel = "Saving",
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
-                            }
-                            val cancelMotorcycle = ui.step == OnboardingStep.Motorcycle && (ui.addingMotorcycle || ui.editingId != null)
-                            if (cancelMotorcycle) {
-                                RidersSecondaryButton(
-                                    label = "Cancel",
-                                    onClick = model::cancelMotorcycleEdit,
-                                    tone = RidersButtonTone.Danger,
-                                    bordered = false,
                                     modifier = Modifier.fillMaxWidth(),
                                 )
                             }
@@ -544,8 +543,21 @@ private fun MotorcycleStep(
     }
     ui.notice?.let { SavedNotice(it) }
     val editing = ui.editingId != null
-    val showForm = editing || ui.addingMotorcycle || (registration && ui.motorcycles.isEmpty() && ui.notice == null)
-    if (!showForm) {
+    val showForm = editing || ui.addingMotorcycle
+    val motion = rememberRidersMotion()
+    val appearMs = motion.duration(RidersMotion.DELIVERY_MS)
+    val hideMs = motion.duration(RidersMotion.CONFIRM_MS)
+    val formEnter = fadeIn(tween(appearMs, easing = FastOutSlowInEasing)) +
+        expandVertically(tween(appearMs, easing = FastOutSlowInEasing), expandFrom = Alignment.Top) +
+        scaleIn(tween(appearMs, easing = FastOutSlowInEasing), initialScale = 0.96f)
+    val formExit = fadeOut(tween(hideMs)) +
+        shrinkVertically(tween(hideMs), shrinkTowards = Alignment.Top) +
+        scaleOut(tween(hideMs), targetScale = 0.96f)
+    AnimatedVisibility(
+        visible = !showForm,
+        enter = formEnter,
+        exit = fadeOut(tween(hideMs)) + shrinkVertically(tween(hideMs), shrinkTowards = Alignment.Top),
+    ) {
         if (registration && ui.motorcycles.isNotEmpty()) {
             RidersSecondaryButton(
                 label = "Add motorbike",
@@ -562,60 +574,65 @@ private fun MotorcycleStep(
                 modifier = Modifier.fillMaxWidth(),
             )
         }
-    } else RidersCard(modifier = Modifier.fillMaxWidth(), prominent = true) {
-        Text(if (editing) "Update motorcycle" else "Add a motorcycle", style = RidersType.heading, color = RidersColors.text)
-        Text(
-            "Use the registration book. The number plate, make, model, and colour are all required.",
-            style = RidersType.caption,
-            color = RidersColors.textSecondary,
-        )
-        RidersTextField(
-            label = "Registration number",
-            value = ui.draft.registrationNumber,
-            onValueChange = { onDraft(ui.draft.copy(registrationNumber = it)) },
-            placeholder = "AEX 1234",
-            error = motorcycleFieldError(ui.error, "Enter a registration number"),
-            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md)) {
-            RidersTextField(
-                label = "Make",
-                value = ui.draft.make,
-                onValueChange = { onDraft(ui.draft.copy(make = it)) },
-                placeholder = "Honda",
-                error = motorcycleFieldError(ui.error, "Enter a make"),
-                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
-                modifier = Modifier.weight(1f),
+    }
+    AnimatedVisibility(
+        visible = showForm,
+        enter = formEnter,
+        exit = formExit,
+    ) {
+        RidersCard(modifier = Modifier.fillMaxWidth(), prominent = true) {
+            Text(if (editing) "Update motorcycle" else "Add a motorcycle", style = RidersType.heading, color = RidersColors.text)
+            Text(
+                "Use the registration book. The number plate, make, model, and colour are all required.",
+                style = RidersType.caption,
+                color = RidersColors.textSecondary,
             )
             RidersTextField(
-                label = "Model",
-                value = ui.draft.model,
-                onValueChange = { onDraft(ui.draft.copy(model = it)) },
-                placeholder = "Ace",
-                error = motorcycleFieldError(ui.error, "Enter a model"),
+                label = "Registration number",
+                value = ui.draft.registrationNumber,
+                onValueChange = { onDraft(ui.draft.copy(registrationNumber = it)) },
+                placeholder = "AEX 1234",
+                error = motorcycleFieldError(ui.error, "Enter a registration number"),
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md)) {
+                RidersTextField(
+                    label = "Make",
+                    value = ui.draft.make,
+                    onValueChange = { onDraft(ui.draft.copy(make = it)) },
+                    placeholder = "Honda",
+                    error = motorcycleFieldError(ui.error, "Enter a make"),
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
+                    modifier = Modifier.weight(1f),
+                )
+                RidersTextField(
+                    label = "Model",
+                    value = ui.draft.model,
+                    onValueChange = { onDraft(ui.draft.copy(model = it)) },
+                    placeholder = "Ace",
+                    error = motorcycleFieldError(ui.error, "Enter a model"),
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            RidersTextField(
+                label = "Colour",
+                value = ui.draft.colour,
+                onValueChange = { onDraft(ui.draft.copy(colour = it)) },
+                placeholder = "Black",
+                error = motorcycleFieldError(ui.error, "Enter a colour"),
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
-                modifier = Modifier.weight(1f),
             )
-        }
-        RidersTextField(
-            label = "Colour",
-            value = ui.draft.colour,
-            onValueChange = { onDraft(ui.draft.copy(colour = it)) },
-            placeholder = "Black",
-            error = motorcycleFieldError(ui.error, "Enter a colour"),
-            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
-        )
-        if (!registration) {
-            RidersPrimaryButton(
-                label = if (editing) "Save changes" else "Save motorcycle",
-                onClick = onSave,
-                enabled = !ui.savingMotorcycle,
-                loading = ui.savingMotorcycle,
-                loadingLabel = "Saving",
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-        if (!registration || editing) {
+            if (!registration) {
+                RidersPrimaryButton(
+                    label = if (editing) "Save changes" else "Save motorcycle",
+                    onClick = onSave,
+                    enabled = !ui.savingMotorcycle,
+                    loading = ui.savingMotorcycle,
+                    loadingLabel = "Saving",
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
             RidersSecondaryButton(
                 label = "Cancel",
                 onClick = onCancel,
@@ -649,9 +666,9 @@ private fun MotorcycleChoice(
     }
     val cardBorder = when {
         pending -> Color(0xFFF3D7A1)
-        approved && selected -> ActiveBlue
+        approved && selected -> ActiveBorder
         approved -> InactiveBorder
-        selected -> RidersColors.primary
+        selected -> ActiveBorder
         else -> RidersColors.border
     }
     Row(
@@ -692,7 +709,7 @@ private fun MotorcycleChoice(
                 modifier = Modifier.size(24.dp),
                 tint = when {
                     pending -> Color(0xFFB86E00)
-                    approved && selected -> ActiveBlue
+                    approved && selected -> ActiveGreen
                     approved -> InactiveGrey
                     else -> RidersColors.primaryDark
                 },
@@ -719,14 +736,14 @@ private fun MotorcycleChoice(
         ) {
             SelectionMark(
                 selected = selected,
-                color = if (approved) ActiveBlue else RidersColors.primary,
+                color = if (approved) ActiveGreen else RidersColors.primary,
                 idle = if (approved) InactiveGrey else RidersColors.border,
             )
             if (selected) {
                 Text(
                     "Active",
                     style = RidersType.captionStrong,
-                    color = if (approved) ActiveBlue else RidersColors.primaryDark,
+                    color = if (approved) ActiveGreen else RidersColors.primaryDark,
                     modifier = Modifier
                         .clip(RoundedCornerShape(RidersRadius.pill))
                         .background(RidersColors.background)
@@ -737,8 +754,9 @@ private fun MotorcycleChoice(
     }
 }
 
-private val ActiveFill = Color(0xFFD7E9F8)
-private val ActiveBlue = Color(0xFF3B78D8)
+private val ActiveFill = Color(0xFFD4EFE0)
+private val ActiveBorder = Color(0xFFB7DCC8)
+private val ActiveGreen = RidersColors.primary
 private val InactiveFill = Color(0xFFF3F4F6)
 private val InactiveBorder = Color(0xFFD8DDE3)
 private val InactiveGrey = Color(0xFF9AA3AB)

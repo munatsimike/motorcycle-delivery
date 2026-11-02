@@ -175,17 +175,17 @@ export default function AppNavigator() {
             <Stack.Screen
               name="SignIn"
               component={SignInScreen}
-              options={{ title: 'Sign in' }}
+              options={{ headerShown: false }}
             />
             <Stack.Screen
               name="SignUp"
               component={SignUpScreen}
-              options={{ title: 'Create account' }}
+              options={{ headerShown: false }}
             />
             <Stack.Screen
               name="OtpVerification"
               component={OtpVerificationScreen}
-              options={{ title: 'Verify' }}
+              options={{ headerShown: false }}
             />
             <Stack.Screen
               name="CompleteRegistration"

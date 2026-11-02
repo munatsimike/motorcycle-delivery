@@ -55,6 +55,7 @@ data class HomeUi(
     val loading: Boolean = true,
     val refreshing: Boolean = false,
     val changingAvailability: Boolean = false,
+    val pendingOnline: Boolean? = null,
     val onboarding: RiderOnboarding? = null,
     val readiness: RiderReadiness? = null,
     val active: ActiveDelivery? = null,
@@ -181,7 +182,11 @@ class HomeViewModel @Inject constructor(
             ),
         ) ?: return
         dashboardBusy = true
-        state.value = state.value.copy(changingAvailability = started.changing, error = null)
+        state.value = state.value.copy(
+            changingAvailability = started.changing,
+            pendingOnline = online,
+            error = null,
+        )
         viewModelScope.launch {
             try {
                 val result = if (online) availability.online() else availability.offline()
@@ -199,7 +204,11 @@ class HomeViewModel @Inject constructor(
                             AvailabilityChange(started.availability, changing = true),
                             result.error.text(),
                         )
-                        state.value = state.value.copy(changingAvailability = failed.changing, error = failed.error)
+                        state.value = state.value.copy(
+                            changingAvailability = failed.changing,
+                            pendingOnline = null,
+                            error = failed.error,
+                        )
                     }
                 }
             } finally {

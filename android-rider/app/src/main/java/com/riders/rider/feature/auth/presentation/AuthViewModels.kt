@@ -19,6 +19,8 @@ import com.riders.rider.feature.auth.domain.normalizeRiderPhone
 import androidx.lifecycle.SavedStateHandle
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import android.os.SystemClock
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -34,6 +36,7 @@ data class FormState(
     val lockDetails: Boolean = false,
     val useExistingLogin: Boolean = false,
     val whatsapp: Boolean = false,
+    val secondsRemaining: Int = 0,
 )
 
 @HiltViewModel
@@ -136,28 +139,40 @@ class AccountViewModel @Inject constructor(
 class OtpViewModel @Inject constructor(
     private val auth: AuthRepository,
 ) : ViewModel() {
+    private var resendAvailableAt = 0L
     private val state = MutableStateFlow(FormState())
     val ui: StateFlow<FormState> = state.asStateFlow()
 
+    init {
+        beginResendCooldown()
+        viewModelScope.launch {
+            while (true) {
+                publishSecondsRemaining()
+                delay(1_000)
+            }
+        }
+    }
+
     fun submit(flow: String, phone: String, code: String) {
         if (!isVerificationCode(code)) {
-            state.value = FormState(error = "Verification code is invalid")
+            state.value = FormState(error = "Verification code is invalid", secondsRemaining = remainingSeconds())
             return
         }
         viewModelScope.launch {
-            state.value = FormState(loading = true)
+            state.value = FormState(loading = true, secondsRemaining = remainingSeconds())
             state.value = when (val result = auth.verify(flow, phone, code)) {
                 is ApiResult.Ok -> when (val outcome = result.value) {
-                    VerifyOutcome.SignedIn -> FormState(completedPhone = phone)
-                    VerifyOutcome.UseExistingLogin -> FormState(useExistingLogin = true)
+                    VerifyOutcome.SignedIn -> FormState(completedPhone = phone, secondsRemaining = remainingSeconds())
+                    VerifyOutcome.UseExistingLogin -> FormState(useExistingLogin = true, secondsRemaining = remainingSeconds())
                     is VerifyOutcome.NeedsAccount -> FormState(
                         registrationToken = outcome.registrationToken,
                         prefillName = outcome.fullName,
                         prefillAddress = outcome.address,
                         lockDetails = outcome.lockDetails,
+                        secondsRemaining = remainingSeconds(),
                     )
                 }
-                is ApiResult.Err -> FormState(error = result.error.text())
+                is ApiResult.Err -> FormState(error = result.error.text(), secondsRemaining = remainingSeconds())
             }
         }
     }
@@ -166,15 +181,39 @@ class OtpViewModel @Inject constructor(
         if (flow != "whatsapp" && flow != "whatsapp_login" && flow != "login") {
             return
         }
+        if (state.value.loading || remainingSeconds() > 0) {
+            return
+        }
         viewModelScope.launch {
-            state.value = FormState(loading = true)
+            state.value = FormState(loading = true, secondsRemaining = remainingSeconds())
             state.value = when (val result = auth.resend(flow, phone)) {
-                is ApiResult.Ok -> FormState()
-                is ApiResult.Err -> FormState(error = result.error.text())
+                is ApiResult.Ok -> {
+                    beginResendCooldown()
+                    FormState(secondsRemaining = remainingSeconds())
+                }
+                is ApiResult.Err -> FormState(error = result.error.text(), secondsRemaining = remainingSeconds())
             }
         }
     }
+
+    private fun beginResendCooldown() {
+        resendAvailableAt = SystemClock.elapsedRealtime() + RESEND_COOLDOWN_MS
+        publishSecondsRemaining()
+    }
+
+    private fun remainingSeconds(): Int {
+        return ((resendAvailableAt - SystemClock.elapsedRealtime() + 999) / 1_000).toInt().coerceAtLeast(0)
+    }
+
+    private fun publishSecondsRemaining() {
+        val remaining = remainingSeconds()
+        if (state.value.secondsRemaining != remaining) {
+            state.value = state.value.copy(secondsRemaining = remaining)
+        }
+    }
 }
+
+private const val RESEND_COOLDOWN_MS = 60_000L
 
 data class SessionUi(
     val entry: AppEntry = AppEntry.SignedOut,
