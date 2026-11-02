@@ -17,6 +17,7 @@ import {
 } from './wallet-ledger.js';
 import { readTransactionPage, readWalletTransactions, type WalletTransactionPage } from './wallet-history.js';
 import { formatSignedCents, signedCentsFromDecimal } from './wallet-money.js';
+import { adminPage, readAdminPage, readOptionalUuid } from '../http/admin-query.js';
 import { readManualTopUp, recordManualTopUp } from './wallet-top-up.js';
 
 export type RiderWalletView = {
@@ -62,6 +63,49 @@ export class WalletService {
   setBorrowingLimit(admin: AdminContext, riderProfileId: string, body: unknown, now = new Date()): Promise<WalletSummary> {
     const overrideCents = readBorrowingLimit(body);
     return this.transaction((tx) => applyBorrowingLimit(tx, admin, riderProfileId, overrideCents, now));
+  }
+
+  async borrowingLimitAudits(query: Record<string, unknown>) {
+    const page = readAdminPage(query.page, 1, 1, 100000);
+    const limit = readAdminPage(query.limit, 20, 1, 100);
+    const riderProfileId = readOptionalUuid(query.riderProfileId, 'Invalid rider profile');
+    const actorId = readOptionalUuid(query.actorId, 'Invalid actor');
+    const where = {
+      ...(actorId ? { actorId } : {}),
+      ...(riderProfileId ? { riderWallet: { riderProfileId } } : {}),
+    };
+    const [total, rows] = await Promise.all([
+      this.prisma.walletBorrowingLimitAudit.count({ where }),
+      this.prisma.walletBorrowingLimitAudit.findMany({
+        where,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip: (page - 1) * limit,
+        take: limit,
+        select: {
+          id: true,
+          riderWalletId: true,
+          actorId: true,
+          previousOverride: true,
+          newOverride: true,
+          createdAt: true,
+          riderWallet: {
+            select: { riderProfileId: true },
+          },
+        },
+      }),
+    ]);
+    return {
+      data: rows.map((row) => ({
+        id: row.id,
+        riderWalletId: row.riderWalletId,
+        riderProfileId: row.riderWallet.riderProfileId,
+        actorId: row.actorId,
+        previousOverride: row.previousOverride === null ? null : formatSignedCents(signedCentsFromDecimal(row.previousOverride)),
+        newOverride: row.newOverride === null ? null : formatSignedCents(signedCentsFromDecimal(row.newOverride)),
+        createdAt: row.createdAt,
+      })),
+      pagination: adminPage(page, limit, total),
+    };
   }
 
   private async transaction<T>(work: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {

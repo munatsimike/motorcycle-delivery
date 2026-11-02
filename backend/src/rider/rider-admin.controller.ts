@@ -56,6 +56,51 @@ export class RiderAdminController {
   getRiderDetails(@Param('riderProfileId', new ParseUUIDPipe({ version: '7' })) riderProfileId: string) {
     return this.riderList.getById(riderProfileId);
   }
+
+  @Get(':riderProfileId/licence-reviews')
+  @ApiOperation({ summary: 'List licence verification decisions for a rider' })
+  @ApiParam({ name: 'riderProfileId', format: 'uuid' })
+  @ApiQuery({ name: 'page', required: false, schema: { type: 'integer', minimum: 1, default: 1 } })
+  @ApiQuery({ name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 } })
+  @ApiOkResponse({ description: 'Paginated licence review history. Image bytes are not included.' })
+  licenceReviews(
+    @Req() request: AdminRequest,
+    @Param('riderProfileId', new ParseUUIDPipe({ version: '7' })) riderProfileId: string,
+    @Query() query: Record<string, unknown>,
+  ) {
+    requiredAdmin(request);
+    return this.licences.listForRider(riderProfileId, query);
+  }
+
+  @Get(':riderProfileId/approval-audits')
+  @ApiOperation({ summary: 'List approval and suspension decisions for a rider' })
+  @ApiParam({ name: 'riderProfileId', format: 'uuid' })
+  @ApiQuery({ name: 'page', required: false, schema: { type: 'integer', minimum: 1, default: 1 } })
+  @ApiQuery({ name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 } })
+  @ApiOkResponse({ description: 'Paginated approval audit history.' })
+  approvalAudits(
+    @Req() request: AdminRequest,
+    @Param('riderProfileId', new ParseUUIDPipe({ version: '7' })) riderProfileId: string,
+    @Query() query: Record<string, unknown>,
+  ) {
+    requiredAdmin(request);
+    return this.approvals.listAudits(riderProfileId, query);
+  }
+
+  @Get(':riderProfileId/activity')
+  @ApiOperation({ summary: 'List delivery assignments for a rider' })
+  @ApiParam({ name: 'riderProfileId', format: 'uuid' })
+  @ApiQuery({ name: 'page', required: false, schema: { type: 'integer', minimum: 1, default: 1 } })
+  @ApiQuery({ name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 } })
+  @ApiOkResponse({ description: 'Paginated assignment and delivery history. Read only.' })
+  riderActivity(
+    @Req() request: AdminRequest,
+    @Param('riderProfileId', new ParseUUIDPipe({ version: '7' })) riderProfileId: string,
+    @Query() query: Record<string, unknown>,
+  ) {
+    requiredAdmin(request);
+    return this.riderList.activity(riderProfileId, query);
+  }
   @Post(':riderProfileId/licence-verification')
   @HttpCode(200)
   @ApiOperation({ summary: 'Verify or reject a rider licence image' })

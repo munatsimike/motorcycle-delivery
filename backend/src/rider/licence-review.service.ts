@@ -14,6 +14,7 @@ import {
 } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { AdminContext } from '../auth/admin-access.service.js';
+import { adminPage, readAdminPage } from '../http/admin-query.js';
 import { lockLicenceImage, lockRiderProfile } from './motorcycle-lock.js';
 import { ObjectStorage } from './object-storage.js';
 import { logStorageFailure } from './storage-log.js';
@@ -64,6 +65,44 @@ export class LicenceReviewService {
     }
   }
 
+  async listForRider(riderProfileId: string, query: Record<string, unknown>) {
+    await this.requireRider(riderProfileId);
+    const page = readAdminPage(query.page, 1, 1, 100000);
+    const limit = readAdminPage(query.limit, 20, 1, 100);
+    const [total, rows] = await Promise.all([
+      this.prisma.riderLicenceReview.count({ where: { riderProfileId } }),
+      this.prisma.riderLicenceReview.findMany({
+        where: { riderProfileId },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip: (page - 1) * limit,
+        take: limit,
+        select: {
+          id: true,
+          decision: true,
+          licenceNumber: true,
+          licenceClass: true,
+          rejectionReason: true,
+          reviewerId: true,
+          licenceImageId: true,
+          createdAt: true,
+        },
+      }),
+    ]);
+    return {
+      data: rows.map((row) => ({
+        id: row.id,
+        decision: row.decision,
+        licenceNumber: row.licenceNumber,
+        licenceClass: row.licenceClass,
+        rejectionReason: row.rejectionReason,
+        reviewerId: row.reviewerId,
+        licenceImageId: row.licenceImageId,
+        createdAt: row.createdAt,
+      })),
+      pagination: adminPage(page, limit, total),
+    };
+  }
+
   async currentImage(riderProfileId: string): Promise<LicenceImageBytes> {
     const image = await this.prisma.riderLicenceImage.findFirst({
       where: { riderProfileId, status: LicenceImageStatus.STORED },
@@ -80,6 +119,16 @@ export class LicenceReviewService {
       }
       logStorageFailure(error);
       throw new ServiceUnavailableException('Licence image storage is unavailable');
+    }
+  }
+
+  private async requireRider(riderProfileId: string): Promise<void> {
+    const rider = await this.prisma.riderProfile.findUnique({
+      where: { id: riderProfileId },
+      select: { id: true },
+    });
+    if (!rider) {
+      throw new NotFoundException('Rider profile not found');
     }
   }
 }

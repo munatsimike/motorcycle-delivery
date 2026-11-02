@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../lib/client';
 import { when } from '../lib/labels';
@@ -88,6 +89,9 @@ beforeEach(() => {
         createdById: 'admin-1',
         createdAt: '2026-10-24T07:00:00.000Z',
       };
+    }
+    if (path.startsWith('/admin/wallet-config/audits') || path.startsWith('/admin/wallet-borrowing-limit-audits')) {
+      return { data: [], pagination: { page: 1, limit: 20, total: 0, totalPages: 0 } };
     }
     if (path === '/admin/wallet-config') {
       if (method === 'PUT') world.walletPuts.push(options?.body);
@@ -509,7 +513,9 @@ async function renderReady() {
   });
   render(
     <QueryClientProvider client={client}>
-      <SettingsPage />
+      <MemoryRouter>
+        <SettingsPage />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
   await screen.findByRole('heading', { name: 'Wallet configuration' });

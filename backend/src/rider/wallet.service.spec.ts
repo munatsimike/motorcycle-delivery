@@ -84,6 +84,15 @@ describe('WalletService', () => {
         createdAt: NOW,
       }),
     ]);
+    await expect(ctx.service.borrowingLimitAudits({ page: '1', limit: '20' })).resolves.toMatchObject({
+      data: [expect.objectContaining({
+        riderProfileId: 'profile-1',
+        actorId: 'admin-1',
+        previousOverride: null,
+        newOverride: '0.00',
+      })],
+      pagination: { page: 1, limit: 20, total: 1, totalPages: 1 },
+    });
 
     await expect(ctx.service.post(command({
       entryType: WalletEntryType.ADJUSTMENT,
@@ -557,8 +566,22 @@ function context(options: { pauseFirstLock?: boolean; loseCreateRace?: boolean }
     },
     walletBorrowingLimitAudit: {
       async create({ data }: { data: Record<string, unknown> }) {
-        limitAudits.push({ ...data });
+        limitAudits.push({ ...data, riderWallet: { riderProfileId: 'profile-1' } });
         return data;
+      },
+      async count({ where }: { where?: { actorId?: string; riderWallet?: { riderProfileId?: string } } } = {}) {
+        return filterLimitAudits(limitAudits, where).length;
+      },
+      async findMany({
+        where,
+        skip = 0,
+        take = 20,
+      }: {
+        where?: { actorId?: string; riderWallet?: { riderProfileId?: string } };
+        skip?: number;
+        take?: number;
+      }) {
+        return filterLimitAudits(limitAudits, where).slice(skip, skip + take);
       },
       async update() {
         throw new Error('borrowing limit audit was changed');
@@ -634,6 +657,22 @@ function context(options: { pauseFirstLock?: boolean; loseCreateRace?: boolean }
     },
     releasePause,
   };
+}
+
+function filterLimitAudits(
+  rows: Array<Record<string, unknown>>,
+  where?: { actorId?: string; riderWallet?: { riderProfileId?: string } },
+) {
+  return rows.filter((row) => {
+    if (where?.actorId && row.actorId !== where.actorId) {
+      return false;
+    }
+    const wallet = row.riderWallet as { riderProfileId?: string } | undefined;
+    if (where?.riderWallet?.riderProfileId && wallet?.riderProfileId !== where.riderWallet.riderProfileId) {
+      return false;
+    }
+    return true;
+  });
 }
 
 async function waitUntil(predicate: () => boolean): Promise<void> {

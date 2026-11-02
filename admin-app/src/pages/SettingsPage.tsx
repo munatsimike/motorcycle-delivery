@@ -1,9 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { adminApi } from '../lib/client';
 import { when } from '../lib/labels';
 import { moneyValue } from '../lib/money';
-import type { Page, PricingAudit, V2CommissionAudit, V2CommissionRate, WalletConfig } from '../lib/types';
+import type {
+  BorrowingLimitAudit,
+  Page,
+  PricingAudit,
+  V2CommissionAudit,
+  V2CommissionRate,
+  WalletConfig,
+  WalletConfigAudit,
+} from '../lib/types';
 import { basisPointsFromCommissionPercentage } from '../lib/v2-commission';
 import { Dialog, Empty, ErrorNote, Loading, Pager, SuccessNote, textOf } from '../ui';
 import { ClassPricingPanel } from './ClassPricingPanel';
@@ -80,6 +89,8 @@ export function SettingsPage() {
           />
         ) : null}
       </section>
+      <WalletConfigHistory />
+      <BorrowingLimitHistory />
       <section className="panel">
         <h2>Delivery pricing</h2>
         <div className="tabs" role="tablist" aria-label="Pricing sections">
@@ -145,6 +156,104 @@ export function SettingsPage() {
         </Dialog>
       ) : null}
     </div>
+  );
+}
+
+function WalletConfigHistory() {
+  const [page, setPage] = useState(1);
+  const audits = useQuery({
+    queryKey: ['wallet-config-audits', page],
+    queryFn: () => adminApi.request<Page<WalletConfigAudit>>(`/admin/wallet-config/audits?page=${page}&limit=20`),
+  });
+  return (
+    <section className="panel">
+      <h2>Wallet configuration history</h2>
+      <p className="muted">Read-only welcome bonus, default negative wallet limit, and platform fee changes. This list does not change wallet balances.</p>
+      {audits.isLoading ? <Loading label="Loading wallet configuration history" /> : null}
+      {audits.error ? <ErrorNote>{textOf(audits.error)}</ErrorNote> : null}
+      {audits.data && audits.data.data.length === 0 ? <Empty>No wallet configuration changes are recorded.</Empty> : null}
+      {audits.data && audits.data.data.length > 0 ? (
+        <>
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr><th>When</th><th>Administrator</th><th>Welcome bonus</th><th>Default limit</th><th>Platform fee</th></tr>
+              </thead>
+              <tbody>
+                {audits.data.data.map((audit) => (
+                  <tr key={audit.id}>
+                    <td>{when(audit.createdAt)}</td>
+                    <td>{audit.actorId ?? 'System'}</td>
+                    <td>{audit.previousWelcomeBonus ?? 'None'} → {audit.newWelcomeBonus}</td>
+                    <td>{audit.previousDefaultBorrowingLimit ?? 'None'} → {audit.newDefaultBorrowingLimit}</td>
+                    <td>{audit.previousPlatformFee ?? 'None'} → {audit.newPlatformFee}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {audits.data.pagination.totalPages > 1 ? (
+            <Pager page={audits.data.pagination.page} totalPages={audits.data.pagination.totalPages} onPage={setPage} />
+          ) : null}
+        </>
+      ) : null}
+    </section>
+  );
+}
+
+function BorrowingLimitHistory() {
+  const [page, setPage] = useState(1);
+  const [riderProfileId, setRiderProfileId] = useState('');
+  const query = new URLSearchParams({ page: String(page), limit: '20' });
+  if (riderProfileId) query.set('riderProfileId', riderProfileId);
+  const audits = useQuery({
+    queryKey: ['borrowing-limit-audits', page, riderProfileId],
+    queryFn: () => adminApi.request<Page<BorrowingLimitAudit>>(`/admin/wallet-borrowing-limit-audits?${query.toString()}`),
+  });
+  return (
+    <section className="panel">
+      <h2>Negative wallet limit history</h2>
+      <p className="muted">Read-only changes to rider-specific negative wallet limits. Saving a limit still happens on the rider page.</p>
+      <form className="filters" onSubmit={(event) => {
+        event.preventDefault();
+        const value = String(new FormData(event.currentTarget).get('riderProfileId') ?? '').trim();
+        setPage(1);
+        setRiderProfileId(value);
+      }}>
+        <label>Rider profile ID
+          <input name="riderProfileId" defaultValue={riderProfileId} placeholder="Optional UUID" />
+        </label>
+        <button className="button" type="submit">Filter</button>
+      </form>
+      {audits.isLoading ? <Loading label="Loading negative wallet limit history" /> : null}
+      {audits.error ? <ErrorNote>{textOf(audits.error)}</ErrorNote> : null}
+      {audits.data && audits.data.data.length === 0 ? <Empty>No negative wallet limit changes are recorded.</Empty> : null}
+      {audits.data && audits.data.data.length > 0 ? (
+        <>
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr><th>When</th><th>Rider</th><th>Administrator</th><th>Previous</th><th>New</th></tr>
+              </thead>
+              <tbody>
+                {audits.data.data.map((audit) => (
+                  <tr key={audit.id}>
+                    <td>{when(audit.createdAt)}</td>
+                    <td><Link to={`/riders/${audit.riderProfileId}`}>{audit.riderProfileId}</Link></td>
+                    <td>{audit.actorId}</td>
+                    <td>{audit.previousOverride ?? 'Default'}</td>
+                    <td>{audit.newOverride ?? 'Default'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {audits.data.pagination.totalPages > 1 ? (
+            <Pager page={audits.data.pagination.page} totalPages={audits.data.pagination.totalPages} onPage={setPage} />
+          ) : null}
+        </>
+      ) : null}
+    </section>
   );
 }
 

@@ -96,7 +96,9 @@ export function createAdminClient(fetchImpl: typeof fetch, base = ''): AdminClie
         body: JSON.stringify({ refreshToken }),
       });
       if (!response.ok) {
-        clearSession();
+        if (response.status === 401 || response.status === 403) {
+          clearSession();
+        }
         return false;
       }
       const tokens = (await response.json()) as SessionTokens;
@@ -107,7 +109,6 @@ export function createAdminClient(fetchImpl: typeof fetch, base = ''): AdminClie
       writeSession(tokens);
       return true;
     } catch {
-      clearSession();
       return false;
     }
   }

@@ -44,7 +44,11 @@ export function MotorcyclesPage() {
   return (
     <div className="stack">
       <div className="page-head">
-        <div><p className="eyebrow">Fleet</p><h1>Motorcycles</h1></div>
+        <div>
+          <p className="eyebrow">Fleet</p>
+          <h1>Motorcycles</h1>
+          <p className="muted">Verification uses the registration, make, model, and colour on file. Motorcycle documents and photographs are not stored.</p>
+        </div>
       </div>
       <form className="filters" onSubmit={(event) => {
         event.preventDefault();

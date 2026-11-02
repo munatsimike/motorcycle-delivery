@@ -24,6 +24,8 @@
 //   rider_licence_reviews_decision_chk
 //   rider_licence_reviews_image_owner_fkey
 //   rider_licence_reviews_append_only
+//   rider_approval_audits_action_chk
+//   rider_approval_audits_append_only
 //   customer_accounts_kind_chk
 //   delivery_pricing_configs_one_active_idx
 //   delivery_pricing_configs_usd_chk
@@ -344,6 +346,7 @@ model User {
   refreshSessions       RefreshSession[]
   adminLoginChallenges AdminLoginChallenge[] @relation("AdminLoginChallenges")
   licenceReviews        RiderLicenceReview[]  @relation("LicenceDecisionReviewer")
+  riderApprovalAudits   RiderApprovalAudit[]  @relation("RiderApprovalAuditor")
   pricingAudits         PricingConfigAudit[]  @relation("PricingAuditActor")
   authoredV2CommissionRates V2CommissionRate[] @relation("V2CommissionRateAuthor")
   v2CommissionRateAudits V2CommissionRateAudit[] @relation("V2CommissionRateAuditor")
@@ -381,6 +384,7 @@ model RiderProfile {
   assignments    DeliveryAssignment[]
   licenceImages  RiderLicenceImage[]
   licenceReviews RiderLicenceReview[]
+  approvalAudits RiderApprovalAudit[]
   profilePhotos  RiderProfilePhoto[]
   wallet         RiderWallet?
   location       RiderLocation?
@@ -997,6 +1001,32 @@ model RiderLicenceReview {
   @@index([licenceImageId])
   @@index([reviewerId])
   @@map("rider_licence_reviews")
+}
+
+enum RiderApprovalAuditAction {
+  APPROVE
+  SUSPEND
+
+  @@map("rider_approval_audit_action")
+}
+
+// Append-only approval and suspension history. Licence numbers, images, and
+// authentication secrets are not stored here.
+model RiderApprovalAudit {
+  id                      String                    @id @default(uuid(7)) @db.Uuid
+  riderProfileId          String                    @map("rider_profile_id") @db.Uuid
+  actorId                 String                    @map("actor_id") @db.Uuid
+  action                  RiderApprovalAuditAction
+  previousApprovalStatus  RiderApprovalStatus       @map("previous_approval_status")
+  newApprovalStatus       RiderApprovalStatus       @map("new_approval_status")
+  createdAt               DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  riderProfile RiderProfile @relation(fields: [riderProfileId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  actor        User         @relation("RiderApprovalAuditor", fields: [actorId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([riderProfileId, createdAt])
+  @@index([actorId])
+  @@map("rider_approval_audits")
 }
 
 enum WalletEntryType {

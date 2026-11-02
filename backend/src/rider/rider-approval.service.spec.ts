@@ -30,6 +30,15 @@ describe('rider approval', () => {
       verificationStatus: RiderVerificationStatus.VERIFIED,
     });
     expect(ctx.profile.availability).toBe(RiderAvailability.OFFLINE);
+    expect(ctx.approvalAudits).toEqual([
+      expect.objectContaining({
+        riderProfileId: 'profile-1',
+        actorId: 'admin-1',
+        action: 'APPROVE',
+        previousApprovalStatus: RiderApprovalStatus.PENDING,
+        newApprovalStatus: RiderApprovalStatus.APPROVED,
+      }),
+    ]);
   });
 
   it('refuses approval without a verified licence or a verified motorcycle', async () => {
@@ -61,6 +70,14 @@ describe('rider approval', () => {
       approvalStatus: RiderApprovalStatus.SUSPENDED,
       availability: RiderAvailability.OFFLINE,
     });
+    expect(ctx.approvalAudits).toEqual([
+      expect.objectContaining({
+        actorId: 'admin-1',
+        action: 'SUSPEND',
+        previousApprovalStatus: RiderApprovalStatus.APPROVED,
+        newApprovalStatus: RiderApprovalStatus.SUSPENDED,
+      }),
+    ]);
   });
 
   it('awards the active welcome bonus once on first approval', async () => {
@@ -228,6 +245,7 @@ function context() {
   }];
   const entries: Array<Record<string, unknown>> = [];
   const promotionalEntries: Array<Record<string, unknown>> = [];
+  const approvalAudits: Array<Record<string, unknown>> = [];
   const locks: string[] = [];
   const state = { pauseFirstLock: false, paused: false, waiting: 0 };
   let releasePause: () => void = () => undefined;
@@ -342,6 +360,19 @@ function context() {
         throw new Error('ledger entry was changed');
       },
     },
+    riderApprovalAudit: {
+      async create({ data }: { data: Record<string, unknown> }) {
+        const row = { id: `approval-audit-${approvalAudits.length + 1}`, ...data };
+        approvalAudits.push(row);
+        return row;
+      },
+      async update() {
+        throw new Error('approval audit was changed');
+      },
+      async delete() {
+        throw new Error('approval audit was changed');
+      },
+    },
     riderPromotionalEntry: {
       async findUnique({ where }: { where: { idempotencyKey?: string } }) {
         return promotionalEntries.find((entry) => entry.idempotencyKey === where.idempotencyKey) ?? null;
@@ -384,6 +415,7 @@ function context() {
           wallets: Array<Record<string, unknown>>;
           entries: Array<Record<string, unknown>>;
           promotionalEntries: Array<Record<string, unknown>>;
+          approvalAudits: Array<Record<string, unknown>>;
         } | null;
       } = { snapshot: null };
       const capture = () => {
@@ -393,6 +425,7 @@ function context() {
             wallets: structuredClone(wallets),
             entries: structuredClone(entries),
             promotionalEntries: structuredClone(promotionalEntries),
+            approvalAudits: structuredClone(approvalAudits),
           };
         }
       };
@@ -439,6 +472,7 @@ function context() {
           wallets.splice(0, wallets.length, ...snapshot.wallets);
           entries.splice(0, entries.length, ...snapshot.entries);
           promotionalEntries.splice(0, promotionalEntries.length, ...snapshot.promotionalEntries);
+          approvalAudits.splice(0, approvalAudits.length, ...snapshot.approvalAudits);
         }
         throw error;
       } finally {
@@ -454,6 +488,7 @@ function context() {
     wallets,
     entries,
     promotionalEntries,
+    approvalAudits,
     locks,
     get profile() {
       return profiles[0];

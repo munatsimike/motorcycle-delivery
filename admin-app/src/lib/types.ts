@@ -14,6 +14,7 @@ export type DashboardSummary = {
     active: number;
     completed: number;
     cancelled: number;
+    failed: number;
     byStatus: Record<string, number>;
     last24Hours: number;
   };
@@ -227,6 +228,66 @@ export type NoticeRow = {
   sentAt: string | null;
   failedAt: string | null;
   nextAttemptAt: string | null;
+};
+
+export type RiderLicenceReview = {
+  id: string;
+  decision: string;
+  licenceNumber: string | null;
+  licenceClass: string | null;
+  rejectionReason: string | null;
+  reviewerId: string;
+  licenceImageId: string;
+  createdAt: string;
+};
+
+export type RiderApprovalAudit = {
+  id: string;
+  actorId: string;
+  action: string;
+  previousApprovalStatus: string;
+  newApprovalStatus: string;
+  createdAt: string;
+};
+
+export type RiderActivityRow = {
+  assignmentId: string;
+  assignmentStatus: string;
+  respondedAt: string | null;
+  releaseReason: string | null;
+  releasedAt: string | null;
+  acceptedBidAmount: string | null;
+  createdAt: string;
+  deliveryId: string;
+  deliveryStatus: string;
+  pickupAddress: string;
+  dropoffAddress: string;
+  currency: string;
+  deliveryCreatedAt: string;
+};
+
+export type WalletConfigAudit = {
+  id: string;
+  configVersion: number;
+  actorType: string;
+  actorId: string | null;
+  previousWelcomeBonus: string | null;
+  previousDefaultBorrowingLimit: string | null;
+  previousPlatformFee: string | null;
+  newWelcomeBonus: string;
+  newDefaultBorrowingLimit: string;
+  newPlatformFee: string;
+  createdAt: string;
+};
+
+export type BorrowingLimitAudit = {
+  id: string;
+  riderWalletId: string;
+  riderProfileId: string;
+  actorId: string;
+  previousOverride: string | null;
+  newOverride: string | null;
+  createdAt: string;
 };
 
 export type WalletConfig = {

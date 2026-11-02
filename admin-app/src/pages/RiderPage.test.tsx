@@ -57,6 +57,15 @@ function renderPage(wallet: RiderWalletSummary) {
   request.mockImplementation(async (path: string, options?: { method?: string; body?: unknown }) => {
     const method = options?.method ?? 'GET';
     if (method === 'GET' && path === `/admin/riders/${RIDER}`) return profile;
+    if (method === 'GET' && path.startsWith(`/admin/riders/${RIDER}/activity`)) {
+      return { data: [], pagination: { page: 1, limit: 20, total: 0, totalPages: 0 } };
+    }
+    if (method === 'GET' && path.startsWith(`/admin/riders/${RIDER}/licence-reviews`)) {
+      return { data: [], pagination: { page: 1, limit: 20, total: 0, totalPages: 0 } };
+    }
+    if (method === 'GET' && path.startsWith(`/admin/riders/${RIDER}/approval-audits`)) {
+      return { data: [], pagination: { page: 1, limit: 20, total: 0, totalPages: 0 } };
+    }
     if (method === 'GET' && path === `/admin/riders/${RIDER}/wallet`) return wallet;
     if (method === 'GET' && path.startsWith(`/admin/riders/${RIDER}/wallet/transactions`)) {
       return {
@@ -93,6 +102,8 @@ describe('rider negative wallet limit', () => {
   it('shows the standard limit and does not offer a borrow request', async () => {
     renderPage(summary('DEFAULT'));
     expect(await screen.findByText('Standard limit')).toBeTruthy();
+    expect(screen.getByText('No deliveries or offers are recorded for this rider.')).toBeTruthy();
+    expect(screen.getByText('Motorcycle documents and photographs are not stored. Review uses the registration, make, model, and colour.')).toBeTruthy();
     expect(screen.getByText('USD 1.00')).toBeTruthy();
     expect(screen.getByText('USD -0.40')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Use the global default' })).toHaveProperty('disabled', true);

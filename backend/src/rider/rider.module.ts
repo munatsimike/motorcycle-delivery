@@ -37,7 +37,7 @@ import { RiderOnboardingService } from './rider-onboarding.service.js';
 import { RiderWalletController } from './rider-wallet.controller.js';
 import { V2CommissionRateController } from './v2-commission-rate.controller.js';
 import { V2CommissionRateService } from './v2-commission-rate.service.js';
-import { WalletConfigController } from './wallet-config.controller.js';
+import { WalletBorrowingLimitAuditController, WalletConfigController } from './wallet-config.controller.js';
 import { WalletConfigService } from './wallet-config.service.js';
 import { WalletService } from './wallet.service.js';
 import { ConfiguredObjectStorage } from './configured-object-storage.js';
@@ -63,6 +63,7 @@ import { createS3Client, S3_CLIENT_FACTORY, S3ObjectStorage } from './s3-object-
     RiderWalletController,
     V2CommissionRateController,
     WalletConfigController,
+    WalletBorrowingLimitAuditController,
   ],
   providers: [
     LicenceImageService,

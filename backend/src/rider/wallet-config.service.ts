@@ -3,6 +3,7 @@ import { Currency, WalletActorType } from '../generated/prisma/client.js';
 import type { AdminContext } from '../auth/admin-access.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { centsFromDecimal, formatCents, readMoneyCents } from '../delivery/money.js';
+import { adminPage, readAdminPage } from '../http/admin-query.js';
 import { WALLET_CONFIG_MISSING } from './wallet-ledger.js';
 
 export const WALLET_CONFIG_INVALID = 'Enter the wallet configuration';
@@ -78,6 +79,35 @@ export class WalletConfigService {
       return toConfigResponse(created);
     });
   }
+
+  async audits(query: Record<string, unknown>) {
+    const page = readAdminPage(query.page, 1, 1, 100000);
+    const limit = readAdminPage(query.limit, 20, 1, 100);
+    const [total, rows] = await Promise.all([
+      this.prisma.walletConfigAudit.count(),
+      this.prisma.walletConfigAudit.findMany({
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+    ]);
+    return {
+      data: rows.map((row) => ({
+        id: row.id,
+        configVersion: row.configVersion,
+        actorType: row.actorType,
+        actorId: row.actorId,
+        previousWelcomeBonus: moneyOrNull(row.previousWelcomeBonus),
+        previousDefaultBorrowingLimit: moneyOrNull(row.previousDefaultBorrowingLimit),
+        previousPlatformFee: moneyOrNull(row.previousPlatformFee),
+        newWelcomeBonus: formatCents(centsFromDecimal(row.newWelcomeBonus)),
+        newDefaultBorrowingLimit: formatCents(centsFromDecimal(row.newDefaultBorrowingLimit)),
+        newPlatformFee: formatCents(centsFromDecimal(row.newPlatformFee)),
+        createdAt: row.createdAt,
+      })),
+      pagination: adminPage(page, limit, total),
+    };
+  }
 }
 
 export function readWalletConfig(body: unknown): ConfigInput {
@@ -103,6 +133,10 @@ export function toConfigResponse(row: ConfigRow) {
     defaultBorrowingLimit: formatCents(centsFromDecimal(row.defaultBorrowingLimit)),
     platformFee: formatCents(centsFromDecimal(row.platformFee)),
   };
+}
+
+function moneyOrNull(value: string | { toFixed(digits: number): string } | null): string | null {
+  return value === null ? null : formatCents(centsFromDecimal(value));
 }
 
 function sameConfig(row: ConfigRow, input: ConfigInput): boolean {

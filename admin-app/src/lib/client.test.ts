@@ -73,6 +73,16 @@ describe('admin session client', () => {
     expect(sessionStorage.getItem('riders-admin-access')).toBeNull();
   });
 
+  it('keeps the refresh token when the refresh request cannot reach the API', async () => {
+    sessionStorage.setItem('riders-admin-refresh', 'refresh-1');
+    const client = createAdminClient(async () => {
+      throw new Error('offline');
+    }, 'http://api.test');
+    expect(await client.restore()).toBe(false);
+    expect(sessionStorage.getItem('riders-admin-refresh')).toBe('refresh-1');
+    expect(client.accessToken()).toBeNull();
+  });
+
   it('clears the session when refresh fails and does not retry again', async () => {
     sessionStorage.setItem('riders-admin-refresh', 'refresh-1');
     let refreshes = 0;

@@ -1,13 +1,15 @@
-import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import {
   MotorcycleVerificationStatus,
   Prisma,
+  RiderApprovalAuditAction,
   RiderApprovalStatus,
   RiderAvailability,
   RiderVerificationStatus,
 } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { AdminContext } from '../auth/admin-access.service.js';
+import { adminPage, readAdminPage } from '../http/admin-query.js';
 import { hasAcceptedAssignment, lockRiderProfile } from './motorcycle-lock.js';
 import { awardWelcomeBonus } from './wallet-ledger.js';
 import { recordRiderApproved } from '../delivery/v2-outbox.js';
@@ -32,6 +34,39 @@ export class RiderApprovalService {
     now = new Date(),
   ): Promise<RiderApprovalResponse> {
     return this.prisma.$transaction((tx) => applyDecision(tx, admin, riderProfileId, decision, now));
+  }
+
+  async listAudits(riderProfileId: string, query: Record<string, unknown>) {
+    const rider = await this.prisma.riderProfile.findUnique({
+      where: { id: riderProfileId },
+      select: { id: true },
+    });
+    if (!rider) {
+      throw new NotFoundException('Rider profile not found');
+    }
+    const page = readAdminPage(query.page, 1, 1, 100000);
+    const limit = readAdminPage(query.limit, 20, 1, 100);
+    const [total, rows] = await Promise.all([
+      this.prisma.riderApprovalAudit.count({ where: { riderProfileId } }),
+      this.prisma.riderApprovalAudit.findMany({
+        where: { riderProfileId },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip: (page - 1) * limit,
+        take: limit,
+        select: {
+          id: true,
+          actorId: true,
+          action: true,
+          previousApprovalStatus: true,
+          newApprovalStatus: true,
+          createdAt: true,
+        },
+      }),
+    ]);
+    return {
+      data: rows,
+      pagination: adminPage(page, limit, total),
+    };
   }
 }
 
@@ -59,6 +94,7 @@ async function applyDecision(
   }
   return suspend(
     tx,
+    admin,
     profile.id,
     profile.approvalStatus,
     await hasAcceptedAssignment(tx, profile.id),
@@ -90,6 +126,14 @@ async function approve(
     where: { id: riderProfileId },
     data: { approvalStatus: RiderApprovalStatus.APPROVED, updatedAt: now },
   });
+  await recordApprovalAudit(tx, {
+    riderProfileId,
+    actorId: admin.userId,
+    action: RiderApprovalAuditAction.APPROVE,
+    previousApprovalStatus: approvalStatus,
+    newApprovalStatus: updated.approvalStatus,
+    createdAt: now,
+  });
   await awardWelcomeBonus(tx, riderProfileId, admin, now);
   await recordRiderApproved(tx, { riderProfileId, approvedAt: now });
   return toResponse(updated);
@@ -97,6 +141,7 @@ async function approve(
 
 async function suspend(
   tx: Prisma.TransactionClient,
+  admin: AdminContext,
   riderProfileId: string,
   approvalStatus: RiderApprovalStatus,
   accepted: boolean,
@@ -116,7 +161,29 @@ async function suspend(
       updatedAt: now,
     },
   });
+  await recordApprovalAudit(tx, {
+    riderProfileId,
+    actorId: admin.userId,
+    action: RiderApprovalAuditAction.SUSPEND,
+    previousApprovalStatus: approvalStatus,
+    newApprovalStatus: updated.approvalStatus,
+    createdAt: now,
+  });
   return toResponse(updated);
+}
+
+async function recordApprovalAudit(
+  tx: Prisma.TransactionClient,
+  data: {
+    riderProfileId: string;
+    actorId: string;
+    action: RiderApprovalAuditAction;
+    previousApprovalStatus: RiderApprovalStatus;
+    newApprovalStatus: RiderApprovalStatus;
+    createdAt: Date;
+  },
+): Promise<void> {
+  await tx.riderApprovalAudit.create({ data });
 }
 
 function toResponse(profile: {

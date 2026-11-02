@@ -41,7 +41,8 @@ export function OverviewPage() {
       <section className="kpis" aria-label="Key figures">
         <Link className="kpi" to="/deliveries"><span>Active deliveries</span><b>{data.deliveries.active}</b></Link>
         <Link className="kpi" to="/deliveries?status=DELIVERED"><span>Completed</span><b>{data.deliveries.completed}</b></Link>
-        <Link className="kpi" to="/deliveries?status=CANCELLED"><span>Cancelled</span><b>{data.deliveries.cancelled}</b></Link>
+        <Link className="kpi" to="/deliveries?status=CANCELLED"><span>Cancelled deliveries</span><b>{data.deliveries.cancelled}</b></Link>
+        <Link className="kpi" to="/deliveries?status=FAILED"><span>Failed deliveries</span><b>{data.deliveries.failed}</b></Link>
         <article className="kpi"><span>Deliveries, 24 hours</span><b>{data.deliveries.last24Hours}</b></article>
         <Link className="kpi" to="/riders?approvalStatus=PENDING"><span>Riders awaiting approval</span><b>{data.riders.pending}</b></Link>
         <Link className="kpi" to="/riders?verificationStatus=PENDING"><span>Licence review queue</span><b>Open</b></Link>
