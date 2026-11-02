@@ -103,6 +103,16 @@ export class RiderAdminController {
     return this.wallets.summary(riderProfileId);
   }
 
+  @Get(':riderProfileId/wallet/transactions')
+  walletTransactions(
+    @Req() request: AdminRequest,
+    @Param('riderProfileId', new ParseUUIDPipe({ version: '7' })) riderProfileId: string,
+    @Query() query: unknown,
+  ) {
+    requiredAdmin(request);
+    return this.wallets.transactions(riderProfileId, query);
+  }
+
   @Put(':riderProfileId/wallet/negative-limit')
   @HttpCode(200)
   @ApiOperation({ summary: 'Set or clear a rider negative wallet limit' })

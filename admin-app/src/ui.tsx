@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, type ReactNode } from 'react';
 import { label } from './lib/labels';
 
-const GOOD = new Set(['APPROVED', 'VERIFIED', 'DELIVERED', 'AVAILABLE', 'ACTIVE']);
+const GOOD = new Set(['APPROVED', 'VERIFIED', 'DELIVERED', 'AVAILABLE', 'ACTIVE', 'SENT']);
 const BAD = new Set(['REJECTED', 'SUSPENDED', 'REVOKED', 'CANCELLED', 'FAILED']);
 const WARN = new Set(['PENDING', 'SEARCHING', 'NO_RIDER_FOUND', 'CREATED']);
 const INFO = new Set(['BUSY', 'ASSIGNED', 'PICKED_UP', 'IN_TRANSIT', 'ARRIVED_AT_PICKUP', 'ARRIVED_AT_DROPOFF']);

@@ -1,4 +1,4 @@
-import { Controller, ForbiddenException, Get, Query, Req, UseGuards } from '@nestjs/common';
+import { Controller, ForbiddenException, Get, Param, ParseUUIDPipe, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiForbiddenResponse, ApiOkResponse, ApiOperation, ApiQuery, ApiTags, ApiUnauthorizedResponse } from '@nestjs/swagger';
 import { AdminAccessGuard, type AdminRequest } from '../auth/admin-access.guard.js';
 import { AdminCustomerListService } from './admin-customer-list.service.js';
@@ -22,5 +22,28 @@ export class AdminCustomerController {
       throw new ForbiddenException('Admin access is required');
     }
     return this.customers.list(query);
+  }
+
+  @Get(':customerAccountId/deliveries')
+  deliveries(
+    @Req() request: AdminRequest,
+    @Param('customerAccountId', new ParseUUIDPipe({ version: '7' })) customerAccountId: string,
+    @Query() query: Record<string, unknown>,
+  ) {
+    if (!request.admin) {
+      throw new ForbiddenException('Admin access is required');
+    }
+    return this.customers.listDeliveries(customerAccountId, query);
+  }
+
+  @Get(':customerAccountId')
+  getById(
+    @Req() request: AdminRequest,
+    @Param('customerAccountId', new ParseUUIDPipe({ version: '7' })) customerAccountId: string,
+  ) {
+    if (!request.admin) {
+      throw new ForbiddenException('Admin access is required');
+    }
+    return this.customers.getById(customerAccountId);
   }
 }

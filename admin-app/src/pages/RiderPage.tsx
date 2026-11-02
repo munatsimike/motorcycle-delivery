@@ -4,8 +4,8 @@ import { Link, useParams } from 'react-router-dom';
 import { adminApi, recordTopUp, type TopUpResult } from '../lib/client';
 import { label, when } from '../lib/labels';
 import { moneyValue, newTopUpKey, type TopUpDraft, type TopUpMethod } from '../lib/money';
-import type { RiderDetail, RiderWalletSummary } from '../lib/types';
-import { Dialog, ErrorNote, Loading, Status, SuccessNote, textOf } from '../ui';
+import type { RiderDetail, RiderWalletSummary, WalletTransaction, WalletTransactionPage } from '../lib/types';
+import { Dialog, Empty, ErrorNote, Loading, Status, SuccessNote, textOf } from '../ui';
 
 type Confirm =
   | { kind: 'licence-verify'; licenceNumber: string; licenceClass: string }
@@ -37,10 +37,18 @@ export function RiderPage() {
   const [topUpResult, setTopUpResult] = useState<TopUpResult | null>(null);
   const [limitAmount, setLimitAmount] = useState('');
   const [limitDraft, setLimitDraft] = useState<{ borrowingLimit: string | null } | null>(null);
+  const [ledgerCursors, setLedgerCursors] = useState<Array<string | null>>([null]);
+  const ledgerCursor = ledgerCursors[ledgerCursors.length - 1] ?? null;
   const wallet = useQuery({
     queryKey: ['rider-wallet', riderProfileId],
     queryFn: () => adminApi.request<RiderWalletSummary>(`/admin/riders/${riderProfileId}/wallet`),
     enabled: riderProfileId.length > 0,
+  });
+  const ledgerQuery = ledgerCursor ? `?limit=20&cursor=${encodeURIComponent(ledgerCursor)}` : '?limit=20';
+  const ledger = useQuery({
+    queryKey: ['rider-wallet-ledger', riderProfileId, ledgerCursor],
+    queryFn: () => adminApi.request<WalletTransactionPage>(`/admin/riders/${riderProfileId}/wallet/transactions${ledgerQuery}`),
+    enabled: riderProfileId.length > 0 && wallet.isSuccess,
   });
 
   const action = useMutation({
@@ -201,10 +209,19 @@ export function RiderPage() {
         {wallet.error ? <ErrorNote>{textOf(wallet.error)}</ErrorNote> : null}
         {wallet.data ? (
           <div className="stack">
+            <p className={wallet.data.newDeliveriesRestricted ? 'error' : 'note'} role="status">
+              {wallet.data.newDeliveriesRestricted
+                ? 'Restricted from accepting new deliveries. The server reports the restriction and does not store a separate reason.'
+                : 'Not restricted from accepting new deliveries.'}
+            </p>
             <div className="facts">
-              <div><span>Effective limit</span><b>{wallet.data.currency} {wallet.data.borrowingLimit}</b></div>
-              <div><span>Source</span><b>{limitSource(wallet.data.borrowingLimitSource)}</b></div>
               <div><span>Balance</span><b>{wallet.data.currency} {wallet.data.balance}</b></div>
+              <div><span>Negative borrowing limit</span><b>{wallet.data.currency} {wallet.data.borrowingLimit}</b></div>
+              <div><span>Limit source</span><b>{limitSource(wallet.data.borrowingLimitSource)}</b></div>
+              <div><span>Reserved fees</span><b>{wallet.data.currency} {wallet.data.reservedFees}</b></div>
+              <div><span>Available capacity</span><b>{wallet.data.currency} {wallet.data.availableCapacity}</b></div>
+              <div><span>Promotional credit</span><b>{wallet.data.currency} {wallet.data.promotionalBalance}</b></div>
+              <div><span>Available promotional credit</span><b>{wallet.data.currency} {wallet.data.availablePromotionalCredit}</b></div>
             </div>
             <label>Custom limit (USD)
               <input value={limitAmount} onChange={(event) => setLimitAmount(event.target.value)} placeholder="1.00" />
@@ -225,6 +242,49 @@ export function RiderPage() {
               }}>Use the global default</button>
             </div>
           </div>
+        ) : null}
+      </section>
+      <section className="panel">
+        <h2>Wallet history</h2>
+        <p className="note">Ledger entries are read only. Amounts stay as the wallet recorded them.</p>
+        {ledger.isLoading ? <Loading label="Loading wallet history" /> : null}
+        {ledger.error ? <ErrorNote>{textOf(ledger.error)}</ErrorNote> : null}
+        {ledger.data && ledger.data.transactions.length === 0 ? <Empty>No wallet entries are recorded.</Empty> : null}
+        {ledger.data && ledger.data.transactions.length > 0 ? (
+          <>
+            <div className="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Type</th>
+                    <th>Amount</th>
+                    <th>Currency</th>
+                    <th>When</th>
+                    <th>Reference</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ledger.data.transactions.map((entry) => (
+                    <tr key={entry.id}>
+                      <td>{label(entry.type)}</td>
+                      <td>{entry.amount}</td>
+                      <td>{entry.currency}</td>
+                      <td>{when(entry.createdAt)}</td>
+                      <td>{ledgerReference(entry)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="pager">
+              <button className="button-secondary" type="button" disabled={ledgerCursors.length <= 1} onClick={() => setLedgerCursors((current) => current.slice(0, -1))}>Previous</button>
+              <span>Page {ledgerCursors.length}</span>
+              <button className="button-secondary" type="button" disabled={!ledger.data.nextCursor} onClick={() => {
+                const next = ledger.data?.nextCursor;
+                if (next) setLedgerCursors((current) => [...current, next]);
+              }}>Next</button>
+            </div>
+          </>
         ) : null}
       </section>
       <section className="panel">
@@ -330,6 +390,16 @@ export function RiderPage() {
       ) : null}
     </div>
   );
+}
+
+function ledgerReference(entry: WalletTransaction): string {
+  const parts: string[] = [];
+  if (entry.reason) parts.push(entry.reason);
+  if (entry.payment?.ecocashReference) parts.push(`EcoCash ${entry.payment.ecocashReference}`);
+  if (entry.payment?.externalReceiptNumber) parts.push(`Receipt ${entry.payment.externalReceiptNumber}`);
+  if (entry.payment?.internalReceiptId) parts.push(`Receipt ${entry.payment.internalReceiptId}`);
+  if (entry.payment && parts.length === 0) parts.push(label(entry.payment.method));
+  return parts.join(' · ') || '—';
 }
 
 function limitSource(source: string): string {

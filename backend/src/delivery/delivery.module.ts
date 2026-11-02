@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { AdminDeliveryController } from './admin-delivery.controller.js';
 import { AdminDeliveryListService } from './admin-delivery-list.service.js';
+import { AdminNoticeController } from './admin-notice.controller.js';
+import { AdminNoticeService } from './admin-notice.service.js';
 import { AuthModule } from '../auth/auth.module.js';
 import { BidAcceptanceService } from './bid-acceptance.service.js';
 import { BidService } from './bid.service.js';
@@ -31,9 +33,10 @@ import { RiderDeliveryController } from './rider-delivery.controller.js';
 
 @Module({
   imports: [AuthModule],
-  controllers: [AdminDeliveryController, CustomerBidController, DeliveryController, DeliveryPricingController, NearbyRidersController, PlacesController, RegistrationAddressController, RegistrationPlacesController, RiderAssignmentController, RiderAvailabilityAlertController, RiderBidController, RiderDeliveryController],
+  controllers: [AdminDeliveryController, AdminNoticeController, CustomerBidController, DeliveryController, DeliveryPricingController, NearbyRidersController, PlacesController, RegistrationAddressController, RegistrationPlacesController, RiderAssignmentController, RiderAvailabilityAlertController, RiderBidController, RiderDeliveryController],
   providers: [
     AdminDeliveryListService,
+    AdminNoticeService,
     BidAcceptanceService,
     BidService,
     DeliveryService,

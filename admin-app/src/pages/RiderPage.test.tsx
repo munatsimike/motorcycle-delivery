@@ -40,6 +40,9 @@ function summary(source: RiderWalletSummary['borrowingLimitSource'], limit = '1.
     borrowingLimitSource: source,
     reservedFees: '0.30',
     availableCapacity: '0.30',
+    promotionalBalance: '1.50',
+    availablePromotionalCredit: '1.20',
+    newDeliveriesRestricted: false,
     currency: 'USD',
   };
 }
@@ -55,6 +58,16 @@ function renderPage(wallet: RiderWalletSummary) {
     const method = options?.method ?? 'GET';
     if (method === 'GET' && path === `/admin/riders/${RIDER}`) return profile;
     if (method === 'GET' && path === `/admin/riders/${RIDER}/wallet`) return wallet;
+    if (method === 'GET' && path.startsWith(`/admin/riders/${RIDER}/wallet/transactions`)) {
+      return {
+        transactions: [
+          { id: 'top-up', type: 'TOP_UP', amount: '10.00', balanceAfter: '9.60', currency: 'USD', createdAt: '2026-10-14T10:00:00.000Z', reason: null, payment: { method: 'ECOCASH', internalReceiptId: null, externalReceiptNumber: null, ecocashReference: 'EC-1' } },
+          { id: 'promo', type: 'PROMOTIONAL_CREDIT', amount: '1.50', balanceAfter: '1.50', currency: 'USD', createdAt: '2026-10-14T09:00:00.000Z', reason: 'Launch', payment: null },
+          { id: 'fee', type: 'PLATFORM_FEE', amount: '-0.40', balanceAfter: '-0.40', currency: 'USD', createdAt: '2026-10-14T11:00:00.000Z', reason: null, payment: null },
+        ],
+        nextCursor: path.includes('cursor=') ? null : 'next-page',
+      };
+    }
     if (method === 'PUT' && path === `/admin/riders/${RIDER}/wallet/negative-limit`) {
       puts.push(options?.body);
       const body = options?.body as { borrowingLimit: string | null };
@@ -116,5 +129,24 @@ describe('rider negative wallet limit', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Review custom limit' }));
     expect(screen.getByText('Enter the limit in dollars and cents. Zero is allowed.')).toBeTruthy();
     expect(puts).toEqual([]);
+  });
+
+  it('shows the wallet summary, restriction, and ledger page', async () => {
+    const restricted = { ...summary('DEFAULT'), newDeliveriesRestricted: true };
+    renderPage(restricted);
+    expect(await screen.findByText('Restricted from accepting new deliveries. The server reports the restriction and does not store a separate reason.')).toBeTruthy();
+    expect(screen.getByText('USD -0.40')).toBeTruthy();
+    expect(screen.getAllByText('USD 0.30')).toHaveLength(2);
+    expect(screen.getByText('USD 1.50')).toBeTruthy();
+    expect(screen.getByText('USD 1.20')).toBeTruthy();
+    expect(await screen.findByText('Top-up')).toBeTruthy();
+    expect(screen.getByText('10.00')).toBeTruthy();
+    expect(screen.getByText('EcoCash EC-1')).toBeTruthy();
+    expect(screen.getAllByText('Promotional credit').length).toBeGreaterThan(0);
+    expect(screen.getByText('Launch')).toBeTruthy();
+    expect(screen.getByText('Platform fee')).toBeTruthy();
+    expect(screen.getByText('-0.40')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    await waitFor(() => expect(request.mock.calls.some((call) => String(call[0]).includes('cursor=next-page'))).toBe(true));
   });
 });

@@ -63,7 +63,7 @@ export function DeliveriesPage() {
                     <td><Status value={delivery.status} /></td>
                     <td>{delivery.pickupAddress}</td>
                     <td>{delivery.dropoffAddress}</td>
-                    <td>{delivery.currency} {delivery.price}</td>
+                    <td>{delivery.price ? `${delivery.currency} ${delivery.price}` : '—'}</td>
                     <td>{when(delivery.createdAt)}</td>
                   </tr>
                 ))}
@@ -76,7 +76,7 @@ export function DeliveriesPage() {
                 <Link to={`/deliveries/${delivery.deliveryId}`}><strong>{label(delivery.deliveryType)}</strong></Link>
                 <Status value={delivery.status} />
                 <span>{delivery.pickupAddress}</span>
-                <span>{delivery.currency} {delivery.price}</span>
+                <span>{delivery.price ? `${delivery.currency} ${delivery.price}` : '—'}</span>
               </article></li>
             ))}
           </ul>

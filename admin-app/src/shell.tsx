@@ -8,6 +8,7 @@ const LINKS = [
   ['/riders', 'Riders'],
   ['/motorcycles', 'Motorcycles'],
   ['/deliveries', 'Deliveries'],
+  ['/notifications', 'Notifications'],
   ['/settings', 'Settings'],
 ] as const;
 

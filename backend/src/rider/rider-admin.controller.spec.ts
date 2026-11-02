@@ -28,13 +28,14 @@ describe('rider admin and onboarding controllers', () => {
     expect(() => admin.approval({}, 'profile-1', { decision: 'APPROVE' })).toThrow(ForbiddenException);
     expect(() => admin.topUp({}, 'profile-1', {})).toThrow(ForbiddenException);
     expect(() => admin.wallet({}, 'profile-1')).toThrow(ForbiddenException);
+    expect(() => admin.walletTransactions({}, 'profile-1', {})).toThrow(ForbiddenException);
     expect(() => admin.setNegativeWalletLimit({}, 'profile-1', { borrowingLimit: '0.00' })).toThrow(ForbiddenException);
     expect(() => admin.verifyLicence({ admin: { userId: 'admin-1' } }, 'profile-1', { decision: 'CLOSE' })).toThrow(BadRequestException);
     expect(() => admin.approval({ admin: { userId: 'admin-1' } }, 'profile-1', { decision: 'REJECT' })).toThrow(BadRequestException);
     expect(() => onboarding.current({})).toThrow(ForbiddenException);
   });
 
-  it('does not reach the wallet service without an admin', () => {
+  it('does not reach the wallet service without an admin', async () => {
     const calls: string[] = [];
     const guarded = new RiderAdminController({} as never, {} as never, {
       async summary() {
@@ -49,11 +50,21 @@ describe('rider admin and onboarding controllers', () => {
         calls.push('top-up');
         return { ok: true };
       },
+      async transactions() {
+        calls.push('transactions');
+        return { transactions: [], nextCursor: null };
+      },
     } as never, {} as never);
 
     expect(() => guarded.wallet({}, 'profile-1')).toThrow(ForbiddenException);
+    expect(() => guarded.walletTransactions({}, 'profile-1', { limit: '20' })).toThrow(ForbiddenException);
     expect(() => guarded.setNegativeWalletLimit({}, 'profile-1', { borrowingLimit: null })).toThrow(ForbiddenException);
     expect(calls).toEqual([]);
+    await expect(guarded.walletTransactions({ admin: { userId: 'admin-1' } }, 'profile-1', { limit: '20' })).resolves.toEqual({
+      transactions: [],
+      nextCursor: null,
+    });
+    expect(calls).toEqual(['transactions']);
   });
 
   it('returns image bytes without a stored filename', async () => {

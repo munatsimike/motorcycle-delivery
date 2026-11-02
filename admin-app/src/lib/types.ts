@@ -50,6 +50,7 @@ export type CustomerRow = {
   kind: string;
   address: string;
   createdAt: string;
+  updatedAt: string;
 };
 
 export type RiderRow = {
@@ -100,7 +101,7 @@ export type DeliveryRow = {
   status: string;
   pickupAddress: string;
   dropoffAddress: string;
-  price: string;
+  price: string | null;
   currency: string;
   paymentMethod: string | null;
   activeAssignment: { id: string; riderProfileId: string; motorcycleId: string; status: string } | null;
@@ -187,7 +188,45 @@ export type RiderWalletSummary = {
   borrowingLimitSource: 'DEFAULT' | 'OVERRIDE';
   reservedFees: string;
   availableCapacity: string;
+  promotionalBalance: string;
+  availablePromotionalCredit: string;
+  newDeliveriesRestricted: boolean;
   currency: string;
+};
+
+export type WalletTransaction = {
+  id: string;
+  type: string;
+  amount: string;
+  balanceAfter: string;
+  currency: string;
+  createdAt: string;
+  reason: string | null;
+  payment: {
+    method: string;
+    internalReceiptId: string | null;
+    externalReceiptNumber: string | null;
+    ecocashReference: string | null;
+  } | null;
+};
+
+export type WalletTransactionPage = {
+  transactions: WalletTransaction[];
+  nextCursor: string | null;
+};
+
+export type NoticeRow = {
+  id: string;
+  eventType: string;
+  status: string;
+  attemptCount: number;
+  lastFailure: string | null;
+  deliveryId: string | null;
+  createdAt: string;
+  lastAttemptAt: string | null;
+  sentAt: string | null;
+  failedAt: string | null;
+  nextAttemptAt: string | null;
 };
 
 export type WalletConfig = {
