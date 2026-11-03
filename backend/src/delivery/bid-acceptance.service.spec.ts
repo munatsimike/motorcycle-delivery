@@ -298,6 +298,46 @@ describe('customer bid acceptance', () => {
     await expect(new BidAcceptanceService(ctx.prisma).accept({ ...CUSTOMER, customerAccountId: 'other' }, DELIVERY, BID, 'other', NOW)).rejects.toBeInstanceOf(NotFoundException);
     expect(ctx.assignments).toHaveLength(0);
   });
+
+  it('uses a 20-second interactive timeout and a separate 10-second pool maxWait', async () => {
+    process.env.V2_MARKETPLACE_ENABLED = 'true';
+    const ctx = store();
+    await new BidAcceptanceService(ctx.prisma).accept(CUSTOMER, DELIVERY, BID, 'timeout-options', NOW);
+    expect(ctx.transactionOptions.length).toBeGreaterThanOrEqual(2);
+    expect(ctx.transactionOptions.every((options) => options?.timeout === 20_000 && options?.maxWait === 10_000)).toBe(true);
+    expect(ctx.transactionOptions[0]).toEqual({ maxWait: 10_000, timeout: 20_000 });
+  });
+
+  it('retries the same idempotency key after a rolled-back timeout and writes once', async () => {
+    process.env.V2_MARKETPLACE_ENABLED = 'true';
+    const ctx = store();
+    ctx.failNextLockedAccept = true;
+    const service = new BidAcceptanceService(ctx.prisma);
+    await expect(service.accept(CUSTOMER, DELIVERY, BID, 'retry-timeout', NOW)).rejects.toMatchObject({ code: 'P2028' });
+    expect(ctx.assignments).toHaveLength(0);
+    expect(ctx.reservations).toHaveLength(0);
+    expect(ctx.bids.find((bid) => bid.id === BID)?.status).toBe(BidStatus.OPEN);
+    const accepted = await service.accept(CUSTOMER, DELIVERY, BID, 'retry-timeout', NOW);
+    expect(accepted).toMatchObject({ replayed: false, reserved: true, bidId: BID });
+    expect(ctx.assignments).toHaveLength(1);
+    expect(ctx.reservations).toHaveLength(1);
+    const replay = await service.accept(CUSTOMER, DELIVERY, BID, 'retry-timeout', NOW);
+    expect(replay).toMatchObject({ assignmentId: accepted.assignmentId, replayed: true });
+    expect(ctx.assignments).toHaveLength(1);
+  });
+
+  it('rejects a second rider after the delivery is already assigned', async () => {
+    process.env.V2_MARKETPLACE_ENABLED = 'true';
+    const ctx = store();
+    const service = new BidAcceptanceService(ctx.prisma);
+    await service.accept(CUSTOMER, DELIVERY, BID, 'assigned-first', NOW);
+    await expect(service.accept(CUSTOMER, DELIVERY, BID_2, 'assigned-second', NOW)).rejects.toThrow('This delivery is not open for bids');
+    expect(ctx.assignments).toHaveLength(1);
+    expect(ctx.assignments[0]?.acceptedBidId ?? ctx.bids.find((bid) => bid.status === BidStatus.ACCEPTED)?.id).toBe(BID);
+    expect(ctx.bids.find((bid) => bid.id === BID)?.status).toBe(BidStatus.ACCEPTED);
+    expect(ctx.bids.find((bid) => bid.id === BID_2)?.status).toBe(BidStatus.SUPERSEDED);
+    expect(ctx.reservations).toHaveLength(1);
+  });
 });
 
 type BidRow = {
@@ -365,8 +405,10 @@ function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?:
   let ledgerWrites = 0;
   let nextAssignment = 1;
   let queue = Promise.resolve();
+  const transactionOptions: Array<{ maxWait?: number; timeout?: number } | undefined> = [];
   const state = {
     failReservation: false,
+    failNextLockedAccept: false,
     get ledgerWrites() {
       return ledgerWrites;
     },
@@ -382,13 +424,21 @@ function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?:
       }
       return [];
     },
-    async $transaction<T>(fn: (tx: object) => Promise<T>): Promise<T> {
+    async $transaction<T>(fn: (tx: object) => Promise<T>, options?: { maxWait?: number; timeout?: number }): Promise<T> {
+      transactionOptions.push(options);
       const previous = queue;
       let release = () => {};
       queue = new Promise((resolve) => {
         release = resolve;
       });
       await previous;
+      if (state.failNextLockedAccept && transactionOptions.length === 2) {
+        state.failNextLockedAccept = false;
+        const error = new Error('Transaction API error: interactive transaction timed out') as Error & { code: string };
+        error.code = 'P2028';
+        release();
+        throw error;
+      }
       const backup = {
         bids: bids.map((bid) => ({ ...bid })),
         deliveries: deliveries.map((row) => ({ ...row })),
@@ -562,6 +612,13 @@ function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?:
     set failReservation(value: boolean) {
       state.failReservation = value;
     },
+    get failNextLockedAccept() {
+      return state.failNextLockedAccept;
+    },
+    set failNextLockedAccept(value: boolean) {
+      state.failNextLockedAccept = value;
+    },
+    transactionOptions,
   };
 }
 

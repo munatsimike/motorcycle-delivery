@@ -241,7 +241,6 @@ export class BidService {
       if (!delivery) {
         throw new NotFoundException('Delivery not found');
       }
-      await lockDelivery(tx, deliveryId);
       await expireClosedBids(tx, now, deliveryId);
       const rows = await tx.bid.findMany({
         where: { deliveryId, status: BidStatus.OPEN },
@@ -309,7 +308,7 @@ export class BidService {
           registrationNumber: motorcycleByRider.get(row.riderProfileId)?.registrationNumber ?? null,
           hasProfilePhoto: photoRiders.has(row.riderProfileId),
         }));
-    });
+    }, { maxWait: 10_000, timeout: 20_000 });
   }
 
   private async submitLocked(

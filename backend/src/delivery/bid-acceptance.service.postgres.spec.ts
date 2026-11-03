@@ -335,6 +335,80 @@ it('lists only the signed-in rider bids, newest first, one page at a time', asyn
   expect(second.nextCursor).toBeNull();
 });
 
+it('lists open bids while another session holds the delivery row exclusive lock', async () => {
+  const world = await scenario({ competing: true });
+  const blocker = new pg.Client({ connectionString: DISPOSABLE_URL });
+  await blocker.connect();
+  await blocker.query('BEGIN');
+  await blocker.query('SELECT "id" FROM "deliveries" WHERE "id" = $1::uuid FOR UPDATE', [world.deliveryId]);
+  try {
+    const started = Date.now();
+    const listed = await new BidService(prisma).listForCustomer(customer, world.deliveryId, NOW);
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(listed).toHaveLength(2);
+    expect(listed.every((bid) => bid.status === 'OPEN')).toBe(true);
+    expect(listed.map((bid) => bid.id).sort()).toEqual([world.bidId, world.otherBidId].sort());
+  } finally {
+    await blocker.query('ROLLBACK');
+    await blocker.end();
+  }
+});
+
+it('keeps polling offers while a rider is accepted and then hides open bids', async () => {
+  const world = await scenario({ competing: true });
+  const bids = new BidService(prisma);
+  const [accepted, ...pages] = await Promise.all([
+    acceptance.accept(customer, world.deliveryId, world.bidId, `poll-accept-${world.deliveryId}`, NOW),
+    bids.listForCustomer(customer, world.deliveryId, NOW),
+    bids.listForCustomer(customer, world.deliveryId, NOW),
+    bids.listForCustomer(customer, world.deliveryId, NOW),
+  ]);
+  expect(accepted).toMatchObject({ replayed: false, reserved: true, bidId: world.bidId });
+  expect(pages.every((page) => Array.isArray(page))).toBe(true);
+  const after = await bids.listForCustomer(customer, world.deliveryId, NOW);
+  expect(after).toEqual([]);
+  expect(await prisma.deliveryAssignment.count({ where: { deliveryId: world.deliveryId, status: 'ACCEPTED' } })).toBe(1);
+  expect(await prisma.walletFeeReservation.count({ where: { deliveryId: world.deliveryId, status: 'OPEN' } })).toBe(1);
+});
+
+it('completes acceptance after a wallet lock longer than the previous 5-second timeout', async () => {
+  const world = await scenario();
+  const blocker = new pg.Client({ connectionString: DISPOSABLE_URL });
+  await blocker.connect();
+  await blocker.query('BEGIN');
+  await blocker.query('SELECT "id" FROM "rider_wallets" WHERE "id" = $1::uuid FOR UPDATE', [world.walletId]);
+  try {
+    const pending = acceptance.accept(customer, world.deliveryId, world.bidId, `held-wallet-${world.deliveryId}`, NOW);
+    await delay(6_000);
+    await blocker.query('ROLLBACK');
+    const accepted = await pending;
+    expect(accepted).toMatchObject({ replayed: false, reserved: true, bidId: world.bidId });
+    expect(await prisma.deliveryAssignment.count({ where: { deliveryId: world.deliveryId } })).toBe(1);
+  } finally {
+    await blocker.end().catch(() => undefined);
+  }
+}, 30_000);
+
+it('rejects a second rider, an offline rider, and an already closed bid without extra assignments', async () => {
+  await setRate(1_000);
+  const assigned = await scenario({ competing: true });
+  await acceptance.accept(customer, assigned.deliveryId, assigned.bidId, `first-${assigned.deliveryId}`, NOW);
+  await expect(
+    acceptance.accept(customer, assigned.deliveryId, assigned.otherBidId!, `second-${assigned.deliveryId}`, NOW),
+  ).rejects.toThrow('This delivery is not open for bids');
+  expect(await prisma.deliveryAssignment.count({ where: { deliveryId: assigned.deliveryId, status: 'ACCEPTED' } })).toBe(1);
+
+  const offline = await scenario();
+  await prisma.riderProfile.update({
+    where: { id: offline.riderId },
+    data: { availability: 'OFFLINE' },
+  });
+  await expect(
+    acceptance.accept(customer, offline.deliveryId, offline.bidId, `offline-${offline.deliveryId}`, NOW),
+  ).rejects.toThrow('This rider is not available');
+  expect(await prisma.deliveryAssignment.count({ where: { deliveryId: offline.deliveryId } })).toBe(0);
+});
+
 it('leaves the delivery and bids unchanged when wallet capacity is short', async () => {
   await setRate(1_000);
   const world = await scenario({ competing: true, borrowingLimit: '0.00' });

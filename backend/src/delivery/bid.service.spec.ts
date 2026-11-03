@@ -195,6 +195,20 @@ describe('V2 bid lifecycle', () => {
     expect(JSON.stringify(page)).not.toContain('latitude');
   });
 
+  it('lists open bids without taking an exclusive delivery row lock', async () => {
+    process.env.V2_MARKETPLACE_ENABLED = 'true';
+    const ctx = store();
+    const bids = new BidService(ctx.prisma);
+    await bids.submit(RIDER_CONTEXT, bidBody(1_500), 'key-1', NOW);
+    ctx.rawQueries.length = 0;
+    ctx.transactionOptions.length = 0;
+    const page = await bids.listForCustomer(CUSTOMER, DELIVERY, NOW);
+    expect(page).toHaveLength(1);
+    expect(page[0]).toMatchObject({ status: BidStatus.OPEN, amountCents: 1_500 });
+    expect(ctx.rawQueries.filter((sql) => /FOR UPDATE/i.test(sql))).toEqual([]);
+    expect(ctx.transactionOptions).toEqual([{ maxWait: 10_000, timeout: 20_000 }]);
+  });
+
   it('keeps an open bid visible and accepts another bid while Express is live', async () => {
     process.env.V2_MARKETPLACE_ENABLED = 'true';
     const ctx = store();
@@ -383,8 +397,11 @@ function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?:
   let assignmentWrites = 0;
   let nextBid = 1;
   let queue = Promise.resolve();
+  const rawQueries: string[] = [];
+  const transactionOptions: Array<{ maxWait?: number; timeout?: number } | undefined> = [];
   const db = {
-    async $transaction<T>(fn: (tx: object) => Promise<T>): Promise<T> {
+    async $transaction<T>(fn: (tx: object) => Promise<T>, options?: { maxWait?: number; timeout?: number }): Promise<T> {
+      transactionOptions.push(options);
       const previous = queue;
       let release = () => {};
       queue = new Promise((resolve) => {
@@ -401,7 +418,8 @@ function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?:
         release();
       }
     },
-    async $queryRaw() {
+    async $queryRaw(strings: TemplateStringsArray) {
+      rawQueries.push(strings.join(' '));
       return [];
     },
     delivery: {
@@ -595,6 +613,8 @@ function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?:
     locations,
     completedAssignments,
     profilePhotos,
+    rawQueries,
+    transactionOptions,
   };
 
   function withRider(bid: BidRow) {

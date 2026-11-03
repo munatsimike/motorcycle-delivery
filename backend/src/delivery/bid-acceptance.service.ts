@@ -28,6 +28,7 @@ import { recordBidAccepted } from './v2-outbox.js';
 const UUID_TEXT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const EXPRESS_ASSIGNMENT_INDEX = 'delivery_assignments_one_live_express_per_rider_idx';
 const V1_ASSIGNMENT_INDEX = 'delivery_assignments_one_accepted_v1_per_rider_idx';
+const ACCEPT_TX = { maxWait: 10_000, timeout: 20_000 } as const;
 
 export type BidAcceptanceResult = {
   assignmentId: string;
@@ -62,9 +63,12 @@ export class BidAcceptanceService {
     }
     const key = readIdempotencyKey(idempotencyKey);
     const hash = acceptanceHash(deliveryId, bidId, customer.customerAccountId);
-    await this.prisma.$transaction((tx) => expireDueBids(tx, now, deliveryId));
+    await this.prisma.$transaction((tx) => expireDueBids(tx, now, deliveryId), ACCEPT_TX);
     try {
-      return await this.prisma.$transaction((tx) => this.acceptLocked(tx, customer, deliveryId, bidId, key, hash, now));
+      return await this.prisma.$transaction(
+        (tx) => this.acceptLocked(tx, customer, deliveryId, bidId, key, hash, now),
+        ACCEPT_TX,
+      );
     } catch (error) {
       if (!isUniqueViolation(error)) {
         throw error;
@@ -85,7 +89,7 @@ export class BidAcceptanceService {
           throw new ConflictException('This rider already has an accepted delivery');
         }
         throw new ConflictException('This bid cannot be accepted');
-      });
+      }, ACCEPT_TX);
     }
   }
 
