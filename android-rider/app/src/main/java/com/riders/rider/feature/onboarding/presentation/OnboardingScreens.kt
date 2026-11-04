@@ -104,10 +104,24 @@ fun OnboardingScreen(
         }
     }
     LaunchedEffect(Unit) { model.refresh() }
+    LaunchedEffect(ui.step, ui.loading, ui.refreshing, ui.addingMotorcycle, ui.editingId, ui.motorcycles) {
+        if (focused || ui.loading || ui.refreshing || ui.onboarding == null) {
+            return@LaunchedEffect
+        }
+        if (ui.step != OnboardingStep.Motorcycle || ui.addingMotorcycle || ui.editingId != null) {
+            return@LaunchedEffect
+        }
+        val existing = ui.motorcycles.firstOrNull { it.isActive } ?: ui.motorcycles.firstOrNull()
+        if (existing != null) {
+            model.editMotorcycle(existing)
+        } else {
+            model.beginAddMotorcycle()
+        }
+    }
     val motorcycleForm = ui.onboarding != null && ui.step == OnboardingStep.Motorcycle && (
-        ui.editingId != null || ui.addingMotorcycle
+        !focused || ui.editingId != null || ui.addingMotorcycle
         )
-    val showBackHeader = ui.onboarding != null && !motorcycleForm
+    val showBackHeader = ui.onboarding != null && !(motorcycleForm && focused)
     RiderTheme {
         Column(
             Modifier
@@ -160,6 +174,7 @@ fun OnboardingScreen(
                             onDraft = model::updateDraft,
                             onAdd = model::beginAddMotorcycle,
                             onSave = model::saveMotorcycle,
+                            onContinue = model::continueStep,
                             onCancel = model::cancelMotorcycleEdit,
                             onEdit = model::editMotorcycle,
                             onSelect = model::selectMotorcycle,
@@ -172,20 +187,16 @@ fun OnboardingScreen(
                     if (ui.error != null) {
                         RidersFailureNotice(message = ui.error ?: "", onRetry = model::refresh)
                     }
-                    if (!focused) {
-                        Column(verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm)) {
-                            if (ui.step != OnboardingStep.Status) {
-                                val licenceUploaded = ui.licence != null || ui.onboarding?.licenceVerificationStatus == "VERIFIED"
-                                RidersPrimaryButton(
-                                    label = "Continue",
-                                    onClick = model::continueStep,
-                                    enabled = !ui.savingMotorcycle && !ui.uploading && (ui.step != OnboardingStep.Licence || licenceUploaded),
-                                    loading = ui.savingMotorcycle,
-                                    loadingLabel = "Saving",
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
-                            }
-                        }
+                    if (!focused && !motorcycleForm && ui.step != OnboardingStep.Status) {
+                        val licenceUploaded = ui.licence != null || ui.onboarding?.licenceVerificationStatus == "VERIFIED"
+                        RidersPrimaryButton(
+                            label = "Continue",
+                            onClick = model::continueStep,
+                            enabled = !ui.savingMotorcycle && !ui.uploading && (ui.step != OnboardingStep.Licence || licenceUploaded),
+                            loading = ui.savingMotorcycle,
+                            loadingLabel = "Saving",
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                     }
                 }
             }
@@ -407,6 +418,8 @@ private fun LicenceStep(ui: OnboardingUi, onPick: () -> Unit) {
     val onboarding = ui.onboarding ?: return
     val replace = canReplaceLicence(onboarding.licenceVerificationStatus)
     val licence = ui.licence
+    val loaded = licence != null && !ui.uploading
+    val rejected = licence?.reviewStatus == "REJECTED"
     StepHeading(
         title = "Driving licence",
         subtitle = "Choose a clear photo of your driving licence.",
@@ -417,45 +430,53 @@ private fun LicenceStep(ui: OnboardingUi, onPick: () -> Unit) {
     RidersCard(
         prominent = true,
         onClick = if (replace && !ui.uploading) onPick else null,
+        containerColor = when {
+            !loaded -> RidersColors.background
+            rejected -> RidersColors.dangerSurface
+            else -> RidersColors.primaryLight
+        },
+        borderColor = when {
+            !loaded -> RidersColors.border
+            rejected -> RidersColors.error
+            else -> RidersColors.primary
+        },
     ) {
         Column(
             Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
         ) {
+            if (licence != null) {
+                LicenceStatusBadge(licence.reviewStatus, licenceReviewLabel(licence.reviewStatus))
+            }
             Row(
                 Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md),
             ) {
-                IconTile(R.drawable.ic_card, Color(0xFF3D5A80), Color(0xFFEEF2F6))
+                if (loaded && !rejected) {
+                    IconTile(R.drawable.ic_check, RidersColors.primaryDark, RidersColors.background)
+                } else {
+                    IconTile(R.drawable.ic_card, Color(0xFF3D5A80), Color(0xFFEEF2F6))
+                }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs)) {
                     Text("Driving licence", style = RidersType.caption, color = RidersColors.textSecondary)
                     Text(
                         when {
                             ui.uploading -> "Uploading ${ui.uploadPercent ?: 0}%"
-                            licence != null -> "Photo uploaded"
+                            loaded -> "Licence loaded"
                             else -> "Tap to upload licence"
                         },
                         style = RidersType.bodyStrong,
-                        color = RidersColors.text,
+                        color = if (loaded && !rejected) RidersColors.primaryDark else RidersColors.text,
                     )
                 }
             }
-            if (licence != null) {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    LicenceStatusBadge(licence.reviewStatus, licenceReviewLabel(licence.reviewStatus))
-                    if (replace && !ui.uploading) {
-                        Text(
-                            "Tap to replace",
-                            style = RidersType.small,
-                            color = RidersColors.textSecondary,
-                        )
-                    }
-                }
+            if (loaded && replace) {
+                Text(
+                    "Tap to replace",
+                    style = RidersType.small,
+                    color = RidersColors.textSecondary,
+                )
             }
         }
     }
@@ -513,6 +534,7 @@ private fun MotorcycleStep(
     onDraft: (com.riders.rider.feature.onboarding.domain.MotorcycleDraft) -> Unit,
     onAdd: () -> Unit,
     onSave: () -> Unit,
+    onContinue: () -> Unit,
     onCancel: () -> Unit,
     onEdit: (MotorcycleDetails) -> Unit,
     onSelect: (String) -> Unit,
@@ -525,25 +547,29 @@ private fun MotorcycleStep(
             "Add the motorbike you want to use and save."
         },
     )
-    ui.motorcycles.forEach { motorcycle ->
-        val selected = motorcycle.isActive
-        val selectable = canSelectMotorcycle(motorcycle.verificationStatus, motorcycle.isActive)
-        val editable = canEditMotorcycle(motorcycle.verificationStatus)
-        MotorcycleChoice(
-            motorcycle = motorcycle,
-            selected = selected,
-            enabled = !ui.savingMotorcycle && (selectable || editable),
-            onClick = {
-                when {
-                    selectable -> onSelect(motorcycle.id)
-                    editable -> onEdit(motorcycle)
-                }
-            },
-        )
+    if (!registration) {
+        ui.motorcycles.forEach { motorcycle ->
+            val selected = motorcycle.isActive
+            val selectable = canSelectMotorcycle(motorcycle.verificationStatus, motorcycle.isActive)
+            val editable = canEditMotorcycle(motorcycle.verificationStatus)
+            MotorcycleChoice(
+                motorcycle = motorcycle,
+                selected = selected,
+                enabled = !ui.savingMotorcycle && (selectable || editable),
+                onClick = {
+                    when {
+                        selectable -> onSelect(motorcycle.id)
+                        editable -> onEdit(motorcycle)
+                    }
+                },
+            )
+        }
     }
-    ui.notice?.let { SavedNotice(it) }
+    if (!registration) {
+        ui.notice?.let { SavedNotice(it) }
+    }
     val editing = ui.editingId != null
-    val showForm = editing || ui.addingMotorcycle
+    val showForm = registration || editing || ui.addingMotorcycle
     val motion = rememberRidersMotion()
     val appearMs = motion.duration(RidersMotion.DELIVERY_MS)
     val hideMs = motion.duration(RidersMotion.CONFIRM_MS)
@@ -580,6 +606,7 @@ private fun MotorcycleStep(
         enter = formEnter,
         exit = formExit,
     ) {
+        Column(verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg)) {
         RidersCard(modifier = Modifier.fillMaxWidth(), prominent = true) {
             Text(if (editing) "Update motorcycle" else "Add a motorcycle", style = RidersType.heading, color = RidersColors.text)
             Text(
@@ -623,16 +650,16 @@ private fun MotorcycleStep(
                 error = motorcycleFieldError(ui.error, "Enter a colour"),
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
             )
-            if (!registration) {
-                RidersPrimaryButton(
-                    label = if (editing) "Save changes" else "Save motorcycle",
-                    onClick = onSave,
-                    enabled = !ui.savingMotorcycle,
-                    loading = ui.savingMotorcycle,
-                    loadingLabel = "Saving",
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
+            RidersPrimaryButton(
+                label = if (registration) "Continue" else if (editing) "Save changes" else "Save bike",
+                onClick = if (registration) onContinue else onSave,
+                enabled = !ui.savingMotorcycle,
+                loading = ui.savingMotorcycle,
+                loadingLabel = "Saving",
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        if (!registration) {
             RidersSecondaryButton(
                 label = "Cancel",
                 onClick = onCancel,
@@ -641,6 +668,7 @@ private fun MotorcycleStep(
                 bordered = false,
                 modifier = Modifier.fillMaxWidth(),
             )
+        }
         }
     }
 }
@@ -819,7 +847,7 @@ private fun StatusStep(ui: OnboardingUi, onHome: () -> Unit) {
         )
     }
     Text(readiness.message, style = RidersType.body, color = RidersColors.text)
-    RidersPrimaryButton(label = "Back to home", onClick = onHome, modifier = Modifier.fillMaxWidth())
+    RidersPrimaryButton(label = "Done", onClick = onHome, modifier = Modifier.fillMaxWidth())
     Spacer(Modifier.height(RidersSpacing.sm))
 }
 

@@ -362,6 +362,7 @@ fun RidersCard(
     prominent: Boolean = false,
     emphasizePress: Boolean = false,
     containerColor: Color = RidersColors.background,
+    borderColor: Color = RidersColors.border,
     content: @Composable () -> Unit,
 ) {
     val shape = RoundedCornerShape(if (prominent) RidersRadius.xl else RidersRadius.lg)
@@ -392,7 +393,7 @@ fun RidersCard(
             .shadow(elevation = 4.dp, shape = shape, ambientColor = RidersColors.shadow, spotColor = RidersColors.shadow)
             .clip(shape)
             .background(containerColor)
-            .border(1.dp, RidersColors.border, shape)
+            .border(1.dp, borderColor, shape)
             .then(clickable)
             .padding(RidersSpacing.lg),
         verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
