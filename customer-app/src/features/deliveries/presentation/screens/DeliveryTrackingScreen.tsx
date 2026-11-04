@@ -365,7 +365,9 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
   return (
     <SafeAreaView style={styles.screen} edges={['bottom']}>
       <ScrollView
+        style={styles.offerScroll}
         contentContainerStyle={styles.content}
+        removeClippedSubviews={false}
         refreshControl={awaitingOffers ? (
           <RefreshControl
             refreshing={incoming.refreshing}
@@ -380,58 +382,42 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
       >
         {awaitingOffers ? (
           <View style={styles.requestSent}>
-            {offers.length === 0 ? (
-              <>
-                <View style={styles.requestIcon}>
-                  <MaterialDesignIcons name="check" size={24} color={colors.primary} />
-                </View>
-                <Text style={styles.title}>Request sent!</Text>
-                <Text style={styles.support}>
-                  Your delivery request has been sent to nearby riders. You'll see their offers here as they respond.
-                </Text>
-                <View style={styles.waitingPill}>
-                  <MaterialDesignIcons name="clock-outline" size={16} color={colors.primaryDark} />
-                  <Text style={styles.waitingText}>Waiting for rider offers</Text>
-                </View>
-              </>
-            ) : (
-              <View style={styles.offersIntro}>
-                <View style={styles.offersToolbar}>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Cancel request"
-                    disabled={cancelling}
-                    hitSlop={8}
-                    onPress={confirmCancelSearch}
-                  >
-                    <Text style={styles.cancelRequestLink}>{cancelling ? 'Cancelling' : 'Cancel request'}</Text>
-                  </Pressable>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Parcel details"
-                    onPress={() => setDetailsOpen(true)}
-                    style={styles.parcelDetails}
-                  >
-                    <Text style={styles.parcelDetailsText}>Parcel details</Text>
-                    <MaterialDesignIcons name="chevron-up" size={18} color={colors.primary} />
-                  </Pressable>
-                </View>
-                <View style={styles.offersHeading}>
-                  <Text style={styles.offerCount}>{receivedOfferCountLabel(offers.length)}</Text>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={`Sort offers, ${selectedOfferSort.label}`}
-                    onPress={() => setSortOpen(true)}
-                    style={styles.offerSort}
-                  >
-                    <MaterialDesignIcons name="swap-vertical" size={18} color={colors.text} />
-                    <Text style={styles.offerSortLabel}>{selectedOfferSort.shortLabel}</Text>
-                    <MaterialDesignIcons name={selectedOfferSort.icon} size={18} color={colors.text} />
-                    <MaterialDesignIcons name="chevron-down" size={18} color={colors.textSecondary} />
-                  </Pressable>
-                </View>
+            <View style={styles.offersIntro}>
+              <View style={styles.offersToolbar}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Cancel request"
+                  disabled={cancelling}
+                  hitSlop={8}
+                  onPress={confirmCancelSearch}
+                >
+                  <Text style={styles.cancelRequestLink}>{cancelling ? 'Cancelling' : 'Cancel request'}</Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Parcel details"
+                  onPress={() => setDetailsOpen(true)}
+                  style={styles.parcelDetails}
+                >
+                  <Text style={styles.parcelDetailsText}>Parcel details</Text>
+                  <MaterialDesignIcons name="chevron-up" size={18} color={colors.primary} />
+                </Pressable>
               </View>
-            )}
+              <View style={styles.offersHeading}>
+                <Text style={styles.offerCount}>{receivedOfferCountLabel(offers.length)}</Text>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Sort offers, ${selectedOfferSort.label}`}
+                  onPress={() => setSortOpen(true)}
+                  style={styles.offerSort}
+                >
+                  <MaterialDesignIcons name="swap-vertical" size={18} color={colors.text} />
+                  <Text style={styles.offerSortLabel}>{selectedOfferSort.shortLabel}</Text>
+                  <MaterialDesignIcons name={selectedOfferSort.icon} size={18} color={colors.text} />
+                  <MaterialDesignIcons name="chevron-down" size={18} color={colors.textSecondary} />
+                </Pressable>
+              </View>
+            </View>
             {incoming.unavailableNotice ? <Text style={styles.notice}>{incoming.unavailableNotice}</Text> : null}
             <ErrorMessage message={incoming.error ?? error ?? actionError ?? cancelError} />
           </View>
@@ -449,20 +435,9 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
             </View>
           </GreenSurface>
         )}
-        {delivery && (!awaitingOffers || offers.length === 0) ? (
-          <View style={[view === 'offline' ? styles.offlineSummary : styles.overlap, awaitingOffers ? styles.searchCard : null]}>
+        {delivery && !awaitingOffers ? (
+          <View style={view === 'offline' ? styles.offlineSummary : styles.overlap}>
             <Summary delivery={delivery} />
-          </View>
-        ) : null}
-        {awaitingOffers && offers.length === 0 ? (
-          <View style={styles.cancelRequest}>
-            <SecondaryButton
-              label="Cancel request"
-              tone="danger"
-              bordered={false}
-              loading={cancelling}
-              onPress={confirmCancelSearch}
-            />
           </View>
         ) : null}
         {offers.length > 0 ? (
@@ -492,9 +467,13 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
           </View>
         ) : null}
         {awaitingOffers && offers.length === 0 && incoming.loaded && !incoming.error ? (
-          <Text style={styles.leave}>
-            You can leave this screen while we search. Check Deliveries for updates.
-          </Text>
+          <View style={styles.sentNotice}>
+            <View style={styles.requestIcon}>
+              <MaterialDesignIcons name="check" size={24} color={colors.primary} />
+            </View>
+            <Text style={styles.title}>Request sent</Text>
+            <Text style={styles.support}>Waiting for riders response</Text>
+          </View>
         ) : null}
       </ScrollView>
       <ConfirmRiderSheet
@@ -794,6 +773,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
+  offerScroll: {
+    flex: 1,
+  },
   content: {
     flexGrow: 1,
     paddingBottom: spacing.lg,
@@ -810,38 +792,11 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   requestSent: {
-    alignItems: 'center',
-    paddingHorizontal: spacing.xl,
+    alignItems: 'stretch',
+    paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
     paddingBottom: spacing.xs,
     gap: spacing.sm,
-  },
-  cancelRequest: {
-    alignSelf: 'stretch',
-    marginTop: spacing.md,
-    marginHorizontal: spacing.lg,
-  },
-  requestIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.primaryLight,
-  },
-  waitingPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.pill,
-    backgroundColor: colors.primaryLight,
-  },
-  waitingText: {
-    fontSize: typography.caption,
-    fontWeight: '600',
-    color: colors.primaryDark,
   },
   notice: {
     fontSize: typography.caption,
@@ -1142,13 +1097,19 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     textAlign: 'center',
   },
-  leave: {
+  sentNotice: {
+    alignItems: 'center',
+    gap: spacing.sm,
     marginHorizontal: spacing.lg,
-    marginTop: spacing.lg,
-    fontSize: typography.caption,
-    lineHeight: 20,
-    color: colors.textSecondary,
-    textAlign: 'center',
+    marginTop: spacing.xl,
+  },
+  requestIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primaryLight,
   },
   overlap: {
     marginTop: -spacing.xxxl,
@@ -1157,9 +1118,6 @@ const styles = StyleSheet.create({
   offlineSummary: {
     marginTop: spacing.lg,
     marginHorizontal: spacing.lg,
-  },
-  searchCard: {
-    marginTop: spacing.xs,
   },
   card: {
     backgroundColor: colors.background,

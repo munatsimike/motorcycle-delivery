@@ -364,7 +364,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.md,
-    marginTop: spacing.xs,
+    marginTop: spacing.xl,
     marginBottom: spacing.md,
   },
   sectionTitle: {

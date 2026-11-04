@@ -64,7 +64,6 @@ export default function DeliveryCard({
   const tone = bidsReceived ? STATUS_TONES.ASSIGNED : STATUS_TONES[delivery.status];
   const contentKind = deliveryContentKind(delivery.parcelDescription);
   const canSearch = deliveryCanSearchAgain(delivery) && Boolean(onSearchAgain);
-  const canViewBids = bidsReceived && Boolean(onOpenDetails);
 
   async function searchAgain() {
     if (!onSearchAgain || searching) {
@@ -114,19 +113,6 @@ export default function DeliveryCard({
             />
           </View>
         </View>
-        {canViewBids ? (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`View offers for delivery ${delivery.id}`}
-            onPress={(event) => {
-              event.stopPropagation();
-              onOpenDetails?.(delivery.id);
-            }}
-            style={styles.searchButton}
-          >
-            <Text style={styles.searchText}>View offers</Text>
-          </Pressable>
-        ) : null}
         {canSearch ? (
           <Pressable
             accessibilityRole="button"
@@ -135,7 +121,7 @@ export default function DeliveryCard({
             onPress={() => {
               void searchAgain();
             }}
-            style={styles.searchButton}
+            style={[styles.searchButton, styles.compactAction]}
           >
             <MaterialDesignIcons name="refresh" color={colors.primary} size={16} />
             <Text style={styles.searchText}>{searching ? 'Searching' : 'Search again'}</Text>
@@ -358,6 +344,13 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     backgroundColor: colors.background,
     paddingHorizontal: spacing.sm,
+  },
+  compactAction: {
+    flex: 0,
+    alignSelf: 'flex-end',
+    minHeight: 32,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
   },
   searchText: {
     fontSize: typography.caption,

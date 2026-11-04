@@ -93,7 +93,7 @@ const styles = StyleSheet.create({
   },
   homeEmpty: {
     alignItems: 'center',
-    paddingTop: spacing.lg,
+    paddingTop: spacing.lg + spacing.md,
     paddingBottom: spacing.xl,
     backgroundColor: 'transparent',
   },
