@@ -61,14 +61,15 @@ export default function CustomerHomeScreen() {
 
   return (
     <View ref={screenRef} style={styles.screen}>
-      <Image
-        pointerEvents="none"
-        source={require('../../../../../assets/map.png')}
-        style={styles.homeMap}
-        resizeMode="cover"
-        accessibilityElementsHidden
-        importantForAccessibility="no"
-      />
+      <View pointerEvents="none" style={styles.homeMap}>
+        <Image
+          source={require('../../../../../assets/map.png')}
+          style={styles.homeMap}
+          resizeMode="cover"
+          accessibilityElementsHidden
+          importantForAccessibility="no"
+        />
+      </View>
       <LinearGradient
         pointerEvents="none"
         colors={['rgba(201,239,217,0.82)', 'rgba(229,247,238,0.8)', 'rgba(247,252,249,0.72)']}
