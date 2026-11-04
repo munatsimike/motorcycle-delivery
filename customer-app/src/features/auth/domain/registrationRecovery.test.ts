@@ -8,6 +8,7 @@ import {
   registrationAfterSubmissionFailure,
   registrationDestination,
   storeProof,
+  verifiedRegistrationPhone,
   withRegistrationDraft,
   type RegistrationDraft,
   type RegistrationRecoveryState,
@@ -17,6 +18,12 @@ const NOW = Date.parse('2026-11-01T12:00:00.000Z');
 const FIFTEEN_MINUTES = 15 * 60_000;
 
 describe('customer registration recovery', () => {
+  it('reads the verified number from the registration proof', () => {
+    const payload = Buffer.from(JSON.stringify({ exp: 1, phone: '+263771234567' })).toString('base64url');
+    expect(verifiedRegistrationPhone(`header.${payload}.signature`)).toBe('+263771234567');
+    expect(verifiedRegistrationPhone('not-a-proof')).toBeNull();
+  });
+
   it('restores the registration form when the app restarts before submission and the proof is still valid', () => {
     const proof = storeProof(proofToken(NOW + FIFTEEN_MINUTES));
     const draft = { fullName: 'Rudo Ncube', address: '4 Jason Moyo' };

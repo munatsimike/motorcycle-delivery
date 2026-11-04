@@ -4,6 +4,7 @@ import { ApiError } from '../../../../services/api/apiClient';
 import { customerAuthRepository } from '../../data/repositories/CustomerAuthApiRepository';
 import type { AuthSession } from '../../domain/auth.types';
 import { submitCustomerRegistration } from '../../domain/customerAuthJourney';
+import { collapseRegistrationName, registrationFullNameIssue } from '../../domain/registrationName';
 import { createSingleFlight } from '../../domain/registrationRecovery';
 import { errorMessage } from '../errorMessage';
 
@@ -22,13 +23,14 @@ export function useCompleteRegistration(registrationToken: string) {
     if (!flight.current.enter()) {
       return { status: 'busy' };
     }
-    const name = fullName.trim();
-    const place = address.trim();
-    if (!name || !place) {
+    const issue = registrationFullNameIssue(fullName, address);
+    if (issue) {
       flight.current.leave();
-      setError('Enter your name and address.');
-      return { status: 'interrupted', message: 'Enter your name and address.' };
+      setError(issue);
+      return { status: 'interrupted', message: issue };
     }
+    const name = collapseRegistrationName(fullName);
+    const place = address.trim();
     setIsLoading(true);
     setError(null);
     try {

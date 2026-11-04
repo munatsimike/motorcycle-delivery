@@ -23,17 +23,31 @@ export const EMPTY_REGISTRATION_DRAFT: RegistrationDraft = {
   address: '',
 };
 
+export function verifiedRegistrationPhone(token: string): string | null {
+  const parsed = registrationProofPayload(token);
+  if (!parsed || typeof parsed.phone !== 'string') {
+    return null;
+  }
+  const phone = parsed.phone.trim();
+  return phone || null;
+}
+
 export function proofExpiryMs(token: string): number | null {
+  const parsed = registrationProofPayload(token);
+  if (!parsed || typeof parsed.exp !== 'number' || !Number.isFinite(parsed.exp)) {
+    return null;
+  }
+  return parsed.exp * 1000;
+}
+
+function registrationProofPayload(token: string): Record<string, unknown> | null {
   const payload = token.split('.')[1];
   if (!payload) {
     return null;
   }
   try {
     const parsed: unknown = JSON.parse(decodeBase64Url(payload));
-    if (!isRecord(parsed) || typeof parsed.exp !== 'number' || !Number.isFinite(parsed.exp)) {
-      return null;
-    }
-    return parsed.exp * 1000;
+    return isRecord(parsed) ? parsed : null;
   } catch {
     return null;
   }
