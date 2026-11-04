@@ -210,6 +210,7 @@ export class V2OutboxSender {
           riderProfile: {
             select: {
               approvalStatus: true,
+              availability: true,
               receivingRequests: true,
               verificationStatus: true,
               user: { select: { accountStatus: true, phoneVerifiedAt: true } },
@@ -225,6 +226,7 @@ export class V2OutboxSender {
         licenceVerified: device.riderProfile.verificationStatus === 'VERIFIED',
         receivingRequests: device.riderProfile.receivingRequests === true,
         activeVerifiedMotorcycle: hasActiveVerifiedMotorcycle(device.riderProfile.motorcycles),
+        availability: device.riderProfile.availability,
       })).map((device) => ({ id: device.id, fcmToken: device.fcmToken }));
     }
     if (row.eventType === 'BID_ACCEPTED' || row.eventType === 'ACCOUNT_APPROVED') {

@@ -35,7 +35,7 @@ export class RiderBidController {
   @ApiOkResponse({ description: 'Pickup, drop-off, parcel, suggested price, and deadline. Contact phones are omitted.' })
   listRequests(@Req() request: BidRequest) {
     requiredRider(request);
-    return this.bids.listOpenRequests();
+    return this.bids.listOpenRequests(requiredRider(request));
   }
 
   @Get('bids')

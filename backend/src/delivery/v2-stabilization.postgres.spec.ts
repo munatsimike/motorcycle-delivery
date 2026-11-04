@@ -239,13 +239,13 @@ it('closes an unassigned request at the deadline and leaves an accepted request 
   const idleBid = await prisma.bid.create({
     data: { deliveryId: idle.id, riderProfileId: hired.rider.riderProfileId, amount: '8.00', currency: 'USD', status: 'OPEN' },
   });
-  await bids.listOpenRequests(DEADLINE);
+  await bids.listOpenRequests(hired.rider, DEADLINE);
   expect((await prisma.delivery.findUnique({ where: { id: idle.id } }))?.status).toBe('CANCELLED');
   expect((await prisma.bid.findUnique({ where: { id: idleBid.id } }))?.status).toBe('EXPIRED');
   await expect(acceptance.accept(customer, idle.id, idleBid.id, `late-${idle.id}`, DEADLINE)).rejects.toThrow('The bidding window has closed');
 
   const live = await acceptedJob();
-  await bids.listOpenRequests(DEADLINE);
+  await bids.listOpenRequests(live.rider, DEADLINE);
   expect((await prisma.delivery.findUnique({ where: { id: live.deliveryId } }))?.status).toBe('RIDER_ASSIGNED');
   expect(await prisma.deliveryAssignment.count({ where: { deliveryId: live.deliveryId, status: 'ACCEPTED' } })).toBe(1);
 }, 30_000);
@@ -258,7 +258,7 @@ it('lets expiry and acceptance produce one outcome', async () => {
   });
   await Promise.allSettled([
     acceptance.accept(customer, delivery.id, bid.id, `race-${delivery.id}`, NOW),
-    bids.listOpenRequests(DEADLINE),
+    bids.listOpenRequests(hired.rider, DEADLINE),
   ]);
   const stored = await prisma.delivery.findUniqueOrThrow({ where: { id: delivery.id } });
   const acceptedCount = await prisma.deliveryAssignment.count({ where: { deliveryId: delivery.id, status: 'ACCEPTED' } });

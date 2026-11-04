@@ -14,6 +14,8 @@ import {
   Prisma,
   MotorcycleVerificationStatus,
   ProfilePhotoStatus,
+  RiderApprovalStatus,
+  RiderAvailability,
   RiderClass,
 } from '../generated/prisma/client.js';
 import type { CustomerContext } from '../auth/customer-access.service.js';
@@ -140,11 +142,14 @@ export class BidService {
     });
   }
 
-  async listOpenRequests(now = new Date()) {
+  async listOpenRequests(rider: RiderContext, now = new Date()) {
     this.requireMarketplace();
     return this.prisma.$transaction(async (tx) => {
       await expireClosedBids(tx, now);
       await expireDueV2Searches(tx, now);
+      if (!(await riderCanReceiveRequests(tx, rider.riderProfileId))) {
+        return [];
+      }
       const rows = await tx.delivery.findMany({
         where: {
           status: DeliveryStatus.CREATED,
@@ -521,6 +526,16 @@ export class BidService {
       throw new NotFoundException('Bidding is not available');
     }
   }
+}
+
+async function riderCanReceiveRequests(tx: Prisma.TransactionClient, riderProfileId: string): Promise<boolean> {
+  const profile = await tx.riderProfile.findUnique({
+    where: { id: riderProfileId },
+    select: { approvalStatus: true, availability: true, receivingRequests: true },
+  });
+  return profile?.approvalStatus === RiderApprovalStatus.APPROVED
+    && profile.availability !== RiderAvailability.OFFLINE
+    && profile.receivingRequests === true;
 }
 
 async function expireClosedBids(tx: Prisma.TransactionClient, now: Date, deliveryId?: string) {

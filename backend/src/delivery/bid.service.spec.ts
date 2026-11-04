@@ -7,6 +7,7 @@ import {
   DeliveryStatus,
   MotorcycleVerificationStatus,
   RiderApprovalStatus,
+  RiderAvailability,
   RiderVerificationStatus,
   ServiceClass,
 } from '../generated/prisma/client.js';
@@ -338,7 +339,7 @@ describe('V2 bid lifecycle', () => {
     process.env.V2_MARKETPLACE_ENABLED = 'true';
     const ctx = store();
     const bids = new BidService(ctx.prisma);
-    const open = await bids.listOpenRequests(NOW);
+    const open = await bids.listOpenRequests(RIDER_CONTEXT, NOW);
     expect(open).toEqual([expect.objectContaining({
       id: DELIVERY,
       serviceClass: 'FLEXIBLE',
@@ -348,15 +349,31 @@ describe('V2 bid lifecycle', () => {
     })]);
     expect(JSON.stringify(open)).not.toContain('+263');
     ctx.deliveries[0]!.deliverBy = new Date(NOW.getTime() - 1_000);
-    await expect(bids.listOpenRequests(NOW)).resolves.toEqual([]);
+    await expect(bids.listOpenRequests(RIDER_CONTEXT, NOW)).resolves.toEqual([]);
     ctx.deliveries[0]!.status = DeliveryStatus.CREATED;
     ctx.deliveries[0]!.deliverBy = null;
-    const openEnded = await bids.listOpenRequests(NOW);
+    const openEnded = await bids.listOpenRequests(RIDER_CONTEXT, NOW);
     expect(openEnded.map((request) => request.id)).toEqual([DELIVERY]);
     expect(openEnded[0]?.deliverBy).toBeNull();
     const submitted = await bids.submit(RIDER_CONTEXT, bidBody(900), 'open-ended', NOW);
     expect(submitted.deliveryId).toBe(DELIVERY);
     expect(ctx.bids.filter((bid) => bid.status === BidStatus.OPEN)).toHaveLength(1);
+  });
+
+  it('hides open requests from a rider who is unapproved or offline', async () => {
+    process.env.V2_MARKETPLACE_ENABLED = 'true';
+    const ctx = store();
+    const bids = new BidService(ctx.prisma);
+    ctx.profiles[0]!.approvalStatus = RiderApprovalStatus.PENDING;
+    ctx.profiles[0]!.availability = RiderAvailability.OFFLINE;
+    ctx.profiles[0]!.receivingRequests = false;
+    await expect(bids.listOpenRequests(RIDER_CONTEXT, NOW)).resolves.toEqual([]);
+    ctx.profiles[0]!.approvalStatus = RiderApprovalStatus.APPROVED;
+    await expect(bids.listOpenRequests(RIDER_CONTEXT, NOW)).resolves.toEqual([]);
+    ctx.profiles[0]!.availability = RiderAvailability.AVAILABLE;
+    ctx.profiles[0]!.receivingRequests = true;
+    const open = await bids.listOpenRequests(RIDER_CONTEXT, NOW);
+    expect(open.map((request) => request.id)).toEqual([DELIVERY]);
   });
 
   it('records Express interest and a different offer without assigning the rider', async () => {
@@ -460,6 +477,7 @@ type Profile = {
   userId: string;
   approvalStatus: RiderApprovalStatus;
   verificationStatus: RiderVerificationStatus;
+  availability: RiderAvailability;
   receivingRequests: boolean | null;
   completedDeliveryCount: number;
   ratingCount: number;
@@ -504,8 +522,8 @@ function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?:
     pickupContactPhone: '+263771234567',
   }];
   const profiles: Profile[] = [
-    { id: RIDER, userId: 'user-rider', approvalStatus: RiderApprovalStatus.APPROVED, verificationStatus: RiderVerificationStatus.VERIFIED, receivingRequests: true, completedDeliveryCount: 0, ratingCount: 0, ratingSum: 0, riderClass: 'SILVER' },
-    { id: OTHER_RIDER, userId: 'user-rider-2', approvalStatus: RiderApprovalStatus.APPROVED, verificationStatus: RiderVerificationStatus.VERIFIED, receivingRequests: true, completedDeliveryCount: 0, ratingCount: 0, ratingSum: 0, riderClass: 'SILVER' },
+    { id: RIDER, userId: 'user-rider', approvalStatus: RiderApprovalStatus.APPROVED, verificationStatus: RiderVerificationStatus.VERIFIED, availability: RiderAvailability.AVAILABLE, receivingRequests: true, completedDeliveryCount: 0, ratingCount: 0, ratingSum: 0, riderClass: 'SILVER' },
+    { id: OTHER_RIDER, userId: 'user-rider-2', approvalStatus: RiderApprovalStatus.APPROVED, verificationStatus: RiderVerificationStatus.VERIFIED, availability: RiderAvailability.AVAILABLE, receivingRequests: true, completedDeliveryCount: 0, ratingCount: 0, ratingSum: 0, riderClass: 'SILVER' },
   ];
   const users = [
     { id: 'user-rider', accountStatus: AccountStatus.ACTIVE, phoneVerifiedAt: NOW, fullName: 'Tendai Moyo', phone: '+263771234567' },

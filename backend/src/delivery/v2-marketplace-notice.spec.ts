@@ -26,6 +26,7 @@ const ELIGIBLE = {
   licenceVerified: true,
   receivingRequests: true,
   activeVerifiedMotorcycle: true,
+  availability: 'AVAILABLE',
 };
 
 describe('marketplace notice policy', () => {
@@ -49,6 +50,7 @@ describe('marketplace notice policy', () => {
     expect(mayReceiveDeliveryOpportunity({ ...ELIGIBLE, licenceVerified: false })).toBe(false);
     expect(mayReceiveDeliveryOpportunity({ ...ELIGIBLE, receivingRequests: false })).toBe(false);
     expect(mayReceiveDeliveryOpportunity({ ...ELIGIBLE, activeVerifiedMotorcycle: false })).toBe(false);
+    expect(mayReceiveDeliveryOpportunity({ ...ELIGIBLE, availability: 'OFFLINE' })).toBe(false);
     expect(hasActiveVerifiedMotorcycle([
       { isActive: true, verificationStatus: 'VERIFIED' },
       { isActive: false, verificationStatus: 'PENDING' },

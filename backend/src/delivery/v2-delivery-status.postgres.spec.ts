@@ -315,7 +315,7 @@ it('finishes committed Flexible deliveries after the marketplace flag is turned 
     await step(hired.rider, first.deliveryId, 'DELIVERED');
     expect(await feeCount(first.assignmentId)).toBe(1);
     const another = await openJob(hired.riderProfileId, 'FLEXIBLE', '9.00');
-    await expect(bids.listOpenRequests(NOW)).rejects.toThrow('Bidding is not available');
+    await expect(bids.listOpenRequests(hired.rider, NOW)).rejects.toThrow('Bidding is not available');
     await expect(bids.submit(
       hired.rider,
       { deliveryId: another.deliveryId, amountCents: 900 },

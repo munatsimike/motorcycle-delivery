@@ -14,6 +14,7 @@ export type OpportunityRider = {
   licenceVerified: boolean;
   receivingRequests: boolean;
   activeVerifiedMotorcycle: boolean;
+  availability: string;
 };
 
 export type NoticeDisposition = 'sent' | 'retry' | 'terminal' | 'defer';
@@ -65,7 +66,8 @@ export function mayReceiveDeliveryOpportunity(rider: OpportunityRider): boolean 
     && rider.phoneVerified
     && rider.licenceVerified
     && rider.receivingRequests
-    && rider.activeVerifiedMotorcycle;
+    && rider.activeVerifiedMotorcycle
+    && rider.availability !== 'OFFLINE';
 }
 
 export function hasActiveVerifiedMotorcycle(motorcycles: ReadonlyArray<{ isActive: boolean; verificationStatus: string }>): boolean {
