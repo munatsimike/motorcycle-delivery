@@ -50,8 +50,18 @@ class RiderDomainTest {
     @Test
     fun riderAccountUsesAnIndividualNameAndAddress() {
         assertEquals("Tendai Moyo", normalizeRiderName("  Tendai   Moyo  "))
+        assertEquals("Tendai Joe Moyo", normalizeRiderName("Tendai Joe Moyo"))
+        assertEquals("Ann Moyo", normalizeRiderName("Ann Moyo"))
         assertEquals("12 Samora Machel Avenue", normalizeRiderAddress("  12   Samora Machel Avenue  "))
         assertThrows(IllegalArgumentException::class.java) { normalizeRiderName(" ") }
+        assertEquals(
+            "Enter your name and surname.",
+            assertThrows(IllegalArgumentException::class.java) { normalizeRiderName("Tendai") }.message,
+        )
+        assertEquals(
+            "Each name must be at least 3 letters.",
+            assertThrows(IllegalArgumentException::class.java) { normalizeRiderName("Tendai M") }.message,
+        )
         assertThrows(IllegalArgumentException::class.java) { normalizeRiderAddress(" ") }
     }
 

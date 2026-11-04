@@ -14,6 +14,7 @@ import ErrorMessage from '../../../../components/ErrorMessage';
 import FormInput from '../../../../components/FormInput';
 import PrimaryButton from '../../../../components/PrimaryButton';
 import ZimbabwePhoneField from '../../../../components/ZimbabwePhoneField';
+import { riderNameFieldError } from '../../domain/personName';
 import { looksLikeDutchPhoneEntry } from '../../domain/phone';
 import RegistrationAddressField from './RegistrationAddressField';
 import { colors, spacing, typography } from '../../../../theme';
@@ -75,6 +76,7 @@ export default function AuthForm({
             textContentType="name"
             maxLength={200}
             editable={!isLoading}
+            error={riderNameFieldError(error)}
           />
         ) : null}
         {onChangeAddress ? (
@@ -91,7 +93,7 @@ export default function AuthForm({
           countryCode={typeof __DEV__ === 'boolean' && __DEV__ && looksLikeDutchPhoneEntry(phone) ? '+31' : '+263'}
         />
         {helperText ? <Text style={styles.helper}>{helperText}</Text> : null}
-        <ErrorMessage message={error} />
+        <ErrorMessage message={riderNameFieldError(error) ? null : error} />
         <PrimaryButton
           label={buttonLabel}
           onPress={onSubmit}

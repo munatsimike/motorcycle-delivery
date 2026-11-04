@@ -22,6 +22,10 @@ describe('rider phone and name', () => {
 
   it('collapses a rider name the same way the API does', () => {
     expect(normalizeRiderName('  Tariro   Moyo ')).toBe('Tariro Moyo');
+    expect(normalizeRiderName('Tariro Joe Moyo')).toBe('Tariro Joe Moyo');
+    expect(normalizeRiderName('Ann Moyo')).toBe('Ann Moyo');
     expect(() => normalizeRiderName('   ')).toThrow('Full name is required');
+    expect(() => normalizeRiderName('Tariro')).toThrow('Enter your name and surname.');
+    expect(() => normalizeRiderName('Tariro M')).toThrow('Each name must be at least 3 letters.');
   });
 });
