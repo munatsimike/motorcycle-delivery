@@ -75,6 +75,8 @@
 //   bids_amount_nonnegative_chk
 //   bids_currency_usd_chk
 //   bids_idempotency_pair_chk
+//   rider_ratings_stars_chk
+//   rider_profiles_rating_counts_chk
 //
 // Phase 4B dropped delivery_assignments_one_accepted_per_rider_idx.
 // A later migration drops the Express and V1 per-rider partial indexes.
@@ -190,6 +192,14 @@ enum RiderAvailability {
   BUSY
 
   @@map("rider_availability")
+}
+
+enum RiderClass {
+  SILVER
+  GOLD
+  PLATINUM
+
+  @@map("rider_class")
 }
 
 enum MotorcycleVerificationStatus {
@@ -375,6 +385,10 @@ model RiderProfile {
   address            String?                 @db.VarChar(500)
   verifiedAt         DateTime?               @map("verified_at") @db.Timestamptz(6)
   reviewerId         String?                 @map("reviewer_id") @db.Uuid
+  completedDeliveryCount Int                 @default(0) @map("completed_delivery_count")
+  ratingCount        Int                     @default(0) @map("rating_count")
+  ratingSum          Int                     @default(0) @map("rating_sum")
+  riderClass         RiderClass              @default(SILVER) @map("rider_class")
   createdAt          DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime                @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -390,6 +404,7 @@ model RiderProfile {
   location       RiderLocation?
   pushDevices    RiderPushDevice[]
   bids               Bid[]
+  ratings            RiderRating[]
   v2OutboxEvents     V2OutboxEvent[]
   progressCommands   DeliveryProgressCommand[]
 
@@ -538,6 +553,7 @@ model Delivery {
   assignments     DeliveryAssignment[]
   statusEvents    DeliveryStatusEvent[]
   bids            Bid[]
+  ratings         RiderRating[]
   feeReservations WalletFeeReservation[]
   v2OutboxEvents  V2OutboxEvent[]
   progressCommands DeliveryProgressCommand[]
@@ -691,6 +707,7 @@ model CustomerAccount {
 
   user       User       @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   deliveries Delivery[]
+  ratings    RiderRating[]
   pushDevices CustomerPushDevice[]
   fcmDevices CustomerFcmDevice[]
   v2OutboxEvents V2OutboxEvent[]
@@ -1403,6 +1420,8 @@ model Bid {
   // ACCEPTED. The partial unique index ignores a closed row, so a later bid
   // on the reopened delivery can be accepted.
   closedAt       DateTime? @map("closed_at") @db.Timestamptz(6)
+  // Set when the customer hides this open bid. The bid stays OPEN for the rider.
+  customerDismissedAt DateTime? @map("customer_dismissed_at") @db.Timestamptz(6)
   // Both null or both set. A replay of the key returns the first bid.
   idempotencyKey String?   @unique @map("idempotency_key") @db.VarChar(200)
   payloadHash    String?   @map("payload_hash") @db.Char(64)
@@ -1416,6 +1435,25 @@ model Bid {
   @@index([deliveryId, status])
   @@index([riderProfileId, status])
   @@map("bids")
+}
+
+// One customer star rating per completed delivery. Duplicate rows are rejected
+// by rider_ratings_delivery_id_key. Stars are 1-5 via rider_ratings_stars_chk.
+model RiderRating {
+  id                String   @id @default(uuid(7)) @db.Uuid
+  deliveryId        String   @unique @map("delivery_id") @db.Uuid
+  riderProfileId    String   @map("rider_profile_id") @db.Uuid
+  customerAccountId String   @map("customer_account_id") @db.Uuid
+  stars             Int
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  delivery        Delivery        @relation(fields: [deliveryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  riderProfile    RiderProfile    @relation(fields: [riderProfileId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  customerAccount CustomerAccount @relation(fields: [customerAccountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([riderProfileId])
+  @@index([customerAccountId])
+  @@map("rider_ratings")
 }
 
 model PricingWindow {

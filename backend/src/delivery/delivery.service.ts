@@ -18,7 +18,7 @@ import { v2MarketplaceEnabled } from '../auth/v2-flags.js';
 import { recordDeliveryOpportunity } from './v2-outbox.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { readDeliveryDraft, readQuoteRequest, readV2DeliveryDraft, type QuotePins, type QuoteRequest, type V2DeliveryDraft } from './delivery-request.js';
-import { assignedRiderStatus, customerSharesRiderLocation, freshRiderPoint, toCustomerDelivery, toCustomerDeliverySummary, withAssignedRider, withCollectingRiderLocation, withPickupApproach, type AssignedRiderView, type PickupApproachView, type RiderPoint, type StoredDelivery } from './delivery-view.js';
+import { assignedRiderStatus, customerSharesRiderLocation, freshRiderPoint, toCustomerDelivery, toCustomerDeliverySummary, withAssignedRider, withCollectingRiderLocation, withCustomerRating, withPickupApproach, type AssignedRiderView, type PickupApproachView, type RiderPoint, type StoredDelivery } from './delivery-view.js';
 import { PICKUP_APPROACH, type PickupApproachLookup } from './pickup-approach.js';
 import { centsFromDecimal, formatCents } from './money.js';
 import { lockActiveClassPricing } from './pricing-lock.js';
@@ -73,7 +73,29 @@ export class DeliveryService {
       : null;
     const rider = assignedRiderStatus(delivery.status) ? await this.assignedRider(delivery.id) : null;
     const approach = await this.pickupApproachFor(point, view.pickup.latitude, view.pickup.longitude);
-    return withAssignedRider(withPickupApproach(withCollectingRiderLocation(view, point), approach), rider);
+    const rating = await this.customerRating(delivery.id, delivery.status, rider != null);
+    return withCustomerRating(
+      withAssignedRider(withPickupApproach(withCollectingRiderLocation(view, point), approach), rider),
+      rating,
+    );
+  }
+
+  private async customerRating(
+    deliveryId: string,
+    status: DeliveryStatus,
+    hasAssignedRider: boolean,
+  ) {
+    const stored = this.prisma.riderRating
+      ? await this.prisma.riderRating.findUnique({ where: { deliveryId }, select: { stars: true } })
+      : null;
+    if (stored) {
+      return { eligible: false, submitted: true, stars: stored.stars };
+    }
+    return {
+      eligible: status === DeliveryStatus.DELIVERED && hasAssignedRider,
+      submitted: false,
+      stars: null,
+    };
   }
 
   private async pickupApproachFor(

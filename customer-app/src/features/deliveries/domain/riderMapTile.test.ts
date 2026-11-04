@@ -37,6 +37,7 @@ function collecting(id: string, riderLocation: CustomerDeliveryDetail['riderLoca
     riderLocation,
     pickupApproach: null,
     rider: null,
+    rating: { eligible: false, submitted: false, stars: null },
   };
 }
 

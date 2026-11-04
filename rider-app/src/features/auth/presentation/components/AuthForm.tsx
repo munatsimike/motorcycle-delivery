@@ -14,6 +14,7 @@ import ErrorMessage from '../../../../components/ErrorMessage';
 import FormInput from '../../../../components/FormInput';
 import PrimaryButton from '../../../../components/PrimaryButton';
 import ZimbabwePhoneField from '../../../../components/ZimbabwePhoneField';
+import { looksLikeDutchPhoneEntry } from '../../domain/phone';
 import RegistrationAddressField from './RegistrationAddressField';
 import { colors, spacing, typography } from '../../../../theme';
 
@@ -83,7 +84,12 @@ export default function AuthForm({
             editable={!isLoading}
           />
         ) : null}
-        <ZimbabwePhoneField value={phone} onChangeText={onChangePhone} editable={!isLoading} />
+        <ZimbabwePhoneField
+          value={phone}
+          onChangeText={onChangePhone}
+          editable={!isLoading}
+          countryCode={typeof __DEV__ === 'boolean' && __DEV__ && looksLikeDutchPhoneEntry(phone) ? '+31' : '+263'}
+        />
         {helperText ? <Text style={styles.helper}>{helperText}</Text> : null}
         <ErrorMessage message={error} />
         <PrimaryButton

@@ -7,6 +7,7 @@ import { AuthModule } from '../auth/auth.module.js';
 import { BidAcceptanceService } from './bid-acceptance.service.js';
 import { BidService } from './bid.service.js';
 import { CustomerBidController } from './customer-bid.controller.js';
+import { RiderRatingService } from './rider-rating.service.js';
 import { DeliveryController } from './delivery.controller.js';
 import { DeliveryPricingController } from './delivery-pricing.controller.js';
 import { ClassPricingService } from './class-pricing.service.js';
@@ -39,6 +40,7 @@ import { RiderDeliveryController } from './rider-delivery.controller.js';
     AdminNoticeService,
     BidAcceptanceService,
     BidService,
+    RiderRatingService,
     DeliveryService,
     ClassPricingService,
     DispatchService,

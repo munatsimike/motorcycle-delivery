@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
+import DialogModal, { DialogActions, DialogBody, DialogTextButton, DialogTitle } from '../../../../components/DialogModal';
 import ErrorMessage from '../../../../components/ErrorMessage';
 import { useKeyboardLift } from '../../../../components/useKeyboardLift';
 import PrimaryButton from '../../../../components/PrimaryButton';
@@ -22,6 +23,7 @@ export default function EditProfileScreen({ route, navigation }: EditProfileProp
   const form = useEditProfile(accessToken, route.params.account);
   const placeBias = usePlaceBias();
   const keyboard = useKeyboardLift();
+  const [savedOpen, setSavedOpen] = useState(false);
   const [addressStop, setAddressStop] = useState<StopDraft>(() => ({
     ...emptyStop(),
     address: route.params.account.address,
@@ -35,9 +37,7 @@ export default function EditProfileScreen({ route, navigation }: EditProfileProp
     if (!saved) {
       return;
     }
-    Alert.alert('Address updated', 'Your address has been saved.', [
-      { text: 'OK', onPress: () => navigation.goBack() },
-    ]);
+    setSavedOpen(true);
   }
 
   return (
@@ -88,6 +88,13 @@ export default function EditProfileScreen({ route, navigation }: EditProfileProp
           onPress={() => navigation.goBack()}
         />
       </View>
+      <DialogModal visible={savedOpen} onClose={() => navigation.goBack()} closeLabel="OK">
+        <DialogTitle>Address updated</DialogTitle>
+        <DialogBody>Your address has been saved.</DialogBody>
+        <DialogActions>
+          <DialogTextButton label="OK" onPress={() => navigation.goBack()} />
+        </DialogActions>
+      </DialogModal>
     </ScrollView>
   );
 }

@@ -38,6 +38,7 @@ export default function DeliveryOutcome({
 }: DeliveryOutcomeProps) {
   const rider = showsOutcomeRider(delivery.status) ? delivery.rider : null;
   const phone = rider?.phone ?? null;
+  const cancelled = delivery.status === 'CANCELLED';
   function callRider() {
     const url = riderDialUrl(phone);
     if (url) {
@@ -56,9 +57,13 @@ export default function DeliveryOutcome({
         <GreenSurface style={styles.band}>
           <View style={styles.hero}>
             <View style={styles.icon}>
-              <MaterialDesignIcons name={outcomeIcon(delivery.status)} size={28} color={colors.primaryDark} />
+              <MaterialDesignIcons
+                name={outcomeIcon(delivery.status)}
+                size={28}
+                color={cancelled ? colors.error : colors.primaryDark}
+              />
             </View>
-            <Text style={styles.title}>{deliveryOutcomeTitle(delivery.status)}</Text>
+            <Text style={[styles.title, cancelled && styles.titleCancelled]}>{deliveryOutcomeTitle(delivery.status)}</Text>
             <Text style={styles.support}>{outcomeSupport(delivery.status)}</Text>
             <ErrorMessage message={message ?? null} />
           </View>
@@ -192,6 +197,10 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.text,
     textAlign: 'center',
+  },
+  titleCancelled: {
+    color: colors.error,
+    fontWeight: '500',
   },
   support: {
     fontSize: typography.body,

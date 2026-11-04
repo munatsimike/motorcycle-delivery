@@ -504,6 +504,10 @@ function addRider(
     approvalStatus: extra.approvalStatus ?? 'APPROVED',
     verificationStatus: 'VERIFIED',
     availability: 'AVAILABLE',
+    completedDeliveryCount: 0,
+    ratingCount: 0,
+    ratingSum: 0,
+    riderClass: 'SILVER',
   };
   const user = {
     id: profile.userId,

@@ -1,5 +1,7 @@
 import { ApiError, apiDelete, apiPut } from '../../../services/api/apiClient';
 
+export const PUSH_CLEANUP_TIMEOUT_MS = 8_000;
+
 export async function registerCustomerPushDevice(accessToken: string, fcmToken: string): Promise<'registered' | 'unavailable'> {
   try {
     const body = await apiPut<unknown>('/customers/me/push-devices', { fcmToken }, { accessToken });
@@ -16,7 +18,10 @@ export async function registerCustomerPushDevice(accessToken: string, fcmToken: 
 }
 
 export async function removeCustomerPushDevice(accessToken: string, fcmToken: string): Promise<void> {
-  await apiDelete<unknown>('/customers/me/push-devices', { fcmToken }, { accessToken });
+  await apiDelete<unknown>('/customers/me/push-devices', { fcmToken }, {
+    accessToken,
+    timeoutMs: PUSH_CLEANUP_TIMEOUT_MS,
+  });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -1,4 +1,4 @@
-import { apiGet, apiPost } from '../../../services/api/apiClient';
+import { ACCEPTANCE_TIMEOUT_MS, apiGet, apiPost } from '../../../services/api/apiClient';
 import { createBody, quoteBody, v2CreateBody, type PreparedBooking } from '../domain/bookingDraft';
 import { readBidAcceptance, readCustomerBids, type BidAcceptance, type CustomerBid } from '../domain/customerBids';
 import { readOpenBidRequest, type OpenBidRequest } from '../domain/openBidRequest';
@@ -146,11 +146,31 @@ export class CustomerDeliveryApiRepository implements CustomerDeliveryRepository
     return readCustomerBids(body);
   }
 
+  async dismissBid(accessToken: string, deliveryId: string, bidId: string): Promise<void> {
+    await apiPost<unknown>(
+      `/customers/me/deliveries/${encodeURIComponent(deliveryId)}/bids/${encodeURIComponent(bidId)}/dismissal`,
+      {},
+      { accessToken },
+    );
+  }
+
+  async rateDelivery(accessToken: string, deliveryId: string, stars: number): Promise<{ stars: number }> {
+    const body = await apiPost<unknown>(
+      `/customers/me/deliveries/${encodeURIComponent(deliveryId)}/rating`,
+      { stars },
+      { accessToken },
+    );
+    if (!body || typeof body !== 'object' || Array.isArray(body) || typeof (body as { stars?: unknown }).stars !== 'number') {
+      throw new Error('This rating could not be saved.');
+    }
+    return { stars: (body as { stars: number }).stars };
+  }
+
   async acceptBid(accessToken: string, deliveryId: string, bidId: string, idempotencyKey: string): Promise<BidAcceptance> {
     const body = await apiPost<unknown>(
       `/customers/me/deliveries/${encodeURIComponent(deliveryId)}/bids/${encodeURIComponent(bidId)}/acceptance`,
       {},
-      { accessToken, headers: { 'Idempotency-Key': idempotencyKey } },
+      { accessToken, headers: { 'Idempotency-Key': idempotencyKey }, timeoutMs: ACCEPTANCE_TIMEOUT_MS },
     );
     return readBidAcceptance(body);
   }

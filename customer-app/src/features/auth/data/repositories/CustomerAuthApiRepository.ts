@@ -2,6 +2,8 @@ import { apiPost } from '../../../../services/api/apiClient';
 import type { AuthSession, CompleteRegistrationRequest, LoginStart, PendingOtp, RegistrationVerification } from '../../domain/auth.types';
 import type { CustomerAuthRepository, PhoneRegistrationRequest } from '../../domain/repositories/CustomerAuthRepository';
 
+export const SESSION_LOGOUT_TIMEOUT_MS = 8_000;
+
 export class CustomerAuthApiRepository implements CustomerAuthRepository {
   startWhatsAppLogin(phone: string): Promise<LoginStart> {
     return apiPost<unknown>('/auth/customer/login/whatsapp', { phone, whatsappConsent: true }).then(readLoginStart);
@@ -36,7 +38,10 @@ export class CustomerAuthApiRepository implements CustomerAuthRepository {
   }
 
   async logout(accessToken: string): Promise<void> {
-    await apiPost<unknown>('/auth/session/logout', {}, { accessToken });
+    await apiPost<unknown>('/auth/session/logout', {}, {
+      accessToken,
+      timeoutMs: SESSION_LOGOUT_TIMEOUT_MS,
+    });
   }
 }
 

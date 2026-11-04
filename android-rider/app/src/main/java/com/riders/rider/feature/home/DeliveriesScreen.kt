@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -293,7 +292,6 @@ private fun ChoiceSheet(
                 .fillMaxWidth()
                 .clip(sheetShape)
                 .background(RidersColors.background)
-                .navigationBarsPadding()
                 .padding(RidersSpacing.lg),
             verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
         ) {

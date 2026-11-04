@@ -31,15 +31,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,13 +47,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.PlatformTextStyle
@@ -62,6 +67,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.util.Locale
@@ -73,6 +79,12 @@ import com.riders.rider.core.design.RiderTheme
 import com.riders.rider.core.design.RidersAvailability
 import com.riders.rider.core.design.RidersCard
 import com.riders.rider.core.design.RidersColors
+import com.riders.rider.core.design.RidersDialog
+import com.riders.rider.core.design.RidersDialogActions
+import com.riders.rider.core.design.RidersDialogBody
+import com.riders.rider.core.design.RidersDialogTextButton
+import com.riders.rider.core.design.RidersDialogTitle
+import com.riders.rider.core.design.RidersDialogTone
 import com.riders.rider.core.design.RidersEmptyState
 import com.riders.rider.core.design.RidersErrorState
 import com.riders.rider.core.design.RidersFailureNotice
@@ -204,31 +216,31 @@ fun HomeScreen(
         includeNavigationBars = !inShell,
     )
     if (confirmOffline) {
-        AlertDialog(
-            onDismissRequest = { confirmOffline = false },
-            title = { Text(OFFLINE_WITH_DELIVERIES_TITLE) },
-            text = { Text(OFFLINE_WITH_DELIVERIES_MESSAGE) },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmOffline = false
-                    model.goOffline()
-                }) {
-                    Text("Go offline")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmOffline = false }) {
-                    Text("Stay online")
-                }
-            },
-        )
+        RidersDialog(visible = true, onDismiss = { confirmOffline = false }) {
+            RidersDialogTitle(OFFLINE_WITH_DELIVERIES_TITLE)
+            RidersDialogBody(OFFLINE_WITH_DELIVERIES_MESSAGE)
+            RidersDialogActions {
+                RidersDialogTextButton(
+                    label = "Stay online",
+                    tone = RidersDialogTone.Neutral,
+                    onClick = { confirmOffline = false },
+                )
+                RidersDialogTextButton(
+                    label = "Go offline",
+                    onClick = {
+                        confirmOffline = false
+                        model.goOffline()
+                    },
+                )
+            }
+        }
     }
 }
 
 @Composable
-private fun LocationSharingPausedNotice(onRetry: () -> Unit) {
+private fun LocationSharingPausedNotice(onRetry: () -> Unit, modifier: Modifier = Modifier) {
     Column(
-        Modifier
+        modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(RidersRadius.lg))
             .background(RidersColors.dangerSurface)
@@ -274,9 +286,35 @@ fun HomeDashboard(
     onWallet: () -> Unit = {},
     includeNavigationBars: Boolean = true,
 ) {
-    BoxWithConstraints(Modifier.fillMaxSize().background(RidersColors.background)) {
+    var contentBottom by remember { mutableFloatStateOf(0f) }
+    BoxWithConstraints(
+        Modifier
+            .fillMaxSize()
+            .background(RidersColors.canvas)
+            .onGloballyPositioned { coords ->
+                val position = coords.positionInRoot()
+                contentBottom = position.y + coords.size.height
+            },
+    ) {
         val horizontal = RidersSpacing.lg
         val readiness = ui.readiness
+        Image(
+            painter = painterResource(R.drawable.map_background),
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop,
+        )
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        0f to Color(0xD1C9EFD9),
+                        0.38f to Color(0xCCE5F7EE),
+                        1f to Color(0xB8F7FCF9),
+                    ),
+                ),
+        )
         RidersPullRefresh(
             refreshing = ui.refreshing && readiness != null,
             onRefresh = onRefresh,
@@ -289,7 +327,6 @@ fun HomeDashboard(
                 .then(if (includeNavigationBars) Modifier.navigationBarsPadding() else Modifier),
         ) {
             Box(Modifier.fillMaxWidth().clipToBounds()) {
-                GreenHomeBackdrop(Modifier.matchParentSize())
                 Column(
                     Modifier
                         .fillMaxWidth()
@@ -369,20 +406,17 @@ fun HomeDashboard(
                     }
                 }
             }
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(12.dp)
-                    .background(Brush.verticalGradient(listOf(Color(0xFFF7FCF9), RidersColors.background))),
-            )
             Spacer(Modifier.height(RidersSpacing.xs))
             if (readiness != null) {
                 Column(
-                    Modifier.padding(horizontal = horizontal).padding(bottom = RidersSpacing.lg),
+                    Modifier.padding(bottom = RidersSpacing.lg),
                     verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
                 ) {
                     if (ui.locationSharingPaused) {
-                        LocationSharingPausedNotice(onRetry = onRetryLocation)
+                        LocationSharingPausedNotice(
+                            onRetry = onRetryLocation,
+                            modifier = Modifier.padding(horizontal = horizontal),
+                        )
                     }
                     val recoveryText = if (ui.shift.recoveryFailed) {
                         ui.shift.recoveryMessage ?: "Your current delivery could not be loaded. Check your connection and try again."
@@ -391,7 +425,7 @@ fun HomeDashboard(
                     }
                     val pageConnection = isConnectionFailure(ui.error) || isConnectionFailure(recoveryText)
                     if (pageConnection) {
-                        RidersNetworkNotice(onRetry = onRefresh)
+                        RidersNetworkNotice(onRetry = onRefresh, modifier = Modifier.padding(horizontal = horizontal))
                     }
                     if (!ui.assignmentsUnknown) {
                         RequestsSection(
@@ -409,49 +443,18 @@ fun HomeDashboard(
                             offerStatus,
                             offerAmounts,
                             offerBids,
+                            horizontal = horizontal,
+                            contentBottom = contentBottom,
                         )
                     }
                     if (ui.error != null && ui.error != ui.shift.recoveryMessage && !isConnectionFailure(ui.error)) {
-                        RidersErrorState(message = ui.error)
+                        RidersErrorState(message = ui.error, modifier = Modifier.padding(horizontal = horizontal))
                     }
                     Spacer(Modifier.height(RidersSpacing.lg))
                 }
             }
         }
         }
-    }
-}
-
-@Composable
-private fun GreenHomeBackdrop(modifier: Modifier = Modifier) {
-    Box(modifier) {
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        0f to Color(0xFFC9EFD9),
-                        0.62f to Color(0xFFE5F7EE),
-                        1f to Color(0xFFF7FCF9),
-                    ),
-                ),
-        )
-        Box(
-            Modifier
-                .align(Alignment.TopEnd)
-                .offset(x = 50.dp, y = (-90).dp)
-                .size(220.dp)
-                .clip(CircleShape)
-                .background(Color.White.copy(alpha = 0.45f)),
-        )
-        Box(
-            Modifier
-                .align(Alignment.BottomStart)
-                .offset(x = (-120).dp, y = 560.dp)
-                .size(720.dp)
-                .clip(CircleShape)
-                .background(Color.White.copy(alpha = 0.55f)),
-        )
     }
 }
 
@@ -662,31 +665,33 @@ private fun AvailabilityCard(
     val onlineNow = !goingOnline &&
         (readiness.availabilityLabel == "Online" || readiness.availabilityLabel == "Available")
 
-    RidersCard(prominent = true, modifier = Modifier.fillMaxWidth()) {
+    RidersCard(
+        prominent = true,
+        containerColor = RidersColors.surface,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Row(
             Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
+            horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md),
             verticalAlignment = Alignment.Bottom,
         ) {
             Box(
                 Modifier
-                    .width(112.dp)
-                    .height(86.dp)
-                    .clipToBounds(),
+                    .width(120.dp)
+                    .height(108.dp),
             ) {
                 Image(
-                    painter = painterResource(R.drawable.rider_image),
+                    painter = painterResource(R.drawable.rider_cutout),
                     contentDescription = null,
-                    modifier = Modifier
-                        .width(132.dp)
-                        .height(99.dp)
-                        .offset(x = (-10).dp, y = (-2).dp),
+                    modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Fit,
                 )
             }
             Column(
-                Modifier.weight(1f),
+                Modifier
+                    .weight(1f)
+                    .padding(bottom = 22.dp),
                 verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
                 horizontalAlignment = Alignment.Start,
             ) {
@@ -811,6 +816,7 @@ private fun AvailabilityCard(
                 icon = R.drawable.ic_power,
                 bordered = false,
                 compact = !goingOffline,
+                containerColor = RidersColors.surface,
                 modifier = Modifier
                     .padding(top = if (displayGoOnline) 0.dp else RidersSpacing.sm)
                     .fillMaxWidth()
@@ -883,6 +889,8 @@ private fun RequestsSection(
     offerStatus: Map<String, String>,
     offerAmounts: Map<String, String>,
     offerBids: List<OwnBid>,
+    horizontal: Dp,
+    contentBottom: Float,
 ) {
     val shown = ui.offers.take(2)
     val hasRequests = ui.shift.showOffers && shown.isNotEmpty()
@@ -895,7 +903,7 @@ private fun RequestsSection(
     }
     Column(verticalArrangement = Arrangement.spacedBy(RidersSpacing.md)) {
         Row(
-            Modifier.fillMaxWidth(),
+            Modifier.fillMaxWidth().padding(horizontal = horizontal),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -915,6 +923,10 @@ private fun RequestsSection(
             )
         }
         if (hasRequests) {
+            Column(
+                Modifier.padding(horizontal = horizontal),
+                verticalArrangement = Arrangement.spacedBy(RidersSpacing.md),
+            ) {
             shown.forEach { offer ->
                 val sentAmount = resolvedSubmittedAmount(offerBids, offer.deliveryId, offerAmounts[offer.deliveryId])
                 OfferRequestCard(
@@ -939,13 +951,58 @@ private fun RequestsSection(
             if (bidProblem != null) {
                 RidersFailureNotice(message = bidProblem)
             }
+            }
         } else {
-            RidersEmptyState(
-                title = "No requests",
-                body = "New delivery requests will appear here.",
-                image = R.drawable.parcel_box,
-                compactTop = true,
-            )
+            HomeEmptyBackdrop(contentBottom = contentBottom) {
+                RidersEmptyState(
+                    title = "No requests",
+                    body = "New delivery requests will appear here.",
+                    image = R.drawable.parcel_box,
+                    compactTop = true,
+                    showSurface = false,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeEmptyBackdrop(contentBottom: Float, content: @Composable () -> Unit) {
+    val density = LocalDensity.current
+    val fade = 72.dp
+    var top by remember { mutableFloatStateOf(0f) }
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .onGloballyPositioned { top = it.positionInRoot().y }
+            .drawBehind {
+                val overlap = with(density) { 8.dp.toPx() }
+                val target = contentBottom + overlap
+                val extra = target - top - size.height
+                if (extra > 0f) {
+                    drawRect(
+                        color = Color.White,
+                        topLeft = Offset(0f, size.height),
+                        size = Size(size.width, extra),
+                    )
+                }
+            },
+    ) {
+        Box(
+            Modifier
+                .matchParentSize()
+                .background(
+                    Brush.verticalGradient(
+                        0f to Color.Transparent,
+                        0.55f to Color.White,
+                        1f to Color.White,
+                        startY = 0f,
+                        endY = with(density) { fade.toPx() },
+                    ),
+                ),
+        )
+        Box(Modifier.fillMaxWidth().padding(top = RidersSpacing.lg)) {
+            content()
         }
     }
 }

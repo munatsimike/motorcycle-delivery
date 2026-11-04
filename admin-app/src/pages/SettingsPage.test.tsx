@@ -485,6 +485,7 @@ describe('admin pricing settings', () => {
       data: [{
         id: 'audit-1',
         actorId: 'admin-9',
+        actorName: 'Ada Admin',
         previousVersion: null,
         nextVersion: 1,
         previousBasisPoints: null,
@@ -497,7 +498,8 @@ describe('admin pricing settings', () => {
     };
     await renderReady();
     const history = screen.getByRole('heading', { name: 'V2 commission history' }).closest('section') as HTMLElement;
-    expect(history.textContent).toContain('admin-9');
+    expect(history.textContent).toContain('Ada Admin');
+    expect(history.textContent).not.toContain('admin-9');
     expect(history.textContent).toContain('None');
     expect(history.textContent).toContain('10% · version 1');
   });

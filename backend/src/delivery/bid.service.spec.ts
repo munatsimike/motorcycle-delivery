@@ -12,6 +12,7 @@ import {
 } from '../generated/prisma/client.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import { BidService } from './bid.service.js';
+import { createPickupApproachCache } from './pickup-approach.js';
 
 const NOW = new Date('2026-10-24T08:00:00.000Z');
 const DEADLINE = new Date('2026-10-24T18:00:00.000Z');
@@ -160,7 +161,7 @@ describe('V2 bid lifecycle', () => {
     expect(page).toHaveLength(1);
     expect(page[0]).toMatchObject({
       amountCents: 1_500,
-      rider: { name: 'Tendai Moyo', verified: true, completedDeliveries: 0, distanceMeters: null, motorcycle: 'Honda Ace', registrationNumber: 'AEX1234', hasProfilePhoto: false },
+      rider: { name: 'Tendai Moyo', verified: true, completedDeliveries: 0, averageRating: null, ratingCount: 0, riderClass: 'SILVER', distanceMeters: null, motorcycle: 'Honda Ace', registrationNumber: 'AEX1234', hasProfilePhoto: false, pickupEtaSeconds: null },
     });
     expect(JSON.stringify(page)).not.toContain('+263');
     expect(JSON.stringify(page)).not.toContain('licence');
@@ -175,7 +176,7 @@ describe('V2 bid lifecycle', () => {
       { riderProfileId: RIDER, latitude: -17.824, longitude: 31.05, updatedAt: NOW },
       { riderProfileId: OTHER_RIDER, latitude: -17.8, longitude: 31.04, updatedAt: new Date(NOW.getTime() - 61_000) },
     );
-    ctx.completedAssignments.push({ riderProfileId: RIDER }, { riderProfileId: RIDER });
+    ctx.profiles[0]!.completedDeliveryCount = 2;
     ctx.profilePhotos.push({ riderProfileId: RIDER });
     const bids = new BidService(ctx.prisma);
     await bids.submit(RIDER_CONTEXT, bidBody(1_500), 'key-1', NOW);
@@ -184,6 +185,9 @@ describe('V2 bid lifecycle', () => {
     const tendai = page.find((bid) => bid.rider.name === 'Tendai Moyo');
     const rudo = page.find((bid) => bid.rider.name === 'Rudo Ncube');
     expect(tendai?.rider.completedDeliveries).toBe(2);
+    expect(tendai?.rider.averageRating).toBeNull();
+    expect(tendai?.rider.ratingCount).toBe(0);
+    expect(JSON.stringify(page)).not.toContain('4.8');
     expect(tendai?.rider.distanceMeters).toBeGreaterThan(0);
     expect(rudo?.rider.distanceMeters).toBeNull();
     expect(rudo?.rider.motorcycle).toBeNull();
@@ -191,8 +195,102 @@ describe('V2 bid lifecycle', () => {
     expect(tendai?.rider.registrationNumber).toBe('AEX1234');
     expect(tendai?.rider.hasProfilePhoto).toBe(true);
     expect(rudo?.rider.hasProfilePhoto).toBe(false);
+    expect(tendai?.rider.pickupEtaSeconds).toBeNull();
+    expect(rudo?.rider.pickupEtaSeconds).toBeNull();
     expect(JSON.stringify(page)).not.toContain('profile-photos');
     expect(JSON.stringify(page)).not.toContain('latitude');
+  });
+
+  it('returns road pickupEtaSeconds for fresh GPS and skips stale or missing GPS', async () => {
+    process.env.V2_MARKETPLACE_ENABLED = 'true';
+    const ctx = store();
+    Object.assign(ctx.deliveries[0]!, { pickupLatitude: -17.8292, pickupLongitude: 31.0522 });
+    ctx.locations.push(
+      { riderProfileId: RIDER, latitude: -17.824, longitude: 31.05, updatedAt: NOW },
+      { riderProfileId: OTHER_RIDER, latitude: -17.8, longitude: 31.04, updatedAt: new Date(NOW.getTime() - 61_000) },
+    );
+    let calls = 0;
+    const queries: string[] = [];
+    const bids = new BidService(ctx.prisma, {
+      async lookup(query) {
+        calls += 1;
+        queries.push(query.riderProfileId);
+        return { metres: 2_400, seconds: 480, line: [[31.05, -17.824], [31.0522, -17.8292]] };
+      },
+    });
+    await bids.submit(RIDER_CONTEXT, bidBody(1_500), 'key-1', NOW);
+    await bids.submit({ userId: 'user-rider-2', riderProfileId: OTHER_RIDER }, bidBody(900), 'key-2', NOW);
+    const page = await bids.listForCustomer(CUSTOMER, DELIVERY, NOW);
+    const tendai = page.find((bid) => bid.rider.name === 'Tendai Moyo');
+    const rudo = page.find((bid) => bid.rider.name === 'Rudo Ncube');
+    expect(tendai?.rider.pickupEtaSeconds).toBe(480);
+    expect(rudo?.rider.pickupEtaSeconds).toBeNull();
+    expect(calls).toBe(1);
+    expect(queries).toEqual([RIDER]);
+    expect(JSON.stringify(page)).not.toContain('latitude');
+    expect(JSON.stringify(page)).not.toContain('31.05');
+    expect(JSON.stringify(page)).not.toContain('"line"');
+  });
+
+  it('omits pickupEtaSeconds when routing fails or travel time is missing', async () => {
+    process.env.V2_MARKETPLACE_ENABLED = 'true';
+    const ctx = store();
+    Object.assign(ctx.deliveries[0]!, { pickupLatitude: -17.8292, pickupLongitude: 31.0522 });
+    ctx.locations.push({ riderProfileId: RIDER, latitude: -17.824, longitude: 31.05, updatedAt: NOW });
+    await new BidService(ctx.prisma, { lookup: async () => null }).submit(RIDER_CONTEXT, bidBody(1_500), 'fail', NOW);
+    const failed = await new BidService(ctx.prisma, { lookup: async () => null }).listForCustomer(CUSTOMER, DELIVERY, NOW);
+    expect(failed[0]?.rider.pickupEtaSeconds).toBeNull();
+    const missingTime = await new BidService(ctx.prisma, {
+      lookup: async () => ({ metres: 2_400, seconds: 0, line: [] }),
+    }).listForCustomer(CUSTOMER, DELIVERY, NOW);
+    expect(missingTime[0]?.rider.pickupEtaSeconds).toBeNull();
+  });
+
+  it('reuses cached pickup approaches across bid polls', async () => {
+    process.env.V2_MARKETPLACE_ENABLED = 'true';
+    const ctx = store();
+    Object.assign(ctx.deliveries[0]!, { pickupLatitude: -17.8292, pickupLongitude: 31.0522 });
+    ctx.locations.push({ riderProfileId: RIDER, latitude: -17.824, longitude: 31.05, updatedAt: NOW });
+    let calls = 0;
+    const approach = createPickupApproachCache(async () => {
+      calls += 1;
+      return { metres: 1_800, seconds: 240.4, line: [] };
+    }, () => NOW.getTime());
+    const bids = new BidService(ctx.prisma, approach);
+    await bids.submit(RIDER_CONTEXT, bidBody(1_500), 'key-1', NOW);
+    const first = await bids.listForCustomer(CUSTOMER, DELIVERY, NOW);
+    const second = await bids.listForCustomer(CUSTOMER, DELIVERY, NOW);
+    expect(first[0]?.rider.pickupEtaSeconds).toBe(240);
+    expect(second[0]?.rider.pickupEtaSeconds).toBe(240);
+    expect(calls).toBe(1);
+  });
+
+  it('shares one in-flight route for concurrent identical bid lists', async () => {
+    process.env.V2_MARKETPLACE_ENABLED = 'true';
+    const ctx = store();
+    Object.assign(ctx.deliveries[0]!, { pickupLatitude: -17.8292, pickupLongitude: 31.0522 });
+    ctx.locations.push({ riderProfileId: RIDER, latitude: -17.824, longitude: 31.05, updatedAt: NOW });
+    let calls = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const approach = createPickupApproachCache(async () => {
+      calls += 1;
+      await gate;
+      return { metres: 1_200, seconds: 180, line: [] };
+    }, () => NOW.getTime());
+    const bids = new BidService(ctx.prisma, approach);
+    await bids.submit(RIDER_CONTEXT, bidBody(1_500), 'key-1', NOW);
+    const pending = Promise.all([
+      bids.listForCustomer(CUSTOMER, DELIVERY, NOW),
+      bids.listForCustomer(CUSTOMER, DELIVERY, NOW),
+    ]);
+    release();
+    const [first, second] = await pending;
+    expect(first[0]?.rider.pickupEtaSeconds).toBe(180);
+    expect(second[0]?.rider.pickupEtaSeconds).toBe(180);
+    expect(calls).toBe(1);
   });
 
   it('lists open bids without taking an exclusive delivery row lock', async () => {
@@ -207,6 +305,17 @@ describe('V2 bid lifecycle', () => {
     expect(page[0]).toMatchObject({ status: BidStatus.OPEN, amountCents: 1_500 });
     expect(ctx.rawQueries.filter((sql) => /FOR UPDATE/i.test(sql))).toEqual([]);
     expect(ctx.transactionOptions).toEqual([{ maxWait: 10_000, timeout: 20_000 }]);
+  });
+
+  it('hides a dismissed bid from the customer list without withdrawing it', async () => {
+    process.env.V2_MARKETPLACE_ENABLED = 'true';
+    const ctx = store();
+    const bids = new BidService(ctx.prisma);
+    const open = await bids.submit(RIDER_CONTEXT, bidBody(1_500), 'key-1', NOW);
+    await bids.dismissForCustomer(CUSTOMER, DELIVERY, open.id, NOW);
+    expect(ctx.bids[0]?.status).toBe(BidStatus.OPEN);
+    expect(ctx.bids[0]?.customerDismissedAt).toEqual(NOW);
+    expect(await bids.listForCustomer(CUSTOMER, DELIVERY, NOW)).toEqual([]);
   });
 
   it('keeps an open bid visible and accepts another bid while Express is live', async () => {
@@ -272,6 +381,25 @@ describe('V2 bid lifecycle', () => {
     );
   });
 
+  it('gives bid submit the same 20-second interactive timeout as acceptance', async () => {
+    process.env.V2_MARKETPLACE_ENABLED = 'true';
+    const ctx = store();
+    const bids = new BidService(ctx.prisma);
+    await bids.submit(RIDER_CONTEXT, bidBody(1_000), 'timeout-options', NOW);
+    expect(ctx.transactionOptions.length).toBeGreaterThanOrEqual(2);
+    expect(ctx.transactionOptions.every((options) => options?.timeout === 20_000 && options?.maxWait === 10_000)).toBe(true);
+  });
+
+  it('returns a conflict instead of a 500 when bid submit cannot commit in time', async () => {
+    process.env.V2_MARKETPLACE_ENABLED = 'true';
+    const ctx = store();
+    ctx.failSubmitCommit = true;
+    const bids = new BidService(ctx.prisma);
+    await expect(bids.submit(RIDER_CONTEXT, bidBody(1_000), 'slow-commit', NOW)).rejects.toBeInstanceOf(ConflictException);
+    await expect(bids.submit(RIDER_CONTEXT, bidBody(1_000), 'slow-commit', NOW)).rejects.toThrow('The bid could not be saved. Try again.');
+    expect(ctx.bids).toHaveLength(0);
+  });
+
   it('keeps acceptance of the customer price and a counteroffer open without assignment', async () => {
     process.env.V2_MARKETPLACE_ENABLED = 'true';
     const ctx = store();
@@ -324,6 +452,7 @@ type BidRow = {
   idempotencyKey: string;
   payloadHash: string;
   createdAt: Date;
+  customerDismissedAt?: Date | null;
 };
 
 type Profile = {
@@ -332,6 +461,10 @@ type Profile = {
   approvalStatus: RiderApprovalStatus;
   verificationStatus: RiderVerificationStatus;
   receivingRequests: boolean | null;
+  completedDeliveryCount: number;
+  ratingCount: number;
+  ratingSum: number;
+  riderClass: 'SILVER' | 'GOLD' | 'PLATINUM';
 };
 
 function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?: boolean }) {
@@ -371,8 +504,8 @@ function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?:
     pickupContactPhone: '+263771234567',
   }];
   const profiles: Profile[] = [
-    { id: RIDER, userId: 'user-rider', approvalStatus: RiderApprovalStatus.APPROVED, verificationStatus: RiderVerificationStatus.VERIFIED, receivingRequests: true },
-    { id: OTHER_RIDER, userId: 'user-rider-2', approvalStatus: RiderApprovalStatus.APPROVED, verificationStatus: RiderVerificationStatus.VERIFIED, receivingRequests: true },
+    { id: RIDER, userId: 'user-rider', approvalStatus: RiderApprovalStatus.APPROVED, verificationStatus: RiderVerificationStatus.VERIFIED, receivingRequests: true, completedDeliveryCount: 0, ratingCount: 0, ratingSum: 0, riderClass: 'SILVER' },
+    { id: OTHER_RIDER, userId: 'user-rider-2', approvalStatus: RiderApprovalStatus.APPROVED, verificationStatus: RiderVerificationStatus.VERIFIED, receivingRequests: true, completedDeliveryCount: 0, ratingCount: 0, ratingSum: 0, riderClass: 'SILVER' },
   ];
   const users = [
     { id: 'user-rider', accountStatus: AccountStatus.ACTIVE, phoneVerifiedAt: NOW, fullName: 'Tendai Moyo', phone: '+263771234567' },
@@ -395,6 +528,7 @@ function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?:
   let reservationWrites = 0;
   let ledgerWrites = 0;
   let assignmentWrites = 0;
+  let failSubmitCommit = false;
   let nextBid = 1;
   let queue = Promise.resolve();
   const rawQueries: string[] = [];
@@ -410,7 +544,11 @@ function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?:
       await previous;
       const backup = bids.map((bid) => ({ ...bid }));
       try {
-        return await fn(db);
+        const result = await fn(db);
+        if (failSubmitCommit) {
+          throw transactionTimeout();
+        }
+        return result;
       } catch (error) {
         bids.splice(0, bids.length, ...backup);
         throw error;
@@ -463,9 +601,13 @@ function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?:
       async findFirst({ where }: { where: { deliveryId: string; riderProfileId: string; status: BidStatus } }) {
         return bids.find((bid) => bid.deliveryId === where.deliveryId && bid.riderProfileId === where.riderProfileId && bid.status === where.status) ?? null;
       },
-      async findMany({ where }: { where: { deliveryId: string; status: BidStatus } }) {
+      async findMany({ where }: { where: { deliveryId: string; status: BidStatus; customerDismissedAt?: null } }) {
         return bids
-          .filter((bid) => bid.deliveryId === where.deliveryId && bid.status === where.status)
+          .filter((bid) => (
+            bid.deliveryId === where.deliveryId
+            && bid.status === where.status
+            && (where.customerDismissedAt === undefined || bid.customerDismissedAt == null)
+          ))
           .map((bid) => withRider(bid));
       },
       async updateMany({ where, data }: { where: { status: BidStatus; deliveryId?: string; delivery?: { deliverBy: { lte: Date } } }; data: { status: BidStatus } }) {
@@ -494,7 +636,7 @@ function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?:
         bids.push(row);
         return row;
       },
-      async update({ where, data }: { where: { id: string }; data: { status: BidStatus } }) {
+      async update({ where, data }: { where: { id: string }; data: { status?: BidStatus; customerDismissedAt?: Date } }) {
         const row = bids.find((bid) => bid.id === where.id);
         if (!row) {
           throw new Error('missing bid');
@@ -615,17 +757,36 @@ function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?:
     profilePhotos,
     rawQueries,
     transactionOptions,
+    set failSubmitCommit(value: boolean) {
+      failSubmitCommit = value;
+    },
   };
 
   function withRider(bid: BidRow) {
     const profile = profiles.find((item) => item.id === bid.riderProfileId);
     const user = users.find((item) => item.id === profile?.userId);
-    return { ...bid, riderProfile: { verificationStatus: profile?.verificationStatus, user: { fullName: user?.fullName ?? '' } } };
+    return {
+      ...bid,
+      riderProfile: {
+        verificationStatus: profile?.verificationStatus,
+        completedDeliveryCount: profile?.completedDeliveryCount ?? 0,
+        ratingCount: profile?.ratingCount ?? 0,
+        ratingSum: profile?.ratingSum ?? 0,
+        riderClass: profile?.riderClass ?? 'SILVER',
+        user: { fullName: user?.fullName ?? '' },
+      },
+    };
   }
 }
 
 function uniqueViolation(): Error {
   const error = new Error('Unique constraint failed');
   (error as Error & { code: string }).code = 'P2002';
+  return error;
+}
+
+function transactionTimeout(): Error {
+  const error = new Error('A commit cannot be executed on an expired transaction');
+  (error as Error & { code: string }).code = 'P2028';
   return error;
 }

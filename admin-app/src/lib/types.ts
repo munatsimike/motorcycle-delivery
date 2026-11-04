@@ -359,6 +359,7 @@ export type V2CommissionRate =
 export type V2CommissionAudit = {
   id: string;
   actorId: string;
+  actorName: string;
   previousVersion: number | null;
   nextVersion: number;
   previousBasisPoints: number | null;

@@ -54,33 +54,73 @@ export function createPickupApproachCache(
   now: () => number = Date.now,
 ): PickupApproachLookup {
   const cache = new Map<string, CacheEntry>();
+  const inflight = new Map<string, Promise<PickupApproachView | null>>();
   return {
     async lookup(query) {
       if (!usableQuery(query)) {
         return null;
       }
       const key = pickupApproachKey(query);
-      const saved = cache.get(key);
-      const maxAge = saved?.approach ? PICKUP_APPROACH_MAX_AGE_MS : PICKUP_APPROACH_FAILURE_MS;
-      if (saved && now() - saved.at < maxAge) {
-        return saved.approach;
+      const cached = cachedApproach(cache, key, now());
+      if (cached !== undefined) {
+        return cached;
       }
+      const pending = inflight.get(key);
+      if (pending) {
+        return pending;
+      }
+      const work = loadApproach(route, cache, query, now);
+      inflight.set(key, work);
       try {
-        const road = await route(
-          query.riderLatitude,
-          query.riderLongitude,
-          query.pickupLatitude,
-          query.pickupLongitude,
-        );
-        const approach = toApproach(road);
-        remember(cache, key, approach, now());
-        return approach;
-      } catch {
-        remember(cache, key, null, now());
-        return null;
+        return await work;
+      } finally {
+        inflight.delete(key);
       }
     },
   };
+}
+
+function cachedApproach(
+  cache: Map<string, CacheEntry>,
+  key: string,
+  at: number,
+): PickupApproachView | null | undefined {
+  const saved = cache.get(key);
+  if (!saved) {
+    return undefined;
+  }
+  const maxAge = saved.approach ? PICKUP_APPROACH_MAX_AGE_MS : PICKUP_APPROACH_FAILURE_MS;
+  if (at - saved.at >= maxAge) {
+    return undefined;
+  }
+  return saved.approach;
+}
+
+async function loadApproach(
+  route: (
+    fromLatitude: number,
+    fromLongitude: number,
+    toLatitude: number,
+    toLongitude: number,
+  ) => Promise<RoadRoute>,
+  cache: Map<string, CacheEntry>,
+  query: PickupApproachQuery,
+  now: () => number,
+): Promise<PickupApproachView | null> {
+  try {
+    const road = await route(
+      query.riderLatitude,
+      query.riderLongitude,
+      query.pickupLatitude,
+      query.pickupLongitude,
+    );
+    const approach = toApproach(road);
+    remember(cache, pickupApproachKey(query), approach, now());
+    return approach;
+  } catch {
+    remember(cache, pickupApproachKey(query), null, now());
+    return null;
+  }
 }
 
 export function createGeoapifyPickupApproach(): PickupApproachLookup {

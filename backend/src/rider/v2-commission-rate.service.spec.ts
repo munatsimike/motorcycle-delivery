@@ -134,6 +134,7 @@ describe('V2CommissionRateService', () => {
     expect(page.data.map((row) => row.nextBasisPoints)).toEqual([10_000, 0]);
     expect(page.data[0]).toEqual(expect.objectContaining({
       actorId: 'admin-1',
+      actorName: 'Ada Admin',
       previousPercentage: '0',
       nextPercentage: '100',
       previousVersion: 1,
@@ -228,7 +229,11 @@ function context() {
       async findMany({ skip = 0, take = 20 }: { skip?: number; take?: number }) {
         return [...audits]
           .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime() || (left.id < right.id ? 1 : -1))
-          .slice(skip, skip + take);
+          .slice(skip, skip + take)
+          .map((row) => ({
+            ...row,
+            actor: { fullName: row.actorId === 'admin-2' ? 'Ben Admin' : 'Ada Admin' },
+          }));
       },
     },
     async $transaction<T>(callback: (tx: object) => Promise<T>) {

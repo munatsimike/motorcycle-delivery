@@ -19,7 +19,6 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { useReduceMotion } from '../components/useMotion';
 import BrandLogo from '../components/BrandLogo';
-import ErrorMessage from '../components/ErrorMessage';
 import LoadingIndicator from '../components/LoadingIndicator';
 import PrimaryButton from '../components/PrimaryButton';
 import SecondaryButton from '../components/SecondaryButton';
@@ -50,7 +49,6 @@ type WelcomeProps = NativeStackScreenProps<
 
 function WelcomeScreen({ navigation }: WelcomeProps) {
   const insets = useSafeAreaInsets();
-  const { logoutNotice } = useSession();
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
@@ -84,7 +82,6 @@ function WelcomeScreen({ navigation }: WelcomeProps) {
           <Text style={styles.heading}>
             Fast, Safe, and Always{'\n'}On Time
           </Text>
-          <ErrorMessage message={logoutNotice} />
         </LinearGradient>
         <Text style={styles.description}>
           Trusted motorcycle deliveries for quick
@@ -140,6 +137,8 @@ export default function AppNavigator() {
           animation: STACK_ANIMATION,
           animationDuration: FORWARD_MS,
           gestureEnabled: true,
+          headerTintColor: colors.text,
+          headerBackButtonDisplayMode: 'minimal',
         }}
       >
         {status === 'signedIn' ? (

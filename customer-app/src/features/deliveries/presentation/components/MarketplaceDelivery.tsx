@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Alert, Linking, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useIsFocused } from '@react-navigation/native';
 
+import DialogModal, { DialogActions, DialogBody, DialogTextButton, DialogTitle } from '../../../../components/DialogModal';
 import ErrorMessage from '../../../../components/ErrorMessage';
-import PrimaryButton from '../../../../components/PrimaryButton';
 import { colors, radius, spacing, typography } from '../../../../theme';
 import { errorMessage } from '../../../auth/presentation/errorMessage';
 import { formatDeadline } from '../../domain/bookingDraft';
@@ -53,6 +53,7 @@ export default function MarketplaceDelivery({
 }: MarketplaceDeliveryProps) {
   const focused = useIsFocused();
   const [cancelling, setCancelling] = useState(false);
+  const [cancelOpen, setCancelOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const tracking = keepsRiderLocation(delivery.status);
@@ -95,21 +96,8 @@ export default function MarketplaceDelivery({
     if (cancelling || !customerCanCancelDelivery(delivery.status)) {
       return;
     }
-    Alert.alert(
-      'Cancel delivery?',
-      'Cancelling closes this delivery request.',
-      [
-        { text: 'Keep delivery', style: 'cancel' },
-        {
-          text: 'Cancel delivery',
-          style: 'destructive',
-          onPress: () => {
-            setDetailsOpen(false);
-            void cancelDelivery();
-          },
-        },
-      ],
-    );
+    setDetailsOpen(false);
+    setCancelOpen(true);
   }
 
   async function cancelDelivery() {
@@ -256,20 +244,31 @@ export default function MarketplaceDelivery({
         cancelLabel="Cancel delivery"
         onCancel={customerCanCancelDelivery(delivery.status) ? confirmCancel : undefined}
       />
-      <Modal visible={showNotice} transparent animationType="fade" onRequestClose={dismissNotice}>
-        <View style={styles.confirmBackdrop}>
-          <View style={styles.confirmCard}>
-            <View style={styles.confirmBadge}>
-              <MaterialDesignIcons name="check" size={32} color={colors.primary} />
-            </View>
-            <Text style={styles.confirmTitle}>Rider confirmed!</Text>
-            <Text style={styles.confirmBody}>Your rider has been assigned to your delivery.</Text>
-            <View style={styles.confirmAction}>
-              <PrimaryButton label="Continue" onPress={dismissNotice} />
-            </View>
-          </View>
+      <DialogModal visible={showNotice} onClose={dismissNotice} closeLabel="Continue">
+        <View style={styles.confirmBadge}>
+          <MaterialDesignIcons name="check" size={32} color={colors.primary} />
         </View>
-      </Modal>
+        <DialogTitle>Rider confirmed!</DialogTitle>
+        <DialogBody>Your rider has been assigned to your delivery.</DialogBody>
+        <DialogActions>
+          <DialogTextButton label="Continue" onPress={dismissNotice} />
+        </DialogActions>
+      </DialogModal>
+      <DialogModal visible={cancelOpen} onClose={() => setCancelOpen(false)} closeLabel="Keep delivery">
+        <DialogTitle>Cancel delivery?</DialogTitle>
+        <DialogBody>Cancelling closes this delivery request.</DialogBody>
+        <DialogActions>
+          <DialogTextButton label="Keep delivery" tone="neutral" onPress={() => setCancelOpen(false)} />
+          <DialogTextButton
+            label="Cancel delivery"
+            tone="danger"
+            onPress={() => {
+              setCancelOpen(false);
+              void cancelDelivery();
+            }}
+          />
+        </DialogActions>
+      </DialogModal>
     </SafeAreaView>
   );
 }
@@ -312,45 +311,14 @@ const styles = StyleSheet.create({
   insetOnMap: {
     paddingTop: 108 + spacing.lg,
   },
-  confirmBackdrop: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: spacing.xl,
-    backgroundColor: 'rgba(23, 33, 29, 0.4)',
-  },
-  confirmCard: {
-    width: '100%',
-    maxWidth: 360,
-    alignItems: 'center',
-    gap: spacing.md,
-    padding: spacing.xl,
-    borderRadius: radius.xl,
-    backgroundColor: colors.background,
-  },
   confirmBadge: {
+    alignSelf: 'center',
     width: 72,
     height: 72,
     borderRadius: 36,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.primaryLight,
-  },
-  confirmTitle: {
-    textAlign: 'center',
-    fontSize: typography.heading,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  confirmBody: {
-    textAlign: 'center',
-    fontSize: typography.body,
-    lineHeight: 22,
-    color: colors.textSecondary,
-  },
-  confirmAction: {
-    alignSelf: 'stretch',
-    marginTop: spacing.sm,
   },
   statusRow: {
     flexDirection: 'row',

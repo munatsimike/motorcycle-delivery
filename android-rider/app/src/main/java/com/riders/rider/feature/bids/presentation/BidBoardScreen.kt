@@ -20,6 +20,7 @@ import androidx.compose.runtime.getValue
 import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
@@ -120,22 +121,24 @@ fun BidBoardScreen(
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
+                    if (shown.isNotEmpty()) {
+                        Text(
+                            AWAITING_CUSTOMER_RESPONSE,
+                            style = RidersType.captionStrong,
+                            color = Color(0xFFB45309),
+                        )
+                    }
                     Column(Modifier.fillMaxWidth()) {
                         shown.forEachIndexed { index, bid ->
+                            if (index == 0) {
+                                BidCardDivider()
+                            }
                             OwnBidRow(
                                 bid = bid,
                                 withdrawing = ui.withdrawingBidId == bid.bidId,
                                 onWithdraw = { model.withdraw(bid.bidId) },
                             )
-                            if (index < shown.lastIndex) {
-                                Box(
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .padding(start = 34.dp)
-                                        .height(1.dp)
-                                        .background(RidersColors.border),
-                                )
-                            }
+                            BidCardDivider()
                         }
                     }
                     if (ui.nextCursor != null) {
@@ -161,17 +164,19 @@ private fun OwnBidRow(
     withdrawing: Boolean,
     onWithdraw: () -> Unit,
 ) {
-    val customer = bid.suggestedPrice.trim().takeIf { it.isNotEmpty() }
-    Row(
+    Column(
         Modifier
             .fillMaxWidth()
             .padding(vertical = RidersSpacing.md),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        ContentIcon(bid.parcelDescription, size = 22.dp)
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md),
+        ) {
+            ContentIcon(bid.parcelDescription, size = 22.dp)
             Row(
+                Modifier.weight(1f),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
             ) {
@@ -180,38 +185,45 @@ private fun OwnBidRow(
                     ServiceClassBadge(bid.serviceClass)
                 }
             }
-            DeliveryRoute(bid.pickupAddress, bid.dropoffAddress)
-            Text(
-                AWAITING_CUSTOMER_RESPONSE,
-                style = RidersType.captionStrong,
-                color = Color(0xFFB45309),
-                maxLines = 2,
-            )
-            if (customer != null) {
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("Your offer", style = RidersType.caption, color = RidersColors.textSecondary, maxLines = 1)
                 Text(
-                    "Customer ${offerPriceLabel(bid.currency, customer)}",
-                    style = RidersType.caption,
-                    color = RidersColors.textSecondary,
+                    offerPriceLabel(bid.currency, bid.amount),
+                    style = RidersType.bodyStrong,
+                    color = RidersColors.text,
                     maxLines = 1,
                 )
             }
-            if (bidCanWithdraw(bid.status)) {
-                Text(
-                    if (withdrawing) "Withdrawing" else "Withdraw",
-                    style = RidersType.captionStrong,
-                    color = RidersColors.error,
-                    modifier = Modifier.clickable(enabled = !withdrawing, role = Role.Button, onClick = onWithdraw),
-                )
-            }
         }
-        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text("Your offer", style = RidersType.caption, color = RidersColors.textSecondary, maxLines = 1)
-            Text(
-                offerPriceLabel(bid.currency, bid.amount),
-                style = RidersType.bodyStrong,
-                color = RidersColors.text,
-                maxLines = 1,
-            )
+        DeliveryRoute(bid.pickupAddress, bid.dropoffAddress)
+        if (bidCanWithdraw(bid.status)) {
+            WithdrawAction(withdrawing, onWithdraw)
         }
     }
+}
+
+@Composable
+private fun WithdrawAction(withdrawing: Boolean, onWithdraw: () -> Unit) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+        Text(
+            if (withdrawing) "Withdrawing" else "Withdraw",
+            style = RidersType.captionStrong,
+            color = RidersColors.error,
+            modifier = Modifier.clickable(enabled = !withdrawing, role = Role.Button, onClick = onWithdraw),
+        )
+    }
+}
+
+@Composable
+private fun BidCardDivider() {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(1.dp)
+            .background(
+                Brush.horizontalGradient(
+                    listOf(Color.Transparent, RidersColors.border, Color.Transparent),
+                ),
+            ),
+    )
 }

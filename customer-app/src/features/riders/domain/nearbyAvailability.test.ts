@@ -77,8 +77,8 @@ describe('nearby rider availability', () => {
     expect(nearbyHomeCountLabel({ status: 'position-unavailable' })).toBe('Location unavailable');
     expect(nearbyHomeCountLabel({ status: 'check-failed', message: 'Check your connection and try again.' })).toBe('Unable to check');
     expect(nearbyHomeCountLabel({ status: 'ready', count: 0 })).toBe('0 riders nearby');
-    expect(nearbyHomeCountLabel({ status: 'ready', count: 1 })).toBe('1');
-    expect(nearbyHomeCountLabel({ status: 'ready', count: 4 })).toBe('4');
+    expect(nearbyHomeCountLabel({ status: 'ready', count: 1 })).toBe('1 rider nearby');
+    expect(nearbyHomeCountLabel({ status: 'ready', count: 4 })).toBe('4 riders nearby');
     expect(nearbyCardContent({ status: 'services-off' })?.message).not.toContain('No riders nearby');
     expect(nearbyActionLabel('turn-on-location')).toBe('Turn On Location');
     expect(nearbyActionLabel('allow-location')).toBe('Allow Location');

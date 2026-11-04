@@ -115,6 +115,56 @@ describe('api client errors', () => {
       message: 'The request timed out. Check your connection and try again.',
     });
   });
+
+  it('keeps the default 15 second timeout for ordinary posts', async () => {
+    process.env.EXPO_PUBLIC_API_BASE_URL = 'https://api.example.com';
+    vi.useFakeTimers();
+    vi.stubGlobal('fetch', vi.fn((_url: string, init?: RequestInit) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => {
+        const error = new Error('The operation was aborted');
+        error.name = 'AbortError';
+        reject(error);
+      });
+    })));
+
+    const pending = apiPost('/customers/me/deliveries/delivery-1/search', {});
+    const failure = pending.then(() => {
+      throw new Error('expected the request to time out');
+    }, (caught: unknown) => caught);
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    await expect(failure).resolves.toMatchObject({
+      message: 'The request timed out. Check your connection and try again.',
+    });
+  });
+
+  it('uses a 35 second timeout only when a request asks for one', async () => {
+    process.env.EXPO_PUBLIC_API_BASE_URL = 'https://api.example.com';
+    vi.useFakeTimers();
+    vi.stubGlobal('fetch', vi.fn((_url: string, init?: RequestInit) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => {
+        const error = new Error('The operation was aborted');
+        error.name = 'AbortError';
+        reject(error);
+      });
+    })));
+
+    const pending = apiPost('/customers/me/deliveries/delivery-1/bids/bid-1/acceptance', {}, { timeoutMs: 35_000 });
+    let settled = false;
+    const failure = pending.then(() => {
+      throw new Error('expected the request to time out');
+    }, (caught: unknown) => {
+      settled = true;
+      return caught;
+    });
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(20_000);
+
+    await expect(failure).resolves.toMatchObject({
+      message: 'The request timed out. Check your connection and try again.',
+    });
+  });
 });
 
 describe('authorized requests', () => {

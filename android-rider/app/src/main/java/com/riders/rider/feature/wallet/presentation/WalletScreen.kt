@@ -22,10 +22,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -54,6 +52,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.riders.rider.R
 import com.riders.rider.core.design.RidersChangingText
+import com.riders.rider.core.design.RidersBottomSheet
 import com.riders.rider.core.design.RidersColors
 import com.riders.rider.core.design.RidersEmptyState
 import com.riders.rider.core.design.RidersFailureNotice
@@ -101,20 +100,22 @@ fun WalletScreen(
     }
     var showTopUp by remember { mutableStateOf(false) }
     if (showTopUp) {
-        AlertDialog(
-            onDismissRequest = { showTopUp = false },
-            title = { Text("How to top up", style = RidersType.heading, color = RidersColors.text) },
-            text = {
+        RidersBottomSheet(visible = true, onDismiss = { showTopUp = false }) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = RidersSpacing.lg)
+                    .padding(bottom = RidersSpacing.xl),
+                verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
+            ) {
+                Text("How to top up", style = RidersType.heading, color = RidersColors.text)
                 Text(
                     "Add funds through a Riders admin using cash or EcoCash.",
                     style = RidersType.body,
-                    color = RidersColors.text,
+                    color = RidersColors.textSecondary,
                 )
-            },
-            confirmButton = {
-                TextButton(onClick = { showTopUp = false }) { Text("OK") }
-            },
-        )
+            }
+        }
     }
     RidersPullRefresh(
         refreshing = ui.refreshing,

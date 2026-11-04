@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest';
 import { fcmTokenFromDevice, fcmTokenWhenPermitted, customerPushSetupDiagnostic, customerPushTarget, foregroundNotificationBehavior, readCustomerPush, trackingParams, DELIVERY_CHANNEL_ID } from './customerPush';
 import { createPushInteractions } from './customerPushNavigation';
 import {
-  PUSH_DEREGISTER_FAILED,
   registrationDecision,
   removePushRegistration,
   syncPushRegistration,
@@ -105,18 +104,48 @@ describe('customer push tokens', () => {
     expect(store.current()).toEqual({ customerId: 'customer-b', token: 'fcm-2' });
   });
 
-  it('keeps the saved token when deregistration fails', async () => {
-    const store = memoryStore({ customerId: 'customer-a', token: 'fcm-1' });
-    const result = await removePushRegistration({
+  it('keeps the saved token when deregistration fails offline or on 5xx', async () => {
+    const offline = memoryStore({ customerId: 'customer-a', token: 'fcm-1' });
+    expect(await removePushRegistration({
       accessToken: 'token-a',
-      store,
+      store: offline,
       remove: async () => {
-        throw new Error('offline');
+        throw new Error('Network request failed. Check your connection and try again.');
       },
-    });
-    expect(result).toBe('failed');
-    expect(PUSH_DEREGISTER_FAILED).toBe('This device could not be removed from delivery alerts.');
-    expect(store.current()).toEqual({ customerId: 'customer-a', token: 'fcm-1' });
+    })).toBe('failed');
+    expect(offline.current()).toEqual({ customerId: 'customer-a', token: 'fcm-1' });
+
+    const server = memoryStore({ customerId: 'customer-a', token: 'fcm-1' });
+    expect(await removePushRegistration({
+      accessToken: 'token-a',
+      store: server,
+      remove: async () => {
+        throw Object.assign(new Error('Request failed (503).'), { status: 503 });
+      },
+    })).toBe('failed');
+    expect(server.current()).toEqual({ customerId: 'customer-a', token: 'fcm-1' });
+  });
+
+  it('clears the saved token after 401 or 403 without treating it as a server deletion', async () => {
+    const unauthorized = memoryStore({ customerId: 'customer-a', token: 'fcm-1' });
+    expect(await removePushRegistration({
+      accessToken: 'token-a',
+      store: unauthorized,
+      remove: async () => {
+        throw Object.assign(new Error('Authentication failed'), { status: 401 });
+      },
+    })).toBe('unauthorized');
+    expect(unauthorized.current()).toBeNull();
+
+    const forbidden = memoryStore({ customerId: 'customer-a', token: 'fcm-1' });
+    expect(await removePushRegistration({
+      accessToken: 'token-a',
+      store: forbidden,
+      remove: async () => {
+        throw Object.assign(new Error('Forbidden'), { status: 403 });
+      },
+    })).toBe('unauthorized');
+    expect(forbidden.current()).toBeNull();
   });
 
   it('removes the saved token only after the server accepts it', async () => {
@@ -135,6 +164,13 @@ describe('customer push tokens', () => {
       accessToken: null,
       store,
       remove: async () => undefined,
+    })).toBe('skipped');
+    expect(await removePushRegistration({
+      accessToken: 'token-a',
+      store: memoryStore({ customerId: 'customer-a', token: '   ' }),
+      remove: async () => {
+        throw new Error('should skip a blank token');
+      },
     })).toBe('skipped');
   });
 });

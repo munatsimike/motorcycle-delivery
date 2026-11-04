@@ -85,10 +85,8 @@ export function nearbyHomeCountLabel(state: NearbyAvailability): string {
   if (state.status === 'check-failed') {
     return 'Unable to check';
   }
-  if (state.count === 0) {
-    return '0 riders nearby';
-  }
-  return String(state.count);
+  const riders = state.count === 1 ? 'rider' : 'riders';
+  return `${state.count} ${riders} nearby`;
 }
 
 export function nearbyActionLabel(action: NearbyCardContent['action']): string | null {

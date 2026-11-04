@@ -5,7 +5,7 @@ import { RiderBidController } from './rider-bid.controller.js';
 
 describe('bid route authorization', () => {
   const riderRoutes = new RiderBidController({} as never);
-  const customerRoutes = new CustomerBidController({} as never, {} as never);
+  const customerRoutes = new CustomerBidController({} as never, {} as never, {} as never);
 
   it('requires the signed-in rider and an idempotency key', () => {
     expect(() => riderRoutes.listRequests({})).toThrow(ForbiddenException);
@@ -21,6 +21,8 @@ describe('bid route authorization', () => {
   it('requires the signed-in customer and an idempotency key', () => {
     expect(() => customerRoutes.list({}, 'delivery-1')).toThrow(ForbiddenException);
     expect(() => customerRoutes.accept({}, 'delivery-1', 'bid-1')).toThrow(ForbiddenException);
+    expect(() => customerRoutes.dismiss({}, 'delivery-1', 'bid-1')).toThrow(ForbiddenException);
+    expect(() => customerRoutes.rate({}, 'delivery-1', { stars: 5 })).toThrow(ForbiddenException);
     expect(() => customerRoutes.accept({
       customer: { userId: 'user-1', role: 'CUSTOMER' as never, customerAccountId: 'account-1' },
       headers: {},

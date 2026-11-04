@@ -8,6 +8,7 @@ import {
 import { looksLikeAndroidEmulator, resolveApiBaseUrl } from './apiBaseUrl';
 
 const REQUEST_TIMEOUT_MS = 15_000;
+export const ACCEPTANCE_TIMEOUT_MS = 35_000;
 
 export class ApiError extends Error {
   constructor(
@@ -29,6 +30,7 @@ export class InvalidResponseError extends Error {
 type RequestOptions = {
   accessToken?: string;
   headers?: Record<string, string>;
+  timeoutMs?: number;
 };
 
 export function apiGet<TResponse>(path: string, options?: RequestOptions): Promise<TResponse> {
@@ -289,7 +291,8 @@ async function send<TResponse>(
   token: string | undefined,
 ): Promise<TResponse> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timeoutMs = options?.timeoutMs ?? REQUEST_TIMEOUT_MS;
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const headers: Record<string, string> = {

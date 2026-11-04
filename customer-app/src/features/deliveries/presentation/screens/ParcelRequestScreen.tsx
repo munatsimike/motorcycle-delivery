@@ -1,6 +1,6 @@
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
 import { useEffect, useRef, useState } from 'react';
-import { Animated, Easing, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Animated, Easing, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
@@ -50,20 +50,6 @@ export default function ParcelRequestScreen({ navigation }: ParcelRequestProps) 
     const title = bookingStepTitle(booking.step);
     navigation.setOptions({
       title,
-      headerBackVisible: false,
-      headerTitleAlign: 'left',
-      headerTitle: () => (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={title}
-          hitSlop={8}
-          onPress={() => navigation.goBack()}
-          style={styles.headerBack}
-        >
-          <MaterialDesignIcons name="chevron-left" size={28} color={colors.text} />
-          <Text style={styles.headerTitle} numberOfLines={1}>{title}</Text>
-        </Pressable>
-      ),
     });
   }, [booking.step, navigation]);
 
@@ -299,17 +285,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.lg,
     paddingBottom: spacing.xxl,
-  },
-  headerBack: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    marginLeft: -spacing.sm,
-  },
-  headerTitle: {
-    fontSize: typography.heading,
-    fontWeight: '600',
-    color: colors.text,
   },
   actions: {
     gap: spacing.md,

@@ -128,6 +128,16 @@ export function withAssignedRider<T>(
   return { ...view, rider };
 }
 
+export type CustomerRatingView = {
+  eligible: boolean;
+  submitted: boolean;
+  stars: number | null;
+};
+
+export function withCustomerRating<T>(view: T, rating: CustomerRatingView): T & { rating: CustomerRatingView } {
+  return { ...view, rating };
+}
+
 export function freshRiderPoint(point: RiderPoint | null, updatedAt: Date | null, now: Date): RiderPoint | null {
   if (!point || !updatedAt || !(updatedAt.getTime() > now.getTime() - GPS_FRESH_MS)) {
     return null;

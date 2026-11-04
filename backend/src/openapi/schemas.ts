@@ -819,6 +819,9 @@ export class V2CommissionAuditResponse {
   @ApiProperty()
   actorId!: string;
 
+  @ApiProperty()
+  actorName!: string;
+
   @ApiPropertyOptional({ type: 'integer', nullable: true })
   previousVersion!: number | null;
 
@@ -847,6 +850,11 @@ export class V2CommissionAuditPage {
 
   @ApiProperty({ type: PricingAuditPagination })
   pagination!: PricingAuditPagination;
+}
+
+export class DeliveryRatingBody {
+  @ApiProperty({ type: 'integer', minimum: 1, maximum: 5, description: 'Customer star rating for the assigned rider. One rating per delivered parcel.' })
+  stars!: number;
 }
 
 export class WalletConfigBody {

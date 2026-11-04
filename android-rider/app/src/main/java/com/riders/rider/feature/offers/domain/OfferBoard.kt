@@ -31,8 +31,8 @@ fun offerPriceLabel(currency: String, offeredPrice: String): String {
     return moneyLabel(currency, offeredPrice)
 }
 
-fun acceptOfferLabel(currency: String, offeredPrice: String): String {
-    return "Accept for ${offerPriceLabel(currency, offeredPrice)}"
+fun acceptOfferLabel(): String {
+    return "Accept"
 }
 
 fun senderChoosesRider(serviceClass: String?): Boolean {

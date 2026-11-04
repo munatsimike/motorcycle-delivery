@@ -1,0 +1,32 @@
+:root {
+  --primary: #169b62;
+  --primary-dark: #087a4a;
+  --primary-light: #e9f8ef;
+  --background: #ffffff;
+  --canvas: #f7fcf9;
+  --surface: #f1faf5;
+  --text: #17211d;
+  --text-secondary: #8a9690;
+  --text-inverse: #ffffff;
+  --border: #e1e8e3;
+  --error: #d92d20;
+  --error-surface: #fef2f2;
+  --shadow: 0 8px 24px rgba(23, 33, 29, 0.08);
+  --radius-md: 12px;
+  --radius-lg: 14px;
+  --radius-xl: 28px;
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 16px;
+  --space-xl: 24px;
+  --space-xxl: 32px;
+  --space-xxxl: 48px;
+  --font: "Segoe UI", system-ui, sans-serif;
+  --title: 1.56rem;
+  --heading: 1.25rem;
+  --body: 1rem;
+  --caption: 0.875rem;
+  --button: 1.0625rem;
+  --max-width: 40rem;
+}

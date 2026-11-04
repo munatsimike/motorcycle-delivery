@@ -287,6 +287,11 @@ function context(options?: { metres?: number; now?: Date }) {
         throw new Error('bid written');
       },
     },
+    riderRating: {
+      async findUnique() {
+        return null;
+      },
+    },
     walletFeeReservation: {
       async create() {
         throw new Error('reservation written');

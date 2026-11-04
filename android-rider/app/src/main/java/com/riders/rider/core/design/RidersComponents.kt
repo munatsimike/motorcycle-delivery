@@ -190,16 +190,20 @@ fun RidersPrimaryButton(
     loading: Boolean = false,
     loadingLabel: String? = null,
     icon: Int? = null,
+    compact: Boolean = false,
 ) {
     val inactive = !enabled || loading
     Box(
         modifier = modifier
-            .defaultMinSize(minHeight = 56.dp)
+            .defaultMinSize(minHeight = if (compact) 40.dp else 56.dp)
             .alpha(if (inactive) 0.6f else 1f)
             .clip(RoundedCornerShape(RidersRadius.lg))
             .background(RidersColors.primary)
             .clickable(enabled = !inactive, role = Role.Button, onClick = onClick)
-            .padding(horizontal = RidersSpacing.lg, vertical = RidersSpacing.md),
+            .padding(
+                horizontal = if (compact) RidersSpacing.md else RidersSpacing.lg,
+                vertical = if (compact) RidersSpacing.xs else RidersSpacing.md,
+            ),
         contentAlignment = Alignment.Center,
     ) {
         if (loading) {
@@ -251,15 +255,16 @@ fun RidersSecondaryButton(
     @Suppress("UNUSED_PARAMETER") soft: Boolean = true,
     bordered: Boolean = true,
     compact: Boolean = false,
+    containerColor: Color = RidersColors.background,
     icon: Int? = null,
     loadingLabel: String? = null,
 ) {
     val inactive = !enabled || loading
     val accent = if (tone == RidersButtonTone.Danger) RidersColors.error else RidersColors.primary
-    val fill = RidersColors.background
+    val fill = containerColor
     Box(
         modifier = modifier
-            .defaultMinSize(minHeight = if (compact) 36.dp else 56.dp)
+            .defaultMinSize(minHeight = if (compact) 40.dp else 56.dp)
             .alpha(if (inactive) 0.6f else 1f)
             .clip(RoundedCornerShape(RidersRadius.lg))
             .background(fill)
@@ -272,8 +277,8 @@ fun RidersSecondaryButton(
             )
             .clickable(enabled = !inactive, role = Role.Button, onClick = onClick)
             .padding(
-                horizontal = RidersSpacing.lg,
-                vertical = if (compact) 0.dp else RidersSpacing.md,
+                horizontal = if (compact) RidersSpacing.md else RidersSpacing.lg,
+                vertical = if (compact) RidersSpacing.xs else RidersSpacing.md,
             ),
         contentAlignment = Alignment.Center,
     ) {
@@ -356,6 +361,7 @@ fun RidersCard(
     onClick: (() -> Unit)? = null,
     prominent: Boolean = false,
     emphasizePress: Boolean = false,
+    containerColor: Color = RidersColors.background,
     content: @Composable () -> Unit,
 ) {
     val shape = RoundedCornerShape(if (prominent) RidersRadius.xl else RidersRadius.lg)
@@ -385,7 +391,7 @@ fun RidersCard(
             }
             .shadow(elevation = 4.dp, shape = shape, ambientColor = RidersColors.shadow, spotColor = RidersColors.shadow)
             .clip(shape)
-            .background(RidersColors.background)
+            .background(containerColor)
             .border(1.dp, RidersColors.border, shape)
             .then(clickable)
             .padding(RidersSpacing.lg),
@@ -477,12 +483,20 @@ fun RidersEmptyState(
     image: Int? = null,
     imageSize: Dp = 40.dp,
     compactTop: Boolean = false,
+    showSurface: Boolean = true,
 ) {
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(RidersRadius.lg))
-            .background(RidersColors.background)
+            .then(
+                if (showSurface) {
+                    Modifier
+                        .clip(RoundedCornerShape(RidersRadius.lg))
+                        .background(RidersColors.background)
+                } else {
+                    Modifier
+                },
+            )
             .padding(
                 start = RidersSpacing.xl,
                 top = if (compactTop) RidersSpacing.md else RidersSpacing.xl,

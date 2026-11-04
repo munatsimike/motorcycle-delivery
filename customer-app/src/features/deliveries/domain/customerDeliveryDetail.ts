@@ -1,5 +1,6 @@
 import { isKnownDeliveryStatus, type DeliveryStatus } from './deliveryStatus';
 import { readAssignedRider, type AssignedRider } from './trackingJourney';
+import { readCustomerDeliveryRating, type CustomerDeliveryRating } from './riderRating';
 
 export type ServiceClass = 'EXPRESS' | 'FLEXIBLE';
 
@@ -47,6 +48,7 @@ export type CustomerDeliveryDetail = {
   riderLocation: RiderPoint | null;
   pickupApproach: PickupApproach | null;
   rider: AssignedRider | null;
+  rating: CustomerDeliveryRating;
 };
 
 export function readCustomerDeliveryDetail(value: unknown): CustomerDeliveryDetail {
@@ -104,6 +106,7 @@ export function readCustomerDeliveryDetail(value: unknown): CustomerDeliveryDeta
     riderLocation: keepsRiderLocation(value.status) ? readRiderPoint(value.riderLocation) : null,
     pickupApproach: keepsRiderLocation(value.status) ? readPickupApproach(value.pickupApproach) : null,
     rider: readAssignedRider(value.rider),
+    rating: readCustomerDeliveryRating(value.rating),
   };
 }
 

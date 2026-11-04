@@ -1,9 +1,11 @@
-import { BadRequestException, Controller, ForbiddenException, Get, HttpCode, Param, Post, Req, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiForbiddenResponse, ApiHeader, ApiNotFoundResponse, ApiOkResponse, ApiOperation, ApiParam, ApiTags, ApiUnauthorizedResponse } from '@nestjs/swagger';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, HttpCode, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiBody, ApiForbiddenResponse, ApiHeader, ApiNotFoundResponse, ApiOkResponse, ApiOperation, ApiParam, ApiTags, ApiUnauthorizedResponse } from '@nestjs/swagger';
 import { CustomerAccessGuard, type CustomerRequest } from '../auth/customer-access.guard.js';
 import type { CustomerContext } from '../auth/customer-access.service.js';
 import { BidAcceptanceService } from './bid-acceptance.service.js';
 import { BidService } from './bid.service.js';
+import { RiderRatingService } from './rider-rating.service.js';
+import { DeliveryRatingBody } from '../openapi/schemas.js';
 
 type BidRequest = CustomerRequest & {
   headers?: CustomerRequest['headers'] & { 'idempotency-key'?: string | string[] };
@@ -19,6 +21,7 @@ export class CustomerBidController {
   constructor(
     private readonly bids: BidService,
     private readonly acceptance: BidAcceptanceService,
+    private readonly ratings: RiderRatingService,
   ) {}
 
   @Get(':deliveryId/bids')
@@ -44,6 +47,36 @@ export class CustomerBidController {
     @Param('bidId') bidId: string,
   ) {
     return this.acceptance.accept(requiredCustomer(request), deliveryId, bidId, readIdempotencyKey(request));
+  }
+
+  @Post(':deliveryId/bids/:bidId/dismissal')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Hide an open bid from the customer offer list' })
+  @ApiParam({ name: 'deliveryId', format: 'uuid' })
+  @ApiParam({ name: 'bidId', format: 'uuid' })
+  @ApiOkResponse({ description: 'The bid is hidden for this customer. The rider bid stays open.' })
+  @ApiNotFoundResponse({ description: 'Bid not found' })
+  dismiss(
+    @Req() request: CustomerRequest,
+    @Param('deliveryId') deliveryId: string,
+    @Param('bidId') bidId: string,
+  ) {
+    return this.bids.dismissForCustomer(requiredCustomer(request), deliveryId, bidId);
+  }
+
+  @Post(':deliveryId/rating')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Rate the assigned rider after a successful delivery' })
+  @ApiParam({ name: 'deliveryId', format: 'uuid' })
+  @ApiBody({ type: DeliveryRatingBody })
+  @ApiOkResponse({ description: 'The stored star rating.' })
+  @ApiNotFoundResponse({ description: 'Delivery not found' })
+  rate(
+    @Req() request: CustomerRequest,
+    @Param('deliveryId') deliveryId: string,
+    @Body() body: unknown,
+  ) {
+    return this.ratings.rate(requiredCustomer(request), deliveryId, body);
   }
 }
 

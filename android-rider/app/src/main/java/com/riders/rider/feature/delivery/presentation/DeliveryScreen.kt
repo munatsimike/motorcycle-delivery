@@ -20,10 +20,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -48,6 +46,12 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.riders.rider.core.design.RidersBottomSheet
+import com.riders.rider.core.design.RidersDialog
+import com.riders.rider.core.design.RidersDialogActions
+import com.riders.rider.core.design.RidersDialogBody
+import com.riders.rider.core.design.RidersDialogTextButton
+import com.riders.rider.core.design.RidersDialogTitle
+import com.riders.rider.core.design.RidersDialogTone
 import com.riders.rider.core.design.RidersColors
 import com.riders.rider.core.design.RidersRadius
 import com.riders.rider.core.design.RidersEmptyState
@@ -193,10 +197,11 @@ fun DeliveryScreen(
                     )
                 }
                 ui.completionMessage?.let { message ->
-                    Text(message, style = RidersType.bodyStrong, color = RidersColors.text)
-                    RidersPrimaryButton(
-                        label = "Back to deliveries",
-                        onClick = onFinished,
+                    Text(
+                        message,
+                        style = RidersType.bodyStrong,
+                        color = RidersColors.text,
+                        textAlign = TextAlign.Center,
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
@@ -291,20 +296,24 @@ fun DeliveryScreen(
     }
     confirmAction?.let { action ->
         val pickup = action == "Confirm pickup"
-        AlertDialog(
-            onDismissRequest = { confirmAction = null },
-            title = { Text(if (pickup) "Confirm parcel pickup?" else "Confirm delivery?") },
-            text = { Text(if (pickup) "Have you collected the parcel from the sender?" else "Have you handed the parcel to the recipient?") },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmAction = null
-                    model.advance()
-                }) { Text(if (pickup) "Yes, collected" else "Yes, delivered") }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmAction = null }) { Text("Not yet") }
-            },
-        )
+        RidersDialog(visible = true, onDismiss = { confirmAction = null }) {
+            RidersDialogTitle(if (pickup) "Confirm parcel pickup?" else "Confirm delivery?")
+            RidersDialogBody(if (pickup) "Have you collected the parcel from the sender?" else "Have you handed the parcel to the recipient?")
+            RidersDialogActions {
+                RidersDialogTextButton(
+                    label = "Not yet",
+                    tone = RidersDialogTone.Neutral,
+                    onClick = { confirmAction = null },
+                )
+                RidersDialogTextButton(
+                    label = if (pickup) "Yes, collected" else "Yes, delivered",
+                    onClick = {
+                        confirmAction = null
+                        model.advance()
+                    },
+                )
+            }
+        }
     }
     Icon(
         painter = painterResource(R.drawable.ic_chevron_left),
@@ -338,7 +347,6 @@ private fun ParcelDetailsSheet(
             Modifier
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .navigationBarsPadding()
                 .padding(horizontal = RidersSpacing.lg)
                 .padding(bottom = RidersSpacing.xl),
             verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm),

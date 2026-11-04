@@ -152,6 +152,8 @@ describe('createDelivery', () => {
       search: () => Promise.reject(new Error('unused')),
       adjustOffer: () => Promise.reject(new Error('unused')),
       cancel: () => Promise.reject(new Error('unused')),
+      dismissBid: () => Promise.reject(new Error('unused')),
+      rateDelivery: () => Promise.reject(new Error('unused')),
       createOpenRequest: () => Promise.reject(new Error('unused')),
     };
     await expect(createDelivery(repository, 'token', {} as PreparedBooking, '0.00')).rejects.toThrow(

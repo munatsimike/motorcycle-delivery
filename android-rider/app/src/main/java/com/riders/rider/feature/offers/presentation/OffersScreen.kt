@@ -22,10 +22,8 @@ import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -56,6 +54,12 @@ import com.riders.rider.core.design.RidersButtonTone
 import com.riders.rider.core.design.RidersCard
 import com.riders.rider.core.design.RidersBottomSheet
 import com.riders.rider.core.design.RidersColors
+import com.riders.rider.core.design.RidersDialog
+import com.riders.rider.core.design.RidersDialogActions
+import com.riders.rider.core.design.RidersDialogBody
+import com.riders.rider.core.design.RidersDialogTextButton
+import com.riders.rider.core.design.RidersDialogTitle
+import com.riders.rider.core.design.RidersDialogTone
 import com.riders.rider.core.design.RidersConfirmation
 import com.riders.rider.core.design.RidersChangingText
 import com.riders.rider.core.design.RidersMotion
@@ -400,46 +404,31 @@ private fun IncomingOfferActions(
             offering = false
         }
     }
-    RidersBottomSheet(visible = offering, onDismiss = { if (!submittingBid) offering = false }) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = RidersSpacing.lg, vertical = RidersSpacing.xl),
-            verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
-        ) {
-            RidersTextField(
-                label = "Your offer ($)",
-                value = amount,
-                onValueChange = { amount = it },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                error = if (amount.isNotBlank() && cents == null) "Enter a price." else null,
+    RidersDialog(visible = offering, onDismiss = { if (!submittingBid) offering = false }) {
+        RidersTextField(
+            label = "Your offer ($)",
+            value = amount,
+            onValueChange = { amount = it },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+            error = if (amount.isNotBlank() && cents == null) "Enter a price." else null,
+        )
+        RidersDialogActions {
+            RidersDialogTextButton(
+                label = "Cancel",
+                tone = RidersDialogTone.Neutral,
+                enabled = !submittingBid,
+                onClick = { offering = false },
             )
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
-            ) {
-                RidersSecondaryButton(
-                    label = "Cancel",
-                    onClick = { offering = false },
-                    enabled = !submittingBid,
-                    tone = RidersButtonTone.Danger,
-                    bordered = false,
-                    modifier = Modifier.weight(1f),
-                    soft = false,
-                )
-                RidersPrimaryButton(
-                    label = "Send offer",
-                    onClick = {
-                        val parsed = bidAmountCents(amount) ?: return@RidersPrimaryButton
-                        sending = true
-                        onSubmitBid(formatBidDollars(parsed))
-                    },
-                    enabled = canAct && cents != null && !accepting,
-                    loading = submittingBid,
-                    loadingLabel = "Sending",
-                    modifier = Modifier.weight(1f),
-                )
-            }
+            RidersDialogTextButton(
+                label = if (submittingBid) "Sending" else "Send offer",
+                loading = submittingBid,
+                enabled = canAct && cents != null && !accepting,
+                onClick = {
+                    val parsed = bidAmountCents(amount) ?: return@RidersDialogTextButton
+                    sending = true
+                    onSubmitBid(formatBidDollars(parsed))
+                },
+            )
         }
     }
     Row(
@@ -455,14 +444,16 @@ private fun IncomingOfferActions(
             enabled = canAct && !accepting && !submittingBid,
             modifier = Modifier.weight(1f),
             soft = false,
+            compact = true,
         )
         RidersPrimaryButton(
-            label = acceptOfferLabel(offer.currency, offer.offeredPrice),
+            label = acceptOfferLabel(),
             onClick = onAccept,
             enabled = canAct && !submittingBid,
             loading = accepting || submittingBid,
             loadingLabel = if (senderChoosesRider(offer.serviceClass)) "Sending" else "Accepting",
             modifier = Modifier.weight(1f),
+            compact = true,
         )
     }
 }
@@ -504,34 +495,25 @@ private fun BidPage(
     var confirmSend by remember(offer.deliveryId) { mutableStateOf(false) }
     val amount = formatBidDollars(cents)
     val suggestions = bidSuggestions(startingBidCents(offer.offeredPrice))
-    if (confirmSend) {
-        AlertDialog(
-            onDismissRequest = { if (!submitting) confirmSend = false },
-            title = { Text("Send offer", style = RidersType.heading, color = RidersColors.text) },
-            text = {
-                Text(
-                    "You are sending an offer of ${offerPriceLabel(offer.currency, amount)} to deliver the ${deliveryKindWord(content.label)}.",
-                    style = RidersType.body,
-                    color = RidersColors.text,
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        confirmSend = false
-                        onSend(amount)
-                    },
-                    enabled = !submitting,
-                ) {
-                    Text("Send offer", color = RidersColors.primary)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmSend = false }, enabled = !submitting) {
-                    Text("Cancel", color = RidersColors.error)
-                }
-            },
-        )
+    RidersDialog(visible = confirmSend, onDismiss = { if (!submitting) confirmSend = false }) {
+        RidersDialogTitle("Send offer")
+        RidersDialogBody("You are sending an offer of ${offerPriceLabel(offer.currency, amount)} to deliver the ${deliveryKindWord(content.label)}.")
+        RidersDialogActions {
+            RidersDialogTextButton(
+                label = "Cancel",
+                tone = RidersDialogTone.Neutral,
+                enabled = !submitting,
+                onClick = { confirmSend = false },
+            )
+            RidersDialogTextButton(
+                label = "Send offer",
+                enabled = !submitting,
+                onClick = {
+                    confirmSend = false
+                    onSend(amount)
+                },
+            )
+        }
     }
     val motion = rememberRidersMotion()
     val choiceMs = motion.duration(RidersMotion.CONTENT_MS)
@@ -698,7 +680,6 @@ private fun OfferDetailsSheet(visible: Boolean, offer: OfferResponse, amount: St
             Modifier
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .navigationBarsPadding()
                 .padding(horizontal = RidersSpacing.lg)
                 .padding(bottom = RidersSpacing.xl),
             verticalArrangement = Arrangement.spacedBy(RidersSpacing.md),

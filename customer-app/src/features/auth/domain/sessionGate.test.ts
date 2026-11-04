@@ -171,7 +171,7 @@ describe('logoutCustomer', () => {
     const store = memoryStore(session(60_000, 60_000));
     const auth = repository(() => Promise.reject(new Error('unused')));
     auth.logout = () => Promise.reject(new Error('offline'));
-    await expect(logoutCustomer(auth, store, 'access-token')).rejects.toThrow('offline');
+    await expect(logoutCustomer(auth, store, 'access-token')).resolves.toBeUndefined();
     expect(await store.load()).toBeNull();
   });
 });

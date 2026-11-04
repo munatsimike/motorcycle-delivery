@@ -27,10 +27,16 @@ export function receivedOfferCountLabel(count: number): string {
   return count === 1 ? '1 offer' : `${count} offers`;
 }
 
-export function mergeIncomingOffers(previous: readonly CustomerBid[], incoming: readonly CustomerBid[]): CustomerBid[] {
+const NO_DISMISSED_OFFERS: ReadonlySet<string> = new Set();
+
+export function mergeIncomingOffers(
+  previous: readonly CustomerBid[],
+  incoming: readonly CustomerBid[],
+  dismissedIds: ReadonlySet<string> = NO_DISMISSED_OFFERS,
+): CustomerBid[] {
   const open = new Map<string, CustomerBid>();
   for (const bid of incoming) {
-    if (bid.status === 'OPEN' && !open.has(bid.id)) {
+    if (bid.status === 'OPEN' && !open.has(bid.id) && !dismissedIds.has(bid.id)) {
       open.set(bid.id, bid);
     }
   }
@@ -95,10 +101,10 @@ export function riderProfileFacts(bid: CustomerBid): string[] {
   if (bid.motorcycle) {
     facts.push(`Verified motorcycle: ${bid.motorcycle}`);
   }
-  const deliveries = completedDeliveriesLabel(bid.completedDeliveries);
-  if (deliveries) {
-    facts.push(deliveries);
+  if (bid.ratingCount > 0 && bid.averageRating != null) {
+    facts.push(`${bid.averageRating.toFixed(1)} stars`);
   }
+  facts.push(tripCountLabel(bid.completedDeliveries));
   const distance = proximityLabel(bid.distanceMeters);
   if (distance) {
     facts.push(distance);
@@ -138,6 +144,14 @@ export function arrivalTimeLabel(meters: number | null): string | null {
   }
   const minutes = Math.max(1, Math.round(meters / CITY_METRES_PER_MINUTE));
   return minutes === 1 ? 'about 1 min' : `about ${minutes} min`;
+}
+
+export function pickupEtaLabel(seconds: number | null): string {
+  if (seconds == null || !Number.isFinite(seconds) || seconds <= 0) {
+    return 'ETA unavailable';
+  }
+  const minutes = Math.max(1, Math.round(seconds / 60));
+  return minutes === 1 ? '1 min' : `${minutes} min`;
 }
 
 export function tripCountLabel(count: number): string {

@@ -14,21 +14,23 @@
     "preview": {
       "distribution": "internal",
       "environment": "preview",
+      "autoIncrement": true,
       "android": {
-          "buildType": "apk"
-        },
-       
-        "env": {
-          "APP_VARIANT": "preview",
-          "EXPO_PUBLIC_API_BASE_URL": "https://motorcycle-delivery-production.up.railway.app"
-        }
+        "buildType": "apk"
+      },
+      "env": {
+        "APP_VARIANT": "preview",
+        "EXPO_PUBLIC_API_BASE_URL": "https://motorcycle-delivery-production.up.railway.app",
+        "ORG_GRADLE_PROJECT_reactNativeArchitectures": "arm64-v8a"
+      }
     },
     "production": {
       "distribution": "store",
       "autoIncrement": true,
       "environment": "production",
       "env": {
-        "APP_VARIANT": "production"
+        "APP_VARIANT": "production",
+        "EXPO_PUBLIC_API_BASE_URL": "https://motorcycle-delivery-production.up.railway.app"
       }
     }
   },

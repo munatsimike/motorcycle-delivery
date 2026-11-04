@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
@@ -9,6 +9,7 @@ import ErrorMessage from '../../../../components/ErrorMessage';
 import GreenSurface from '../../../../components/GreenSurface';
 import LoadingIndicator from '../../../../components/LoadingIndicator';
 import BottomSheetModal from '../../../../components/BottomSheetModal';
+import DialogModal, { DialogActions, DialogBody, DialogTextButton, DialogTitle } from '../../../../components/DialogModal';
 import PrimaryButton from '../../../../components/PrimaryButton';
 import SecondaryButton from '../../../../components/SecondaryButton';
 import { errorMessage } from '../../../auth/presentation/errorMessage';
@@ -21,23 +22,28 @@ import { displayedCustomerOffer, type CustomerDeliveryDetail } from '../../domai
 import ParcelDetailsSheet, { Summary } from '../components/ParcelDetailsSheet';
 import { shortDeliveryReference } from '../../domain/deliveryCard';
 import { deliveryCanDelete, deliveryCanSearchAgain, deliveryStatusLabel, usesDeliveryOutcomeScreen } from '../../domain/deliveryStatus';
-import { bidCanAccept, committedDelivery, type BidAcceptance, type CustomerBid } from '../../domain/customerBids';
+import {
+  bidCanAccept,
+  confirmationRiderName,
+  confirmRiderSheetState,
+  committedDelivery,
+  type BidAcceptance,
+  type CustomerBid,
+} from '../../domain/customerBids';
 import { isMarketplaceDelivery } from '../../domain/marketplaceTracking';
 import { riderAcceptedTrackingTarget } from '../../domain/customerDeliveryList';
 import { riderSearchView } from '../../domain/riderSearchView';
 import {
-  arrivalTimeLabel,
-  customerDistanceLabel,
   deliveryAwaitsRiderOffers,
-  proximityLabel,
+  pickupEtaLabel,
   receivedOfferCountLabel,
   riderInitials,
-  riderProfileFacts,
-  tripCountLabel,
   showsRiderOffers,
   sortRiderOffers,
   type OfferSort,
 } from '../../domain/riderOffers';
+import { riderClassColors, riderClassLabel, riderRatingLine } from '../../domain/riderClass';
+import { ratingPromptVisible } from '../../domain/riderRating';
 import AdjustPriceSheet from '../components/AdjustPriceSheet';
 import DeliveryOutcome, { deliveryOutcomeTitle } from '../components/DeliveryOutcome';
 import MarketplaceDelivery from '../components/MarketplaceDelivery';
@@ -76,7 +82,10 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
       reload();
       return;
     }
-    setConfirmed({ delivery: committedDelivery(current, acceptance), riderName: bid.riderName });
+    setConfirmed({
+      delivery: committedDelivery(current, acceptance),
+      riderName: confirmationRiderName(acceptance, bid.riderName),
+    });
     navigation.setParams(riderAcceptedTrackingTarget(current.id).params);
     reload();
   }, [navigation, reload]);
@@ -84,7 +93,7 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [offerSort, setOfferSort] = useState<OfferSort>('price');
   const [sortOpen, setSortOpen] = useState(false);
-  const [profile, setProfile] = useState<CustomerBid | null>(null);
+  const [pendingConfirm, setPendingConfirm] = useState<CustomerBid | null>(null);
   const [searchingAgain, setSearchingAgain] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -92,6 +101,10 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
   const [savingOffer, setSavingOffer] = useState(false);
   const [offerError, setOfferError] = useState<string | null>(null);
   const [savedOffer, setSavedOffer] = useState<{ id: string; amount: string } | null>(null);
+  const [prompt, setPrompt] = useState<null | 'cancel' | 'delete'>(null);
+  const [ratingSkipped, setRatingSkipped] = useState(false);
+  const [ratingStars, setRatingStars] = useState<number | null>(null);
+  const [savingRating, setSavingRating] = useState(false);
   const shown = confirmed && delivery && confirmed.delivery.id === delivery.id && deliveryAwaitsRiderOffers(delivery)
     ? confirmed.delivery
     : delivery;
@@ -106,12 +119,21 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
     error,
   });
   useEffect(() => {
+    setRatingSkipped(false);
+    setRatingStars(null);
+    setSavingRating(false);
     setDetailsOpen(false);
     setOfferSort('price');
     setSortOpen(false);
     setConfirmed(null);
-    setProfile(null);
+    setPendingConfirm(null);
   }, [delivery?.id]);
+
+  useEffect(() => {
+    if (incoming.chosen) {
+      setPendingConfirm(null);
+    }
+  }, [incoming.chosen]);
 
   useLayoutEffect(() => {
     const headerRight = undefined;
@@ -148,20 +170,8 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
     if (cancelling) {
       return;
     }
-    Alert.alert(
-      'Cancel this request?',
-      'We will stop looking for a rider.',
-      [
-        { text: 'Keep request', style: 'cancel' },
-        {
-          text: 'Cancel request',
-          style: 'destructive',
-          onPress: () => {
-            void stopSearch();
-          },
-        },
-      ],
-    );
+    setDetailsOpen(false);
+    setPrompt('cancel');
   }
 
   async function stopSearch() {
@@ -175,20 +185,7 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
     if (!delivery || deleting) {
       return;
     }
-    Alert.alert(
-      'Delete this delivery?',
-      'This cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => {
-            void deleteDelivery();
-          },
-        },
-      ],
-    );
+    setPrompt('delete');
   }
 
   async function deleteDelivery() {
@@ -241,22 +238,13 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
   }
 
   function confirmRider(bid: CustomerBid) {
-    if (offerSelectionBusy || !bidCanAccept(bid)) {
+    if (!bidCanAccept(bid)) {
       return;
     }
-    Alert.alert(
-      'Choose rider',
-      `${bid.riderName}\n$${bid.amount}`,
-      [
-        { text: 'Keep comparing', style: 'cancel' },
-        {
-          text: 'Confirm rider',
-          onPress: () => {
-            void incoming.choose(bid);
-          },
-        },
-      ],
-    );
+    if (offerSelectionBusy) {
+      return;
+    }
+    setPendingConfirm(bid);
   }
 
   const outcomeDelivery = shown && usesDeliveryOutcomeScreen(shown.status) ? shown : null;
@@ -267,6 +255,9 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
     const offerAmount = savedOffer?.id === outcomeDelivery.id
       ? savedOffer.amount
       : displayedCustomerOffer(outcomeDelivery);
+    const rating = outcomeDelivery.rating;
+    const submittedStars = rating.submitted ? rating.stars : ratingStars;
+    const showRatingSheet = ratingPromptVisible(rating, ratingSkipped) && submittedStars == null;
     return (
       <>
         <DeliveryOutcome
@@ -280,6 +271,16 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
             setOfferOpen(true);
           } : undefined}
         >
+          {submittedStars ? (
+            <Text style={styles.ratedNote}>You rated this rider {submittedStars} of 5.</Text>
+          ) : null}
+          {rating.eligible && !submittedStars && ratingSkipped ? (
+            <SecondaryButton
+              label="Rate rider"
+              bordered={false}
+              onPress={() => setRatingSkipped(false)}
+            />
+          ) : null}
           {canSearch || canDelete ? (
             <>
               {canSearch ? (
@@ -305,6 +306,27 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
             </>
           ) : null}
         </DeliveryOutcome>
+        <RateRiderSheet
+          visible={showRatingSheet}
+          saving={savingRating}
+          onSkip={() => setRatingSkipped(true)}
+          onSubmit={(stars) => {
+            void (async () => {
+              if (!accessToken) {
+                return;
+              }
+              setSavingRating(true);
+              try {
+                const saved = await customerDeliveryRepository.rateDelivery(accessToken, outcomeDelivery.id, stars);
+                setRatingStars(saved.stars);
+              } catch (caught: unknown) {
+                setActionError(errorMessage(caught, 'This rating could not be saved.'));
+              } finally {
+                setSavingRating(false);
+              }
+            })();
+          }}
+        />
         {showCustomerOffer ? (
           <AdjustPriceSheet
             visible={offerOpen}
@@ -374,15 +396,26 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
               </>
             ) : (
               <View style={styles.offersIntro}>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Parcel details"
-                  onPress={() => setDetailsOpen(true)}
-                  style={styles.parcelDetails}
-                >
-                  <Text style={styles.parcelDetailsText}>Parcel details</Text>
-                  <MaterialDesignIcons name="chevron-up" size={18} color={colors.primary} />
-                </Pressable>
+                <View style={styles.offersToolbar}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Cancel request"
+                    disabled={cancelling}
+                    hitSlop={8}
+                    onPress={confirmCancelSearch}
+                  >
+                    <Text style={styles.cancelRequestLink}>{cancelling ? 'Cancelling' : 'Cancel request'}</Text>
+                  </Pressable>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Parcel details"
+                    onPress={() => setDetailsOpen(true)}
+                    style={styles.parcelDetails}
+                  >
+                    <Text style={styles.parcelDetailsText}>Parcel details</Text>
+                    <MaterialDesignIcons name="chevron-up" size={18} color={colors.primary} />
+                  </Pressable>
+                </View>
                 <View style={styles.offersHeading}>
                   <Text style={styles.offerCount}>{receivedOfferCountLabel(offers.length)}</Text>
                   <Pressable
@@ -442,7 +475,7 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
                 busy={offerSelectionBusy}
                 loading={incoming.acceptingId === bid.id}
                 onChoose={() => confirmRider(bid)}
-                onProfile={() => setProfile(bid)}
+                onDecline={() => { void incoming.dismiss(bid); }}
               />
             ))}
           </View>
@@ -464,14 +497,20 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
           </Text>
         ) : null}
       </ScrollView>
-      <RiderProfileSheet
-        bid={profile}
-        accessToken={accessToken}
-        busy={offerSelectionBusy}
-        onClose={() => setProfile(null)}
-        onChoose={(bid) => {
-          setProfile(null);
-          confirmRider(bid);
+      <ConfirmRiderSheet
+        bid={pendingConfirm}
+        loading={confirmRiderSheetState(incoming.acceptingId, pendingConfirm?.id ?? null).loading}
+        onKeepComparing={() => {
+          if (incoming.acceptingId !== null) {
+            return;
+          }
+          setPendingConfirm(null);
+        }}
+        onConfirm={() => {
+          if (!pendingConfirm) {
+            return;
+          }
+          void incoming.choose(pendingConfirm);
         }}
       />
       <ParcelDetailsSheet
@@ -512,6 +551,34 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
           </View>
         </View>
       </BottomSheetModal>
+      <DialogModal
+        visible={prompt !== null}
+        onClose={() => setPrompt(null)}
+        closeLabel="Dismiss"
+      >
+        <DialogTitle>{prompt === 'delete' ? 'Delete this delivery?' : 'Cancel this request?'}</DialogTitle>
+        <DialogBody>{prompt === 'delete' ? 'This cannot be undone.' : 'We will stop looking for a rider.'}</DialogBody>
+        <DialogActions>
+          <DialogTextButton
+            label={prompt === 'delete' ? 'Cancel' : 'Keep request'}
+            tone="neutral"
+            onPress={() => setPrompt(null)}
+          />
+          <DialogTextButton
+            label={prompt === 'delete' ? 'Delete' : 'Cancel request'}
+            tone="danger"
+            onPress={() => {
+              const next = prompt;
+              setPrompt(null);
+              if (next === 'delete') {
+                void deleteDelivery();
+              } else {
+                void stopSearch();
+              }
+            }}
+          />
+        </DialogActions>
+      </DialogModal>
     </SafeAreaView>
   );
 }
@@ -553,47 +620,65 @@ function OfferCard({
   busy,
   loading,
   onChoose,
-  onProfile,
+  onDecline,
 }: {
   bid: CustomerBid;
   accessToken: string | null;
   busy: boolean;
   loading: boolean;
   onChoose: () => void;
-  onProfile: () => void;
+  onDecline: () => void;
 }) {
-  const distance = proximityLabel(bid.distanceMeters);
+  const eta = pickupEtaLabel(bid.pickupEtaSeconds);
+  const summary = riderRatingLine(bid);
+  const classTone = riderClassColors[bid.riderClass];
   return (
     <View style={[styles.card, styles.offerCard]}>
+      <View style={styles.offerTop}>
+        <Text style={[styles.offerPrice, styles.offerCardPrice]}>${bid.amount}</Text>
+        <View style={styles.offerEta}>
+          <MaterialDesignIcons name="clock-outline" size={16} color={colors.textSecondary} />
+          <Text style={styles.offerEtaText}>{eta}</Text>
+        </View>
+      </View>
       <View style={styles.offerIdentity}>
-        <Pressable accessibilityRole="button" accessibilityLabel={`${bid.riderName} profile`} onPress={onProfile} disabled={busy}>
-          <RiderPortrait
-            name={bid.riderName}
-            initials={riderInitials(bid.riderName)}
-            path={bid.hasProfilePhoto ? bidProfilePhotoPath(bid.deliveryId, bid.id) : null}
-            accessToken={accessToken}
-            style={styles.offerAvatar}
-            textStyle={styles.initials}
-          />
-        </Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel={`${bid.riderName} profile`} onPress={onProfile} disabled={busy} style={styles.offerCopy}>
-          <Text numberOfLines={1} style={styles.offerName}>{bid.riderName}</Text>
-          <Text style={styles.offerMeta}>{tripCountLabel(bid.completedDeliveries)}</Text>
-          {distance ? <Text style={styles.offerMeta}>{distance}</Text> : null}
-        </Pressable>
-        <View style={styles.offerPriceBlock}>
-          <Text style={styles.offerPriceLabel}>Offer</Text>
-          <Text style={styles.offerPrice}>${bid.amount}</Text>
+        <RiderPortrait
+          name={bid.riderName}
+          initials={riderInitials(bid.riderName)}
+          path={bid.hasProfilePhoto ? bidProfilePhotoPath(bid.deliveryId, bid.id) : null}
+          accessToken={accessToken}
+          style={styles.offerAvatar}
+          textStyle={styles.initials}
+        />
+        <View style={styles.offerCopy}>
+          <View style={styles.offerNameRow}>
+            <Text numberOfLines={1} style={styles.offerName}>{bid.riderName}</Text>
+            <View style={[styles.classPill, { backgroundColor: classTone.background }]}>
+              <Text style={[styles.classPillText, { color: classTone.text }]}>{riderClassLabel(bid.riderClass)}</Text>
+            </View>
+          </View>
+          {bid.motorcycle ? <Text numberOfLines={1} style={styles.offerMeta}>{bid.motorcycle}</Text> : null}
+          <View style={styles.offerRatingRow}>
+            <MaterialDesignIcons name="star" size={14} color="#E8A317" />
+            {summary.rating ? <Text style={styles.offerRating}>{summary.rating}</Text> : null}
+            <Text style={styles.offerMeta}>{summary.rides}</Text>
+          </View>
         </View>
       </View>
       {bidCanAccept(bid) ? (
-        <SecondaryButton
-          label="Choose rider"
-          compact
-          loading={loading}
-          disabled={busy}
-          onPress={onChoose}
-        />
+        <View style={styles.offerActions}>
+          <Pressable accessibilityRole="button" disabled={busy} onPress={onDecline} hitSlop={8}>
+            <Text style={styles.decline}>Decline</Text>
+          </Pressable>
+          <PrimaryButton
+            label="Choose Rider"
+            compact
+            labelStyle={styles.chooseLabel}
+            loading={loading}
+            disabled={busy}
+            onPress={onChoose}
+          />
+        </View>
       ) : (
         <Text style={styles.offerMeta}>This offer is no longer available.</Text>
       )}
@@ -601,43 +686,85 @@ function OfferCard({
   );
 }
 
-function RiderProfileSheet({
+function ConfirmRiderSheet({
   bid,
-  accessToken,
-  busy,
-  onClose,
-  onChoose,
+  loading,
+  onKeepComparing,
+  onConfirm,
 }: {
   bid: CustomerBid | null;
-  accessToken: string | null;
-  busy: boolean;
-  onClose: () => void;
-  onChoose: (bid: CustomerBid) => void;
+  loading: boolean;
+  onKeepComparing: () => void;
+  onConfirm: () => void;
 }) {
-  const facts = bid ? riderProfileFacts(bid) : [];
   return (
-    <BottomSheetModal visible={bid !== null} onClose={onClose} closeLabel="Close rider profile">
+    <DialogModal visible={bid !== null} onClose={onKeepComparing} closeLabel="Keep comparing">
       {bid ? (
-        <View style={styles.sheet}>
-          <RiderPortrait
-            name={bid.riderName}
-            initials={riderInitials(bid.riderName)}
-            path={bid.hasProfilePhoto ? bidProfilePhotoPath(bid.deliveryId, bid.id) : null}
-            accessToken={accessToken}
-            style={styles.avatar}
-            textStyle={styles.initials}
-          />
-          <Text style={styles.sheetName}>{bid.riderName}</Text>
-          {facts.map((fact) => <Text key={fact} style={styles.offerMeta}>{fact}</Text>)}
-          <Text style={styles.offerPrice}>${bid.amount}</Text>
-          {bidCanAccept(bid) ? (
-            <PrimaryButton label="Choose rider" disabled={busy} onPress={() => onChoose(bid)} />
-          ) : (
-            <Text style={styles.notice}>This offer is no longer available.</Text>
-          )}
-          <SecondaryButton label="Close" bordered={false} onPress={onClose} />
-        </View>
+        <>
+          <DialogTitle>Choose rider</DialogTitle>
+          <DialogBody>{bid.riderName}</DialogBody>
+          <Text style={styles.confirmPrice}>${bid.amount}</Text>
+          <DialogActions>
+            <DialogTextButton label="Keep comparing" tone="neutral" disabled={loading} onPress={onKeepComparing} />
+            <DialogTextButton
+              label={loading ? 'Confirming' : 'Confirm rider'}
+              loading={loading}
+              onPress={onConfirm}
+            />
+          </DialogActions>
+        </>
       ) : null}
+    </DialogModal>
+  );
+}
+
+function RateRiderSheet({
+  visible,
+  saving,
+  onSkip,
+  onSubmit,
+}: {
+  visible: boolean;
+  saving: boolean;
+  onSkip: () => void;
+  onSubmit: (stars: number) => void;
+}) {
+  const [stars, setStars] = useState(0);
+  useEffect(() => {
+    if (visible) {
+      setStars(0);
+    }
+  }, [visible]);
+  return (
+    <BottomSheetModal visible={visible} onClose={onSkip} closeLabel="Skip rating">
+      <View style={styles.sheet}>
+        <Text style={styles.sortTitle}>Rate your rider</Text>
+        <Text style={styles.offerMeta}>Optional. Skipping does not change this delivery.</Text>
+        <View style={styles.starRow}>
+          {[1, 2, 3, 4, 5].map((value) => (
+            <Pressable
+              key={value}
+              accessibilityRole="button"
+              accessibilityLabel={`${value} star${value === 1 ? '' : 's'}`}
+              disabled={saving}
+              onPress={() => setStars(value)}
+            >
+              <MaterialDesignIcons
+                name={value <= stars ? 'star' : 'star-outline'}
+                size={32}
+                color={value <= stars ? '#E8A317' : colors.border}
+              />
+            </Pressable>
+          ))}
+        </View>
+        <PrimaryButton
+          label="Submit"
+          loading={saving}
+          disabled={stars < 1}
+          onPress={() => onSubmit(stars)}
+        />
+        <SecondaryButton label="Skip" bordered={false} disabled={saving} onPress={onSkip} />
+      </View>
     </BottomSheetModal>
   );
 }
@@ -723,14 +850,26 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   offerList: {
-    gap: spacing.md,
-    marginTop: spacing.md,
+    gap: spacing.sm,
+    marginTop: spacing.sm,
     paddingHorizontal: spacing.lg,
   },
   offersIntro: {
     alignSelf: 'stretch',
     alignItems: 'flex-start',
     gap: spacing.xs,
+  },
+  offersToolbar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'stretch',
+    justifyContent: 'space-between',
+    marginBottom: spacing.lg,
+  },
+  cancelRequestLink: {
+    fontSize: typography.button,
+    fontWeight: '500',
+    color: colors.error,
   },
   offersHeading: {
     flexDirection: 'row',
@@ -777,17 +916,89 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.md,
   },
+  offerTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
+  offerEta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  offerEtaText: {
+    fontSize: typography.caption,
+    color: colors.textSecondary,
+  },
+  offerRatingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+  },
+  offerRating: {
+    fontSize: typography.caption,
+    lineHeight: 16,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  classPill: {
+    alignSelf: 'flex-start',
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: 0,
+  },
+  classPillCenter: {
+    alignSelf: 'center',
+  },
+  classPillText: {
+    fontSize: typography.caption,
+    fontWeight: '600',
+  },
+  offerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: spacing.xl,
+  },
+  chooseLabel: {
+    fontWeight: '500',
+  },
+  decline: {
+    fontSize: typography.button,
+    fontWeight: '500',
+    color: colors.textSecondary,
+  },
+  starRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+  },
+  ratedNote: {
+    fontSize: typography.body,
+    color: colors.textSecondary,
+    textAlign: 'center',
+  },
   offerCard: {
     overflow: 'hidden',
-    gap: spacing.md,
+    padding: spacing.sm,
+    gap: spacing.xs,
+    backgroundColor: '#F8FAF9',
   },
   offerCopy: {
     flex: 1,
-    gap: 2,
+    gap: 1,
+  },
+  offerNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
   },
   offerAvatar: {
-    width: 48,
-    height: 48,
+    width: 40,
+    height: 40,
     borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
@@ -807,13 +1018,21 @@ const styles = StyleSheet.create({
     color: colors.primaryDark,
   },
   offerName: {
+    flexShrink: 1,
     fontSize: typography.body,
+    lineHeight: 18,
     fontWeight: '600',
     color: colors.text,
     includeFontPadding: false,
   },
+  offerCardPrice: {
+    fontSize: 22,
+    lineHeight: 26,
+    includeFontPadding: false,
+  },
   offerMeta: {
     fontSize: typography.caption,
+    lineHeight: 16,
     color: colors.textSecondary,
   },
   offerPriceBlock: {
@@ -838,14 +1057,15 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     gap: spacing.sm,
   },
-  sheetName: {
+  sortTitle: {
     fontSize: typography.heading,
     fontWeight: '700',
     color: colors.text,
-    textAlign: 'center',
   },
-  sortTitle: {
-    fontSize: typography.heading,
+  confirmPrice: {
+    textAlign: 'center',
+    fontSize: 22,
+    lineHeight: 26,
     fontWeight: '700',
     color: colors.text,
   },

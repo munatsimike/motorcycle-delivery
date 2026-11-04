@@ -13,6 +13,8 @@ export type CustomerDeliveryRepository = {
   list(accessToken: string, path: string): Promise<CustomerDeliveryPage>;
   listBids(accessToken: string, deliveryId: string): Promise<CustomerBid[]>;
   acceptBid(accessToken: string, deliveryId: string, bidId: string, idempotencyKey: string): Promise<BidAcceptance>;
+  dismissBid(accessToken: string, deliveryId: string, bidId: string): Promise<void>;
+  rateDelivery(accessToken: string, deliveryId: string, stars: number): Promise<{ stars: number }>;
   search(accessToken: string, deliveryId: string): Promise<void>;
   adjustOffer(accessToken: string, deliveryId: string, offeredPrice: string): Promise<{ customerOffer: string }>;
   cancel(accessToken: string, deliveryId: string): Promise<void>;

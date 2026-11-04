@@ -32,6 +32,7 @@ import {
   captureV2CommissionReservation,
 } from '../rider/wallet-ledger.js';
 import { recordDeliveryOpportunity, recordRequestReopened, recordV2CustomerStatus } from './v2-outbox.js';
+import { recordSuccessfulDelivery } from './rider-stats.js';
 import { offerIsOpen } from './dispatch.constants.js';
 import { centsFromDecimal, formatCents } from './money.js';
 import { readCustomerOfferCents } from './delivery-request.js';
@@ -487,6 +488,7 @@ async function progressDelivery(
   );
   const availability = profile.availability;
   if (requested === DeliveryStatus.DELIVERED) {
+    await recordSuccessfulDelivery(tx, profile);
     await tx.deliveryAssignment.update({
       where: { id: assignment.id },
       data: { status: AssignmentStatus.COMPLETED },

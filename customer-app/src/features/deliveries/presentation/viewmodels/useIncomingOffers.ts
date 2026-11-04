@@ -9,6 +9,7 @@ import {
   bidCanAccept,
   bidsAfterFailure,
   createAcceptanceGate,
+  duplicateAcceptanceNotice,
   type BidAcceptance,
   type CustomerBid,
 } from '../../domain/customerBids';
@@ -34,6 +35,7 @@ export function useIncomingOffers(
   const [appActive, setAppActive] = useState(AppState.currentState === 'active');
   const request = useRef(0);
   const seen = useRef<string[]>([]);
+  const dismissedIds = useRef(new Set<string>());
   const gate = useRef(createAcceptanceGate());
   const heldError = useRef<string | null>(null);
   const offersRef = useRef(offers);
@@ -48,6 +50,7 @@ export function useIncomingOffers(
   useEffect(() => {
     request.current += 1;
     seen.current = [];
+    dismissedIds.current = new Set();
     heldError.current = null;
     setOffers([]);
     setError(null);
@@ -83,12 +86,18 @@ export function useIncomingOffers(
         return;
       }
       const open = next.filter((bid) => bid.deliveryId === deliveryId && bid.status === 'OPEN');
-      const openIds = open.map((bid) => bid.id);
+      for (const id of [...dismissedIds.current]) {
+        if (!open.some((bid) => bid.id === id)) {
+          dismissedIds.current.delete(id);
+        }
+      }
+      const visible = open.filter((bid) => !dismissedIds.current.has(bid.id));
+      const openIds = visible.map((bid) => bid.id);
       if (offersMissingSince(seen.current, openIds)) {
         setUnavailableNotice('An offer is no longer available.');
       }
       seen.current = openIds;
-      setOffers((currentOffers) => mergeIncomingOffers(currentOffers, open));
+      setOffers((currentOffers) => mergeIncomingOffers(currentOffers, visible, dismissedIds.current));
       setError(heldError.current);
       setLoaded(true);
     } catch (caught: unknown) {
@@ -129,6 +138,24 @@ export function useIncomingOffers(
     }
   }, [load]);
 
+  const dismiss = useCallback(async (bid: CustomerBid) => {
+    if (!accessToken || !deliveryId) {
+      return;
+    }
+    dismissedIds.current.add(bid.id);
+    seen.current = seen.current.filter((id) => id !== bid.id);
+    setOffers((currentOffers) => currentOffers.filter((item) => item.id !== bid.id));
+    try {
+      await customerDeliveryRepository.dismissBid(accessToken, deliveryId, bid.id);
+    } catch (caught: unknown) {
+      dismissedIds.current.delete(bid.id);
+      const message = errorMessage(caught, 'This offer could not be declined.');
+      heldError.current = message;
+      setError(message);
+      void load();
+    }
+  }, [accessToken, deliveryId, load]);
+
   const choose = useCallback(async (bid: CustomerBid) => {
     const currentDelivery = deliveryRef.current;
     const currentOffer = offersRef.current.find((item) => item.id === bid.id);
@@ -137,7 +164,10 @@ export function useIncomingOffers(
       setError(heldError.current);
       return;
     }
-    if (!gate.current.begin()) {
+    const busyNotice = duplicateAcceptanceNotice(gate.current.begin());
+    if (busyNotice) {
+      heldError.current = busyNotice;
+      setError(busyNotice);
       return;
     }
     setAcceptingId(currentOffer.id);
@@ -151,6 +181,7 @@ export function useIncomingOffers(
         currentDelivery.id,
         currentOffer.id,
         createAcceptanceKey,
+        currentOffer.riderName,
       );
       setChosen(true);
       onAccepted(accepted, currentOffer);
@@ -175,5 +206,6 @@ export function useIncomingOffers(
     refreshing,
     refresh,
     choose,
+    dismiss,
   };
 }

@@ -1,6 +1,6 @@
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
 import type { ComponentProps } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View, type StyleProp, type TextStyle } from 'react-native';
 
 import { colors, radius, spacing, typography } from '../theme';
 
@@ -13,6 +13,7 @@ type PrimaryButtonProps = {
   icon?: ComponentProps<typeof MaterialDesignIcons>['name'];
   trailingIcon?: ComponentProps<typeof MaterialDesignIcons>['name'];
   compact?: boolean;
+  labelStyle?: StyleProp<TextStyle>;
 };
 
 export default function PrimaryButton({
@@ -24,6 +25,7 @@ export default function PrimaryButton({
   icon,
   trailingIcon,
   compact = false,
+  labelStyle,
 }: PrimaryButtonProps) {
   const inactive = disabled || loading;
 
@@ -42,15 +44,15 @@ export default function PrimaryButton({
       {loading ? (
         <View style={styles.loadingContent}>
           <ActivityIndicator color={colors.textInverse} />
-          {loadingLabel ? <Text style={styles.label}>{loadingLabel}</Text> : null}
+          {loadingLabel ? <Text style={[styles.label, labelStyle]}>{loadingLabel}</Text> : null}
         </View>
       ) : icon ? (
         <View style={styles.loadingContent}>
           <MaterialDesignIcons name={icon} color={colors.textInverse} size={22} />
-          <Text style={styles.label}>{label}</Text>
+          <Text style={[styles.label, labelStyle]}>{label}</Text>
         </View>
       ) : (
-        <Text style={styles.label}>{label}</Text>
+        <Text style={[styles.label, labelStyle]}>{label}</Text>
       )}
       {!loading && trailingIcon ? (
         <MaterialDesignIcons

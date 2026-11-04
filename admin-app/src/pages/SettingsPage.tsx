@@ -332,7 +332,7 @@ function V2CommissionHistory() {
                 {audits.data.data.map((audit) => (
                   <tr key={audit.id}>
                     <td>{when(audit.createdAt)}</td>
-                    <td>{audit.actorId}</td>
+                    <td>{audit.actorName}</td>
                     <td>{audit.previousPercentage === null ? 'None' : `${audit.previousPercentage}% · version ${audit.previousVersion}`}</td>
                     <td>{audit.nextPercentage}% · version {audit.nextVersion}</td>
                   </tr>

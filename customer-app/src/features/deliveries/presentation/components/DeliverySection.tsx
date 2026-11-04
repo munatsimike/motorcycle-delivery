@@ -1,3 +1,4 @@
+import type { RefObject } from 'react';
 import { Image, StyleSheet, Text, View } from 'react-native';
 
 import ErrorMessage from '../../../../components/ErrorMessage';
@@ -14,6 +15,9 @@ type DeliverySectionProps = {
   emptyTitle: string;
   emptyBody: string;
   compact?: boolean;
+  bleedEmpty?: boolean;
+  emptyAnchor?: RefObject<View | null>;
+  onEmptyLayout?: () => void;
   refreshing?: boolean;
   offlineNote?: string | null;
   cached?: boolean;
@@ -29,6 +33,9 @@ export default function DeliverySection({
   emptyTitle,
   emptyBody,
   compact = false,
+  bleedEmpty = false,
+  emptyAnchor,
+  onEmptyLayout,
   refreshing = false,
   offlineNote = null,
   cached = false,
@@ -45,7 +52,11 @@ export default function DeliverySection({
       {offlineNote ? <OfflineDeliveriesNotice message={offlineNote} onRetry={onRetry} /> : null}
       {error ? <ErrorMessage message={error} /> : null}
       {!error && deliveries.length === 0 ? (
-        <View style={[styles.empty, compact && styles.emptyCompact]}>
+        <View
+          ref={bleedEmpty ? emptyAnchor : undefined}
+          onLayout={bleedEmpty ? onEmptyLayout : undefined}
+          style={bleedEmpty ? styles.homeEmpty : [styles.empty, compact && styles.emptyCompact]}
+        >
           <Image
             source={require('../../../../../assets/parcel-box.png')}
             style={[styles.emptyImage, compact && styles.emptyImageCompact]}
@@ -79,6 +90,12 @@ const styles = StyleSheet.create({
   emptyCompact: {
     paddingVertical: spacing.xs,
     paddingHorizontal: 0,
+  },
+  homeEmpty: {
+    alignItems: 'center',
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.xl,
+    backgroundColor: 'transparent',
   },
   emptyImage: {
     width: 40,

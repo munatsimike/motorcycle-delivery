@@ -3,8 +3,12 @@ package com.riders.rider.navigation
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ContentTransform
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
@@ -115,6 +119,8 @@ fun RiderShell(
     Scaffold(
         containerColor = RidersColors.background,
         bottomBar = {
+            Column(Modifier.background(RidersColors.background)) {
+            Box(Modifier.fillMaxWidth().height(1.dp).background(RidersColors.border))
             NavigationBar(containerColor = RidersColors.background) {
                 RiderDestination.entries.forEach { destination ->
                     val selected = destination == tab
@@ -148,6 +154,7 @@ fun RiderShell(
                         ),
                     )
                 }
+            }
             }
         },
     ) { padding ->

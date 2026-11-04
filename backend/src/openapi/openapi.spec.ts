@@ -29,6 +29,7 @@ import { CustomerBidController } from '../delivery/customer-bid.controller.js';
 import { DeliveryController } from '../delivery/delivery.controller.js';
 import { BidAcceptanceService } from '../delivery/bid-acceptance.service.js';
 import { BidService } from '../delivery/bid.service.js';
+import { RiderRatingService } from '../delivery/rider-rating.service.js';
 import { RiderBidController } from '../delivery/rider-bid.controller.js';
 import { ClassPricingService } from '../delivery/class-pricing.service.js';
 import { DeliveryPricingController } from '../delivery/delivery-pricing.controller.js';
@@ -138,6 +139,7 @@ describe('OpenAPI document', () => {
         { provide: CustomerFcmDeviceService, useValue: unused },
         { provide: BidAcceptanceService, useValue: unused },
         { provide: BidService, useValue: unused },
+        { provide: RiderRatingService, useValue: unused },
         { provide: DeliveryService, useValue: unused },
         { provide: DispatchService, useValue: unused },
         { provide: PlacesService, useValue: unused },

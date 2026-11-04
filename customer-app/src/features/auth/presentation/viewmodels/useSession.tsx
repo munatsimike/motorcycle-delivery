@@ -10,6 +10,7 @@ import {
 import { customerAuthRepository } from '../../data/repositories/CustomerAuthApiRepository';
 import type { AuthSession } from '../../domain/auth.types';
 import { logoutCustomer } from '../../domain/usecases/logoutCustomer';
+import { signOutCustomer } from '../../domain/usecases/signOutCustomer';
 import { restoreSession, type SessionRestore } from '../../domain/usecases/restoreSession';
 import { confirmCustomerIdentity, customerIdForSession, rebindCustomerIdentity } from '../../../../services/session/customerIdentity';
 import { reconcileInstallMarker } from '../../../../services/session/installMarker';
@@ -18,7 +19,6 @@ import { secureSessionStore } from '../../../../services/session/secureSessionSt
 import { installSessionAccess, SessionAccess } from '../../../../services/session/sessionAccess';
 import { removeCustomerPushDevice } from '../../../notifications/data/customerPushApi';
 import { pushRegistrationStore } from '../../../notifications/data/pushRegistrationStore';
-import { PUSH_DEREGISTER_FAILED, removePushRegistration } from '../../../notifications/domain/customerPushRegistration';
 
 type SessionStatus = 'loading' | 'signedOut' | 'needsConnection' | 'signedIn';
 
@@ -30,7 +30,6 @@ type SessionContextValue = {
   holdSession: (session: AuthSession) => Promise<'stored' | 'memory'>;
   confirmCustomer: (customerId: string) => Promise<void>;
   logout: () => Promise<void>;
-  logoutNotice: string | null;
   retryRestore: () => Promise<void>;
 };
 
@@ -40,7 +39,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<SessionStatus>('loading');
   const [session, setSession] = useState<AuthSession | null>(null);
   const [customerId, setCustomerId] = useState<string | null>(null);
-  const [logoutNotice, setLogoutNotice] = useState<string | null>(null);
   const accessRef = useRef<SessionAccess | null>(null);
 
   useEffect(() => {
@@ -125,9 +123,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     status,
     accessToken: session?.accessToken ?? null,
     customerId,
-    logoutNotice,
     async saveSession(next) {
-      setLogoutNotice(null);
       await secureSessionStore.save(next);
       accessRef.current?.replace(next);
       setCustomerId(null);
@@ -135,7 +131,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setStatus('signedIn');
     },
     async holdSession(next) {
-      setLogoutNotice(null);
       let stored: 'stored' | 'memory' = 'memory';
       try {
         await secureSessionStore.save(next);
@@ -168,13 +163,25 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     async logout() {
       const knownCustomerId = customerId;
       const accessToken = session?.accessToken ?? null;
-      accessRef.current?.replace(null);
-      const pushRemoval = await removePushRegistration({
-        accessToken,
-        store: pushRegistrationStore,
-        remove: removeCustomerPushDevice,
-      });
-      setLogoutNotice(pushRemoval === 'failed' ? PUSH_DEREGISTER_FAILED : null);
+      try {
+        await signOutCustomer({
+          accessToken,
+          pushStore: pushRegistrationStore,
+          removePush: removeCustomerPushDevice,
+          currentAccessToken: () => accessRef.current?.current()?.accessToken ?? null,
+          clearLiveSession: () => {
+            accessRef.current?.replace(null);
+          },
+          logout: (token) => logoutCustomer(customerAuthRepository, secureSessionStore, token),
+        });
+      } catch {
+        accessRef.current?.replace(null);
+        try {
+          await logoutCustomer(customerAuthRepository, secureSessionStore, accessToken);
+        } catch {
+          // Local sign-out still continues.
+        }
+      }
       setCustomerId(null);
       setSession(null);
       setStatus('signedOut');
@@ -186,7 +193,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       } catch {
         // Signing out still continues when the saved deliveries cannot be removed.
       }
-      await logoutCustomer(customerAuthRepository, secureSessionStore, accessToken);
     },
     async retryRestore() {
       const restored = await restoreSession(customerAuthRepository, secureSessionStore);
@@ -194,7 +200,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const next = await readRestoredCustomer(restored);
       applyRestoredCustomer(next, setSession, setCustomerId, setStatus);
     },
-  }), [customerId, logoutNotice, session, status]);
+  }), [customerId, session, status]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => {

@@ -58,6 +58,24 @@ describe('pickup approach cache', () => {
     expect(approachCell(query.riderLatitude)).not.toBe(approachCell(query.riderLatitude + 0.002));
   });
 
+  it('shares one in-flight route for identical lookups', async () => {
+    let calls = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const cache = createPickupApproachCache(async () => {
+      calls += 1;
+      await gate;
+      return road(240);
+    });
+    const first = cache.lookup(query);
+    const second = cache.lookup({ ...query, riderLatitude: query.riderLatitude + 0.0002 });
+    release();
+    expect(await first).toEqual(await second);
+    expect(calls).toBe(1);
+  });
+
   it('does not invent a route when travel time is missing or routing fails', async () => {
     let calls = 0;
     let now = 10_000;

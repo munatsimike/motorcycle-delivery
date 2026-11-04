@@ -4,6 +4,7 @@ import type { CustomerBid } from './customerBids';
 import { readCustomerBids } from './customerBids';
 import {
   arrivalTimeLabel,
+  pickupEtaLabel,
   completedDeliveriesLabel,
   customerDistanceLabel,
   tripCountLabel,
@@ -30,9 +31,13 @@ function offer(patch: Partial<CustomerBid> & Pick<CustomerBid, 'id' | 'amount'>)
     verified: false,
     completedDeliveries: 0,
     distanceMeters: null,
+    pickupEtaSeconds: null,
     motorcycle: null,
     registrationNumber: null,
     hasProfilePhoto: false,
+    averageRating: null,
+    ratingCount: 0,
+    riderClass: 'SILVER',
     ...patch,
   };
 }
@@ -78,6 +83,13 @@ describe('rider offer sorting', () => {
     expect(arrivalTimeLabel(null)).toBeNull();
     expect(arrivalTimeLabel(450)).toBe('about 1 min');
     expect(arrivalTimeLabel(1_200)).toBe('about 3 min');
+    expect(pickupEtaLabel(null)).toBe('ETA unavailable');
+    expect(pickupEtaLabel(0)).toBe('ETA unavailable');
+    expect(pickupEtaLabel(Number.NaN)).toBe('ETA unavailable');
+    expect(pickupEtaLabel(480)).toBe('8 min');
+    expect(pickupEtaLabel(60)).toBe('1 min');
+    expect(pickupEtaLabel(89)).toBe('1 min');
+    expect(pickupEtaLabel(90)).toBe('2 min');
     expect(tripCountLabel(0)).toBe('0 rides');
     expect(tripCountLabel(1)).toBe('1 ride');
     expect(tripCountLabel(12)).toBe('12 rides');
@@ -122,6 +134,16 @@ describe('rider offer sorting', () => {
     expect(first.map((bid) => bid.id)).toEqual(['a', 'b']);
   });
 
+  it('does not restore a dismissed offer from a later poll', () => {
+    const visible = [offer({ id: 'b', amount: '4.00' })];
+    const poll = [
+      offer({ id: 'a', amount: '3.00' }),
+      offer({ id: 'b', amount: '4.50' }),
+      offer({ id: 'c', amount: '5.00' }),
+    ];
+    expect(mergeIncomingOffers(visible, poll, new Set(['a'])).map((bid) => bid.id)).toEqual(['b', 'c']);
+  });
+
   it('lists only rider facts the bid payload actually contains', () => {
     expect(riderProfileFacts(offer({
       id: 'full',
@@ -129,8 +151,8 @@ describe('rider offer sorting', () => {
       motorcycle: 'Honda Ace',
       completedDeliveries: 12,
       distanceMeters: 450,
-    }))).toEqual(['Verified motorcycle: Honda Ace', '12 deliveries', '450 m from pickup']);
-    expect(riderProfileFacts(offer({ id: 'sparse', amount: '4.00' }))).toEqual([]);
+    }))).toEqual(['Verified motorcycle: Honda Ace', '12 rides', '450 m from pickup']);
+    expect(riderProfileFacts(offer({ id: 'sparse', amount: '4.00' }))).toEqual(['0 rides']);
   });
 
   it('reads public rider fields and drops a phone number', () => {
@@ -150,6 +172,7 @@ describe('rider offer sorting', () => {
         distanceMeters: 1200,
         motorcycle: 'Honda Ace',
         registrationNumber: 'AEX1234',
+        pickupEtaSeconds: 480,
       },
     }]);
     expect(bid).toMatchObject({
@@ -157,6 +180,7 @@ describe('rider offer sorting', () => {
       verified: true,
       completedDeliveries: 12,
       distanceMeters: 1200,
+      pickupEtaSeconds: 480,
       motorcycle: 'Honda Ace',
       registrationNumber: 'AEX1234',
     });

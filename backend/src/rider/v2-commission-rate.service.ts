@@ -76,12 +76,23 @@ export class V2CommissionRateService {
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         skip: (page - 1) * limit,
         take: limit,
+        select: {
+          id: true,
+          actorId: true,
+          previousVersion: true,
+          nextVersion: true,
+          previousBasisPoints: true,
+          nextBasisPoints: true,
+          createdAt: true,
+          actor: { select: { fullName: true } },
+        },
       }),
     ]);
     return {
       data: rows.map((row) => ({
         id: row.id,
         actorId: row.actorId,
+        actorName: row.actor.fullName,
         previousVersion: row.previousVersion,
         nextVersion: row.nextVersion,
         previousBasisPoints: row.previousBasisPoints,

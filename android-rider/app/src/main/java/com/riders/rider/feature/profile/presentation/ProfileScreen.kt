@@ -22,10 +22,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -61,6 +59,12 @@ import com.riders.rider.R
 import com.riders.rider.core.design.RidersButtonTone
 import com.riders.rider.core.design.RidersErrorState
 import com.riders.rider.core.design.RidersColors
+import com.riders.rider.core.design.RidersDialog
+import com.riders.rider.core.design.RidersDialogActions
+import com.riders.rider.core.design.RidersDialogBody
+import com.riders.rider.core.design.RidersDialogTextButton
+import com.riders.rider.core.design.RidersDialogTitle
+import com.riders.rider.core.design.RidersDialogTone
 import com.riders.rider.core.design.RidersFailureNotice
 import com.riders.rider.core.design.RidersLoadingState
 import com.riders.rider.core.design.RidersPullRefresh
@@ -262,32 +266,25 @@ fun ProfileScreen(
         }
     }
     if (confirmRemove && ui.photo.hasStoredPhoto && canStartProfilePhotoAction(ui.photo)) {
-        AlertDialog(
-            onDismissRequest = { confirmRemove = false },
-            title = {
-                Text("Remove profile photo?", style = RidersType.heading, color = RidersColors.text)
-            },
-            text = {
-                Text(
-                    "Customers will see your initials instead.",
-                    style = RidersType.body,
-                    color = RidersColors.text,
+        RidersDialog(visible = true, onDismiss = { confirmRemove = false }) {
+            RidersDialogTitle("Remove profile photo?")
+            RidersDialogBody("Customers will see your initials instead.")
+            RidersDialogActions {
+                RidersDialogTextButton(
+                    label = "Keep photo",
+                    tone = RidersDialogTone.Neutral,
+                    onClick = { confirmRemove = false },
                 )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmRemove = false
-                    model.removePhoto()
-                }) {
-                    Text("Remove photo", color = RidersColors.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmRemove = false }) {
-                    Text("Keep photo")
-                }
-            },
-        )
+                RidersDialogTextButton(
+                    label = "Remove photo",
+                    tone = RidersDialogTone.Danger,
+                    onClick = {
+                        confirmRemove = false
+                        model.removePhoto()
+                    },
+                )
+            }
+        }
     }
 }
 

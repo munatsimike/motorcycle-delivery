@@ -33,6 +33,7 @@ function delivery(status: CustomerDeliveryDetail['status'], id = 'delivery-1', p
     riderLocation: null,
     pickupApproach: null,
     rider: null,
+    rating: { eligible: false, submitted: false, stars: null },
     ...patch,
   };
 }

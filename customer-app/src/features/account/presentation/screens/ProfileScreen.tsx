@@ -5,9 +5,10 @@ import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { ComponentProps } from 'react';
 import { useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import DialogModal, { DialogActions, DialogBody, DialogTextButton, DialogTitle } from '../../../../components/DialogModal';
 import CustomerAvatar from '../../../../components/CustomerAvatar';
 import ErrorMessage from '../../../../components/ErrorMessage';
 import GreenSurface from '../../../../components/GreenSurface';
@@ -33,6 +34,7 @@ export default function ProfileScreen() {
   const navigation = useNavigation<ProfileNavigation>();
   const insets = useSafeAreaInsets();
   const [signingOut, setSigningOut] = useState(false);
+  const [removeOpen, setRemoveOpen] = useState(false);
   const kindLabel = account?.kind === 'BUSINESS' ? 'Business' : 'Individual';
 
   async function handleLogout() {
@@ -75,22 +77,7 @@ export default function ProfileScreen() {
                     accessibilityRole="button"
                     accessibilityLabel="Remove photo"
                     hitSlop={8}
-                    onPress={() => {
-                      Alert.alert(
-                        'Remove profile photo?',
-                        'Your initials will be shown instead.',
-                        [
-                          { text: 'Keep photo', style: 'cancel' },
-                          {
-                            text: 'Remove photo',
-                            style: 'destructive',
-                            onPress: () => {
-                              void photo.removePhoto();
-                            },
-                          },
-                        ],
-                      );
-                    }}
+                    onPress={() => setRemoveOpen(true)}
                     style={styles.removePhoto}
                   >
                     <MaterialDesignIcons name="trash-can-outline" size={18} color={colors.error} />
@@ -155,6 +142,21 @@ export default function ProfileScreen() {
         </View>
         </View>
       </ScrollView>
+      <DialogModal visible={removeOpen} onClose={() => setRemoveOpen(false)} closeLabel="Keep photo">
+        <DialogTitle>Remove profile photo?</DialogTitle>
+        <DialogBody>Your initials will be shown instead.</DialogBody>
+        <DialogActions>
+          <DialogTextButton label="Keep photo" tone="neutral" onPress={() => setRemoveOpen(false)} />
+          <DialogTextButton
+            label="Remove photo"
+            tone="danger"
+            onPress={() => {
+              setRemoveOpen(false);
+              void photo.removePhoto();
+            }}
+          />
+        </DialogActions>
+      </DialogModal>
     </View>
   );
 }
@@ -268,7 +270,7 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   settingCard: {
-    backgroundColor: '#F8FAF9',
+    backgroundColor: colors.surface,
     borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,

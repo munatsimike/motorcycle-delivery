@@ -6,8 +6,8 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/auth': 'http://127.0.0.1:3000',
-      '/admin': 'http://127.0.0.1:3000',
+      '/auth': 'https://motorcycle-delivery-production.up.railway.app',
+      '/admin': 'https://motorcycle-delivery-production.up.railway.app',
     },
   },
   test: {

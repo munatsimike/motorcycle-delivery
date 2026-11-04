@@ -188,6 +188,7 @@ it('delivers a collected parcel in one step and still finishes a parcel already 
   expect(await prisma.riderWalletEntry.count({ where: { riderWalletId: world.walletId, entryType: 'PLATFORM_FEE' } })).toBe(1);
   expect(await prisma.deliveryStatusEvent.count({ where: { deliveryId: world.deliveryId, newStatus: 'DELIVERED' } })).toBe(1);
   expect((await prisma.deliveryAssignment.findUnique({ where: { id: world.assignmentId } }))?.status).toBe('COMPLETED');
+  expect(await completedCount(world.rider.riderProfileId)).toBe(1);
 
   const legacy = await acceptedDelivery();
   await prisma.delivery.update({ where: { id: legacy.deliveryId }, data: { status: 'OUT_FOR_DELIVERY' } });
@@ -197,7 +198,49 @@ it('delivers a collected parcel in one step and still finishes a parcel already 
   await expect(dispatch.progress(legacy.rider, legacy.deliveryId, { status: 'DELIVERED' }, NOW, `legacy-again-${legacy.deliveryId}`))
     .rejects.toThrow('Delivery not found');
   expect(await prisma.riderWalletEntry.count({ where: { riderWalletId: legacy.walletId, entryType: 'PLATFORM_FEE' } })).toBe(1);
+  expect(await completedCount(legacy.rider.riderProfileId)).toBe(1);
 });
+
+it('increments completedDeliveryCount once for a successful DELIVERED parcel', async () => {
+  const world = await acceptedDelivery();
+  expect(await completedCount(world.rider.riderProfileId)).toBe(0);
+  await dispatch.progress(world.rider, world.deliveryId, { status: 'COLLECTED' }, NOW, `count-collected-${world.deliveryId}`);
+  expect(await completedCount(world.rider.riderProfileId)).toBe(0);
+
+  const key = `count-delivered-${world.deliveryId}`;
+  await dispatch.progress(world.rider, world.deliveryId, { status: 'DELIVERED' }, NOW, key);
+  expect(await completedCount(world.rider.riderProfileId)).toBe(1);
+  await dispatch.progress(world.rider, world.deliveryId, { status: 'DELIVERED' }, NOW, key);
+  expect(await completedCount(world.rider.riderProfileId)).toBe(1);
+});
+
+it('increments completedDeliveryCount once when two DELIVERED requests race', async () => {
+  const world = await acceptedDelivery();
+  await dispatch.progress(world.rider, world.deliveryId, { status: 'COLLECTED' }, NOW, `race-collected-${world.deliveryId}`);
+  const results = await Promise.allSettled([
+    dispatch.progress(world.rider, world.deliveryId, { status: 'DELIVERED' }, NOW, `race-a-${world.deliveryId}`),
+    dispatch.progress(world.rider, world.deliveryId, { status: 'DELIVERED' }, NOW, `race-b-${world.deliveryId}`),
+  ]);
+  expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+  expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
+  expect((await prisma.delivery.findUnique({ where: { id: world.deliveryId } }))?.status).toBe('DELIVERED');
+  expect(await completedCount(world.rider.riderProfileId)).toBe(1);
+
+  const replayed = await acceptedDelivery();
+  await dispatch.progress(replayed.rider, replayed.deliveryId, { status: 'COLLECTED' }, NOW, `same-collected-${replayed.deliveryId}`);
+  const sameKey = `same-delivered-${replayed.deliveryId}`;
+  const sameKeyResults = await Promise.allSettled([
+    dispatch.progress(replayed.rider, replayed.deliveryId, { status: 'DELIVERED' }, NOW, sameKey),
+    dispatch.progress(replayed.rider, replayed.deliveryId, { status: 'DELIVERED' }, NOW, sameKey),
+  ]);
+  expect(sameKeyResults.filter((result) => result.status === 'fulfilled').length).toBeGreaterThanOrEqual(1);
+  expect((await prisma.delivery.findUnique({ where: { id: replayed.deliveryId } }))?.status).toBe('DELIVERED');
+  expect(await completedCount(replayed.rider.riderProfileId)).toBe(1);
+});
+
+async function completedCount(riderProfileId: string): Promise<number> {
+  return (await prisma.riderProfile.findUniqueOrThrow({ where: { id: riderProfileId } })).completedDeliveryCount;
+}
 
 async function acceptedDelivery() {
   const riderUser = await riderUserRow();

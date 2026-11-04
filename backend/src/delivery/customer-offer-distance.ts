@@ -3,12 +3,19 @@ import { straightLineMetres } from './straight-line.js';
 
 export const CUSTOMER_OFFER_LOCATION_FRESH_MS = GPS_FRESH_MS;
 
-export function pickupDistanceMeters(
+export type FreshPickupCoords = {
+  pickupLatitude: number;
+  pickupLongitude: number;
+  riderLatitude: number;
+  riderLongitude: number;
+};
+
+export function freshPickupCoords(
   pickupLatitude: unknown,
   pickupLongitude: unknown,
   location: { latitude: unknown; longitude: unknown; updatedAt: Date } | null,
   now: Date,
-): number | null {
+): FreshPickupCoords | null {
   if (!location || now.getTime() - location.updatedAt.getTime() > CUSTOMER_OFFER_LOCATION_FRESH_MS) {
     return null;
   }
@@ -19,7 +26,25 @@ export function pickupDistanceMeters(
   if (pickupLat === null || pickupLng === null || riderLat === null || riderLng === null) {
     return null;
   }
-  return straightLineMetres(riderLat, riderLng, pickupLat, pickupLng);
+  return {
+    pickupLatitude: pickupLat,
+    pickupLongitude: pickupLng,
+    riderLatitude: riderLat,
+    riderLongitude: riderLng,
+  };
+}
+
+export function pickupDistanceMeters(
+  pickupLatitude: unknown,
+  pickupLongitude: unknown,
+  location: { latitude: unknown; longitude: unknown; updatedAt: Date } | null,
+  now: Date,
+): number | null {
+  const point = freshPickupCoords(pickupLatitude, pickupLongitude, location, now);
+  if (!point) {
+    return null;
+  }
+  return straightLineMetres(point.riderLatitude, point.riderLongitude, point.pickupLatitude, point.pickupLongitude);
 }
 
 function readCoordinate(value: unknown): number | null {

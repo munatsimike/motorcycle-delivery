@@ -2,18 +2,19 @@ import { createHash } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import {
-  AssignmentStatus,
   BidStatus,
   Currency,
   DeliveryStatus,
   Prisma,
   MotorcycleVerificationStatus,
   ProfilePhotoStatus,
-  ServiceClass,
+  RiderClass,
 } from '../generated/prisma/client.js';
 import type { CustomerContext } from '../auth/customer-access.service.js';
 import type { RiderContext } from '../auth/rider-access.service.js';
@@ -21,7 +22,8 @@ import { v2MarketplaceEnabled } from '../auth/v2-flags.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { finiteDistance } from './delivery-view.js';
 import { centsFromDecimal, formatCents } from './money.js';
-import { pickupDistanceMeters } from './customer-offer-distance.js';
+import { freshPickupCoords, pickupDistanceMeters } from './customer-offer-distance.js';
+import { PICKUP_APPROACH, type PickupApproachLookup } from './pickup-approach.js';
 import { motorcycleForAcceptance } from '../rider/motorcycle-eligibility.js';
 import { lockWalletOwner } from '../rider/wallet-lock.js';
 import { assertV2CommissionCapacity } from '../rider/wallet-ledger.js';
@@ -29,9 +31,11 @@ import { commissionCents } from './commission-calculator.js';
 import { closeUnassignedV2Deliveries, v2RequestRemainsOpen } from './v2-deadline.js';
 import { expireDueV2Searches, expireLockedV2Search, v2SearchWindowElapsed } from './v2-search.js';
 import { recordCustomerBidNotice } from './v2-outbox.js';
+import { averageRating } from './rider-class.js';
 
 const MAX_BID_CENTS = 999_999_999_999;
 const UUID_TEXT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const BID_TX = { maxWait: 10_000, timeout: 20_000 } as const;
 
 type StoredBid = {
   id: string;
@@ -57,16 +61,27 @@ export type PublicBid = {
     name: string;
     verified: boolean;
     completedDeliveries: number;
+    averageRating: number | null;
+    ratingCount: number;
+    riderClass: RiderClass;
     distanceMeters: number | null;
     motorcycle: string | null;
     registrationNumber: string | null;
     hasProfilePhoto: boolean;
+    pickupEtaSeconds: number | null;
   };
 };
 
 @Injectable()
 export class BidService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly pickupApproach: PickupApproachLookup;
+
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() @Inject(PICKUP_APPROACH) pickupApproach?: PickupApproachLookup,
+  ) {
+    this.pickupApproach = pickupApproach ?? { lookup: async () => null };
+  }
 
   async listOwn(rider: RiderContext, query: unknown, now = new Date()) {
     this.requireMarketplace();
@@ -173,9 +188,9 @@ export class BidService {
     const input = readBidSubmission(body);
     const key = readIdempotencyKey(idempotencyKey);
     const hash = bidHash(input.deliveryId, rider.riderProfileId, input.amountCents);
-    await this.prisma.$transaction((tx) => expireClosedBids(tx, now, input.deliveryId));
     try {
-      const outcome = await this.prisma.$transaction((tx) => this.submitLocked(tx, rider, input, key, hash, now));
+      await this.prisma.$transaction((tx) => expireClosedBids(tx, now, input.deliveryId), BID_TX);
+      const outcome = await this.prisma.$transaction((tx) => this.submitLocked(tx, rider, input, key, hash, now), BID_TX);
       if ('closed' in outcome) {
         throw new ConflictException('The bidding window has closed');
       }
@@ -183,6 +198,9 @@ export class BidService {
     } catch (error) {
       if (isUniqueViolation(error)) {
         throw new ConflictException('This rider already has an open bid');
+      }
+      if (isTransactionTimeout(error)) {
+        throw new ConflictException('The bid could not be saved. Try again.');
       }
       throw error;
     }
@@ -243,32 +261,28 @@ export class BidService {
       }
       await expireClosedBids(tx, now, deliveryId);
       const rows = await tx.bid.findMany({
-        where: { deliveryId, status: BidStatus.OPEN },
+        where: { deliveryId, status: BidStatus.OPEN, customerDismissedAt: null },
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
         include: {
           riderProfile: {
             select: {
               verificationStatus: true,
+              completedDeliveryCount: true,
+              ratingCount: true,
+              ratingSum: true,
+              riderClass: true,
               user: { select: { fullName: true } },
             },
           },
         },
       });
       const riderIds = [...new Set(rows.map((row) => row.riderProfileId))];
-      const [locations, completed, motorcycles] = riderIds.length === 0
-        ? [[], [], []]
+      const [locations, motorcycles] = riderIds.length === 0
+        ? [[], []]
         : await Promise.all([
           tx.riderLocation.findMany({
             where: { riderProfileId: { in: riderIds } },
             select: { riderProfileId: true, latitude: true, longitude: true, updatedAt: true },
-          }),
-          tx.deliveryAssignment.findMany({
-            where: {
-              riderProfileId: { in: riderIds },
-              status: AssignmentStatus.ACCEPTED,
-              delivery: { status: DeliveryStatus.DELIVERED },
-            },
-            select: { riderProfileId: true },
           }),
           tx.motorcycle.findMany({
             where: {
@@ -280,10 +294,6 @@ export class BidService {
           }),
         ]);
       const locationByRider = new Map(locations.map((row) => [row.riderProfileId, row]));
-      const completedByRider = new Map<string, number>();
-      for (const row of completed) {
-        completedByRider.set(row.riderProfileId, (completedByRider.get(row.riderProfileId) ?? 0) + 1);
-      }
       const motorcycleByRider = new Map(motorcycles.map((row) => [row.riderProfileId, {
         motorcycle: motorcycleLabel(row.make, row.model),
         registrationNumber: registrationLabel(row.registrationNumber),
@@ -295,20 +305,106 @@ export class BidService {
           select: { riderProfileId: true },
         });
       const photoRiders = new Set(photos.map((photo) => photo.riderProfileId));
-      return rows.map((row) => toPublicBid(row, row.riderProfile.user.fullName, {
-          verified: row.riderProfile.verificationStatus === 'VERIFIED',
-          completedDeliveries: completedByRider.get(row.riderProfileId) ?? 0,
-          distanceMeters: pickupDistanceMeters(
-            delivery.pickupLatitude,
-            delivery.pickupLongitude,
-            locationByRider.get(row.riderProfileId) ?? null,
-            now,
-          ),
-          motorcycle: motorcycleByRider.get(row.riderProfileId)?.motorcycle ?? null,
-          registrationNumber: motorcycleByRider.get(row.riderProfileId)?.registrationNumber ?? null,
-          hasProfilePhoto: photoRiders.has(row.riderProfileId),
-        }));
-    }, { maxWait: 10_000, timeout: 20_000 });
+      return rows.map((row) => {
+        const location = locationByRider.get(row.riderProfileId) ?? null;
+        return {
+          row,
+          name: row.riderProfile.user.fullName,
+          rider: {
+            verified: row.riderProfile.verificationStatus === 'VERIFIED',
+            completedDeliveries: row.riderProfile.completedDeliveryCount,
+            averageRating: averageRating(row.riderProfile.ratingCount, row.riderProfile.ratingSum),
+            ratingCount: row.riderProfile.ratingCount,
+            riderClass: row.riderProfile.riderClass,
+            distanceMeters: pickupDistanceMeters(
+              delivery.pickupLatitude,
+              delivery.pickupLongitude,
+              location,
+              now,
+            ),
+            motorcycle: motorcycleByRider.get(row.riderProfileId)?.motorcycle ?? null,
+            registrationNumber: motorcycleByRider.get(row.riderProfileId)?.registrationNumber ?? null,
+            hasProfilePhoto: photoRiders.has(row.riderProfileId),
+            pickup: freshPickupCoords(
+              delivery.pickupLatitude,
+              delivery.pickupLongitude,
+              location,
+              now,
+            ),
+          },
+        };
+      });
+    }, { maxWait: 10_000, timeout: 20_000 }).then((listed) => this.withPickupEta(listed));
+  }
+
+  private async withPickupEta(
+    listed: Array<{
+      row: StoredBid;
+      name: string;
+      rider: Omit<PublicBid['rider'], 'id' | 'name' | 'pickupEtaSeconds'> & {
+        pickup: ReturnType<typeof freshPickupCoords>;
+      };
+    }>,
+  ): Promise<PublicBid[]> {
+    const seconds = await Promise.all(listed.map(async (item) => {
+      if (!item.rider.pickup) {
+        return null;
+      }
+      const approach = await this.pickupApproach.lookup({
+        riderProfileId: item.row.riderProfileId,
+        riderLatitude: item.rider.pickup.riderLatitude,
+        riderLongitude: item.rider.pickup.riderLongitude,
+        pickupLatitude: item.rider.pickup.pickupLatitude,
+        pickupLongitude: item.rider.pickup.pickupLongitude,
+      });
+      if (approach == null || approach.seconds <= 0) {
+        return null;
+      }
+      return Math.round(approach.seconds);
+    }));
+    return listed.map((item, index) => {
+      const { pickup: _pickup, ...rider } = item.rider;
+      return toPublicBid(item.row, item.name, {
+        ...rider,
+        pickupEtaSeconds: seconds[index] ?? null,
+      });
+    });
+  }
+
+  async dismissForCustomer(
+    customer: CustomerContext,
+    deliveryId: string,
+    bidId: string,
+    now = new Date(),
+  ): Promise<{ deliveryId: string; bidId: string; dismissed: true }> {
+    this.requireMarketplace();
+    if (!UUID_TEXT.test(deliveryId) || !UUID_TEXT.test(bidId)) {
+      throw new NotFoundException('Bid not found');
+    }
+    return this.prisma.$transaction(async (tx) => {
+      const delivery = await tx.delivery.findFirst({
+        where: { id: deliveryId, customerId: customer.customerAccountId },
+        select: { id: true },
+      });
+      if (!delivery) {
+        throw new NotFoundException('Delivery not found');
+      }
+      await lockBid(tx, bidId);
+      const bid = await tx.bid.findUnique({ where: { id: bidId } });
+      if (!bid || bid.deliveryId !== deliveryId) {
+        throw new NotFoundException('Bid not found');
+      }
+      if (bid.status !== BidStatus.OPEN) {
+        throw new ConflictException('This bid is not open');
+      }
+      if (bid.customerDismissedAt == null) {
+        await tx.bid.update({
+          where: { id: bid.id },
+          data: { customerDismissedAt: now },
+        });
+      }
+      return { deliveryId, bidId: bid.id, dismissed: true as const };
+    });
   }
 
   private async submitLocked(
@@ -466,10 +562,14 @@ function toPublicBid(
       name,
       verified: rider.verified === true,
       completedDeliveries: rider.completedDeliveries ?? 0,
+      averageRating: rider.averageRating ?? null,
+      ratingCount: rider.ratingCount ?? 0,
+      riderClass: rider.riderClass ?? RiderClass.SILVER,
       distanceMeters: rider.distanceMeters ?? null,
       motorcycle: rider.motorcycle ?? null,
       registrationNumber: rider.registrationNumber ?? null,
       hasProfilePhoto: rider.hasProfilePhoto === true,
+      pickupEtaSeconds: rider.pickupEtaSeconds ?? null,
     },
   };
 }
@@ -577,4 +677,8 @@ async function lockBid(tx: Prisma.TransactionClient, bidId: string) {
 
 function isUniqueViolation(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && (error as { code: string }).code === 'P2002';
+}
+
+function isTransactionTimeout(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && (error as { code: string }).code === 'P2028';
 }

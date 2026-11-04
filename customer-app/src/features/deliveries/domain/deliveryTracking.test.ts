@@ -28,6 +28,7 @@ function delivery(
     riderLocation: null,
     pickupApproach: null,
     rider: null,
+    rating: { eligible: false, submitted: false, stars: null },
     ...extra,
   };
 }

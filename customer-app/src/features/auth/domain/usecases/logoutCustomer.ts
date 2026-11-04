@@ -10,6 +10,8 @@ export async function logoutCustomer(
     if (accessToken) {
       await repository.logout(accessToken);
     }
+  } catch {
+    // Local sign-out still clears the session when the server cannot be reached.
   } finally {
     await store.clear();
   }

@@ -2,11 +2,12 @@ import { CompositeNavigationProp, useNavigation } from '@react-navigation/native
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useRef, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import CustomerAvatar from '../../../../components/CustomerAvatar';
-import GreenSurface from '../../../../components/GreenSurface';
 import PrimaryButton from '../../../../components/PrimaryButton';
 import type { CustomerTabParamList, RootStackParamList } from '../../../../navigation/types';
 import { colors, radius, spacing, typography } from '../../../../theme';
@@ -39,12 +40,59 @@ export default function CustomerHomeScreen() {
   const insets = useSafeAreaInsets();
   const horizontalPadding = spacing.lg;
   const recentDeliveries = deliveries.slice(0, 2);
+  const screenRef = useRef<View>(null);
+  const emptyAnchor = useRef<View>(null);
+  const [emptyTop, setEmptyTop] = useState<number | null>(null);
+  const showHomeEmpty = !isLoading && !error && recentDeliveries.length === 0;
+  const placeEmpty = () => {
+    const screen = screenRef.current;
+    const anchor = emptyAnchor.current;
+    if (!screen || !anchor) {
+      return;
+    }
+    screen.measureInWindow((_screenX, screenY) => {
+      anchor.measureInWindow((_anchorX, anchorY) => {
+        if (typeof screenY === 'number' && typeof anchorY === 'number') {
+          setEmptyTop(anchorY - screenY);
+        }
+      });
+    });
+  };
 
   return (
-    <View style={styles.screen}>
+    <View ref={screenRef} style={styles.screen}>
+      <Image
+        pointerEvents="none"
+        source={require('../../../../../assets/map.png')}
+        style={styles.homeMap}
+        resizeMode="cover"
+        accessibilityElementsHidden
+        importantForAccessibility="no"
+      />
+      <LinearGradient
+        pointerEvents="none"
+        colors={['rgba(201,239,217,0.82)', 'rgba(229,247,238,0.8)', 'rgba(247,252,249,0.72)']}
+        locations={[0, 0.38, 1]}
+        style={styles.homeMapWash}
+      />
+      {showHomeEmpty && emptyTop != null ? (
+        <View pointerEvents="none" style={[styles.emptyWash, { top: emptyTop }]}>
+          <LinearGradient
+            colors={['rgba(255,255,255,0)', '#FFFFFF', '#FFFFFF']}
+            locations={[0, 0.55, 1]}
+            style={styles.emptyFade}
+          />
+          <View style={styles.emptyFill} />
+        </View>
+      ) : null}
       <ScrollView
-        contentContainerStyle={[styles.content, { paddingHorizontal: horizontalPadding }]}
+        style={styles.scroll}
+        contentContainerStyle={[styles.content, { paddingHorizontal: horizontalPadding, paddingTop: insets.top + spacing.lg }]}
         showsVerticalScrollIndicator={false}
+        scrollEventThrottle={16}
+        onScroll={placeEmpty}
+        onContentSizeChange={placeEmpty}
+        onLayout={placeEmpty}
         refreshControl={(
           <RefreshControl
             refreshing={isRefreshing}
@@ -57,14 +105,6 @@ export default function CustomerHomeScreen() {
           />
         )}
       >
-        <GreenSurface
-          style={{
-            marginHorizontal: -horizontalPadding,
-            paddingHorizontal: horizontalPadding,
-            paddingTop: insets.top + spacing.lg,
-          }}
-          fadeStyle={[styles.introFade, { marginHorizontal: -horizontalPadding }]}
-        >
           <View style={styles.topRow}>
             <CustomerAvatar
               kind={account?.kind ?? 'INDIVIDUAL'}
@@ -94,7 +134,7 @@ export default function CustomerHomeScreen() {
             <View style={styles.deliveryIntro}>
               <View style={styles.riderFrame}>
                 <Image
-                  source={require('../../../../../assets/rider-image.png')}
+                  source={require('../../../../../assets/rider-cutout.png')}
                   style={styles.riderImage}
                   resizeMode="contain"
                   accessibilityIgnoresInvertColors
@@ -138,7 +178,6 @@ export default function CustomerHomeScreen() {
               />
             </View>
           </View>
-        </GreenSurface>
 
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Recent deliveries</Text>
@@ -157,6 +196,9 @@ export default function CustomerHomeScreen() {
           isLoading={isLoading}
           error={error}
           compact
+          bleedEmpty
+          emptyAnchor={emptyAnchor}
+          onEmptyLayout={placeEmpty}
           refreshing={isRefreshing}
           emptyTitle="No deliveries"
           emptyBody="Recent deliveries will appear here when you book."
@@ -183,13 +225,42 @@ export default function CustomerHomeScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: '#F7FCF9',
+    overflow: 'hidden',
+  },
+  scroll: {
+    flex: 1,
+    backgroundColor: 'transparent',
   },
   content: {
     paddingBottom: spacing.xxl,
   },
-  introFade: {
-    height: spacing.lg,
+  homeMap: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+  },
+  homeMapWash: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+  },
+  emptyWash: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  emptyFade: {
+    height: 72,
+  },
+  emptyFill: {
+    flex: 1,
+    backgroundColor: colors.background,
   },
   topRow: {
     flexDirection: 'row',
@@ -221,7 +292,7 @@ const styles = StyleSheet.create({
     color: colors.text,
   },
   actionsCard: {
-    backgroundColor: colors.background,
+    backgroundColor: colors.surface,
     borderRadius: radius.xl,
     borderWidth: 1,
     borderColor: colors.border,
@@ -231,21 +302,18 @@ const styles = StyleSheet.create({
   deliveryIntro: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: spacing.md,
     paddingHorizontal: spacing.md,
     paddingTop: spacing.sm,
     paddingBottom: spacing.sm,
   },
   riderFrame: {
-    width: 112,
-    height: 86,
-    overflow: 'hidden',
+    width: 124,
+    height: 112,
   },
   riderImage: {
-    width: 132,
-    height: 99,
-    marginLeft: -10,
-    marginTop: -2,
+    width: 124,
+    height: 112,
   },
   deliveryCopy: {
     flex: 1,

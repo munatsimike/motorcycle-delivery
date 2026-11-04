@@ -54,6 +54,8 @@ describe('open bid booking', () => {
       },
       adjustOffer: () => Promise.reject(new Error('unused')),
       cancel: () => Promise.reject(new Error('unused')),
+      dismissBid: () => Promise.reject(new Error('unused')),
+      rateDelivery: () => Promise.reject(new Error('unused')),
     };
     await expect(createOpenRequest(repository, 'token', {
       serviceClass: 'FLEXIBLE',

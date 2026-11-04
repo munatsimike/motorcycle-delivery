@@ -1,0 +1,78 @@
+# EAS CLI archives from this git root, not customer-app/.easignore.
+# Keep secrets out of the upload. Allow the Customer Android Firebase file.
+
+# Environment variables
+.env
+.env.*
+.env*.local
+!.env.example
+
+# Credentials, keystores, and private keys
+backend/secrets/
+credentials.json
+**/credentials.json
+*.keystore
+*.jks
+*.p8
+*.p12
+*.key
+*.pem
+*.mobileprovision
+
+# Dependencies and Expo caches
+node_modules/
+.expo
+**/.expo
+**/.expo/**
+.kotlin/
+
+# Local EAS inspect output (must stay out of later uploads)
+eas-inspect-preview/
+**/eas-inspect-preview/
+
+# Build output
+dist/
+web-build/
+build/
+
+# Generated Prisma Client
+**/src/generated/prisma/
+
+# IDE and OS
+.idea/
+.vscode/
+.DS_Store
+
+# Logs and toolchain noise
+*.log
+customer-app/*.log
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+.metro-health-check*
+*.tsbuildinfo
+*.orig.*
+expo-env.d.ts
+
+# Local generated native trees. Customer and Rider apps are Expo CNG:
+# EAS prebuild recreates android/ios on the builder. Uploading a local
+# customer-app/android would include debug.keystore and skip a clean prebuild.
+customer-app/android
+customer-app/android/**
+customer-app/ios
+customer-app/ios/**
+rider-app/android
+rider-app/android/**
+rider-app/ios
+rider-app/ios/**
+
+# Empty local secrets directory
+backend/secrets
+backend/secrets/**
+
+# Firebase iOS config is not required for the Customer Android staging APK.
+# google-services.json is gitignored; the next two lines still upload the
+# Customer Android file for com.riders.customer.staging.
+google-services.json
+GoogleService-Info.plist
+!customer-app/google-services.json
