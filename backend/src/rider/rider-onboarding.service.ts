@@ -15,6 +15,8 @@ import {
 import { v2MarketplaceEnabled } from '../auth/v2-flags.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { RiderContext } from '../auth/rider-access.service.js';
+import { ensureDefaultMotorcycle } from './motorcycle-default.js';
+import { lockRiderMotorcycles } from './motorcycle-lock.js';
 
 export type RiderProfileResponse = {
   fullName: string;
@@ -108,7 +110,7 @@ export class RiderOnboardingService {
     }
 
     const verified = profile.verificationStatus === RiderVerificationStatus.VERIFIED;
-    const [reviews, verifiedMotorcycleCount, activeVerifiedMotorcycle] = await Promise.all([
+    const [reviews, verifiedMotorcycleCount, activeCount] = await Promise.all([
       this.prisma.riderLicenceReview.findMany({
         where: { riderProfileId: profile.id },
         orderBy: { createdAt: 'desc' },
@@ -125,6 +127,24 @@ export class RiderOnboardingService {
         },
       }),
     ]);
+    let activeVerifiedMotorcycle = activeCount;
+    if (
+      profile.approvalStatus === RiderApprovalStatus.APPROVED
+      && verifiedMotorcycleCount > 0
+      && activeVerifiedMotorcycle !== 1
+    ) {
+      await this.prisma.$transaction(async (tx) => {
+        await lockRiderMotorcycles(tx, profile.id);
+        await ensureDefaultMotorcycle(tx, profile.id, new Date());
+      });
+      activeVerifiedMotorcycle = await this.prisma.motorcycle.count({
+        where: {
+          riderProfileId: profile.id,
+          verificationStatus: MotorcycleVerificationStatus.VERIFIED,
+          isActive: true,
+        },
+      });
+    }
     const latest = reviews[0];
     return {
       licenceVerificationStatus: profile.verificationStatus,

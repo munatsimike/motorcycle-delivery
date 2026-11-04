@@ -18,9 +18,9 @@ const LATER = new Date('2026-10-14T12:00:00.000Z');
 const ADMIN = { userId: 'admin-1' };
 
 describe('rider approval', () => {
-  it('approves a verified rider without an active motorcycle and stays offline', async () => {
+  it('approves a verified rider, selects the registered motorcycle, and stays offline', async () => {
     const ctx = context();
-    ctx.motorcycles.push({ id: 'bike-1', riderProfileId: 'profile-1', verificationStatus: MotorcycleVerificationStatus.VERIFIED, isActive: false });
+    ctx.motorcycles.push({ id: 'bike-1', riderProfileId: 'profile-1', verificationStatus: MotorcycleVerificationStatus.VERIFIED, isActive: false, createdAt: NOW });
     ctx.profile.verificationStatus = RiderVerificationStatus.VERIFIED;
 
     await expect(ctx.service.decide(ADMIN, 'profile-1', 'APPROVE', NOW)).resolves.toEqual({
@@ -30,6 +30,7 @@ describe('rider approval', () => {
       verificationStatus: RiderVerificationStatus.VERIFIED,
     });
     expect(ctx.profile.availability).toBe(RiderAvailability.OFFLINE);
+    expect(ctx.motorcycles.find((row) => row.id === 'bike-1')?.isActive).toBe(true);
     expect(ctx.approvalAudits).toEqual([
       expect.objectContaining({
         riderProfileId: 'profile-1',
@@ -39,6 +40,37 @@ describe('rider approval', () => {
         newApprovalStatus: RiderApprovalStatus.APPROVED,
       }),
     ]);
+  });
+
+  it('keeps the earliest verified motorcycle when several are registered', async () => {
+    const ctx = context();
+    ctx.profile.verificationStatus = RiderVerificationStatus.VERIFIED;
+    ctx.motorcycles.push(
+      { id: 'bike-later', riderProfileId: 'profile-1', verificationStatus: MotorcycleVerificationStatus.VERIFIED, isActive: false, createdAt: LATER },
+      { id: 'bike-first', riderProfileId: 'profile-1', verificationStatus: MotorcycleVerificationStatus.VERIFIED, isActive: false, createdAt: NOW },
+      { id: 'bike-pending', riderProfileId: 'profile-1', verificationStatus: MotorcycleVerificationStatus.PENDING, isActive: false, createdAt: NOW },
+    );
+
+    await ctx.service.decide(ADMIN, 'profile-1', 'APPROVE', NOW);
+
+    expect(ctx.motorcycles.map((row) => [row.id, row.isActive])).toEqual([
+      ['bike-later', false],
+      ['bike-first', true],
+      ['bike-pending', false],
+    ]);
+  });
+
+  it('does not replace a motorcycle the rider already selected', async () => {
+    const ctx = context();
+    ctx.profile.verificationStatus = RiderVerificationStatus.VERIFIED;
+    ctx.motorcycles.push(
+      { id: 'bike-first', riderProfileId: 'profile-1', verificationStatus: MotorcycleVerificationStatus.VERIFIED, isActive: false, createdAt: NOW },
+      { id: 'bike-chosen', riderProfileId: 'profile-1', verificationStatus: MotorcycleVerificationStatus.VERIFIED, isActive: true, createdAt: LATER },
+    );
+
+    await ctx.service.decide(ADMIN, 'profile-1', 'APPROVE', NOW);
+
+    expect(ctx.motorcycles.find((row) => row.isActive)?.id).toBe('bike-chosen');
   });
 
   it('refuses approval without a verified licence or a verified motorcycle', async () => {
@@ -225,7 +257,7 @@ function context() {
     approvalStatus: RiderApprovalStatus.PENDING,
     availability: RiderAvailability.OFFLINE,
   }];
-  const motorcycles: Array<{ id: string; riderProfileId: string; verificationStatus: MotorcycleVerificationStatus; isActive: boolean }> = [];
+  const motorcycles: Array<{ id: string; riderProfileId: string; verificationStatus: MotorcycleVerificationStatus; isActive: boolean; createdAt?: Date }> = [];
   const assignments: Array<{ id: string; riderProfileId: string; status: AssignmentStatus }> = [];
   const configs: Array<Record<string, unknown>> = [{
     id: 'config-1',
@@ -301,6 +333,26 @@ function context() {
     motorcycle: {
       async count({ where }: { where: { riderProfileId: string; verificationStatus: MotorcycleVerificationStatus } }) {
         return motorcycles.filter((row) => row.riderProfileId === where.riderProfileId && row.verificationStatus === where.verificationStatus).length;
+      },
+      async findFirst({ where }: { where: { riderProfileId?: string; verificationStatus?: MotorcycleVerificationStatus; isActive?: boolean } }) {
+        const rows = motorcycles.filter((row) => (
+          (where.riderProfileId === undefined || row.riderProfileId === where.riderProfileId)
+          && (where.verificationStatus === undefined || row.verificationStatus === where.verificationStatus)
+          && (where.isActive === undefined || row.isActive === where.isActive)
+        ));
+        rows.sort((left, right) => {
+          const leftTime = left.createdAt?.getTime() ?? 0;
+          const rightTime = right.createdAt?.getTime() ?? 0;
+          if (leftTime !== rightTime) return leftTime - rightTime;
+          return left.id.localeCompare(right.id);
+        });
+        return rows[0] ?? null;
+      },
+      async update({ where, data }: { where: { id: string }; data: { isActive?: boolean; updatedAt?: Date } }) {
+        const row = motorcycles.find((candidate) => candidate.id === where.id);
+        if (!row) throw new Error('missing motorcycle');
+        Object.assign(row, data);
+        return row;
       },
     },
     deliveryAssignment: {
@@ -412,6 +464,7 @@ function context() {
       const captured: {
         snapshot: {
           profiles: ProfileRow[];
+          motorcycles: Array<{ id: string; riderProfileId: string; verificationStatus: MotorcycleVerificationStatus; isActive: boolean; createdAt?: Date }>;
           wallets: Array<Record<string, unknown>>;
           entries: Array<Record<string, unknown>>;
           promotionalEntries: Array<Record<string, unknown>>;
@@ -422,6 +475,7 @@ function context() {
         if (!captured.snapshot) {
           captured.snapshot = {
             profiles: structuredClone(profiles),
+            motorcycles: structuredClone(motorcycles),
             wallets: structuredClone(wallets),
             entries: structuredClone(entries),
             promotionalEntries: structuredClone(promotionalEntries),
@@ -469,6 +523,7 @@ function context() {
         const snapshot = captured.snapshot;
         if (snapshot) {
           profiles.splice(0, profiles.length, ...snapshot.profiles);
+          motorcycles.splice(0, motorcycles.length, ...snapshot.motorcycles);
           wallets.splice(0, wallets.length, ...snapshot.wallets);
           entries.splice(0, entries.length, ...snapshot.entries);
           promotionalEntries.splice(0, promotionalEntries.length, ...snapshot.promotionalEntries);

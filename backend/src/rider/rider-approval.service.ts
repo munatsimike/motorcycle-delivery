@@ -10,7 +10,8 @@ import {
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { AdminContext } from '../auth/admin-access.service.js';
 import { adminPage, readAdminPage } from '../http/admin-query.js';
-import { hasAcceptedAssignment, lockRiderProfile } from './motorcycle-lock.js';
+import { ensureDefaultMotorcycle } from './motorcycle-default.js';
+import { hasAcceptedAssignment, lockRiderMotorcycles, lockRiderProfile } from './motorcycle-lock.js';
 import { awardWelcomeBonus } from './wallet-ledger.js';
 import { recordRiderApproved } from '../delivery/v2-outbox.js';
 
@@ -126,6 +127,8 @@ async function approve(
     where: { id: riderProfileId },
     data: { approvalStatus: RiderApprovalStatus.APPROVED, updatedAt: now },
   });
+  await lockRiderMotorcycles(tx, riderProfileId);
+  await ensureDefaultMotorcycle(tx, riderProfileId, now);
   await recordApprovalAudit(tx, {
     riderProfileId,
     actorId: admin.userId,

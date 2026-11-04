@@ -2,6 +2,7 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { MotorcycleVerificationStatus, Prisma, RiderAvailability } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { AdminContext } from '../auth/admin-access.service.js';
+import { ensureDefaultMotorcycle } from './motorcycle-default.js';
 import { hasAcceptedAssignment, lockMotorcycle, lockRiderProfile } from './motorcycle-lock.js';
 import type { MotorcycleResponse } from './motorcycle.service.js';
 
@@ -71,7 +72,7 @@ async function verify(tx: Prisma.TransactionClient, current: ReviewRow, adminId:
   if (current.verificationStatus !== MotorcycleVerificationStatus.PENDING) {
     throw new ConflictException('Only a pending motorcycle can be verified');
   }
-  return tx.motorcycle.update({
+  await tx.motorcycle.update({
     where: { id: current.id },
     data: {
       verificationStatus: MotorcycleVerificationStatus.VERIFIED,
@@ -80,6 +81,12 @@ async function verify(tx: Prisma.TransactionClient, current: ReviewRow, adminId:
       updatedAt: now,
     },
   });
+  await ensureDefaultMotorcycle(tx, current.riderProfileId, now);
+  const selected = await tx.motorcycle.findUnique({ where: { id: current.id } });
+  if (!selected) {
+    throw new NotFoundException('Motorcycle not found');
+  }
+  return selected;
 }
 
 async function reject(tx: Prisma.TransactionClient, current: ReviewRow, adminId: string, now: Date): Promise<ReviewRow> {

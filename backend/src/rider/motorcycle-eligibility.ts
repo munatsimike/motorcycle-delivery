@@ -18,12 +18,13 @@ export type AcceptanceRider = {
   }>;
 };
 
-// Read-only operational eligibility. Approval is separate and does not require
-// an active motorcycle. Going online calls this after it locks the rider
-// profile, then that rider's motorcycles. The accept transaction calls this
-// after it locks the delivery, then the rider profile, then the assignment.
-// AVAILABLE is not proof of eligibility. This function does not change
-// availability and does not set AVAILABLE or BUSY.
+// Read-only operational eligibility. Approval and motorcycle verification
+// assign one verified motorcycle as the default when the rider has none
+// active, so this check can pass without a separate selection. Going online
+// calls this after it locks the rider profile, then that rider's motorcycles.
+// The accept transaction calls this after it locks the delivery, then the
+// rider profile, then the assignment. AVAILABLE is not proof of eligibility.
+// This function does not change availability and does not set AVAILABLE or BUSY.
 export function motorcycleForAcceptance(rider: AcceptanceRider): string {
   if (rider.accountStatus !== AccountStatus.ACTIVE || rider.phoneVerifiedAt === null) {
     throw new ConflictException('An active verified account is required');
