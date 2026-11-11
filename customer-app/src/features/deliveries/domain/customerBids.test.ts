@@ -35,9 +35,11 @@ function delivery(patch: Partial<CustomerDeliveryDetail> = {}): CustomerDelivery
     deliverBy: '2026-10-24T16:30:00.000Z',
     distanceMeters: 100,
     pickupAddress: 'Pickup',
+    senderName: null,
     pickupLatitude: null,
     pickupLongitude: null,
     dropoffAddress: 'Drop-off',
+    recipientName: null,
     dropoffLatitude: null,
     dropoffLongitude: null,
     parcelDescription: 'Box',
@@ -69,6 +71,7 @@ function assignedRider(name: string) {
     verified: true,
     motorcycle: null,
     registrationNumber: null,
+    colour: null,
     phone: null,
     hasProfilePhoto: false,
   };
@@ -124,6 +127,11 @@ describe('customer bids', () => {
     const fabricated = readCustomerBids([{ ...bid('bid-1', '9.00'), rider: { ...bid('bid-1', '9.00').rider, averageRating: 4.8, ratingCount: 0 } }]);
     expect(fabricated[0]?.averageRating).toBeNull();
     expect(JSON.stringify(fabricated)).not.toContain('4.8');
+    expect(bids.every((item) => item.mapPoint === null)).toBe(true);
+    const withPoint = readCustomerBids([{ ...bid('bid-1', '9.00'), rider: { ...bid('bid-1', '9.00').rider, mapPoint: { latitude: -17.82, longitude: 31.05 } } }]);
+    expect(withPoint[0]?.mapPoint).toEqual({ latitude: -17.82, longitude: 31.05 });
+    const invalidPoint = readCustomerBids([{ ...bid('bid-1', '9.00'), rider: { ...bid('bid-1', '9.00').rider, mapPoint: { latitude: 120, longitude: 31 } } }]);
+    expect(invalidPoint[0]?.mapPoint).toBeNull();
     expect(JSON.stringify(bids)).not.toContain('+263');
     expect(JSON.stringify(bids)).not.toContain('rider-');
     expect(acceptancePrompt(bids[0]!)).toContain('$9.00');

@@ -75,8 +75,8 @@ describe('deliveryStatusLabel', () => {
     expect(deliveryStatusLabel('PICKED_UP')).toBe('Parcel picked up');
     expect(deliveryStatusLabel('DELIVERED')).toBe('Delivered');
     expect(deliveryStatusLabel('FAILED')).toBe('Failed');
-    expect(deliveryStatusLabel('RIDER_ASSIGNED')).toBe('Rider assigned');
-    expect(deliveryStatusLabel('COLLECTING')).toBe('Collecting');
+    expect(deliveryStatusLabel('RIDER_ASSIGNED')).toBe('Rider coming');
+    expect(deliveryStatusLabel('COLLECTING')).toBe('Rider coming');
     expect(deliveryStatusLabel('COLLECTED')).toBe('Collected');
     expect(deliveryStatusLabel('OUT_FOR_DELIVERY')).toBe('Out for delivery');
   });
@@ -84,9 +84,9 @@ describe('deliveryStatusLabel', () => {
 
 describe('usesDeliveryOutcomeScreen', () => {
   it('opens collected, delivered, cancelled, failed, and no-rider deliveries on the detail screen', () => {
-    expect(usesDeliveryOutcomeScreen('COLLECTED')).toBe(true);
+    expect(usesDeliveryOutcomeScreen('COLLECTED')).toBe(false);
     expect(usesDeliveryOutcomeScreen('PICKED_UP')).toBe(true);
-    expect(usesDeliveryOutcomeScreen('OUT_FOR_DELIVERY')).toBe(true);
+    expect(usesDeliveryOutcomeScreen('OUT_FOR_DELIVERY')).toBe(false);
     expect(usesDeliveryOutcomeScreen('IN_TRANSIT')).toBe(true);
     expect(usesDeliveryOutcomeScreen('ARRIVED_AT_DROPOFF')).toBe(true);
     expect(usesDeliveryOutcomeScreen('DELIVERED')).toBe(true);
@@ -133,8 +133,10 @@ describe('marketplace list labels', () => {
     expect(showsViewBids({ ...waiting, openBidCount: 4 })).toBe(true);
     expect(deliveryCardStatusLabel({ status: 'SEARCHING', serviceClass: null, openBidCount: 3 })).toBe('Finding a rider');
     expect(showsViewBids({ status: 'SEARCHING', serviceClass: null, openBidCount: 3 })).toBe(false);
-    expect(deliveryCardStatusLabel({ status: 'RIDER_ASSIGNED', serviceClass: 'EXPRESS', openBidCount: 2 })).toBe('Rider assigned');
+    expect(deliveryCardStatusLabel({ status: 'RIDER_ASSIGNED', serviceClass: 'EXPRESS', openBidCount: 2 })).toBe('Rider coming');
+    expect(deliveryCardStatusLabel({ status: 'COLLECTING', serviceClass: 'EXPRESS', openBidCount: 0 })).toBe('Rider coming');
     expect(deliveryCardStatusLabel({ status: 'COLLECTED', serviceClass: 'FLEXIBLE' })).toBe('In transit');
+    expect(deliveryCardStatusLabel({ status: 'OUT_FOR_DELIVERY', serviceClass: 'FLEXIBLE' })).toBe('In transit');
     expect(showsViewBids({ status: 'RIDER_ASSIGNED', serviceClass: 'EXPRESS', openBidCount: 2 })).toBe(false);
   });
 

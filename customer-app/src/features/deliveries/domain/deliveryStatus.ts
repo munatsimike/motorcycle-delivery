@@ -74,8 +74,8 @@ const STATUS_LABELS: Record<DeliveryStatus, string> = {
   PICKED_UP: 'Parcel picked up',
   IN_TRANSIT: 'In transit',
   ARRIVED_AT_DROPOFF: 'At dropoff',
-  RIDER_ASSIGNED: 'Rider assigned',
-  COLLECTING: 'Collecting',
+  RIDER_ASSIGNED: 'Rider coming',
+  COLLECTING: 'Rider coming',
   COLLECTED: 'Collected',
   OUT_FOR_DELIVERY: 'Out for delivery',
   DELIVERED: 'Delivered',
@@ -89,10 +89,8 @@ export function deliveryGroup(status: DeliveryStatus): DeliveryGroup {
 
 const COLLECTED_OUTCOME_STATUSES = new Set<DeliveryStatus>([
   'PICKED_UP',
-  'COLLECTED',
   'IN_TRANSIT',
   'ARRIVED_AT_DROPOFF',
-  'OUT_FOR_DELIVERY',
 ]);
 
 export function usesDeliveryOutcomeScreen(status: DeliveryStatus): boolean {
@@ -130,7 +128,7 @@ export function deliveryCardStatusLabel(delivery: Pick<CustomerDelivery, 'status
   if (count > 1) {
     return `${count} offers received`;
   }
-  if (delivery.status === 'COLLECTED') {
+  if (delivery.status === 'COLLECTED' || delivery.status === 'OUT_FOR_DELIVERY') {
     return 'In transit';
   }
   return deliveryListLabel(delivery);

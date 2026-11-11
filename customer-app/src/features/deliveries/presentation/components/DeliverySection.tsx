@@ -15,6 +15,7 @@ type DeliverySectionProps = {
   emptyTitle: string;
   emptyBody: string;
   compact?: boolean;
+  translucentCards?: boolean;
   bleedEmpty?: boolean;
   emptyAnchor?: RefObject<View | null>;
   onEmptyLayout?: () => void;
@@ -33,6 +34,7 @@ export default function DeliverySection({
   emptyTitle,
   emptyBody,
   compact = false,
+  translucentCards = false,
   bleedEmpty = false,
   emptyAnchor,
   onEmptyLayout,
@@ -72,6 +74,7 @@ export default function DeliverySection({
           key={delivery.id}
           delivery={delivery}
           cached={cached}
+          translucent={translucentCards}
           onOpenDetails={onOpenDetails}
           onSearchAgain={onSearchAgain}
         />

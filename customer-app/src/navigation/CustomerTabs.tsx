@@ -8,7 +8,7 @@ import { useReduceMotion } from '../components/useMotion';
 import ProfileScreen from '../features/account/presentation/screens/ProfileScreen';
 import CustomerHomeScreen from '../features/auth/presentation/screens/CustomerHomeScreen';
 import RequestsScreen from '../features/requests/presentation/screens/RequestsScreen';
-import { colors, radius, spacing, typography } from '../theme';
+import { colors, radius, typography } from '../theme';
 import { motionDuration, TAB_ANIMATION, TAB_MS, tabSlideOffsets } from './screenMotion';
 import type { CustomerTabParamList } from './types';
 
@@ -40,7 +40,7 @@ function TabIcon({
   size,
   focused,
 }: {
-  name: 'home-outline' | 'package-variant-closed' | 'account-outline';
+  name: 'home-outline' | 'home' | 'package-variant-closed' | 'package' | 'account-outline' | 'account';
   color: string;
   size: number;
   focused: boolean;
@@ -77,7 +77,7 @@ export default function CustomerTabs() {
 
   return (
     <Tab.Navigator
-      safeAreaInsets={{ bottom: insets.bottom + spacing.md }}
+      safeAreaInsets={{ bottom: insets.bottom }}
       screenOptions={{
         headerShown: false,
         animation: TAB_ANIMATION,
@@ -94,10 +94,13 @@ export default function CustomerTabs() {
         tabBarStyle: {
           backgroundColor: colors.background,
           borderTopColor: colors.border,
+          borderTopWidth: StyleSheet.hairlineWidth,
+          elevation: 0,
         },
         tabBarLabelStyle: {
           fontSize: typography.small,
-          fontWeight: '300',
+          fontWeight: '500',
+          marginTop: 1,
         },
       }}
     >
@@ -106,7 +109,7 @@ export default function CustomerTabs() {
         component={CustomerHomeScreen}
         options={{
           tabBarIcon: ({ color, size, focused }) => (
-            <TabIcon name="home-outline" color={color} size={size} focused={focused} />
+            <TabIcon name={focused ? "home" : "home-outline"} color={color} size={size} focused={focused} />
           ),
           tabBarLabel: 'Home',
         }}
@@ -116,7 +119,7 @@ export default function CustomerTabs() {
         component={RequestsScreen}
         options={{
           tabBarIcon: ({ color, size, focused }) => (
-            <TabIcon name="package-variant-closed" color={color} size={size} focused={focused} />
+            <TabIcon name={focused ? "package" : "package-variant-closed"} color={color} size={size} focused={focused} />
           ),
           tabBarLabel: 'Deliveries',
         }}
@@ -126,7 +129,7 @@ export default function CustomerTabs() {
         component={ProfileScreen}
         options={{
           tabBarIcon: ({ color, size, focused }) => (
-            <TabIcon name="account-outline" color={color} size={size} focused={focused} />
+            <TabIcon name={focused ? "account" : "account-outline"} color={color} size={size} focused={focused} />
           ),
           tabBarLabel: 'Profile',
         }}
@@ -137,8 +140,8 @@ export default function CustomerTabs() {
 
 const styles = StyleSheet.create({
   iconSlot: {
-    width: 64,
-    height: 32,
+    width: 58,
+    height: 30,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -146,8 +149,8 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 0,
     left: 0,
-    width: 64,
-    height: 32,
+    width: 58,
+    height: 30,
     borderRadius: radius.pill,
     backgroundColor: colors.primaryLight,
   },

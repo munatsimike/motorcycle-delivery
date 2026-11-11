@@ -30,6 +30,8 @@ function delivery(
     rider: null,
     rating: { eligible: false, submitted: false, stars: null },
     ...extra,
+    senderName: extra.senderName ?? null,
+    recipientName: extra.recipientName ?? null,
   };
 }
 

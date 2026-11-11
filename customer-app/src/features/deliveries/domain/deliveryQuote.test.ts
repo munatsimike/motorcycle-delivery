@@ -182,8 +182,54 @@ describe('readCustomerDeliveryDetail', () => {
       offeredPrice: '4.50',
       customerOffer: null,
       pickupAddress: '12 Samora Machel Avenue',
+      senderName: null,
       dropoffAddress: '4 Jason Moyo Avenue',
+      recipientName: null,
     });
+  });
+
+  it('reads sender and recipient names and omits a blank name', () => {
+    const named = readCustomerDeliveryDetail({
+      id: 'delivery-1',
+      status: 'CREATED',
+      currency: 'USD',
+      offeredPrice: '4.50',
+      suggestedPrice: '4.50',
+      distanceMeters: 800,
+      pickup: { address: '12 Samora Machel Avenue', contactName: ' Tendai Moyo ' },
+      dropoff: { address: '4 Jason Moyo Avenue', contactName: 'Rudo Ncube' },
+      parcel: { description: 'Documents' },
+    });
+    expect(named.senderName).toBe('Tendai Moyo');
+    expect(named.recipientName).toBe('Rudo Ncube');
+
+    const senderOnly = readCustomerDeliveryDetail({
+      id: 'delivery-1',
+      status: 'CREATED',
+      currency: 'USD',
+      offeredPrice: '4.50',
+      suggestedPrice: '4.50',
+      distanceMeters: 800,
+      pickup: { address: '12 Samora Machel Avenue', contactName: 'Tendai Moyo' },
+      dropoff: { address: '4 Jason Moyo Avenue', contactName: '   ' },
+      parcel: { description: 'Documents' },
+    });
+    expect(senderOnly.senderName).toBe('Tendai Moyo');
+    expect(senderOnly.recipientName).toBeNull();
+
+    const recipientOnly = readCustomerDeliveryDetail({
+      id: 'delivery-1',
+      status: 'CREATED',
+      currency: 'USD',
+      offeredPrice: '4.50',
+      suggestedPrice: '4.50',
+      distanceMeters: 800,
+      pickup: { address: '12 Samora Machel Avenue' },
+      dropoff: { address: '4 Jason Moyo Avenue', contactName: 'Rudo Ncube' },
+      parcel: { description: 'Documents' },
+    });
+    expect(recipientOnly.senderName).toBeNull();
+    expect(recipientOnly.recipientName).toBe('Rudo Ncube');
   });
 
   it('reads the customer offer and falls back to the suggested price', () => {
@@ -267,7 +313,7 @@ describe('readCustomerDeliveryDetail', () => {
     expect(detail.pickupApproach).toBeNull();
   });
 
-  it('keeps a collecting rider point and drops it once the parcel is collected', () => {
+  it('keeps the rider point from collecting through drop-off and drops it once delivered', () => {
     const point = { latitude: '-17.8010000', longitude: '31.1090000' };
     const collecting = readCustomerDeliveryDetail({
       id: 'delivery-1',

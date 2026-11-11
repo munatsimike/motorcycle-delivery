@@ -13,6 +13,7 @@ import {
   finishPickupDetection,
   pickupAfterCancel,
   pickupLocationMessage,
+  STREET_ADDRESS_PROMPT,
   startPickupDetection,
   type PickupDetection,
 } from '../../domain/pickupLocation';
@@ -52,7 +53,7 @@ export default function PickupLocationAction({ stop, onApply }: PickupLocationAc
       }, typeof __DEV__ !== 'undefined' && __DEV__);
       if (result.status === 'confirm') {
         setPending(result);
-        setAddress(result.address);
+        setAddress(result.needsStreet ? '' : result.address);
         setLandmark('');
         setConfirmError(null);
         return;
@@ -73,6 +74,7 @@ export default function PickupLocationAction({ stop, onApply }: PickupLocationAc
       longitude: pending.longitude,
       address,
       landmark,
+      resolvedAddress: address.trim() === pending.address ? pending.fullAddress : '',
     });
     if (!applied.ok) {
       setConfirmError(applied.error);
@@ -115,7 +117,7 @@ export default function PickupLocationAction({ stop, onApply }: PickupLocationAc
           label="Pickup address"
           value={address}
           onChangeText={setAddress}
-          placeholder="Describe this pickup point"
+          placeholder={pending?.needsStreet ? STREET_ADDRESS_PROMPT : 'Describe this pickup point'}
           maxLength={500}
           error={confirmError === 'Enter the pickup address' ? confirmError : null}
         />
@@ -128,8 +130,8 @@ export default function PickupLocationAction({ stop, onApply }: PickupLocationAc
           error={confirmError === 'Enter the pickup landmark' ? confirmError : null}
         />
         <DialogActions>
-          <DialogTextButton label="Cancel" tone="neutral" onPress={cancel} />
-          <DialogTextButton label="Confirm pickup location" onPress={confirm} />
+          <DialogTextButton label="Cancel" tone="neutral" weight="regular" onPress={cancel} />
+          <DialogTextButton label="Confirm" onPress={confirm} />
         </DialogActions>
       </DialogModal>
     </View>

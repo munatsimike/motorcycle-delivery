@@ -13,8 +13,8 @@ export type MapCoordinate = {
 
 export type TrackingMapView =
   | { kind: 'hidden' }
-  | { kind: 'awaiting'; deliveryId: string; pickup: MapCoordinate | null }
-  | { kind: 'live'; deliveryId: string; rider: MapCoordinate; pickup: MapCoordinate | null };
+  | { kind: 'awaiting'; deliveryId: string; stop: MapCoordinate | null; headingToDropoff: boolean }
+  | { kind: 'live'; deliveryId: string; rider: MapCoordinate; stop: MapCoordinate | null; headingToDropoff: boolean };
 
 const LIVE_DELIVERY_STATUSES = new Set([
   'CREATED',
@@ -48,6 +48,16 @@ export function shouldPollDelivery(delivery: CustomerDeliveryDetail | null): boo
   return isMarketplaceDelivery(delivery) && delivery !== null && LIVE_DELIVERY_STATUSES.has(delivery.status);
 }
 
+export function showsLiveTrackingMap(delivery: CustomerDeliveryDetail | null): boolean {
+  if (!delivery || !keepsRiderLocation(delivery.status)) {
+    return false;
+  }
+  if (delivery.status === 'COLLECTED' || delivery.status === 'OUT_FOR_DELIVERY') {
+    return true;
+  }
+  return isMarketplaceDelivery(delivery);
+}
+
 export function shouldPollBids(delivery: CustomerDeliveryDetail | null): boolean {
   return isMarketplaceDelivery(delivery) && delivery?.status === 'CREATED';
 }
@@ -75,17 +85,21 @@ export function trackingMapView(delivery: CustomerDeliveryDetail, now: number): 
   if (!keepsRiderLocation(delivery.status)) {
     return { kind: 'hidden' };
   }
-  const pickup = mapCoordinate(delivery.pickupLatitude, delivery.pickupLongitude);
+  const headingToDropoff = delivery.status === 'COLLECTED' || delivery.status === 'OUT_FOR_DELIVERY';
+  const stop = headingToDropoff
+    ? mapCoordinate(delivery.dropoffLatitude, delivery.dropoffLongitude)
+    : mapCoordinate(delivery.pickupLatitude, delivery.pickupLongitude);
   const point = delivery.riderLocation;
   if (point && riderFixIsFresh(point.updatedAt, now)) {
     return {
       kind: 'live',
       deliveryId: delivery.id,
       rider: { latitude: point.latitude, longitude: point.longitude },
-      pickup,
+      stop,
+      headingToDropoff,
     };
   }
-  return { kind: 'awaiting', deliveryId: delivery.id, pickup };
+  return { kind: 'awaiting', deliveryId: delivery.id, stop, headingToDropoff };
 }
 
 function mapCoordinate(latitude: number | null, longitude: number | null): MapCoordinate | null {

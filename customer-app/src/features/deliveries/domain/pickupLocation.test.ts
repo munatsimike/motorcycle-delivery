@@ -8,8 +8,10 @@ import {
   OUTSIDE_SERVICE_AREA,
   applyConfirmedPickup,
   classifyGpsFix,
+  decideAddressAutofill,
   detectPickupLocation,
   formatReverseAddress,
+  readReverseAddress,
   pickupAfterCancel,
   pickupLocationMessage,
   runPickupDetection,
@@ -36,7 +38,11 @@ function ports(overrides: Partial<Parameters<typeof detectPickupLocation>[0]> = 
     permission: 'granted' as const,
     requestPermission: vi.fn(async () => 'granted' as const),
     readFix: vi.fn(async () => fix()),
-    reverseGeocode: vi.fn(async () => '12 Samora Machel Avenue, Harare'),
+    reverseGeocode: vi.fn(async () => ({
+      display: '12 Samora Machel Avenue',
+      fullAddress: '12 Samora Machel Avenue, Harare',
+      needsStreet: false,
+    })),
     now: NOW,
     ...overrides,
   };
@@ -57,7 +63,8 @@ describe('pickup current location', () => {
       status: 'confirm',
       latitude: '-17.8292000',
       longitude: '31.0522000',
-      address: '12 Samora Machel Avenue, Harare',
+      address: '12 Samora Machel Avenue',
+      fullAddress: '12 Samora Machel Avenue, Harare',
     });
   });
 
@@ -107,14 +114,92 @@ describe('pickup current location', () => {
   });
 
   it('confirms a readable reverse-geocoded address and still confirms when geocoding fails', async () => {
+    expect(readReverseAddress({
+      streetNumber: '66',
+      street: 'Mungongoma Road',
+      district: 'Mufakose',
+      city: 'Harare',
+      region: 'Harare',
+      country: 'Zimbabwe',
+    })).toEqual({
+      display: '66 Mungongoma Road, Mufakose',
+      fullAddress: '66 Mungongoma Road, Mufakose, Harare, Zimbabwe',
+      needsStreet: false,
+    });
     expect(formatReverseAddress({
       streetNumber: '12',
       street: 'Samora Machel Avenue',
       city: 'Harare',
       region: 'Harare',
-    })).toBe('12 Samora Machel Avenue, Harare');
+    })).toBe('12 Samora Machel Avenue');
+    expect(readReverseAddress({
+      city: 'Harare',
+      region: 'Harare',
+      country: 'Zimbabwe',
+    })).toEqual({
+      display: '',
+      fullAddress: 'Harare, Zimbabwe',
+      needsStreet: true,
+    });
     expect(formatReverseAddress(null)).toBeNull();
     expect(formatReverseAddress({})).toBeNull();
+    const street = readReverseAddress({
+      streetNumber: '66',
+      street: 'Mungongoma Road',
+      district: 'Mufakose',
+      city: 'Harare',
+      country: 'Zimbabwe',
+    });
+    let userEdited = false;
+    let release: (value: NonNullable<typeof street>) => void = () => {};
+    const pending = new Promise<NonNullable<typeof street>>((resolve) => {
+      release = resolve;
+    });
+    const lookup = pending.then((result) => decideAddressAutofill(userEdited, result));
+    userEdited = true;
+    release(street!);
+    await expect(lookup).resolves.toMatchObject({ status: 'ignore', display: '' });
+    expect(decideAddressAutofill(false, street)).toMatchObject({
+      status: 'apply',
+      display: '66 Mungongoma Road, Mufakose',
+      fullAddress: '66 Mungongoma Road, Mufakose, Harare, Zimbabwe',
+    });
+    const kept = prepareBooking({
+      pickup: {
+        ...emptyStop(),
+        address: '66 Mungongoma Road, Mufakose',
+        resolvedAddress: '66 Mungongoma Road, Mufakose, Harare, Zimbabwe',
+        contactName: 'Tendai Moyo',
+        contactPhone: '0771234567',
+        latitude: '-17.8900000',
+        longitude: '30.9600000',
+        precision: 'exact',
+        coordinateSource: 'DEVICE_GEOCODER',
+      },
+      dropoff: {
+        ...emptyStop(),
+        address: '4 Jason Moyo Avenue',
+        contactName: 'Rudo Ncube',
+        contactPhone: '+263777654321',
+        latitude: '-17.8250000',
+        longitude: '31.0330000',
+        precision: 'exact',
+        placeId: 'ChIJdropoff001',
+        coordinateSource: 'GOOGLE_PLACES',
+      },
+      description: 'Parcel',
+      size: 'SMALL',
+      instructions: '',
+      payer: 'SENDER',
+      paymentMethod: 'CASH',
+      serviceClass: null,
+      deliverBy: null,
+    });
+    expect(kept.ok).toBe(true);
+    if (kept.ok) {
+      expect(kept.booking.pickup.address).toBe('66 Mungongoma Road, Mufakose, Harare, Zimbabwe');
+      expect(kept.booking.pickup.latitude).toBeCloseTo(-17.89, 5);
+    }
     const failed = await detectPickupLocation(ports({
       reverseGeocode: async () => {
         throw new Error('geocoder down');
@@ -147,6 +232,7 @@ describe('pickup current location', () => {
     }
     expect(applied.patch).toMatchObject({
       address: 'Green gate, Mbare',
+      resolvedAddress: '',
       landmark: 'Near the main gate',
       latitude: '-17.8292000',
       longitude: '31.0522000',

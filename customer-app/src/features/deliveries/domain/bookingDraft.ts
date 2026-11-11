@@ -12,6 +12,8 @@ export type ServiceClass = (typeof SERVICE_CLASSES)[number];
 
 export type StopDraft = {
   address: string;
+  /** Full lookup text kept when the field shows only the street and suburb. */
+  resolvedAddress?: string;
   landmark: string;
   instructions: string;
   contactName: string;
@@ -68,6 +70,7 @@ const ZIMBABWE_MOBILE = /^\+2637\d{8}$/;
 export function emptyStop(): StopDraft {
   return {
     address: '',
+    resolvedAddress: '',
     landmark: '',
     instructions: '',
     contactName: '',
@@ -279,10 +282,12 @@ function readStopText(
   stop: StopDraft,
   label: 'pickup' | 'drop-off',
 ): { ok: true; stop: Pick<PreparedStop, 'address' | 'landmark' | 'instructions' | 'contactName' | 'contactPhone'> } | { ok: false; error: string } {
-  const address = requiredText(stop.address, 500);
-  if (!address) {
+  const visible = requiredText(stop.address, 500);
+  if (!visible) {
     return { ok: false, error: `Enter the ${label} address` };
   }
+  const stored = optionalText(stop.resolvedAddress ?? '', 500);
+  const address = typeof stored === 'string' ? stored : visible;
   const landmark = optionalText(stop.landmark, 200);
   if (landmark === undefined) {
     return { ok: false, error: `Enter the ${label} landmark` };

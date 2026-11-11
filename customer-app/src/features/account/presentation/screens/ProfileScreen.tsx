@@ -5,13 +5,12 @@ import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { ComponentProps } from 'react';
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import DialogModal, { DialogActions, DialogBody, DialogTextButton, DialogTitle } from '../../../../components/DialogModal';
 import CustomerAvatar from '../../../../components/CustomerAvatar';
 import ErrorMessage from '../../../../components/ErrorMessage';
-import GreenSurface from '../../../../components/GreenSurface';
 import LoadingIndicator from '../../../../components/LoadingIndicator';
 import SecondaryButton from '../../../../components/SecondaryButton';
 import type { CustomerTabParamList, RootStackParamList } from '../../../../navigation/types';
@@ -51,39 +50,29 @@ export default function ProfileScreen() {
 
   return (
     <View style={styles.screen}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <GreenSurface style={[styles.header, { paddingTop: insets.top + spacing.lg }]}>
+      <View pointerEvents="none" style={styles.profileMap}>
+        <Image
+          source={require('../../../../../assets/map.png')}
+          style={styles.profileMap}
+          resizeMode="cover"
+          accessibilityElementsHidden
+          importantForAccessibility="no"
+        />
+      </View>
+      <LinearGradient
+        pointerEvents="none"
+        colors={['rgba(201,239,217,0.72)', 'rgba(229,247,238,0.35)', 'rgba(247,252,249,0.55)']}
+        locations={[0, 0.62, 1]}
+        style={styles.profileMapWash}
+      />
+      <ScrollView
+        contentContainerStyle={[styles.content, { paddingTop: insets.top + 24 }]}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.sheetAnchor}>
+        <View style={[styles.sheet, account ? styles.sheetOverlap : null]}>
           {account ? (
-            <>
-              <View style={styles.avatarWrap}>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Change profile photo"
-                  disabled={photo.phase !== 'idle'}
-                  onPress={() => {
-                    void photo.changePhoto();
-                  }}
-                >
-                  <CustomerAvatar
-                    kind={account.kind}
-                    name={account.name}
-                    customerId={account.id}
-                    photoUrl={photo.uri}
-                    size={80}
-                  />
-                </Pressable>
-                {photo.phase === 'idle' && (account.hasProfilePhoto || photo.uri) ? (
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Remove photo"
-                    hitSlop={8}
-                    onPress={() => setRemoveOpen(true)}
-                    style={styles.removePhoto}
-                  >
-                    <MaterialDesignIcons name="trash-can-outline" size={18} color={colors.error} />
-                  </Pressable>
-                ) : null}
-              </View>
+            <View style={styles.identity}>
               {photo.phase === 'uploading' ? (
                 <Text style={styles.photoStatus}>Uploading {photo.progress ?? 0}%</Text>
               ) : null}
@@ -97,41 +86,38 @@ export default function ProfileScreen() {
                 />
                 <Text style={styles.kindText}>{kindLabel}</Text>
               </View>
-            </>
+            </View>
           ) : (
             <Text style={styles.name}>Profile</Text>
           )}
-        </GreenSurface>
 
-        {account ? (
-          <View style={styles.overlap}>
+          {account ? (
             <View style={styles.settingCard}>
               <InfoRow icon="phone-outline" label="WhatsApp number" value={account.phone} />
-              {account.email ? <InfoRow icon="email-outline" label="Email address" value={account.email} /> : null}
-              <ProfileDivider />
-              <InfoRow
-                icon="map-marker-outline"
-                label="Address"
-                value={account.address}
-                onEdit={() => navigation.navigate('EditProfile', { account })}
-              />
+              {account.email ? (
+                <>
+                  <ProfileDivider />
+                  <InfoRow icon="email-outline" label="Email address" value={account.email} />
+                </>
+              ) : null}
               {account.contactName ? (
-                <InfoRow icon="account-outline" label="Contact person" value={account.contactName} />
+                <>
+                  <ProfileDivider />
+                  <InfoRow icon="account-outline" label="Contact person" value={account.contactName} />
+                </>
               ) : null}
             </View>
-          </View>
-        ) : null}
+          ) : null}
 
-        <View style={styles.body}>
-        {isLoading ? <LoadingIndicator /> : null}
-        {!isLoading && error ? <ErrorMessage message={error} /> : null}
-        {photo.error ? <ErrorMessage message={photo.error} /> : null}
+          {isLoading ? <LoadingIndicator /> : null}
+          {!isLoading && error ? <ErrorMessage message={error} /> : null}
+          {photo.error ? <ErrorMessage message={photo.error} /> : null}
 
-        <View style={styles.edit}>
           <SecondaryButton
             label="Log out"
             icon="logout"
             tone="danger"
+            weight="regular"
             bordered={false}
             loading={signingOut}
             disabled={signingOut}
@@ -140,6 +126,39 @@ export default function ProfileScreen() {
             }}
           />
         </View>
+        {account ? (
+          <View pointerEvents="box-none" style={styles.avatarSlot}>
+            <View style={styles.avatarWrap}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Change profile photo"
+                disabled={photo.phase !== 'idle'}
+                onPress={() => {
+                  void photo.changePhoto();
+                }}
+              >
+                <CustomerAvatar
+                  kind={account.kind}
+                  name={account.name}
+                  customerId={account.id}
+                  photoUrl={photo.uri}
+                  size={80}
+                />
+              </Pressable>
+              {photo.phase === 'idle' && (account.hasProfilePhoto || photo.uri) ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Remove photo"
+                  hitSlop={8}
+                  onPress={() => setRemoveOpen(true)}
+                  style={styles.removePhoto}
+                >
+                  <MaterialDesignIcons name="trash-can-outline" size={18} color={colors.error} />
+                </Pressable>
+              ) : null}
+            </View>
+          </View>
+        ) : null}
         </View>
       </ScrollView>
       <DialogModal visible={removeOpen} onClose={() => setRemoveOpen(false)} closeLabel="Keep photo">
@@ -162,14 +181,7 @@ export default function ProfileScreen() {
 }
 
 function ProfileDivider() {
-  return (
-    <LinearGradient
-      colors={['transparent', colors.border, 'transparent']}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 0 }}
-      style={styles.divider}
-    />
-  );
+  return <View style={styles.divider} />;
 }
 
 function InfoRow({
@@ -184,8 +196,8 @@ function InfoRow({
   onEdit?: () => void;
 }) {
   return (
-    <View style={styles.row}>
-      <MaterialDesignIcons name={icon} size={20} color={colors.text} />
+      <View style={styles.row}>
+      <MaterialDesignIcons name={icon} size={18} color={colors.text} />
       <View style={styles.rowCopy}>
         <Text style={styles.rowLabel}>{label}</Text>
         <Text style={styles.rowValue}>{value}</Text>
@@ -202,25 +214,53 @@ function InfoRow({
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: '#F7FCF9',
+    overflow: 'hidden',
+  },
+  profileMap: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 200,
+  },
+  profileMapWash: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
   },
   content: {
-    paddingBottom: spacing.xxl,
+    flexGrow: 1,
   },
-  header: {
-    alignItems: 'center',
-    overflow: 'hidden',
-    paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.xl,
-    gap: spacing.sm,
+  sheetAnchor: {
+    flexGrow: 1,
   },
-  overlap: {
-    marginTop: -spacing.xxxl,
-    marginHorizontal: spacing.lg,
-  },
-  body: {
-    marginTop: spacing.lg,
+  sheet: {
+    flexGrow: 1,
     gap: spacing.lg,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.xl,
+    paddingBottom: spacing.xxl,
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
+    backgroundColor: colors.background,
+  },
+  sheetOverlap: {
+    marginTop: 40,
+    paddingTop: 40 + spacing.sm,
+  },
+  avatarSlot: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
+  identity: {
+    alignItems: 'center',
+    gap: spacing.sm,
   },
   name: {
     fontSize: typography.title,
@@ -255,7 +295,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
-    backgroundColor: colors.background,
+    backgroundColor: colors.primaryLight,
     borderRadius: radius.pill,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
@@ -265,26 +305,22 @@ const styles = StyleSheet.create({
     fontWeight: '400',
     color: colors.primaryDark,
   },
-  edit: {
-    marginHorizontal: spacing.lg,
-    gap: spacing.md,
-  },
   settingCard: {
-    backgroundColor: colors.surface,
+    backgroundColor: colors.background,
     borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,
-    boxShadow: '0 4px 16px rgba(23, 33, 29, 0.08)',
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
+    paddingVertical: spacing.xs,
   },
   divider: {
-    height: 1,
-    marginLeft: 32,
+    height: StyleSheet.hairlineWidth,
+    marginLeft: 30,
+    backgroundColor: colors.border,
   },
   row: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     gap: spacing.md,
     paddingVertical: spacing.md,
   },
@@ -301,18 +337,5 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     fontWeight: '400',
     color: colors.text,
-  },
-  passwordHint: {
-    fontSize: typography.caption,
-    lineHeight: 20,
-    color: colors.textSecondary,
-    marginTop: spacing.sm,
-    marginBottom: spacing.md,
-  },
-  saved: {
-    fontSize: typography.caption,
-    lineHeight: 20,
-    color: colors.primaryDark,
-    marginBottom: spacing.md,
   },
 });

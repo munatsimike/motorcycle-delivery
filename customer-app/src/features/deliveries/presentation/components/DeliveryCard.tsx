@@ -8,52 +8,29 @@ import ErrorMessage from '../../../../components/ErrorMessage';
 import { colors, radius, spacing, typography } from '../../../../theme';
 import { errorMessage } from '../../../auth/presentation/errorMessage';
 import { deliveryCardAddress, deliveryContentKind } from '../../domain/deliveryCard';
-import { ContentIcon, ContentLabel, LocationPin, ServiceClassBadge, StopLabel, deliveryIcon } from '../deliveryIcons';
+import { ContentIcon, ContentLabel, LocationPin, ServiceClassBadge, deliveryIcon } from '../deliveryIcons';
 import {
   deliveryCanSearchAgain,
   deliveryCardStatusLabel,
   showsViewBids,
   type CustomerDelivery,
-  type DeliveryStatus,
 } from '../../domain/deliveryStatus';
+import { deliveryStatusTone, type StatusTone } from '../deliveryStatusTone';
 
 type DeliveryCardProps = {
   delivery: CustomerDelivery;
   cached?: boolean;
+  translucent?: boolean;
   onOpenDetails?: (deliveryId: string) => void;
   onSearchAgain?: (deliveryId: string) => Promise<void>;
 };
 
-type StatusTone = {
-  background: string;
-  color: string;
-};
-
-const STATUS_TONES: Record<DeliveryStatus, StatusTone> = {
-  CREATED: { background: '#EEF2F6', color: '#475569' },
-  SEARCHING: { background: '#EEF2F6', color: '#475569' },
-  NO_RIDER_FOUND: { background: '#FFF4E5', color: '#C56A12' },
-  ASSIGNED: { background: '#E9F8EF', color: '#087A4A' },
-  ARRIVED_AT_PICKUP: { background: '#E9F8EF', color: '#087A4A' },
-  PICKED_UP: { background: '#E9F8EF', color: '#087A4A' },
-  IN_TRANSIT: { background: '#E9F8EF', color: '#087A4A' },
-  ARRIVED_AT_DROPOFF: { background: '#E9F8EF', color: '#087A4A' },
-  RIDER_ASSIGNED: { background: '#E9F8EF', color: '#087A4A' },
-  COLLECTING: { background: '#E9F8EF', color: '#087A4A' },
-  COLLECTED: { background: '#E9F8EF', color: '#087A4A' },
-  OUT_FOR_DELIVERY: { background: '#E9F8EF', color: '#087A4A' },
-  DELIVERED: { background: '#E9F8EF', color: '#087A4A' },
-  CANCELLED: { background: '#FDECEC', color: '#D92D20' },
-  FAILED: { background: '#FDECEC', color: '#D92D20' },
-};
-
 const ICON_SIZE = deliveryIcon.size;
-const DOT_SIZE = 3;
-const DOT_STEP = 7;
 
 export default function DeliveryCard({
   delivery,
   cached = false,
+  translucent = false,
   onOpenDetails,
   onSearchAgain,
 }: DeliveryCardProps) {
@@ -61,7 +38,7 @@ export default function DeliveryCard({
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const bidsReceived = showsViewBids(delivery);
-  const tone = bidsReceived ? STATUS_TONES.ASSIGNED : STATUS_TONES[delivery.status];
+  const tone = deliveryStatusTone(delivery.status, bidsReceived);
   const contentKind = deliveryContentKind(delivery.parcelDescription);
   const canSearch = deliveryCanSearchAgain(delivery) && Boolean(onSearchAgain);
 
@@ -88,7 +65,7 @@ export default function DeliveryCard({
       onPress={onOpenDetails ? () => onOpenDetails(delivery.id) : undefined}
       onPressIn={press.onPressIn}
       onPressOut={press.onPressOut}
-      style={styles.card}
+      style={[styles.card, translucent && styles.cardTranslucent]}
     >
       <View style={styles.body}>
         <View style={styles.summary}>
@@ -97,8 +74,8 @@ export default function DeliveryCard({
               <View style={styles.contentBadge}>
                 <ContentIcon kind={contentKind} />
                 <ContentLabel kind={contentKind} />
+                {delivery.serviceClass ? <ServiceClassBadge serviceClass={delivery.serviceClass} /> : null}
               </View>
-              <ServiceClassBadge serviceClass={delivery.serviceClass} />
             </View>
             <RouteStops
               pickup={delivery.pickupAddress}
@@ -129,7 +106,6 @@ export default function DeliveryCard({
         ) : null}
         {searchError ? <ErrorMessage message={searchError} /> : null}
       </View>
-      <View style={styles.divider} />
     </Pressable>
     </Animated.View>
   );
@@ -177,28 +153,26 @@ function StatusPill({ tone, label, pulse }: { tone: StatusTone; label: string; p
 function RouteStops({
   pickup,
   dropoff,
+  compact = false,
 }: {
   pickup: string;
   dropoff: string;
+  compact?: boolean;
 }) {
   return (
-    <View style={styles.route}>
-      <Stop label="Pickup" address={pickup} connect />
-      <Stop label="Drop-off" address={dropoff} dropoff />
+    <View style={[styles.route, compact && styles.routeCompact]}>
+      <Stop address={pickup} />
+      <Stop address={dropoff} dropoff />
     </View>
   );
 }
 
 function Stop({
-  label,
   address,
   dropoff = false,
-  connect = false,
 }: {
-  label: string;
   address: string;
   dropoff?: boolean;
-  connect?: boolean;
 }) {
   return (
     <View style={styles.stop}>
@@ -206,47 +180,36 @@ function Stop({
         <View style={styles.pinCircle}>
           <LocationPin dropoff={dropoff} />
         </View>
-        {connect ? <DottedConnector /> : null}
       </View>
       <View style={styles.placeText}>
-        <StopLabel>{label}</StopLabel>
         <Text style={styles.placeValue}>{deliveryCardAddress(address)}</Text>
       </View>
     </View>
   );
 }
 
-function DottedConnector() {
-  const [count, setCount] = useState(0);
-
-  return (
-    <View
-      pointerEvents="none"
-      style={styles.connector}
-      onLayout={(event) => {
-        const next = Math.max(1, Math.floor(event.nativeEvent.layout.height / DOT_STEP));
-        setCount((current) => (current === next ? current : next));
-      }}
-    >
-      {Array.from({ length: count }, (_, index) => (
-        <View key={index} style={styles.dot} />
-      ))}
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: '#F8FAF9',
+    backgroundColor: '#FFFFFF',
     borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,
-    boxShadow: '0 2px 8px rgba(23, 33, 29, 0.14)',
+    boxShadow: '0 2px 8px rgba(23, 33, 29, 0.08)',
+  },
+  cardTranslucent: {
+    backgroundColor: '#FFFFFF',
+  },
+  cardCompact: {
+    marginHorizontal: spacing.sm,
   },
   body: {
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: spacing.sm,
     paddingVertical: spacing.md,
     gap: spacing.sm,
+  },
+  bodyCompact: {
+    paddingVertical: spacing.sm,
+    gap: spacing.xs,
   },
   summary: {
     flexDirection: 'row',
@@ -255,7 +218,7 @@ const styles = StyleSheet.create({
   },
   summaryBody: {
     flex: 1,
-    gap: spacing.xs,
+    gap: spacing.md,
   },
   statusFloat: {
     position: 'absolute',
@@ -275,11 +238,6 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     paddingRight: 96,
   },
-  divider: {
-    height: StyleSheet.hairlineWidth,
-    marginHorizontal: spacing.lg,
-    backgroundColor: colors.border,
-  },
   pill: {
     flexShrink: 0,
     borderRadius: radius.pill,
@@ -291,7 +249,10 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   route: {
-    gap: spacing.sm,
+    gap: 8,
+  },
+  routeCompact: {
+    gap: spacing.xs,
   },
   stop: {
     flexDirection: 'row',
@@ -308,27 +269,13 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     justifyContent: 'center',
   },
-  connector: {
-    position: 'absolute',
-    top: ICON_SIZE,
-    bottom: -spacing.sm,
-    width: ICON_SIZE,
-    alignItems: 'center',
-    justifyContent: 'space-evenly',
-  },
-  dot: {
-    width: DOT_SIZE,
-    height: DOT_SIZE,
-    borderRadius: DOT_SIZE / 2,
-    backgroundColor: '#B7C2BC',
-  },
   placeText: {
     flex: 1,
     gap: 2,
   },
   placeValue: {
-    fontSize: typography.caption,
-    lineHeight: 18,
+    fontSize: 16,
+    lineHeight: 21,
     fontWeight: '400',
     color: colors.text,
   },

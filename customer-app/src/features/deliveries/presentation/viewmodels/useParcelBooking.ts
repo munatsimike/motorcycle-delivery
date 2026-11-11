@@ -108,6 +108,26 @@ export function useParcelBooking(accessToken: string | null, marketplace = false
     });
   }
 
+  function prefillDetectedPickup(location: { address: string; resolvedAddress: string; latitude: string; longitude: string }) {
+    setDraft((current) => {
+      // Do not replace a pickup address the customer has already entered.
+      if (current.pickup.address.trim() || current.pickup.latitude || current.pickup.longitude) return current;
+      return {
+        ...current,
+        pickup: {
+          ...current.pickup,
+          address: location.address,
+          resolvedAddress: location.resolvedAddress,
+          latitude: location.latitude,
+          longitude: location.longitude,
+          approximate: false,
+          precision: 'exact',
+          coordinateSource: 'DEVICE_GEOCODER',
+        },
+      };
+    });
+  }
+
   function goBack() {
     if (busy) {
       return;
@@ -346,6 +366,7 @@ export function useParcelBooking(accessToken: string | null, marketplace = false
     updateDraft,
     updateOffer,
     prefillPickup,
+    prefillDetectedPickup,
     goBack,
     goNext,
     confirm,

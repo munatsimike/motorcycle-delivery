@@ -12,7 +12,9 @@ type PrimaryButtonProps = {
   loadingLabel?: string;
   icon?: ComponentProps<typeof MaterialDesignIcons>['name'];
   trailingIcon?: ComponentProps<typeof MaterialDesignIcons>['name'];
+  iconRotation?: number;
   compact?: boolean;
+  align?: 'end' | 'center';
   labelStyle?: StyleProp<TextStyle>;
 };
 
@@ -24,7 +26,9 @@ export default function PrimaryButton({
   loadingLabel,
   icon,
   trailingIcon,
+  iconRotation = 0,
   compact = false,
+  align = 'end',
   labelStyle,
 }: PrimaryButtonProps) {
   const inactive = disabled || loading;
@@ -34,9 +38,11 @@ export default function PrimaryButton({
       accessibilityRole="button"
       disabled={inactive}
       onPress={onPress}
+      hitSlop={compact ? { top: 2, bottom: 2 } : undefined}
       style={({ pressed }) => [
         styles.button,
         compact && styles.compact,
+        align === 'center' && styles.centered,
         inactive && styles.inactive,
         pressed && !inactive && styles.pressed,
       ]}
@@ -48,7 +54,14 @@ export default function PrimaryButton({
         </View>
       ) : icon ? (
         <View style={styles.loadingContent}>
-          <MaterialDesignIcons name={icon} color={colors.textInverse} size={22} />
+          <View style={styles.leadingIcon}>
+            <MaterialDesignIcons
+              name={icon}
+              color={colors.textInverse}
+              size={22}
+              style={iconRotation ? { transform: [{ rotate: `${iconRotation}deg` }] } : undefined}
+            />
+          </View>
           <Text style={[styles.label, labelStyle]}>{label}</Text>
         </View>
       ) : (
@@ -76,15 +89,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
   },
   compact: {
-    minHeight: 40,
+    minHeight: 44,
     alignSelf: 'flex-end',
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: spacing.lg,
+  },
+  centered: {
+    alignSelf: 'center',
   },
   inactive: {
     opacity: 0.6,
   },
   pressed: {
     opacity: 0.8,
+  },
+  leadingIcon: {
+    width: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   loadingContent: {
     flexDirection: 'row',

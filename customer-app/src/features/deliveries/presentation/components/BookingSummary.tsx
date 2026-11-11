@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { type ReactNode } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
 
@@ -7,7 +7,7 @@ import { useInputFocus } from '../../../../components/useInputFocus';
 import { colors, radius, spacing, typography } from '../../../../theme';
 import { deliveryContactPhone, type BookingDraft, type StopDraft } from '../../domain/bookingDraft';
 import { deliveryCardAddress, deliveryContentKind } from '../../domain/deliveryCard';
-import { ContentIcon, LocationPin, StopLabel, deliveryIcon } from '../deliveryIcons';
+import { ContentIcon, LocationPin, deliveryIcon } from '../deliveryIcons';
 import type { DeliveryQuote } from '../../domain/deliveryQuote';
 import { currencyMark, moneyLabel } from '../../domain/moneyLabel';
 import { parcelSizeLabel, payerLabel, paymentMethodLabel } from './ParcelFields';
@@ -37,8 +37,8 @@ export default function BookingSummary({
   return (
     <View style={styles.wrap}>
       <View style={styles.route}>
-        <RouteStop label="Pickup" stop={draft.pickup} last={false} />
-        <RouteStop label="Drop-off" stop={draft.dropoff} last />
+        <RouteStop stop={draft.pickup} last={false} />
+        <RouteStop stop={draft.dropoff} last />
       </View>
 
       <View style={styles.facts}>
@@ -111,7 +111,7 @@ export default function BookingSummary({
   );
 }
 
-function RouteStop({ label, stop, last }: { label: string; stop: StopDraft; last: boolean }) {
+function RouteStop({ stop, last }: { stop: StopDraft; last: boolean }) {
   const name = stop.contactName.trim();
   const phone = displayPhone(stop.contactPhone);
   return (
@@ -120,46 +120,16 @@ function RouteStop({ label, stop, last }: { label: string; stop: StopDraft; last
         <View style={styles.pinCircle}>
           <LocationPin dropoff={last} />
         </View>
-        {last ? null : <DottedConnector />}
       </View>
       <View style={styles.stopCopy}>
-        <StopLabel>{label}</StopLabel>
         <Text style={styles.stopAddress}>{deliveryCardAddress(stop.address.trim())}</Text>
-        {name ? (
-          <View style={styles.meta}>
-            <MaterialDesignIcons name="account-outline" size={16} color={colors.text} />
-            <Text style={styles.stopName}>{name}</Text>
-          </View>
-        ) : null}
-        {phone ? (
-          <View style={styles.meta}>
-            <MaterialDesignIcons name="phone-outline" size={16} color={colors.text} />
-            <Text style={styles.stopPhone}>{phone}</Text>
-          </View>
-        ) : null}
+        {name ? <Text style={styles.stopName}>{name}</Text> : null}
+        {phone ? <Text style={styles.stopPhone}>{phone}</Text> : null}
       </View>
     </View>
   );
 }
 
-function DottedConnector() {
-  const [count, setCount] = useState(0);
-
-  return (
-    <View
-      pointerEvents="none"
-      style={styles.connector}
-      onLayout={(event) => {
-        const next = Math.max(1, Math.floor(event.nativeEvent.layout.height / 7));
-        setCount((current) => (current === next ? current : next));
-      }}
-    >
-      {Array.from({ length: count }, (_, index) => (
-        <View key={index} style={styles.dot} />
-      ))}
-    </View>
-  );
-}
 function Fact({
   icon,
   mark,
@@ -242,20 +212,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  connector: {
-    position: 'absolute',
-    top: 18,
-    bottom: -spacing.sm,
-    width: 32,
-    alignItems: 'center',
-    justifyContent: 'space-evenly',
-  },
-  dot: {
-    width: 3,
-    height: 3,
-    borderRadius: 1.5,
-    backgroundColor: '#B7C2BC',
-  },
   stopCopy: {
     flex: 1,
     gap: spacing.xs,
@@ -275,11 +231,6 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: typography.caption,
     color: colors.textSecondary,
-  },
-  meta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
   },
   facts: {
     flexDirection: 'row',

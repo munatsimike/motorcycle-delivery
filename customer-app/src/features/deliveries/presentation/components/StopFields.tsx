@@ -14,6 +14,8 @@ type StopFieldsProps = {
   areaChoices?: PlaceSuggestion[];
   showLandmark?: boolean;
   locationAction?: ReactNode;
+  lookup?: 'searching' | 'needs-street' | null;
+  onManualInput?: () => void;
 };
 
 export default function StopFields({
@@ -24,6 +26,8 @@ export default function StopFields({
   areaChoices = [],
   showLandmark = true,
   locationAction = null,
+  lookup = null,
+  onManualInput,
 }: StopFieldsProps) {
   const dutch = stop.contactPhone.replace(/[\s()-]/g, '').startsWith('+31');
   const national = dutch ? stop.contactPhone.replace(/[\s()-]/g, '').slice(3) : stop.contactPhone;
@@ -37,6 +41,8 @@ export default function StopFields({
         resolvePlace={resolvePlace}
         areaChoices={areaChoices}
         locationAction={locationAction}
+        lookup={lookup}
+        onManualInput={onManualInput}
       />
       {showLandmark ? (
         <FormInput

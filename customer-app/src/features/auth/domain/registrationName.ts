@@ -11,8 +11,7 @@ export function registrationNameFieldError(error: string | null): string | null 
 
 export function registrationFullNameIssue(fullName: string, address: string): string | null {
   const name = collapseRegistrationName(fullName);
-  const place = address.trim();
-  if (!name || !place) {
+  if (!name) {
     return REGISTRATION_NAME_AND_ADDRESS;
   }
   const words = name.split(' ');

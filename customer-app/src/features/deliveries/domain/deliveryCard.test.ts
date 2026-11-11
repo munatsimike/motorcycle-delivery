@@ -42,9 +42,11 @@ describe('delivery card text', () => {
     expect(deliveryContentKind(null)).toBe('parcel');
   });
 
-  it('shows the date and clock time', () => {
+  it('shows the date and clock time on one line', () => {
     const createdAt = new Date(2026, 9, 15, 18, 25, 0).toISOString();
-    expect(deliveryWhenLabel(createdAt)).toBe('15 Oct 2026 • 18:25');
+    const label = deliveryWhenLabel(createdAt);
+    expect(label).toBe('15 Oct 2026 • 18:25');
+    expect(label).not.toMatch(/[\r\n]/);
   });
 
   it('keeps yesterday as a date', () => {

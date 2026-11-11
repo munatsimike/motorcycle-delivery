@@ -10,9 +10,6 @@ import PrimaryButton from '../../../../components/PrimaryButton';
 import { KeyboardFieldFocusContext, useKeyboardLift } from '../../../../components/useKeyboardLift';
 import type { RootStackParamList } from '../../../../navigation/types';
 import { colors, radius, spacing, typography } from '../../../../theme';
-import { customerDeliveryRepository } from '../../../deliveries/data/CustomerDeliveryApiRepository';
-import { emptyStop, type StopDraft } from '../../../deliveries/domain/bookingDraft';
-import AddressField from '../../../deliveries/presentation/components/AddressField';
 import { clearRegistrationProof, clearRegistrationRecovery, rememberRegistrationDraft } from '../../data/registrationRecoveryStore';
 import { registrationNameFieldError } from '../../domain/registrationName';
 import { verifiedRegistrationPhone } from '../../domain/registrationRecovery';
@@ -23,10 +20,9 @@ import { useCompleteRegistration } from '../viewmodels/useCompleteRegistration';
 type CompleteRegistrationProps = NativeStackScreenProps<RootStackParamList, 'CompleteRegistration'>;
 
 export default function CompleteRegistrationScreen({ route, navigation }: CompleteRegistrationProps) {
-  const { registrationToken, fullName: initialName, address: initialAddress } = route.params;
+  const { registrationToken, fullName: initialName } = route.params;
   const verifiedPhone = verifiedRegistrationPhone(registrationToken);
   const [fullName, setFullName] = useState(initialName ?? '');
-  const [addressStop, setAddressStop] = useState<StopDraft>({ ...emptyStop(), address: initialAddress ?? '' });
   const { holdSession } = useSession();
   const { isLoading, error, complete } = useCompleteRegistration(registrationToken);
   const keyboard = useKeyboardLift();
@@ -38,8 +34,8 @@ export default function CompleteRegistrationScreen({ route, navigation }: Comple
     if (finished.current) {
       return;
     }
-    void rememberRegistrationDraft({ fullName, address: addressStop.address });
-  }, [addressStop.address, fullName]);
+    void rememberRegistrationDraft({ fullName, address: '' });
+  }, [fullName]);
 
   async function handleSubmit() {
     if (!submitLock.current.enter()) {
@@ -47,7 +43,7 @@ export default function CompleteRegistrationScreen({ route, navigation }: Comple
     }
     setSubmitting(true);
     try {
-      const outcome = await complete(fullName, addressStop.address);
+      const outcome = await complete(fullName, '');
       if (outcome.status === 'busy' || outcome.status === 'interrupted') {
         return;
       }
@@ -116,16 +112,6 @@ export default function CompleteRegistrationScreen({ route, navigation }: Comple
         textContentType="name"
         editable={!isLoading}
         error={registrationNameFieldError(error)}
-      />
-      <AddressField
-        stop={addressStop}
-        editable={!isLoading}
-        showMatchNote={false}
-        searchPlaces={(text, sessionToken) => customerDeliveryRepository.searchOpenPlaces(text, sessionToken)}
-        resolvePlace={(placeId, sessionToken) => customerDeliveryRepository.resolveOpenPlace(placeId, sessionToken)}
-        onChange={(patch) => {
-          setAddressStop((current) => ({ ...current, ...patch }));
-        }}
       />
       <ErrorMessage message={registrationNameFieldError(error) ? null : error} />
       <PrimaryButton

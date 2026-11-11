@@ -1,20 +1,22 @@
-import type { ReactNode } from 'react';
-import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState, type ReactNode } from 'react';
+import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 import ErrorMessage from '../../../../components/ErrorMessage';
-import GreenSurface from '../../../../components/GreenSurface';
 import { colors, radius, spacing, typography } from '../../../../theme';
+import CollectedRouteMap from './CollectedRouteMap';
+import DeliveryDetailFrame from './DeliveryDetailFrame';
 import type { CustomerDeliveryDetail } from '../../domain/customerDeliveryDetail';
 import { deliveryStatusLabel, type DeliveryStatus } from '../../domain/deliveryStatus';
+import { deliveryStatusTone } from '../deliveryStatusTone';
+import { TRACKING_SHEET_OVERLAP } from '../../domain/trackingCamera';
 import {
   assignedRiderPhotoPath,
   riderDialUrl,
   riderInitials,
   riderWhatsAppCallUrl,
 } from '../../domain/trackingJourney';
-import { Summary } from './ParcelDetailsSheet';
+import ParcelDetailsSheet, { Summary } from './ParcelDetailsSheet';
 import RiderPortrait from './RiderPortrait';
 
 type DeliveryOutcomeProps = {
@@ -25,6 +27,7 @@ type DeliveryOutcomeProps = {
   offerAmount?: string;
   onAdjustPrice?: () => void;
   accessToken?: string | null;
+  onBack: () => void;
 };
 
 export default function DeliveryOutcome({
@@ -35,10 +38,16 @@ export default function DeliveryOutcome({
   offerAmount,
   onAdjustPrice,
   accessToken = null,
+  onBack,
 }: DeliveryOutcomeProps) {
   const rider = showsOutcomeRider(delivery.status) ? delivery.rider : null;
+  const inTransit = deliveryOutcomeTitle(delivery.status) === 'In transit';
+  const delivered = delivery.status === 'DELIVERED';
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const route = collectedRoute(delivery);
   const phone = rider?.phone ?? null;
   const cancelled = delivery.status === 'CANCELLED';
+  const statusTone = deliveryStatusTone(delivery.status);
   function callRider() {
     const url = riderDialUrl(phone);
     if (url) {
@@ -51,24 +60,39 @@ export default function DeliveryOutcome({
       void Linking.openURL(url);
     }
   }
+  useEffect(() => {
+    setDetailsOpen(false);
+  }, [delivery.id]);
   return (
-    <SafeAreaView style={styles.screen} edges={['bottom']}>
-      <ScrollView contentContainerStyle={styles.content}>
-        <GreenSurface style={styles.band}>
-          <View style={styles.hero}>
-            <View style={styles.icon}>
+    <>
+    <DeliveryDetailFrame
+      onBack={onBack}
+      topOutline
+      overlap={route ? TRACKING_SHEET_OVERLAP : undefined}
+      header={route ? (
+        <CollectedRouteMap
+          deliveryId={delivery.id}
+          accessToken={accessToken}
+          pickup={route.pickup}
+          dropoff={route.dropoff}
+        />
+      ) : undefined}
+    >
+        <View style={styles.sheet}>
+          <View style={styles.statusRow}>
+            <View style={[styles.icon, { backgroundColor: statusTone.background }]}>
               <MaterialDesignIcons
                 name={outcomeIcon(delivery.status)}
-                size={28}
-                color={cancelled ? colors.error : colors.primaryDark}
+                size={22}
+                color={statusTone.color}
               />
             </View>
-            <Text style={[styles.title, cancelled && styles.titleCancelled]}>{deliveryOutcomeTitle(delivery.status)}</Text>
-            <Text style={styles.support}>{outcomeSupport(delivery.status)}</Text>
-            <ErrorMessage message={message ?? null} />
+            <View style={styles.statusCopy}>
+              <Text style={[styles.title, cancelled && styles.titleCancelled, { color: statusTone.color }]}>{deliveryOutcomeTitle(delivery.status)}</Text>
+              <Text style={styles.support}>{outcomeSupport(delivery.status)}</Text>
+            </View>
           </View>
-        </GreenSurface>
-        <View style={styles.overlap}>
+          <ErrorMessage message={message ?? null} />
           {rider ? (
             <View style={styles.riderCard}>
               <RiderPortrait
@@ -85,27 +109,64 @@ export default function DeliveryOutcome({
               </View>
               {riderDialUrl(phone) ? (
                 <View style={styles.riderActions}>
-                  <Pressable accessibilityRole="button" accessibilityLabel={`Call ${rider.name}`} hitSlop={8} onPress={callRider}>
-                    <MaterialDesignIcons name="phone-outline" size={22} color={colors.text} />
+                  <Pressable accessibilityRole="button" accessibilityLabel={`Call ${rider.name}`} hitSlop={8} onPress={callRider} style={styles.riderAction}>
+                    <MaterialDesignIcons name="phone-outline" size={20} color="#111111" />
                   </Pressable>
-                  <Pressable accessibilityRole="button" accessibilityLabel={`WhatsApp ${rider.name}`} hitSlop={8} onPress={callWhatsApp}>
-                    <MaterialDesignIcons name="whatsapp" size={22} color={colors.text} />
+                  <Pressable accessibilityRole="button" accessibilityLabel={`WhatsApp ${rider.name}`} hitSlop={8} onPress={callWhatsApp} style={styles.riderAction}>
+                    <MaterialDesignIcons name="whatsapp" size={20} color="#111111" />
                   </Pressable>
                 </View>
               ) : null}
             </View>
           ) : null}
-          <Summary
-            delivery={delivery}
-            customerOffer={customerOffer}
-            offerAmount={offerAmount}
-            onAdjustPrice={onAdjustPrice}
-          />
+          {inTransit ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Parcel details"
+              onPress={() => setDetailsOpen(true)}
+              style={styles.parcelDetails}
+            >
+              <Text style={styles.parcelDetailsText}>Parcel details</Text>
+              <MaterialDesignIcons name="chevron-up" size={18} color={colors.primary} />
+            </Pressable>
+          ) : (
+            <Summary
+              delivery={delivery}
+              customerOffer={customerOffer}
+              offerAmount={offerAmount}
+              onAdjustPrice={onAdjustPrice}
+              showDivider={!delivered}
+            />
+          )}
+          {children ? <View style={styles.footer}>{children}</View> : null}
         </View>
-        {children ? <View style={styles.footer}>{children}</View> : null}
-      </ScrollView>
-    </SafeAreaView>
+    </DeliveryDetailFrame>
+    {inTransit ? (
+      <ParcelDetailsSheet
+        delivery={detailsOpen ? delivery : null}
+        onClose={() => setDetailsOpen(false)}
+      />
+    ) : null}
+    </>
   );
+}
+
+function collectedRoute(delivery: CustomerDeliveryDetail): { pickup: { latitude: number; longitude: number }; dropoff: { latitude: number; longitude: number } } | null {
+  if (delivery.status !== 'COLLECTED' && delivery.status !== 'PICKED_UP') {
+    return null;
+  }
+  if (
+    delivery.pickupLatitude === null
+    || delivery.pickupLongitude === null
+    || delivery.dropoffLatitude === null
+    || delivery.dropoffLongitude === null
+  ) {
+    return null;
+  }
+  return {
+    pickup: { latitude: delivery.pickupLatitude, longitude: delivery.pickupLongitude },
+    dropoff: { latitude: delivery.dropoffLatitude, longitude: delivery.dropoffLongitude },
+  };
 }
 
 function showsOutcomeRider(status: DeliveryStatus): boolean {
@@ -164,59 +225,48 @@ function outcomeIcon(status: DeliveryStatus): 'clock-outline' | 'check' | 'close
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  content: {
-    flexGrow: 1,
-    paddingBottom: spacing.lg,
-  },
-  band: {
-    overflow: 'hidden',
-    paddingBottom: 0,
-  },
-  hero: {
-    alignItems: 'center',
+  sheet: {
+    gap: spacing.md,
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.sm,
-    gap: spacing.sm,
+  },
+  statusRow: {
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  statusCopy: {
+    alignItems: 'center',
+    gap: spacing.xs,
   },
   icon: {
-    width: 64,
-    height: 64,
-    borderRadius: radius.md,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.background,
-    marginTop: spacing.sm,
   },
   title: {
+    textAlign: 'center',
     fontSize: typography.heading,
     fontWeight: '700',
     color: colors.text,
-    textAlign: 'center',
   },
   titleCancelled: {
-    color: colors.error,
     fontWeight: '500',
   },
   support: {
+    textAlign: 'center',
     fontSize: typography.body,
     lineHeight: 22,
     color: colors.textSecondary,
-    textAlign: 'center',
-  },
-  overlap: {
-    marginTop: -spacing.xxxl,
-    marginHorizontal: spacing.lg,
-    gap: spacing.sm,
   },
   riderCard: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
+    padding: spacing.md,
+    borderRadius: radius.lg,
+    backgroundColor: colors.background,
   },
   riderAvatar: {
     width: 48,
@@ -248,11 +298,27 @@ const styles = StyleSheet.create({
   riderActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
+    gap: spacing.sm,
+  },
+  riderAction: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  parcelDetails: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-end',
+    gap: spacing.xs,
+  },
+  parcelDetailsText: {
+    fontSize: typography.button,
+    fontWeight: '500',
+    color: colors.primary,
   },
   footer: {
     gap: spacing.sm,
-    marginTop: spacing.lg,
-    paddingHorizontal: spacing.lg,
   },
 });

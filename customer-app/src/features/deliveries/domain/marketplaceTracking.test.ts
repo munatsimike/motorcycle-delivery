@@ -7,6 +7,7 @@ import {
   locationPresentation,
   shouldPollBids,
   shouldPollDelivery,
+  showsLiveTrackingMap,
   showsRiderMap,
   trackingMapView,
   visibleBidError,
@@ -23,9 +24,11 @@ function delivery(status: CustomerDeliveryDetail['status'], id = 'delivery-1', p
     deliverBy: '2026-10-24T16:30:00.000Z',
     distanceMeters: 100,
     pickupAddress: 'Pickup',
+    senderName: null,
     pickupLatitude: -17.82,
     pickupLongitude: 31.05,
     dropoffAddress: 'Drop-off',
+    recipientName: null,
     dropoffLatitude: -17.83,
     dropoffLongitude: 31.06,
     parcelDescription: 'Box',
@@ -62,30 +65,54 @@ describe('marketplace tracking', () => {
     expect(visible).toEqual({ kind: 'rider', deliveryId: 'delivery-1', ...point });
     expect(showsRiderMap(visible)).toBe(true);
 
-    for (const status of ['COLLECTED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED'] as const) {
+    for (const status of ['COLLECTED', 'OUT_FOR_DELIVERY'] as const) {
+      const visible = locationPresentation('delivery-1', delivery(status, 'delivery-1', { riderLocation: riderPoint }));
+      expect(visible).toEqual({ kind: 'rider', deliveryId: 'delivery-1', ...point });
+      expect(showsLiveTrackingMap(delivery(status))).toBe(true);
+      expect(showsLiveTrackingMap(delivery(status, 'delivery-1', { serviceClass: null }))).toBe(true);
+    }
+    for (const status of ['DELIVERED', 'CANCELLED'] as const) {
       const hidden = locationPresentation('delivery-1', delivery(status, 'delivery-1', { riderLocation: riderPoint }));
       expect(hidden).toEqual({ kind: 'none' });
       expect(showsRiderMap(hidden)).toBe(false);
+      expect(showsLiveTrackingMap(delivery(status))).toBe(false);
     }
   });
 
   it('keeps a pickup map when GPS is missing or stale, then restores the live map', () => {
     const pickup = { latitude: -17.82, longitude: 31.05 };
     const missing = trackingMapView(delivery('RIDER_ASSIGNED'), NOW);
-    expect(missing).toEqual({ kind: 'awaiting', deliveryId: 'delivery-1', pickup });
+    expect(missing).toEqual({ kind: 'awaiting', deliveryId: 'delivery-1', stop: pickup, headingToDropoff: false });
 
     const stale = trackingMapView(delivery('COLLECTING', 'delivery-1', { riderLocation: staleFix }), NOW);
-    expect(stale).toEqual({ kind: 'awaiting', deliveryId: 'delivery-1', pickup });
+    expect(stale).toEqual({ kind: 'awaiting', deliveryId: 'delivery-1', stop: pickup, headingToDropoff: false });
 
     const undated = trackingMapView(delivery('COLLECTING', 'delivery-1', { riderLocation: { ...point, updatedAt: null } }), NOW);
-    expect(undated).toEqual({ kind: 'awaiting', deliveryId: 'delivery-1', pickup });
+    expect(undated).toEqual({ kind: 'awaiting', deliveryId: 'delivery-1', stop: pickup, headingToDropoff: false });
 
     const recovered = trackingMapView(delivery('COLLECTING', 'delivery-1', { riderLocation: freshFix }), NOW);
-    expect(recovered).toEqual({ kind: 'live', deliveryId: 'delivery-1', rider: point, pickup });
+    expect(recovered).toEqual({ kind: 'live', deliveryId: 'delivery-1', rider: point, stop: pickup, headingToDropoff: false });
   });
 
-  it('hides the rider map after pickup even when a fresh GPS point is still present', () => {
-    for (const status of ['COLLECTED', 'OUT_FOR_DELIVERY', 'DELIVERED'] as const) {
+  it('follows the rider to the drop-off after pickup and hides GPS once the delivery ends', () => {
+    const dropoff = { latitude: -17.83, longitude: 31.06 };
+    for (const status of ['COLLECTED', 'OUT_FOR_DELIVERY'] as const) {
+      expect(trackingMapView(delivery(status, 'delivery-1', { riderLocation: freshFix }), NOW)).toEqual({
+        kind: 'live',
+        deliveryId: 'delivery-1',
+        rider: point,
+        stop: dropoff,
+        headingToDropoff: true,
+      });
+      expect(trackingMapView(delivery(status, 'delivery-1', { riderLocation: staleFix }), NOW)).toEqual({
+        kind: 'awaiting',
+        deliveryId: 'delivery-1',
+        stop: dropoff,
+        headingToDropoff: true,
+      });
+      expect(trackingMapView(delivery(status), NOW).kind).toBe('awaiting');
+    }
+    for (const status of ['DELIVERED', 'CANCELLED'] as const) {
       expect(trackingMapView(delivery(status, 'delivery-1', { riderLocation: freshFix }), NOW)).toEqual({ kind: 'hidden' });
     }
   });

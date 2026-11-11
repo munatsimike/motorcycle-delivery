@@ -58,12 +58,14 @@ export function DialogTextButton({
   tone = 'primary',
   disabled,
   loading,
+  weight = 'bold',
 }: {
   label: string;
   onPress: () => void;
   tone?: 'primary' | 'danger' | 'neutral';
   disabled?: boolean;
   loading?: boolean;
+  weight?: 'bold' | 'regular';
 }) {
   const toneStyle = tone === 'danger' ? styles.textDanger : tone === 'neutral' ? styles.textNeutral : styles.textPrimary;
   const inactive = disabled || loading;
@@ -76,7 +78,7 @@ export function DialogTextButton({
       style={({ pressed }) => [styles.textButton, inactive && styles.inactive, pressed && !inactive && styles.pressed]}
     >
       {loading ? <ActivityIndicator color={toneStyle.color} size="small" /> : null}
-      <Text style={[styles.textLabel, toneStyle]}>{label}</Text>
+      <Text style={[styles.textLabel, toneStyle, weight === 'regular' && styles.textRegular]}>{label}</Text>
     </Pressable>
   );
 }
@@ -135,6 +137,9 @@ const styles = StyleSheet.create({
   textLabel: {
     fontSize: typography.button,
     fontWeight: '700',
+  },
+  textRegular: {
+    fontWeight: '400',
   },
   textPrimary: {
     color: colors.primary,

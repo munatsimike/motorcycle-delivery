@@ -1,6 +1,6 @@
 import * as Location from 'expo-location';
 
-import { formatReverseAddress, type PickupFix, type PickupPermission } from '../domain/pickupLocation';
+import { readReverseAddress, type PickupFix, type PickupPermission, type ReverseAddress } from '../domain/pickupLocation';
 
 const POSITION_TIMEOUT_MS = 12_000;
 
@@ -9,7 +9,7 @@ export type PickupLocationPort = {
   permission(): Promise<PickupPermission>;
   requestPermission(): Promise<PickupPermission>;
   readFix(): Promise<PickupFix | 'timeout' | 'invalid'>;
-  reverseGeocode(latitude: number, longitude: number): Promise<string | null>;
+  reverseGeocode(latitude: number, longitude: number): Promise<ReverseAddress | null>;
 };
 
 export const expoPickupLocation: PickupLocationPort = {
@@ -26,7 +26,7 @@ export const expoPickupLocation: PickupLocationPort = {
   async reverseGeocode(latitude, longitude) {
     try {
       const matches = await Location.reverseGeocodeAsync({ latitude, longitude });
-      return formatReverseAddress(matches[0] ?? null);
+      return readReverseAddress(matches[0] ?? null);
     } catch {
       return null;
     }

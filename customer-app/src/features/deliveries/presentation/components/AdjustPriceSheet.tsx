@@ -6,7 +6,7 @@ import BottomSheetModal from '../../../../components/BottomSheetModal';
 import ErrorMessage from '../../../../components/ErrorMessage';
 import PrimaryButton from '../../../../components/PrimaryButton';
 import SecondaryButton from '../../../../components/SecondaryButton';
-import { colors, radius, spacing, typography } from '../../../../theme';
+import { bottomContentInset, colors, contentAboveSafeArea, radius, spacing, typography } from '../../../../theme';
 import { customerOfferForBooking, offerFieldText } from '../../domain/deliveryQuote';
 import { currencyMark } from '../../domain/moneyLabel';
 
@@ -91,7 +91,7 @@ export default function AdjustPriceSheet({
         <ErrorMessage message={localError ?? error} />
         <View style={styles.actions}>
           <View style={styles.action}>
-            <SecondaryButton label="Cancel" disabled={saving} onPress={onClose} />
+            <SecondaryButton label="Cancel" weight="regular" disabled={saving} onPress={onClose} />
           </View>
           <View style={styles.action}>
             <PrimaryButton label="Save price" loading={saving} loadingLabel="Saving" onPress={save} />

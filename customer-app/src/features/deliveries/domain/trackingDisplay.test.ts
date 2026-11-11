@@ -9,7 +9,7 @@ describe('tracking display', () => {
     expect(roadDistanceLabel(1200)).toBe('1.2 km');
     expect(roadDistanceLabel(12400)).toBe('12 km');
     expect(roadDistanceLabel(Number.NaN)).toBeNull();
-    expect(arrivalLabel(20)).toBe('Less than 1 min');
+    expect(arrivalLabel(20)).toBe('0 min');
     expect(arrivalLabel(420)).toBe('7 min');
     expect(arrivalLabel(-1)).toBeNull();
   });

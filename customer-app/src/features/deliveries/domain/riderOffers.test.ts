@@ -11,6 +11,7 @@ import {
   deliveryAwaitsRiderOffers,
   mergeIncomingOffers,
   offerCountLabel,
+  newOfferReceived,
   offersMissingSince,
   parcelTypeLabel,
   proximityLabel,
@@ -38,6 +39,7 @@ function offer(patch: Partial<CustomerBid> & Pick<CustomerBid, 'id' | 'amount'>)
     averageRating: null,
     ratingCount: 0,
     riderClass: 'SILVER',
+    mapPoint: null,
     ...patch,
   };
 }
@@ -98,6 +100,9 @@ describe('rider offer sorting', () => {
     expect(parcelTypeLabel('documents')).toBe('Document');
     expect(offersMissingSince(['a', 'b'], ['b'])).toBe(true);
     expect(offersMissingSince(['b'], ['b', 'c'])).toBe(false);
+    expect(newOfferReceived(['b'], ['b', 'c'])).toBe(true);
+    expect(newOfferReceived(['b', 'c'], ['b'])).toBe(false);
+    expect(newOfferReceived([], [])).toBe(false);
     expect(showsRiderOffers({ status: 'CREATED', serviceClass: 'FLEXIBLE', deliverBy: '2026-10-28T12:00:00.000Z' })).toBe(true);
     expect(showsRiderOffers({ status: 'CREATED', serviceClass: 'EXPRESS', deliverBy: '2026-10-28T12:00:00.000Z' })).toBe(true);
     expect(showsRiderOffers({ status: 'CREATED', serviceClass: 'FLEXIBLE' })).toBe(true);

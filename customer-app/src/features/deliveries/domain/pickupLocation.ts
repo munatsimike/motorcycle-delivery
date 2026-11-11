@@ -22,13 +22,6 @@ const ZIMBABWE_EXTENT: ReadonlyArray<readonly [number, number]> = [
   [26.40, -17.10],
 ];
 
-const NETHERLANDS_TEST_EXTENT = {
-  minLatitude: 50.75,
-  maxLatitude: 53.55,
-  minLongitude: 3.2,
-  maxLongitude: 7.23,
-};
-
 export type ReverseGeocodeParts = {
   name?: string | null;
   streetNumber?: string | null;
@@ -37,6 +30,26 @@ export type ReverseGeocodeParts = {
   city?: string | null;
   subregion?: string | null;
   region?: string | null;
+  country?: string | null;
+  isoCountryCode?: string | null;
+};
+
+export type ReverseAddress = {
+  /** Street number, street, and suburb shown in the field. */
+  display: string;
+  /** Complete address kept with the coordinates. */
+  fullAddress: string;
+  /** The lookup named a city but not a street. */
+  needsStreet: boolean;
+};
+
+export const STREET_ADDRESS_PROMPT = 'Enter the street address';
+export const ADDRESS_SEARCH_LABEL = 'Searching for address…';
+
+export type AddressAutofillDecision = {
+  status: 'apply' | 'needs-street' | 'ignore';
+  display: string;
+  fullAddress: string;
 };
 
 export type PickupFix = {
@@ -50,14 +63,22 @@ export type PickupPermission = 'granted' | 'denied' | 'blocked';
 
 export type PickupDetection =
   | { status: 'permission-denied' | 'permission-blocked' | 'services-off' | 'unavailable' | 'unsupported' }
-  | { status: 'confirm'; latitude: string; longitude: string; address: string; accuracyMetres: number };
+  | {
+    status: 'confirm';
+    latitude: string;
+    longitude: string;
+    address: string;
+    fullAddress: string;
+    needsStreet: boolean;
+    accuracyMetres: number;
+  };
 
 type PickupDetectionPorts = {
   servicesEnabled: boolean;
   permission: PickupPermission;
   requestPermission: () => Promise<PickupPermission>;
   readFix: () => Promise<PickupFix | 'timeout' | 'invalid'>;
-  reverseGeocode: (latitude: number, longitude: number) => Promise<string | null>;
+  reverseGeocode: (latitude: number, longitude: number) => Promise<ReverseAddress | null>;
   now: number;
 };
 
@@ -100,7 +121,7 @@ export function clientAllowsCoordinate(latitude: number, longitude: number, deve
   if (pointInRing(longitude, latitude, ZIMBABWE_EXTENT)) {
     return true;
   }
-  return development && inNetherlandsTestExtent(latitude, longitude);
+  return development;
 }
 
 export function classifyGpsFix(fix: PickupFix, now: number): 'ok' | 'invalid' {
@@ -125,17 +146,44 @@ export function classifyGpsFix(fix: PickupFix, now: number): 'ok' | 'invalid' {
 }
 
 export function formatReverseAddress(parts: ReverseGeocodeParts | null | undefined): string | null {
+  return readReverseAddress(parts)?.display || null;
+}
+
+/**
+ * A Zimbabwe lookup shows the street and suburb in the field.
+ * City and country stay on the stored address. A city-only result does not fill the field.
+ */
+export function readReverseAddress(parts: ReverseGeocodeParts | null | undefined): ReverseAddress | null {
   if (!parts) {
     return null;
   }
-  const street = [text(parts.streetNumber), text(parts.street)].filter((part) => part.length > 0).join(' ');
-  const area = unique([text(parts.district), text(parts.city), text(parts.subregion), text(parts.region)]);
-  const line = [street, ...area].filter((part) => part.length > 0).join(', ');
-  if (line) {
-    return line;
+  const city = text(parts.city) || text(parts.region);
+  const country = text(parts.country);
+  const suburb = suburbName(parts, city);
+  const street = streetLine(parts, city, suburb, country);
+  const zimbabwe = isZimbabwe(parts);
+  const display = unique(zimbabwe ? [street, suburb] : [street, suburb, city]).join(', ');
+  const fullAddress = unique([street, suburb, city, country]).join(', ');
+  if (!display && !fullAddress) {
+    return null;
   }
-  const name = text(parts.name);
-  return name || null;
+  const needsStreet = zimbabwe && street.length === 0;
+  return {
+    display: needsStreet ? '' : display,
+    fullAddress,
+    needsStreet,
+  };
+}
+
+/** A lookup that finishes after the customer has typed must not replace that text. */
+export function decideAddressAutofill(userEdited: boolean, result: ReverseAddress | null): AddressAutofillDecision {
+  if (userEdited || !result) {
+    return { status: 'ignore', display: '', fullAddress: '' };
+  }
+  if (result.needsStreet || !result.display) {
+    return { status: 'needs-street', display: '', fullAddress: result.fullAddress };
+  }
+  return { status: 'apply', display: result.display, fullAddress: result.fullAddress };
 }
 
 export async function detectPickupLocation(
@@ -165,17 +213,20 @@ export async function detectPickupLocation(
   if (!clientAllowsCoordinate(fix.latitude, fix.longitude, development)) {
     return { status: 'unsupported' };
   }
-  let address = '';
+  let found: ReverseAddress | null = null;
   try {
-    address = (await ports.reverseGeocode(fix.latitude, fix.longitude)) ?? '';
+    found = await ports.reverseGeocode(fix.latitude, fix.longitude);
   } catch {
-    address = '';
+    found = null;
   }
+  const decision = decideAddressAutofill(false, found);
   return {
     status: 'confirm',
     latitude: fix.latitude.toFixed(7),
     longitude: fix.longitude.toFixed(7),
-    address,
+    address: decision.display,
+    fullAddress: decision.status === 'ignore' ? '' : decision.fullAddress,
+    needsStreet: decision.status === 'needs-street',
     accuracyMetres: fix.accuracyMetres ?? 0,
   };
 }
@@ -195,7 +246,7 @@ export async function runPickupDetection(
 }
 
 export function applyConfirmedPickup(
-  confirmed: { latitude: string; longitude: string; address: string; landmark: string },
+  confirmed: { latitude: string; longitude: string; address: string; landmark: string; resolvedAddress?: string },
 ): { ok: true; patch: Partial<StopDraft> } | { ok: false; error: string } {
   const address = normalizeText(confirmed.address);
   if (!address || address.length > 500) {
@@ -214,6 +265,7 @@ export function applyConfirmedPickup(
     ok: true,
     patch: {
       address,
+      resolvedAddress: storedAddress(address, confirmed.resolvedAddress),
       landmark,
       latitude: confirmed.latitude,
       longitude: confirmed.longitude,
@@ -229,19 +281,59 @@ export function pickupAfterCancel<T>(current: T): T {
   return current;
 }
 
-function inNetherlandsTestExtent(latitude: number, longitude: number): boolean {
-  return latitude >= NETHERLANDS_TEST_EXTENT.minLatitude
-    && latitude <= NETHERLANDS_TEST_EXTENT.maxLatitude
-    && longitude >= NETHERLANDS_TEST_EXTENT.minLongitude
-    && longitude <= NETHERLANDS_TEST_EXTENT.maxLongitude;
-}
-
 function normalizeText(value: string): string {
   const textValue = value.trim().replace(/\s+/g, ' ');
   if (/[\u0000-\u001f]/.test(textValue)) {
     return '';
   }
   return textValue;
+}
+
+function storedAddress(visible: string, resolved: string | undefined): string {
+  const full = normalizeText(resolved ?? '');
+  if (!full || full.toLowerCase() === visible.toLowerCase()) {
+    return '';
+  }
+  return full;
+}
+
+function streetLine(parts: ReverseGeocodeParts, city: string, suburb: string, country: string): string {
+  const number = text(parts.streetNumber);
+  const street = text(parts.street);
+  if (number && street) {
+    return street.toLowerCase().startsWith(`${number.toLowerCase()} `) ? street : `${number} ${street}`;
+  }
+  if (street || number) {
+    return street || number;
+  }
+  const name = text(parts.name);
+  const blocked = new Set([city, suburb, country, text(parts.region), text(parts.district), text(parts.subregion)]
+    .filter((part) => part.length > 0)
+    .map((part) => part.toLowerCase()));
+  return name && !blocked.has(name.toLowerCase()) ? name : '';
+}
+
+function suburbName(parts: ReverseGeocodeParts, city: string): string {
+  const cityKey = city.toLowerCase();
+  const regionKey = text(parts.region).toLowerCase();
+  const district = text(parts.district);
+  if (district && district.toLowerCase() !== cityKey) {
+    return district;
+  }
+  const subregion = text(parts.subregion);
+  if (subregion && subregion.toLowerCase() !== cityKey && subregion.toLowerCase() !== regionKey) {
+    return subregion;
+  }
+  return '';
+}
+
+function isZimbabwe(parts: ReverseGeocodeParts): boolean {
+  const country = text(parts.country).toLowerCase();
+  const code = text(parts.isoCountryCode).toLowerCase();
+  if (code === 'zw' || country === 'zimbabwe') {
+    return true;
+  }
+  return country.length === 0 && code.length === 0;
 }
 
 function text(value: string | null | undefined): string {

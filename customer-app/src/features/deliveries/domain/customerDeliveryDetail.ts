@@ -21,7 +21,12 @@ export type PickupApproach = {
   line: RoutePoint[];
 };
 
-const VISIBLE_RIDER_LOCATION_STATUSES = new Set<DeliveryStatus>(['RIDER_ASSIGNED', 'COLLECTING']);
+const VISIBLE_RIDER_LOCATION_STATUSES = new Set<DeliveryStatus>([
+  'RIDER_ASSIGNED',
+  'COLLECTING',
+  'COLLECTED',
+  'OUT_FOR_DELIVERY',
+]);
 
 export function keepsRiderLocation(status: DeliveryStatus): boolean {
   return VISIBLE_RIDER_LOCATION_STATUSES.has(status);
@@ -38,9 +43,11 @@ export type CustomerDeliveryDetail = {
   deliverBy: string | null;
   distanceMeters: number;
   pickupAddress: string;
+  senderName: string | null;
   pickupLatitude: number | null;
   pickupLongitude: number | null;
   dropoffAddress: string;
+  recipientName: string | null;
   dropoffLatitude: number | null;
   dropoffLongitude: number | null;
   parcelDescription: string;
@@ -96,9 +103,11 @@ export function readCustomerDeliveryDetail(value: unknown): CustomerDeliveryDeta
     deliverBy,
     distanceMeters: value.distanceMeters,
     pickupAddress,
+    senderName: optionalName(value.pickup.contactName),
     pickupLatitude: pickupPoint.latitude,
     pickupLongitude: pickupPoint.longitude,
     dropoffAddress,
+    recipientName: optionalName(value.dropoff.contactName),
     dropoffLatitude: dropoffPoint.latitude,
     dropoffLongitude: dropoffPoint.longitude,
     parcelDescription,
@@ -205,6 +214,10 @@ function coordinate(value: unknown, limit: number): number | null {
 
 function text(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+function optionalName(value: unknown): string | null {
+  return text(value);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -5,20 +5,22 @@ export type AssignedRider = {
   verified: boolean;
   motorcycle: string | null;
   registrationNumber: string | null;
+  colour: string | null;
   phone: string | null;
   hasProfilePhoto: boolean;
 };
 
 const HEADING = new Set<DeliveryStatus>(['ASSIGNED', 'ARRIVED_AT_PICKUP', 'RIDER_ASSIGNED', 'COLLECTING']);
-const COLLECTED = new Set<DeliveryStatus>(['PICKED_UP', 'COLLECTED']);
-const TRANSIT = new Set<DeliveryStatus>(['IN_TRANSIT', 'ARRIVED_AT_DROPOFF', 'OUT_FOR_DELIVERY']);
+const COLLECTED = new Set<DeliveryStatus>(['PICKED_UP', 'COLLECTED', 'OUT_FOR_DELIVERY']);
+const TRANSIT = new Set<DeliveryStatus>(['IN_TRANSIT', 'ARRIVED_AT_DROPOFF']);
 const CANCEL_BEFORE_PICKUP = new Set<DeliveryStatus>(['RIDER_ASSIGNED', 'COLLECTING']);
 
 export function trackingHeadline(status: DeliveryStatus, distanceMetres?: number | null): string | null {
   if (HEADING.has(status)) {
-    return distanceMetres != null && Number.isFinite(distanceMetres) && distanceMetres >= 0 && Math.round(distanceMetres) === 0
-      ? 'Rider arrived'
-      : 'Rider on the way';
+    if (distanceMetres != null && Number.isFinite(distanceMetres) && distanceMetres >= 0 && Math.round(distanceMetres) === 0) {
+      return 'Rider arrived';
+    }
+    return status === 'RIDER_ASSIGNED' || status === 'COLLECTING' ? 'Rider coming' : 'Rider on the way';
   }
   if (COLLECTED.has(status)) {
     return 'Parcel collected';
@@ -32,12 +34,32 @@ export function trackingHeadline(status: DeliveryStatus, distanceMetres?: number
   return null;
 }
 
+export function trackingSubtitle(headline: string | null, dropoffAddress?: string | null): string | null {
+  if (headline === 'Rider coming' || headline === 'Rider on the way') {
+    return 'Your rider is coming to pick up your parcel.';
+  }
+  if (headline === 'Rider arrived') {
+    return 'Handover your parcel to the rider.';
+  }
+  if (headline === 'Parcel collected') {
+    const address = dropoffAddress?.trim();
+    return address ? `On its way to ${address}.` : null;
+  }
+  return null;
+}
+
 export function customerCanCancelDelivery(status: DeliveryStatus): boolean {
   return CANCEL_BEFORE_PICKUP.has(status);
 }
 
+export const ASSIGNMENT_NOTICE_MS = 2400;
+
 export function shouldShowAssignmentNotice(openedAfterAcceptance: boolean): boolean {
   return openedAfterAcceptance;
+}
+
+export function assignmentNoticeVisible(openedAfterAcceptance: boolean, elapsedMs: number): boolean {
+  return shouldShowAssignmentNotice(openedAfterAcceptance) && elapsedMs >= 0 && elapsedMs < ASSIGNMENT_NOTICE_MS;
 }
 
 export function bidProfilePhotoPath(deliveryId: string, bidId: string): string {
@@ -46,6 +68,11 @@ export function bidProfilePhotoPath(deliveryId: string, bidId: string): string {
 
 export function assignedRiderPhotoPath(deliveryId: string): string {
   return `/customers/me/deliveries/${encodeURIComponent(deliveryId)}/rider-profile-photo`;
+}
+
+export function riderBikeLine(motorcycle: string | null, registrationNumber: string | null): string | null {
+  const line = [motorcycle, registrationNumber].filter((part): part is string => Boolean(part)).join(' ');
+  return line || null;
 }
 
 export function riderInitials(name: string): string {
@@ -82,12 +109,14 @@ export function readAssignedRider(value: unknown): AssignedRider | null {
   const registrationNumber = typeof record.registrationNumber === 'string' && record.registrationNumber.trim()
     ? record.registrationNumber.trim()
     : null;
+  const colour = typeof record.colour === 'string' && record.colour.trim() ? record.colour.trim() : null;
   const phone = typeof record.phone === 'string' && record.phone.trim() ? record.phone.trim() : null;
   return {
     name,
     verified: record.verified === true,
     motorcycle,
     registrationNumber,
+    colour,
     phone,
     hasProfilePhoto: record.hasProfilePhoto === true,
   };

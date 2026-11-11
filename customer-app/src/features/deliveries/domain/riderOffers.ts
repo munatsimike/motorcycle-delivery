@@ -181,6 +181,12 @@ export function offersMissingSince(previous: readonly string[], next: readonly s
   return previous.some((id) => !current.has(id));
 }
 
+/** True when a rider has sent an offer that was not in the previous list. */
+export function newOfferReceived(previous: readonly string[], next: readonly string[]): boolean {
+  const seen = new Set(previous);
+  return next.some((id) => !seen.has(id));
+}
+
 function comparePrice(left: CustomerBid, right: CustomerBid): number {
   return Number(left.amount) - Number(right.amount);
 }

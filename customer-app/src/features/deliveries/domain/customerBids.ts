@@ -25,6 +25,7 @@ export type CustomerBid = {
   registrationNumber: string | null;
   hasProfilePhoto: boolean;
   pickupEtaSeconds: number | null;
+  mapPoint: { latitude: number; longitude: number } | null;
 };
 
 export type BidAcceptance = {
@@ -225,6 +226,7 @@ function readCustomerBid(value: unknown): CustomerBid {
     registrationNumber,
     hasProfilePhoto: isRecord(value.rider) && value.rider.hasProfilePhoto === true,
     pickupEtaSeconds: readEtaSeconds(isRecord(value.rider) ? value.rider.pickupEtaSeconds : undefined),
+    mapPoint: readMapPoint(isRecord(value.rider) ? value.rider.mapPoint : undefined),
   };
 }
 
@@ -253,6 +255,21 @@ function readCount(value: unknown): number | undefined {
     return undefined;
   }
   return value;
+}
+
+function readMapPoint(value: unknown): { latitude: number; longitude: number } | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const latitude = typeof value.latitude === 'number' ? value.latitude : Number.NaN;
+  const longitude = typeof value.longitude === 'number' ? value.longitude : Number.NaN;
+  if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90) {
+    return null;
+  }
+  if (!Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+    return null;
+  }
+  return { latitude, longitude };
 }
 
 function readEtaSeconds(value: unknown): number | null {

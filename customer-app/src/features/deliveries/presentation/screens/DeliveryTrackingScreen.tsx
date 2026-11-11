@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Pressable, RefreshControl, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
 
@@ -15,12 +15,11 @@ import SecondaryButton from '../../../../components/SecondaryButton';
 import { errorMessage } from '../../../auth/presentation/errorMessage';
 import { useSession } from '../../../auth/presentation/viewmodels/useSession';
 import type { RootStackParamList } from '../../../../navigation/types';
-import { colors, radius, spacing, typography } from '../../../../theme';
+import { bottomContentInset, colors, radius, spacing, typography } from '../../../../theme';
 import { customerDeliveryRepository } from '../../data/CustomerDeliveryApiRepository';
 import { cancelCustomerDelivery } from '../../domain/usecases/cancelCustomerDelivery';
 import { displayedCustomerOffer, type CustomerDeliveryDetail } from '../../domain/customerDeliveryDetail';
 import ParcelDetailsSheet, { Summary } from '../components/ParcelDetailsSheet';
-import { shortDeliveryReference } from '../../domain/deliveryCard';
 import { deliveryCanDelete, deliveryCanSearchAgain, deliveryStatusLabel, usesDeliveryOutcomeScreen } from '../../domain/deliveryStatus';
 import {
   bidCanAccept,
@@ -30,11 +29,12 @@ import {
   type BidAcceptance,
   type CustomerBid,
 } from '../../domain/customerBids';
-import { isMarketplaceDelivery } from '../../domain/marketplaceTracking';
+import { showsLiveTrackingMap } from '../../domain/marketplaceTracking';
 import { riderAcceptedTrackingTarget } from '../../domain/customerDeliveryList';
 import { riderSearchView } from '../../domain/riderSearchView';
 import {
   deliveryAwaitsRiderOffers,
+  newOfferReceived,
   pickupEtaLabel,
   receivedOfferCountLabel,
   riderInitials,
@@ -45,23 +45,17 @@ import {
 import { riderClassColors, riderClassLabel, riderRatingLine } from '../../domain/riderClass';
 import { ratingPromptVisible } from '../../domain/riderRating';
 import AdjustPriceSheet from '../components/AdjustPriceSheet';
-import DeliveryOutcome, { deliveryOutcomeTitle } from '../components/DeliveryOutcome';
+import DeliveryDetailFrame from '../components/DeliveryDetailFrame';
+import RidersMap from '../../../../components/maps/RidersMap';
+import DeliveryOutcome from '../components/DeliveryOutcome';
 import MarketplaceDelivery from '../components/MarketplaceDelivery';
 import RiderPortrait from '../components/RiderPortrait';
 import { bidProfilePhotoPath } from '../../domain/trackingJourney';
+import { useNearbyRiders } from '../../../riders/presentation/viewmodels/useNearbyRiders';
 import { useDeliveryTracking } from '../viewmodels/useDeliveryTracking';
 import { useIncomingOffers } from '../viewmodels/useIncomingOffers';
 
 type DeliveryTrackingProps = NativeStackScreenProps<RootStackParamList, 'DeliveryTracking'>;
-
-const TITLES = {
-  loading: 'Track Delivery',
-  searching: 'Delivery offers',
-  assigned: 'Rider assigned',
-  'no-rider': 'No rider found',
-  offline: 'Track Delivery',
-  details: 'Track Delivery',
-} as const;
 
 const OFFER_SORTS: { id: OfferSort; label: string; shortLabel: string; icon: 'sort-ascending' | 'sort-descending' }[] = [
   { id: 'price', label: 'Price: lowest to highest', shortLabel: 'Price', icon: 'sort-ascending' },
@@ -72,6 +66,9 @@ const OFFER_SORTS: { id: OfferSort; label: string; shortLabel: string; icon: 'so
 
 export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTrackingProps) {
   const { accessToken } = useSession();
+  const insets = useSafeAreaInsets();
+  const nearby = useNearbyRiders(accessToken);
+  const [offersSheetHeight, setOffersSheetHeight] = useState(0);
   const { delivery, isLoading, isRefreshing, error, reload, cancelling, cancelError, cancelSearch } = useDeliveryTracking(accessToken, route.params.deliveryId);
   const deliveryRef = useRef(delivery);
   deliveryRef.current = delivery;
@@ -110,6 +107,8 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
     : delivery;
   const awaitingOffers = deliveryAwaitsRiderOffers(shown);
   const offers = sortRiderOffers(incoming.offers, offerSort);
+  const offerKey = offers.map((bid) => bid.id).join('\n');
+  const seenOffers = useRef<{ deliveryId: string | null; ids: string[] }>({ deliveryId: null, ids: [] });
   const selectedOfferSort = OFFER_SORTS.find((item) => item.id === offerSort) ?? OFFER_SORTS[0];
   const offerSelectionBusy = incoming.chosen || incoming.acceptingId !== null;
   const view = riderSearchView({
@@ -132,39 +131,21 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
   useEffect(() => {
     if (incoming.chosen) {
       setPendingConfirm(null);
+      setDetailsOpen(false);
+      setSortOpen(false);
     }
   }, [incoming.chosen]);
 
-  useLayoutEffect(() => {
-    const headerRight = undefined;
-    if (awaitingOffers) {
-      navigation.setOptions({ title: TITLES.searching, headerRight });
-      return;
+  useEffect(() => {
+    const nextIds = offerKey ? offerKey.split('\n') : [];
+    const sameRequest = seenOffers.current.deliveryId === (delivery?.id ?? null);
+    const arrived = sameRequest && newOfferReceived(seenOffers.current.ids, nextIds);
+    seenOffers.current = { deliveryId: delivery?.id ?? null, ids: nextIds };
+    if (arrived) {
+      setDetailsOpen(false);
+      setSortOpen(false);
     }
-    if (view === 'searching') {
-      navigation.setOptions({ title: 'Delivery', headerRight });
-      return;
-    }
-    if (shown && usesDeliveryOutcomeScreen(shown.status)) {
-      navigation.setOptions({ title: deliveryOutcomeTitle(shown.status), headerRight });
-      return;
-    }
-    if (isMarketplaceDelivery(shown) && shown && !showsRiderOffers(shown) && !usesDeliveryOutcomeScreen(shown.status)) {
-      const reference = shortDeliveryReference(shown.id);
-      navigation.setOptions({
-        title: 'Track delivery',
-        headerRight: () => (
-          <Text style={styles.reference}>Reference {reference}</Text>
-        ),
-      });
-      return;
-    }
-    if (isMarketplaceDelivery(shown)) {
-      navigation.setOptions({ title: 'Track delivery', headerRight });
-      return;
-    }
-    navigation.setOptions({ title: TITLES[view], headerRight });
-  }, [navigation, view, shown, awaitingOffers]);
+  }, [delivery?.id, offerKey]);
 
   function confirmCancelSearch() {
     if (cancelling) {
@@ -247,7 +228,8 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
     setPendingConfirm(bid);
   }
 
-  const outcomeDelivery = shown && usesDeliveryOutcomeScreen(shown.status) ? shown : null;
+  const liveMap = showsLiveTrackingMap(shown) && shown !== null && !showsRiderOffers(shown);
+  const outcomeDelivery = shown && usesDeliveryOutcomeScreen(shown.status) && !liveMap ? shown : null;
   if (outcomeDelivery) {
     const canSearch = deliveryCanSearchAgain(outcomeDelivery);
     const canDelete = deliveryCanDelete(outcomeDelivery);
@@ -262,6 +244,7 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
       <>
         <DeliveryOutcome
           delivery={outcomeDelivery}
+          onBack={() => navigation.goBack()}
           accessToken={accessToken}
           message={error ?? actionError ?? cancelError}
           customerOffer={showCustomerOffer}
@@ -272,7 +255,10 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
           } : undefined}
         >
           {submittedStars ? (
-            <Text style={styles.ratedNote}>You rated this rider {submittedStars} of 5.</Text>
+            <View style={styles.ratedNoteRow}>
+              <MaterialDesignIcons name="star" size={19} color="#E8A317" />
+              <Text style={styles.ratedNote}>You rated this rider {submittedStars} of 5.</Text>
+            </View>
           ) : null}
           {rating.eligible && !submittedStars && ratingSkipped ? (
             <SecondaryButton
@@ -299,6 +285,7 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
                   label="Delete"
                   tone="danger"
                   bordered={false}
+                  weight="regular"
                   loading={deleting}
                   onPress={confirmDelete}
                 />
@@ -347,7 +334,7 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
     );
   }
 
-  if (isMarketplaceDelivery(shown) && shown && !showsRiderOffers(shown) && !usesDeliveryOutcomeScreen(shown.status)) {
+  if (liveMap && shown) {
     return (
       <MarketplaceDelivery
         delivery={shown}
@@ -358,16 +345,45 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
         onContinueConfirmation={() => navigation.setParams({ riderConfirmed: false })}
         onRefreshDelivery={reload}
         refreshing={isRefreshing}
+        onBack={() => navigation.goBack()}
       />
     );
   }
 
   return (
-    <SafeAreaView style={styles.screen} edges={['bottom']}>
-      <ScrollView
-        style={styles.offerScroll}
-        contentContainerStyle={styles.content}
-        removeClippedSubviews={false}
+    <View style={styles.screen}>
+      <DeliveryDetailFrame
+        onBack={() => navigation.goBack()}
+        overlap={awaitingOffers ? 28 : 100}
+        autoGrowOffers={awaitingOffers}
+        topOutline
+        onSheetHeight={setOffersSheetHeight}
+        header={awaitingOffers && shown ? (
+          <View style={{ flex: 1 }}>
+            <RidersMap
+              customerLocation={shown.pickupLatitude !== null && shown.pickupLongitude !== null ? { latitude: shown.pickupLatitude, longitude: shown.pickupLongitude } : null}
+              pickupLocation={shown.pickupLatitude !== null && shown.pickupLongitude !== null ? { latitude: shown.pickupLatitude, longitude: shown.pickupLongitude } : null}
+              showCustomerMarker={false}
+              interactive={false}
+              neighborhoodView
+              bottomPadding={offersSheetHeight}
+              searchPulse
+              riders={[
+                ...offers.flatMap((bid) => (
+                  bid.status === 'OPEN' && bid.mapPoint
+                    ? [{ id: bid.id, latitude: bid.mapPoint.latitude, longitude: bid.mapPoint.longitude }]
+                    : []
+                )),
+                ...nearby.points.map((point) => ({
+                  id: point.id,
+                  latitude: point.latitude,
+                  longitude: point.longitude,
+                })),
+              ]}
+            />
+
+          </View>
+        ) : undefined}
         refreshControl={awaitingOffers ? (
           <RefreshControl
             refreshing={incoming.refreshing}
@@ -383,26 +399,6 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
         {awaitingOffers ? (
           <View style={styles.requestSent}>
             <View style={styles.offersIntro}>
-              <View style={styles.offersToolbar}>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Cancel request"
-                  disabled={cancelling}
-                  hitSlop={8}
-                  onPress={confirmCancelSearch}
-                >
-                  <Text style={styles.cancelRequestLink}>{cancelling ? 'Cancelling' : 'Cancel request'}</Text>
-                </Pressable>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Parcel details"
-                  onPress={() => setDetailsOpen(true)}
-                  style={styles.parcelDetails}
-                >
-                  <Text style={styles.parcelDetailsText}>Parcel details</Text>
-                  <MaterialDesignIcons name="chevron-up" size={18} color={colors.primary} />
-                </Pressable>
-              </View>
               <View style={styles.offersHeading}>
                 <Text style={styles.offerCount}>{receivedOfferCountLabel(offers.length)}</Text>
                 <Pressable
@@ -471,11 +467,33 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
             <View style={styles.requestIcon}>
               <MaterialDesignIcons name="check" size={24} color={colors.primary} />
             </View>
-            <Text style={styles.title}>Request sent</Text>
-            <Text style={styles.support}>Waiting for riders response</Text>
+            <Text style={styles.title}>Looking for your rider</Text>
+            <Text style={styles.support}>Your request is live. Offers will appear here as riders respond.</Text>
           </View>
         ) : null}
-      </ScrollView>
+        {awaitingOffers ? (
+          <View style={styles.offersToolbar}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Cancel request"
+              disabled={cancelling}
+              hitSlop={8}
+              onPress={confirmCancelSearch}
+            >
+              <Text style={styles.cancelRequestLink}>{cancelling ? 'Cancelling' : 'Cancel request'}</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Parcel details"
+              onPress={() => setDetailsOpen(true)}
+              style={styles.parcelDetails}
+            >
+              <Text style={styles.parcelDetailsText}>Parcel details</Text>
+              <MaterialDesignIcons name="chevron-up" size={18} color={colors.primary} />
+            </Pressable>
+          </View>
+        ) : null}
+      </DeliveryDetailFrame>
       <ConfirmRiderSheet
         bid={pendingConfirm}
         loading={confirmRiderSheetState(incoming.acceptingId, pendingConfirm?.id ?? null).loading}
@@ -499,7 +517,7 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
         onCancel={confirmCancelSearch}
       />
       <BottomSheetModal visible={sortOpen} onClose={() => setSortOpen(false)} closeLabel="Close sort">
-        <View style={styles.sheet}>
+        <View style={[styles.sheet, { paddingBottom: bottomContentInset(insets.bottom) }]}>
           <Text style={styles.sortTitle}>Sort by</Text>
           <View accessibilityRole="radiogroup">
             {OFFER_SORTS.map((item) => {
@@ -541,11 +559,13 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
           <DialogTextButton
             label={prompt === 'delete' ? 'Cancel' : 'Keep request'}
             tone="neutral"
+            weight={prompt === 'delete' ? 'regular' : 'bold'}
             onPress={() => setPrompt(null)}
           />
           <DialogTextButton
             label={prompt === 'delete' ? 'Delete' : 'Cancel request'}
             tone="danger"
+            weight={prompt === 'delete' ? 'bold' : 'regular'}
             onPress={() => {
               const next = prompt;
               setPrompt(null);
@@ -558,7 +578,7 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
           />
         </DialogActions>
       </DialogModal>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -567,7 +587,7 @@ function headline(
   delivery: CustomerDeliveryDetail | null,
 ): string {
   if (view === 'assigned') {
-    return 'Rider assigned';
+    return 'Rider coming';
   }
   if (view === 'offline') {
     return 'Connection problem';
@@ -609,17 +629,18 @@ function OfferCard({
   onDecline: () => void;
 }) {
   const eta = pickupEtaLabel(bid.pickupEtaSeconds);
+  const etaReady = eta !== 'ETA unavailable';
   const summary = riderRatingLine(bid);
   const classTone = riderClassColors[bid.riderClass];
+  const { width, fontScale } = useWindowDimensions();
+  const badgeBesideName = width >= 360 && fontScale < 1.3;
+  const badge = (
+    <View style={[styles.classPill, { backgroundColor: classTone.background }]}>
+      <Text style={[styles.classPillText, { color: classTone.text }]}>{riderClassLabel(bid.riderClass)}</Text>
+    </View>
+  );
   return (
     <View style={[styles.card, styles.offerCard]}>
-      <View style={styles.offerTop}>
-        <Text style={[styles.offerPrice, styles.offerCardPrice]}>${bid.amount}</Text>
-        <View style={styles.offerEta}>
-          <MaterialDesignIcons name="clock-outline" size={16} color={colors.textSecondary} />
-          <Text style={styles.offerEtaText}>{eta}</Text>
-        </View>
-      </View>
       <View style={styles.offerIdentity}>
         <RiderPortrait
           name={bid.riderName}
@@ -632,21 +653,28 @@ function OfferCard({
         <View style={styles.offerCopy}>
           <View style={styles.offerNameRow}>
             <Text numberOfLines={1} style={styles.offerName}>{bid.riderName}</Text>
-            <View style={[styles.classPill, { backgroundColor: classTone.background }]}>
-              <Text style={[styles.classPillText, { color: classTone.text }]}>{riderClassLabel(bid.riderClass)}</Text>
-            </View>
+            {badgeBesideName ? badge : null}
           </View>
+          {badgeBesideName ? null : badge}
           {bid.motorcycle ? <Text numberOfLines={1} style={styles.offerMeta}>{bid.motorcycle}</Text> : null}
           <View style={styles.offerRatingRow}>
             <MaterialDesignIcons name="star" size={14} color="#E8A317" />
             {summary.rating ? <Text style={styles.offerRating}>{summary.rating}</Text> : null}
-            <Text style={styles.offerMeta}>{summary.rides}</Text>
+            {summary.rating ? <Text style={styles.offerMeta}>·</Text> : null}
+            <Text numberOfLines={1} style={styles.offerRides}>{summary.rides}</Text>
+          </View>
+        </View>
+        <View style={styles.offerPriceBlock}>
+          <Text numberOfLines={1} style={[styles.offerPrice, styles.offerCardPrice]}>${bid.amount}</Text>
+          <View style={styles.offerEta}>
+            {etaReady ? <MaterialDesignIcons name="clock-outline" size={14} color={colors.textSecondary} /> : null}
+            <Text style={styles.offerEtaText}>{eta}</Text>
           </View>
         </View>
       </View>
       {bidCanAccept(bid) ? (
         <View style={styles.offerActions}>
-          <Pressable accessibilityRole="button" disabled={busy} onPress={onDecline} hitSlop={8}>
+          <Pressable accessibilityRole="button" disabled={busy} onPress={onDecline} hitSlop={8} style={styles.declineHit}>
             <Text style={styles.decline}>Decline</Text>
           </Pressable>
           <PrimaryButton
@@ -708,6 +736,7 @@ function RateRiderSheet({
   onSkip: () => void;
   onSubmit: (stars: number) => void;
 }) {
+  const insets = useSafeAreaInsets();
   const [stars, setStars] = useState(0);
   useEffect(() => {
     if (visible) {
@@ -716,7 +745,7 @@ function RateRiderSheet({
   }, [visible]);
   return (
     <BottomSheetModal visible={visible} onClose={onSkip} closeLabel="Skip rating">
-      <View style={styles.sheet}>
+      <View style={[styles.sheet, { paddingBottom: bottomContentInset(insets.bottom) }]}>
         <Text style={styles.sortTitle}>Rate your rider</Text>
         <Text style={styles.offerMeta}>Optional. Skipping does not change this delivery.</Text>
         <View style={styles.starRow}>
@@ -752,7 +781,7 @@ function OfferSkeleton() {
   return (
     <View style={styles.card}>
       <View style={styles.offerIdentity}>
-        <View style={styles.avatar} />
+        <View style={styles.offerAvatar} />
         <View style={styles.skeletonLines}>
           <View style={styles.skeletonLine} />
           <View style={styles.skeletonLineShort} />
@@ -771,10 +800,26 @@ const styles = StyleSheet.create({
   },
   screen: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: '#F7FCF9',
+    overflow: 'hidden',
+  },
+  deliveryMap: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 200,
+  },
+  deliveryMapWash: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
   },
   offerScroll: {
     flex: 1,
+    backgroundColor: 'transparent',
   },
   content: {
     flexGrow: 1,
@@ -794,7 +839,6 @@ const styles = StyleSheet.create({
   requestSent: {
     alignItems: 'stretch',
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
     paddingBottom: spacing.xs,
     gap: spacing.sm,
   },
@@ -819,11 +863,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     alignSelf: 'stretch',
     justifyContent: 'space-between',
-    marginBottom: spacing.lg,
+    marginTop: spacing.lg,
+    paddingHorizontal: spacing.lg,
   },
   cancelRequestLink: {
     fontSize: typography.button,
-    fontWeight: '500',
+    fontWeight: '400',
     color: colors.error,
   },
   offersHeading: {
@@ -868,28 +913,27 @@ const styles = StyleSheet.create({
   },
   offerIdentity: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-  },
-  offerTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    alignItems: 'flex-start',
     gap: spacing.md,
   },
   offerEta: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'flex-end',
     gap: 4,
+    maxWidth: '100%',
   },
   offerEtaText: {
+    flexShrink: 1,
     fontSize: typography.caption,
+    lineHeight: 18,
+    textAlign: 'right',
     color: colors.textSecondary,
   },
   offerRatingRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    flexWrap: 'wrap',
+    minWidth: 0,
     gap: spacing.xs,
   },
   offerRating: {
@@ -900,9 +944,10 @@ const styles = StyleSheet.create({
   },
   classPill: {
     alignSelf: 'flex-start',
+    flexShrink: 0,
     borderRadius: radius.pill,
-    paddingHorizontal: spacing.xs,
-    paddingVertical: 0,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
   },
   classPillCenter: {
     alignSelf: 'center',
@@ -915,10 +960,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'flex-end',
-    gap: spacing.xl,
+    gap: spacing.md,
+  },
+  declineHit: {
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.sm,
   },
   chooseLabel: {
-    fontWeight: '500',
+    fontSize: 16,
+    fontWeight: '600',
   },
   decline: {
     fontSize: typography.button,
@@ -931,6 +982,12 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     paddingVertical: spacing.sm,
   },
+  ratedNoteRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+  },
   ratedNote: {
     fontSize: typography.body,
     color: colors.textSecondary,
@@ -938,22 +995,24 @@ const styles = StyleSheet.create({
   },
   offerCard: {
     overflow: 'hidden',
-    padding: spacing.sm,
-    gap: spacing.xs,
-    backgroundColor: '#F8FAF9',
+    paddingVertical: spacing.md,
+    gap: spacing.sm,
   },
   offerCopy: {
     flex: 1,
-    gap: 1,
+    flexShrink: 1,
+    minWidth: 0,
+    gap: 2,
   },
   offerNameRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    minWidth: 0,
     gap: spacing.xs,
   },
   offerAvatar: {
-    width: 40,
-    height: 40,
+    width: 48,
+    height: 48,
     borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
@@ -974,11 +1033,19 @@ const styles = StyleSheet.create({
   },
   offerName: {
     flexShrink: 1,
+    minWidth: 0,
     fontSize: typography.body,
-    lineHeight: 18,
-    fontWeight: '600',
+    lineHeight: 20,
+    fontWeight: '700',
     color: colors.text,
     includeFontPadding: false,
+  },
+  offerRides: {
+    flexShrink: 1,
+    minWidth: 0,
+    fontSize: typography.caption,
+    lineHeight: 16,
+    color: colors.textSecondary,
   },
   offerCardPrice: {
     fontSize: 22,
@@ -993,6 +1060,7 @@ const styles = StyleSheet.create({
   offerPriceBlock: {
     alignItems: 'flex-end',
     flexShrink: 0,
+    maxWidth: 132,
     gap: 2,
   },
   offerPriceLabel: {

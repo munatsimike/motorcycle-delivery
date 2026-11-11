@@ -17,7 +17,7 @@ export function arrivalLabel(seconds: number): string | null {
     return null;
   }
   if (seconds < 30) {
-    return 'Less than 1 min';
+    return '0 min';
   }
   const minutes = Math.max(1, Math.round(seconds / 60));
   return `${minutes} min`;

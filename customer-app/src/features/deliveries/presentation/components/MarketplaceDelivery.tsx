@@ -1,8 +1,7 @@
-import { useEffect, useState } from 'react';
-import { Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Linking, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useIsFocused } from '@react-navigation/native';
 
 import DialogModal, { DialogActions, DialogBody, DialogTextButton, DialogTitle } from '../../../../components/DialogModal';
@@ -14,21 +13,27 @@ import { customerDeliveryRepository } from '../../data/CustomerDeliveryApiReposi
 import { cancelCustomerDelivery } from '../../domain/usecases/cancelCustomerDelivery';
 import { keepsRiderLocation, type CustomerDeliveryDetail } from '../../domain/customerDeliveryDetail';
 import { deliveryStatusLabel } from '../../domain/deliveryStatus';
+import { deliveryStatusTone } from '../deliveryStatusTone';
 import {
   customerCanCancelDelivery,
   riderDialUrl,
   riderWhatsAppCallUrl,
   assignedRiderPhotoPath,
+  riderBikeLine,
   riderInitials,
+  ASSIGNMENT_NOTICE_MS,
+  assignmentNoticeVisible,
   shouldShowAssignmentNotice,
   trackingHeadline,
+  trackingSubtitle,
 } from '../../domain/trackingJourney';
 import RiderPortrait from './RiderPortrait';
 import { trackingMapView } from '../../domain/marketplaceTracking';
+import { TRACKING_SHEET_OVERLAP } from '../../domain/trackingCamera';
 import { arrivalLabel, roadDistanceLabel } from '../../domain/trackingDisplay';
+import DeliveryDetailFrame from './DeliveryDetailFrame';
 import ParcelDetailsSheet from './ParcelDetailsSheet';
 import RiderLocationMap from './RiderLocationMap';
-import { TRACKING_SHEET_OVERLAP } from '../../domain/trackingCamera';
 
 type MarketplaceDeliveryProps = {
   delivery: CustomerDeliveryDetail;
@@ -39,6 +44,7 @@ type MarketplaceDeliveryProps = {
   onContinueConfirmation?: () => void;
   onRefreshDelivery: () => void;
   refreshing: boolean;
+  onBack: () => void;
 };
 
 export default function MarketplaceDelivery({
@@ -50,6 +56,7 @@ export default function MarketplaceDelivery({
   onContinueConfirmation,
   onRefreshDelivery,
   refreshing,
+  onBack,
 }: MarketplaceDeliveryProps) {
   const focused = useIsFocused();
   const [cancelling, setCancelling] = useState(false);
@@ -60,21 +67,35 @@ export default function MarketplaceDelivery({
   const now = useTrackingClock(focused && tracking);
   const mapView = trackingMapView(delivery, now);
   const live = mapView.kind === 'live';
-  const showMap = mapView.kind !== 'hidden';
   const approach = live ? delivery.pickupApproach : null;
   const headline = trackingHeadline(delivery.status, approach?.metres);
+  const statusTone = deliveryStatusTone(delivery.status);
+  const bikeLine = delivery.rider ? riderBikeLine(delivery.rider.motorcycle, delivery.rider.registrationNumber) : null;
+  const subtitle = trackingSubtitle(headline, delivery.dropoffAddress);
   const distanceText = approach ? roadDistanceLabel(approach.metres) : null;
   const arrivalText = approach ? arrivalLabel(approach.seconds) : null;
-  const showNotice = shouldShowAssignmentNotice(showRiderConfirmation);
+  const [noticeElapsed, setNoticeElapsed] = useState(ASSIGNMENT_NOTICE_MS);
+  const dismissNotice = useRef(onContinueConfirmation);
+  dismissNotice.current = onContinueConfirmation;
+  const showNotice = assignmentNoticeVisible(showRiderConfirmation, noticeElapsed);
   const deadline = delivery.deliverBy ? formatDeadline(delivery.deliverBy) : null;
+
+  useEffect(() => {
+    if (!shouldShowAssignmentNotice(showRiderConfirmation)) {
+      setNoticeElapsed(ASSIGNMENT_NOTICE_MS);
+      return undefined;
+    }
+    setNoticeElapsed(0);
+    const timer = setTimeout(() => {
+      setNoticeElapsed(ASSIGNMENT_NOTICE_MS);
+      dismissNotice.current?.();
+    }, ASSIGNMENT_NOTICE_MS);
+    return () => clearTimeout(timer);
+  }, [showRiderConfirmation]);
 
   useEffect(() => {
     setDetailsOpen(false);
   }, [delivery.id]);
-
-  function dismissNotice() {
-    onContinueConfirmation?.();
-  }
 
   function callRider() {
     const url = riderDialUrl(delivery.rider?.phone ?? null);
@@ -116,72 +137,66 @@ export default function MarketplaceDelivery({
     }
   }
 
+  const mapHeader = mapView.kind === 'live' ? (
+    <RiderLocationMap
+      deliveryId={mapView.deliveryId}
+      live
+      rider={mapView.rider}
+      stop={mapView.stop}
+      headingToDropoff={mapView.headingToDropoff}
+      line={approach?.line ?? []}
+      distanceLabel={distanceText}
+      etaLabel={arrivalText}
+    />
+  ) : mapView.kind === 'awaiting' ? (
+    <RiderLocationMap
+      deliveryId={mapView.deliveryId}
+      live={false}
+      rider={null}
+      stop={mapView.stop}
+      headingToDropoff={mapView.headingToDropoff}
+      line={[]}
+      distanceLabel={null}
+      etaLabel={null}
+    />
+  ) : undefined;
+
   return (
-    <SafeAreaView style={styles.screen} edges={['bottom']}>
-      <ScrollView
-        contentContainerStyle={styles.content}
-        nestedScrollEnabled
-        removeClippedSubviews={false}
+    <View style={styles.screen}>
+      <DeliveryDetailFrame
+        onBack={onBack}
+        header={mapHeader}
+        overlap={TRACKING_SHEET_OVERLAP}
+        hugSheet
+        topOutline
         refreshControl={(
           <RefreshControl refreshing={refreshing} onRefresh={onRefreshDelivery} tintColor={colors.primary} colors={[colors.primary]} />
         )}
       >
-        {mapView.kind === 'live' ? (
-          <RiderLocationMap
-            deliveryId={mapView.deliveryId}
-            live
-            rider={mapView.rider}
-            pickup={mapView.pickup}
-            line={approach?.line ?? []}
-            distanceLabel={distanceText}
-          />
-        ) : mapView.kind === 'awaiting' ? (
-          <RiderLocationMap
-            deliveryId={mapView.deliveryId}
-            live={false}
-            rider={null}
-            pickup={mapView.pickup}
-            line={[]}
-            distanceLabel={null}
-          />
-        ) : null}
-        <View pointerEvents="box-none" style={showMap ? styles.sheet : undefined}>
-          {showMap ? (
-            <LinearGradient
-              pointerEvents="none"
-              colors={['rgba(255,255,255,0)', 'rgba(255,255,255,0)', colors.background]}
-              locations={[0, 0.42, 1]}
-              style={styles.sheetFade}
-            />
+          <View style={styles.inset}>
+          {showNotice ? (
+            <View style={styles.confirmNote}>
+              <View style={styles.confirmMark}>
+                <MaterialDesignIcons name="check" size={18} color={colors.primaryDark} />
+              </View>
+              <View style={styles.confirmCopy}>
+                <Text style={styles.confirmTitle}>Rider confirmed!</Text>
+                <Text style={styles.confirmBody}>Your rider has been assigned to your delivery.</Text>
+              </View>
+            </View>
           ) : null}
-          <View style={[styles.inset, showMap ? styles.insetOnMap : null]}>
           {delivery.serviceClass === 'EXPRESS' ? <Text style={styles.kicker}>Urgent</Text> : null}
           {headline ? (
-            <View style={styles.statusRow}>
-              <Text style={styles.statusTitle}>{headline}</Text>
-              {live ? <Text style={styles.live}>Live</Text> : null}
+            <View style={styles.statusHeading}>
+              <View style={styles.statusRow}>
+                <Text style={styles.statusTitle}>{headline}</Text>
+                {live ? <Text style={styles.live}>Live</Text> : null}
+              </View>
+              {subtitle ? <Text style={styles.statusSubtitle}>{subtitle}</Text> : null}
             </View>
           ) : (
-            <Text style={styles.title}>{deliveryStatusLabel(delivery.status)}</Text>
+            <Text style={[styles.title, { color: statusTone.color }]}>{deliveryStatusLabel(delivery.status)}</Text>
           )}
-          {live ? (
-            <View style={styles.metrics}>
-              <View style={styles.metric}>
-                <View style={styles.metricLabelRow}>
-                  <MaterialDesignIcons name="map-marker-distance" size={16} color={colors.textSecondary} />
-                  <Text style={styles.metricLabel}>Distance</Text>
-                </View>
-                <Text style={styles.metricValue}>{distanceText ?? 'Unavailable'}</Text>
-              </View>
-              <View style={styles.metric}>
-                <View style={styles.metricLabelRow}>
-                  <MaterialDesignIcons name="clock-outline" size={16} color={colors.textSecondary} />
-                  <Text style={styles.metricLabel}>Time</Text>
-                </View>
-                <Text style={styles.metricValue}>{arrivalText ?? 'Unavailable'}</Text>
-              </View>
-            </View>
-          ) : null}
           {pendingRiderName && !delivery.rider ? <Text style={styles.body}>{pendingRiderName} is assigned to this delivery.</Text> : null}
           {deadline ? <Text style={styles.body}>Deliver by {deadline}</Text> : null}
           {!delivery.offeredPrice ? (
@@ -199,15 +214,16 @@ export default function MarketplaceDelivery({
               />
               <View style={styles.riderCopy}>
                 <Text style={styles.factValue}>{delivery.rider.name}</Text>
-                {delivery.rider.motorcycle ? <Text style={styles.note}>{delivery.rider.motorcycle}</Text> : null}
+                {bikeLine ? <Text style={styles.note}>{bikeLine}</Text> : null}
+                {delivery.rider.colour ? <Text style={styles.note}>{delivery.rider.colour}</Text> : null}
               </View>
               {riderDialUrl(delivery.rider.phone) ? (
                 <View style={styles.riderActions}>
-                  <Pressable accessibilityRole="button" accessibilityLabel={`Call ${delivery.rider.name}`} hitSlop={8} onPress={callRider}>
-                    <MaterialDesignIcons name="phone-outline" size={22} color={colors.text} />
+                  <Pressable accessibilityRole="button" accessibilityLabel={`Call ${delivery.rider.name}`} hitSlop={8} onPress={callRider} style={styles.contactAction}>
+                    <MaterialDesignIcons name="phone-outline" size={22} color="#111111" />
                   </Pressable>
-                  <Pressable accessibilityRole="button" accessibilityLabel={`WhatsApp ${delivery.rider.name}`} hitSlop={8} onPress={callWhatsApp}>
-                    <MaterialDesignIcons name="whatsapp" size={22} color={colors.text} />
+                  <Pressable accessibilityRole="button" accessibilityLabel={`WhatsApp ${delivery.rider.name}`} hitSlop={8} onPress={callWhatsApp} style={styles.contactAction}>
+                    <MaterialDesignIcons name="whatsapp" size={22} color="#111111" />
                   </Pressable>
                 </View>
               ) : null}
@@ -220,6 +236,17 @@ export default function MarketplaceDelivery({
             style={styles.divider}
           />
           <View style={styles.footerRow}>
+            {customerCanCancelDelivery(delivery.status) ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Cancel delivery"
+                disabled={cancelling}
+                hitSlop={8}
+                onPress={confirmCancel}
+              >
+                <Text style={styles.cancelDelivery}>{cancelling ? 'Cancelling' : 'Cancel delivery'}</Text>
+              </Pressable>
+            ) : null}
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Parcel details"
@@ -230,13 +257,9 @@ export default function MarketplaceDelivery({
               <MaterialDesignIcons name="chevron-up" size={18} color={colors.primary} />
             </Pressable>
           </View>
-          {headline && !customerCanCancelDelivery(delivery.status) && delivery.status !== 'DELIVERED' && delivery.status !== 'CANCELLED' ? (
-            <Text style={styles.note}>This parcel has been collected. Ordinary cancellation is no longer available.</Text>
-          ) : null}
           <ErrorMessage message={actionError ?? loadError} />
           </View>
-        </View>
-      </ScrollView>
+      </DeliveryDetailFrame>
       <ParcelDetailsSheet
         delivery={detailsOpen ? delivery : null}
         onClose={() => setDetailsOpen(false)}
@@ -244,16 +267,6 @@ export default function MarketplaceDelivery({
         cancelLabel="Cancel delivery"
         onCancel={customerCanCancelDelivery(delivery.status) ? confirmCancel : undefined}
       />
-      <DialogModal visible={showNotice} onClose={dismissNotice} closeLabel="Continue">
-        <View style={styles.confirmBadge}>
-          <MaterialDesignIcons name="check" size={32} color={colors.primary} />
-        </View>
-        <DialogTitle>Rider confirmed!</DialogTitle>
-        <DialogBody>Your rider has been assigned to your delivery.</DialogBody>
-        <DialogActions>
-          <DialogTextButton label="Continue" onPress={dismissNotice} />
-        </DialogActions>
-      </DialogModal>
       <DialogModal visible={cancelOpen} onClose={() => setCancelOpen(false)} closeLabel="Keep delivery">
         <DialogTitle>Cancel delivery?</DialogTitle>
         <DialogBody>Cancelling closes this delivery request.</DialogBody>
@@ -262,6 +275,7 @@ export default function MarketplaceDelivery({
           <DialogTextButton
             label="Cancel delivery"
             tone="danger"
+            weight="regular"
             onPress={() => {
               setCancelOpen(false);
               void cancelDelivery();
@@ -269,7 +283,7 @@ export default function MarketplaceDelivery({
           />
         </DialogActions>
       </DialogModal>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -290,35 +304,46 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
-  content: {
-    paddingBottom: spacing.xl,
-    gap: spacing.md,
-  },
   inset: {
-    paddingHorizontal: spacing.xl,
+    paddingHorizontal: spacing.lg,
     gap: spacing.md,
   },
-  sheet: {
-    marginTop: -TRACKING_SHEET_OVERLAP,
+  confirmNote: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    padding: spacing.md,
+    borderRadius: radius.lg,
+    backgroundColor: colors.primaryLight,
   },
-  sheetFade: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 120,
-  },
-  insetOnMap: {
-    paddingTop: 108 + spacing.lg,
-  },
-  confirmBadge: {
-    alignSelf: 'center',
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+  confirmMark: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.primaryLight,
+    backgroundColor: colors.background,
+  },
+  confirmCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  confirmTitle: {
+    fontSize: typography.body,
+    fontWeight: '600',
+    color: colors.primaryDark,
+  },
+  confirmBody: {
+    fontSize: typography.caption,
+    lineHeight: 18,
+    color: colors.text,
+  },
+  statusHeading: {
+    gap: 4,
+  },
+  statusSubtitle: {
+    fontSize: 14,
+    color: colors.textSecondary,
   },
   statusRow: {
     flexDirection: 'row',
@@ -366,13 +391,18 @@ const styles = StyleSheet.create({
   footerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'flex-end',
+    justifyContent: 'space-between',
     gap: spacing.md,
+  },
+  cancelDelivery: {
+    fontSize: typography.button,
+    fontWeight: '400',
+    color: colors.error,
   },
   parcelDetails: {
     flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'flex-end',
+    marginLeft: 'auto',
     gap: spacing.xs,
   },
   parcelDetailsText: {
@@ -404,6 +434,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
+  },
+  contactAction: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   avatarText: {
     fontSize: typography.body,

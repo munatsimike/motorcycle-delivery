@@ -14,6 +14,7 @@ type SecondaryButtonProps = {
   soft?: boolean;
   bordered?: boolean;
   compact?: boolean;
+  weight?: 'bold' | 'regular';
 };
 
 export default function SecondaryButton({
@@ -25,6 +26,7 @@ export default function SecondaryButton({
   icon,
   bordered = true,
   compact = false,
+  weight = 'bold',
 }: SecondaryButtonProps) {
   const inactive = disabled || loading;
   const accent = tone === 'danger' ? colors.error : colors.primary;
@@ -53,7 +55,7 @@ export default function SecondaryButton({
         ) : (
           <View style={styles.content}>
             {icon ? <MaterialDesignIcons name={icon} color={accent} size={20} /> : null}
-            <Text style={[styles.label, { color: accent }]}>{label}</Text>
+            <Text style={[styles.label, weight === 'regular' && styles.labelRegular, { color: accent }]}>{label}</Text>
           </View>
         )}
       </View>
@@ -95,5 +97,8 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontSize: typography.button,
     fontWeight: '700',
+  },
+  labelRegular: {
+    fontWeight: '400',
   },
 });

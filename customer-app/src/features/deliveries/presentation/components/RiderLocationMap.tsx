@@ -5,6 +5,7 @@ import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-
 
 import { colors, radius, spacing, typography } from '../../../../theme';
 import { trackingCameraRegion } from '../../domain/trackingCamera';
+import { deliveryIcon } from '../deliveryIcons';
 
 type MapPoint = {
   latitude: number;
@@ -15,9 +16,11 @@ type RiderLocationMapProps = {
   deliveryId: string;
   live: boolean;
   rider: MapPoint | null;
-  pickup: MapPoint | null;
+  stop: MapPoint | null;
+  headingToDropoff: boolean;
   line: MapPoint[];
   distanceLabel: string | null;
+  etaLabel: string | null;
 };
 
 const MIN_MAP_WIDTH = 200;
@@ -27,18 +30,21 @@ export default function RiderLocationMap({
   deliveryId,
   live,
   rider,
-  pickup,
+  stop,
+  headingToDropoff,
   line,
   distanceLabel,
+  etaLabel,
 }: RiderLocationMapProps) {
+  const summary = live ? riderSummary(distanceLabel, etaLabel) : null;
   const mapRef = useRef<MapView | null>(null);
   const gestured = useRef(false);
   const applied = useRef<string | null>(null);
   const mapSize = useRef({ width: 0, height: 0 });
   const region = live && rider
-    ? trackingCameraRegion(rider, pickup)
-    : pickup
-      ? trackingCameraRegion(pickup, null)
+    ? trackingCameraRegion(rider, stop)
+    : stop
+      ? trackingCameraRegion(stop, null)
       : null;
   const regionKey = region
     ? [region.latitude, region.longitude, region.latitudeDelta, region.longitudeDelta].map((value) => value.toFixed(5)).join(':')
@@ -47,6 +53,8 @@ export default function RiderLocationMap({
   const regionKeyRef = useRef(regionKey);
   regionRef.current = region;
   regionKeyRef.current = regionKey;
+  const stopKey = stop ? `${stop.latitude.toFixed(5)}:${stop.longitude.toFixed(5)}` : '';
+  const stopKeyRef = useRef(stopKey);
 
   function moveCamera(animated: boolean) {
     const next = regionRef.current;
@@ -62,10 +70,17 @@ export default function RiderLocationMap({
   }
 
   useEffect(() => {
-    gestured.current = false;
+    const destinationChanged = stopKeyRef.current !== stopKey;
+    stopKeyRef.current = stopKey;
+    if (destinationChanged && gestured.current) {
+      return;
+    }
+    if (!destinationChanged) {
+      gestured.current = false;
+    }
     applied.current = null;
-    moveCamera(false);
-  }, [deliveryId, live]);
+    moveCamera(destinationChanged);
+  }, [deliveryId, live, stopKey]);
 
   function rememberSize(width: number, height: number) {
     if (width < 1 || height < 1 || (mapSize.current.width === width && mapSize.current.height === height)) {
@@ -115,28 +130,38 @@ export default function RiderLocationMap({
         {live && line.length > 1 ? (
           <Polyline coordinates={line} strokeColor={colors.text} strokeWidth={4} />
         ) : null}
-        {pickup ? (
-          <Marker coordinate={pickup} anchor={{ x: 0.5, y: 1 }} tracksViewChanges={false}>
-            <MaterialDesignIcons name="map-marker" size={36} color={colors.primary} />
+        {stop ? (
+          <Marker
+            coordinate={stop}
+            anchor={{ x: 0.5, y: 1 }}
+            tracksViewChanges={false}
+            zIndex={1}
+            accessibilityLabel={headingToDropoff ? 'Drop-off' : 'Pickup'}
+          >
+            <MaterialDesignIcons
+              name="map-marker"
+              size={36}
+              color={headingToDropoff ? deliveryIcon.dropoff : deliveryIcon.pickup}
+            />
+          </Marker>
+        ) : null}
+        {live && rider && summary ? (
+          <Marker coordinate={rider} anchor={{ x: 0.5, y: 1.55 }} tracksViewChanges={false} zIndex={4}>
+            <View collapsable={false} style={styles.riderLabel}>
+              <Text style={styles.riderSummary}>{summary}</Text>
+            </View>
           </Marker>
         ) : null}
         {live && rider ? (
-        <Marker coordinate={rider} anchor={{ x: 0.5, y: 0.9 }} tracksViewChanges={false}>
-          <View collapsable={false} style={styles.riderMarker} accessibilityLabel="Rider location">
-            {distanceLabel ? <Text style={styles.distance}>{distanceLabel}</Text> : null}
-            <View style={styles.bike}>
-              <MaterialDesignIcons name="motorbike" size={20} color={colors.textInverse} />
-            </View>
-          </View>
-        </Marker>
+          <Marker
+            coordinate={rider}
+            image={require('../../../../components/maps/rider_motorcycle_yellow_box.png')}
+            anchor={{ x: 0.5, y: 0.5 }}
+            zIndex={3}
+            accessibilityLabel="Rider location"
+          />
         ) : null}
       </MapView>
-      {live ? null : (
-        <View pointerEvents="none" style={styles.unavailable}>
-          <Text style={styles.unavailableTitle}>Rider location unavailable</Text>
-          <Text style={styles.unavailableBody}>Waiting for the rider's location to update.</Text>
-        </View>
-      )}
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Recenter map"
@@ -147,12 +172,7 @@ export default function RiderLocationMap({
       </Pressable>
       </View>
       </MapBoundary>
-      ) : (
-        <View pointerEvents="none" style={styles.unavailable}>
-          <Text style={styles.unavailableTitle}>Rider location unavailable</Text>
-          <Text style={styles.unavailableBody}>Waiting for the rider's location to update.</Text>
-        </View>
-      )}
+      ) : null}
     </View>
   );
 }
@@ -171,16 +191,18 @@ class MapBoundary extends Component<{ children: ReactNode; fallback: ReactNode }
 
 const styles = StyleSheet.create({
   frame: {
-    height: 320,
+    flex: 1,
+    height: '100%',
     backgroundColor: colors.surface,
   },
   mapWrap: {
-    height: 320,
+    flex: 1,
+    height: '100%',
     width: '100%',
   },
   map: {
-    height: 320,
     width: '100%',
+    height: '100%',
   },
   recenter: {
     position: 'absolute',
@@ -198,14 +220,15 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 2,
   },
-  unavailable: {
-    position: 'absolute',
-    top: spacing.md,
-    left: spacing.lg,
-    right: spacing.lg,
-    gap: spacing.xs,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+  fallback: {
+    padding: spacing.lg,
+    color: colors.textSecondary,
+    fontSize: typography.body,
+  },
+  riderLabel: {
+    alignItems: 'center',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
     borderRadius: radius.md,
     backgroundColor: colors.background,
     elevation: 2,
@@ -214,41 +237,16 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.16,
     shadowRadius: 2,
   },
-  unavailableTitle: {
+  riderSummary: {
     color: colors.text,
     fontSize: typography.caption,
     fontWeight: '700',
-  },
-  unavailableBody: {
-    color: colors.textSecondary,
-    fontSize: typography.small,
     lineHeight: 18,
   },
-  fallback: {
-    padding: spacing.lg,
-    color: colors.textSecondary,
-    fontSize: typography.body,
-  },
-  riderMarker: {
-    alignItems: 'center',
-    gap: spacing.xs,
-  },
-  distance: {
-    overflow: 'hidden',
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: radius.md,
-    backgroundColor: colors.background,
-    color: colors.text,
-    fontSize: typography.caption,
-    fontWeight: '700',
-  },
-  bike: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.primaryDark,
-  },
 });
+
+function riderSummary(distance: string | null, eta: string | null): string | null {
+  const parts = [distance, eta].filter((part): part is string => Boolean(part));
+  return parts.length > 0 ? parts.join(' · ') : null;
+}
+

@@ -5,10 +5,10 @@ import { colors, radius, spacing, typography } from '../../../theme';
 import type { DeliveryContentKind } from '../domain/deliveryCard';
 
 export const deliveryIcon = {
-  size: 18,
-  color: colors.text,
-  pickup: colors.text,
-  dropoff: colors.text,
+  size: 22,
+  color: colors.textSecondary,
+  pickup: '#169B62',
+  dropoff: '#1A73E8',
 } as const;
 
 export const CONTENT_ICONS: Record<DeliveryContentKind, {
@@ -22,16 +22,19 @@ export const CONTENT_ICONS: Record<DeliveryContentKind, {
 
 export function ContentIcon({ kind }: { kind: DeliveryContentKind }) {
   const content = CONTENT_ICONS[kind];
-  return <MaterialDesignIcons name={content.icon} color={deliveryIcon.color} size={deliveryIcon.size} />;
+  return <MaterialDesignIcons name={content.icon} color={deliveryIcon.color} size={15} />;
 }
 
+/** Shared solid map-pin design, matching the Android rider delivery cards. */
 export function LocationPin({ dropoff = false }: { dropoff?: boolean }) {
   return (
-    <MaterialDesignIcons
-      name="map-marker-outline"
-      color={dropoff ? deliveryIcon.dropoff : deliveryIcon.pickup}
-      size={deliveryIcon.size}
-    />
+    <View accessibilityLabel={dropoff ? 'Drop-off' : 'Pickup'}>
+      <MaterialDesignIcons
+        name="map-marker"
+        color={dropoff ? deliveryIcon.dropoff : deliveryIcon.pickup}
+        size={deliveryIcon.size}
+      />
+    </View>
   );
 }
 
@@ -53,8 +56,8 @@ export function ServiceClassBadge({ serviceClass }: { serviceClass?: 'EXPRESS' |
     <View style={styles.classChip}>
       <MaterialDesignIcons
         name={urgent ? 'flash-outline' : 'message-text-outline'}
-        color={colors.text}
-        size={16}
+        color={colors.textSecondary}
+        size={14}
         style={urgent ? styles.urgentIcon : undefined}
       />
       <Text style={styles.classChipText}>{urgent ? 'Urgent' : 'Flexible'}</Text>
@@ -66,13 +69,38 @@ const styles = StyleSheet.create({
   contentLabel: {
     fontSize: typography.caption,
     lineHeight: 18,
-    fontWeight: '600',
-    color: colors.text,
+    fontWeight: '500',
+    color: colors.textSecondary,
     includeFontPadding: false,
   },
   parcelLabel: {
-    fontSize: 16,
-    lineHeight: 22,
+    fontSize: typography.caption,
+    lineHeight: 18,
+  },
+  pickupPin: {
+    width: deliveryIcon.size,
+    height: deliveryIcon.size,
+    alignItems: 'center',
+  },
+  pickupRing: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    borderWidth: 1.6,
+    borderColor: colors.text,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pickupDot: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: colors.text,
+  },
+  pickupStem: {
+    width: 1.6,
+    height: 7,
+    backgroundColor: colors.text,
   },
   stopLabel: {
     fontSize: typography.caption,
@@ -85,7 +113,6 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
     borderRadius: radius.pill,
     paddingHorizontal: spacing.sm,
-    backgroundColor: '#FFFFFF',
   },
   urgentIcon: {
     // flash-outline leaves 3px more empty space before the label than message-text-outline
@@ -95,7 +122,7 @@ const styles = StyleSheet.create({
     fontSize: typography.caption,
     lineHeight: 18,
     fontWeight: '500',
-    color: colors.text,
+    color: colors.textSecondary,
     includeFontPadding: false,
   },
 });

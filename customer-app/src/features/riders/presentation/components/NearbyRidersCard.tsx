@@ -87,7 +87,7 @@ export default function NearbyRidersCard({
               style={[styles.button, alert?.busy && styles.buttonBusy]}
             >
               {showBell ? <MaterialDesignIcons name="bell-outline" color={colors.primary} size={16} /> : null}
-              <Text style={styles.buttonLabel}>{action}</Text>
+              <Text style={[styles.buttonLabel, content.action === 'cancel-alert' && styles.buttonLabelRegular]}>{action}</Text>
             </Pressable>
           ) : null}
           {alert?.error ? <Text style={styles.error}>{alert.error}</Text> : null}
@@ -203,6 +203,9 @@ const styles = StyleSheet.create({
     fontSize: typography.caption,
     fontWeight: '700',
     color: colors.primary,
+  },
+  buttonLabelRegular: {
+    fontWeight: '400',
   },
   error: {
     fontSize: typography.caption,

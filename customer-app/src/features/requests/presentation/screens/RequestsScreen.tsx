@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
-import { CompositeNavigationProp, useNavigation } from '@react-navigation/native';
+import { CompositeNavigationProp, useNavigation, useRoute } from '@react-navigation/native';
+import type { RouteProp } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
@@ -48,8 +49,15 @@ const CONTENT_FILTERS: { id: DeliveryContentKind | 'all'; label: string; icon: '
 
 export default function RequestsScreen() {
   const navigation = useNavigation<DeliveriesNavigation>();
+  const route = useRoute<RouteProp<CustomerTabParamList, 'Requests'>>();
   const { accessToken, customerId } = useSession();
-  const [group, setGroup] = useState<DeliveryGroup>('active');
+  const [group, setGroup] = useState<DeliveryGroup>(route.params?.group ?? 'active');
+  useEffect(() => {
+    const next = route.params?.group;
+    if (next === 'active' || next === 'history') {
+      setGroup(next);
+    }
+  }, [route.params?.group]);
   const activeList = useCustomerDeliveries(accessToken, customerId, ACTIVE_LIST_STATUSES);
   const historyList = useCustomerDeliveries(accessToken, customerId, HISTORY_LIST_STATUSES);
   const selectedList = group === 'active' ? activeList : historyList;
@@ -76,7 +84,8 @@ export default function RequestsScreen() {
           ? 'No active deliveries'
           : 'No past deliveries';
   return (
-    <SafeAreaView style={styles.screen} edges={['top']}>
+    <View style={styles.screen}>
+      <View style={[styles.stickyHeader, { paddingTop: insets.top + spacing.sm }]}>
       <View style={styles.toolbar}>
         <View style={styles.switcher}>
           {GROUPS.map((item) => {
@@ -108,7 +117,6 @@ export default function RequestsScreen() {
           >
             <MaterialDesignIcons name="filter-variant" size={18} color={colors.text} />
             <Text style={styles.sortLabel}>{selectedFilter.label}</Text>
-            <MaterialDesignIcons name={selectedFilter.icon} size={18} color={colors.text} />
             <MaterialDesignIcons name="chevron-down" size={18} color={colors.textSecondary} />
           </Pressable>
           <Pressable
@@ -122,13 +130,27 @@ export default function RequestsScreen() {
           >
             <MaterialDesignIcons name="swap-vertical" size={18} color={colors.text} />
             <Text style={styles.sortLabel}>{selectedSort.shortLabel}</Text>
-            <MaterialDesignIcons name={selectedSort.icon} size={18} color={colors.text} />
             <MaterialDesignIcons name="chevron-down" size={18} color={colors.textSecondary} />
           </Pressable>
         </View>
       </View>
+      </View>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        refreshControl={(
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={refresh}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
+          />
+        )}
+      >
+        <View style={styles.sheet}>
       <BottomSheetModal visible={filterOpen} onClose={() => setFilterOpen(false)} closeLabel="Close filter">
-        <View style={[styles.sheet, { paddingBottom: spacing.lg + insets.bottom }]}>
+        <View style={[styles.menu, { paddingBottom: spacing.lg + insets.bottom }]}>
           <Text style={styles.sheetTitle}>Filter</Text>
           <View accessibilityRole="radiogroup">
             {CONTENT_FILTERS.map((item) => {
@@ -160,7 +182,7 @@ export default function RequestsScreen() {
         </View>
       </BottomSheetModal>
       <BottomSheetModal visible={sortOpen} onClose={() => setSortOpen(false)} closeLabel="Close sort">
-        <View style={[styles.sheet, { paddingBottom: spacing.lg + insets.bottom }]}>
+        <View style={[styles.menu, { paddingBottom: spacing.lg + insets.bottom }]}>
           <Text style={styles.sheetTitle}>Sort by</Text>
           <View accessibilityRole="radiogroup">
             {SORTS.map((item) => {
@@ -192,18 +214,7 @@ export default function RequestsScreen() {
           </View>
         </View>
       </BottomSheetModal>
-      <ScrollView
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-        refreshControl={(
-          <RefreshControl
-            refreshing={isRefreshing}
-            onRefresh={refresh}
-            tintColor={colors.primary}
-            colors={[colors.primary]}
-          />
-        )}
-      >
+        <View style={styles.cardsInset}>
         <DeliverySection
           deliveries={ordered}
           isLoading={isLoading}
@@ -226,11 +237,13 @@ export default function RequestsScreen() {
           }}
           onRetry={reload}
         />
+        </View>
         {hasMore ? (
           <View style={styles.more}>
             <SecondaryButton label="Load more" onPress={loadMore} loading={isLoadingMore} disabled={isLoading} />
           </View>
         ) : null}
+      </View>
       </ScrollView>
       <Pressable
         accessibilityRole="button"
@@ -240,32 +253,60 @@ export default function RequestsScreen() {
       >
         <MaterialDesignIcons name="plus" color={colors.textInverse} size={22} />
       </Pressable>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: '#F1F8F2',
+    overflow: 'hidden',
   },
-  toolbar: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.md,
-    backgroundColor: colors.background,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+  scroll: {
+    flex: 1,
   },
   content: {
+    flexGrow: 1,
+  },
+  stickyHeader: {
+    zIndex: 2,
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
+    paddingBottom: spacing.xs,
+    backgroundColor: '#F1F8F2',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(40,75,60,0.16)',
+  },
+  sheet: {
+    flexGrow: 1,
+    paddingHorizontal: 0,
+    paddingTop: spacing.md,
     paddingBottom: spacing.xxxl + spacing.lg,
+  },
+  cardsInset: {
+    marginHorizontal: 6,
+  },
+  menu: {
+    backgroundColor: colors.background,
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
+    padding: spacing.lg,
+    gap: spacing.sm,
+  },
+  toolbar: {
+    paddingBottom: spacing.md,
+    backgroundColor: 'transparent',
+    borderRadius: radius.lg,
+    padding: spacing.sm,
+    marginBottom: spacing.md,
   },
   switcher: {
     flexDirection: 'row',
-    gap: spacing.sm,
+    gap: spacing.xs,
     marginBottom: spacing.md,
+    padding: spacing.xs,
+    borderRadius: radius.pill,
+    backgroundColor: '#EAF5ED',
   },
   filterRow: {
     flexDirection: 'row',
@@ -289,13 +330,6 @@ const styles = StyleSheet.create({
     fontSize: typography.caption,
     fontWeight: '600',
     color: colors.text,
-  },
-  sheet: {
-    backgroundColor: colors.background,
-    borderTopLeftRadius: radius.xl,
-    borderTopRightRadius: radius.xl,
-    padding: spacing.lg,
-    gap: spacing.sm,
   },
   sheetTitle: {
     fontSize: typography.heading,
@@ -335,17 +369,14 @@ const styles = StyleSheet.create({
   },
   switch: {
     flex: 1,
-    minHeight: 44,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
+    minHeight: 40,
+    borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.background,
+    backgroundColor: 'transparent',
   },
   switchSelected: {
-    backgroundColor: colors.primaryLight,
-    borderColor: colors.primary,
+    backgroundColor: colors.background,
   },
   switchLabel: {
     fontSize: typography.body,

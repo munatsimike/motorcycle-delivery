@@ -17,12 +17,12 @@ import { colors, radius, spacing, typography } from '../../../../theme';
 import { customerDeliveryRepository } from '../../data/CustomerDeliveryApiRepository';
 import { selectedPlaceBias, usePlaceBias } from '../viewmodels/usePlaceBias';
 import { contactPhoneForField } from '../../domain/bookingDraft';
-import { showsCurrentLocationAction } from '../../domain/pickupLocation';
+import { clientAllowsCoordinate, decideAddressAutofill, MAX_PICKUP_ACCURACY_METRES, MAX_PICKUP_FIX_AGE_MS } from '../../domain/pickupLocation';
+import { expoPickupLocation } from '../../data/expoPickupLocation';
 import BookingProgress, { bookingStepTitle } from '../components/BookingProgress';
 import BookingStepMotion from '../components/BookingStepMotion';
 import BookingSummary from '../components/BookingSummary';
 import ParcelFields from '../components/ParcelFields';
-import PickupLocationAction from '../components/PickupLocationAction';
 import StopFields from '../components/StopFields';
 import { useParcelBooking, type BookingResult, type BookingStep } from '../viewmodels/useParcelBooking';
 import { useReduceMotion } from '../../../../components/useMotion';
@@ -40,6 +40,8 @@ export default function ParcelRequestScreen({ navigation }: ParcelRequestProps) 
   const allowLeave = useRef(false);
   const leaving = useRef(false);
   const pickupPrefilled = useRef(false);
+  const addressEdited = useRef(false);
+  const [addressLookup, setAddressLookup] = useState<'searching' | 'needs-street' | null>('searching');
   const scrollOffsets = useRef<Partial<Record<BookingStep, number>>>({});
   const stepRef = useRef(booking.step);
   const [booked, setBooked] = useState(false);
@@ -80,9 +82,49 @@ export default function ParcelRequestScreen({ navigation }: ParcelRequestProps) 
     booking.prefillPickup({
       contactName: name ?? '',
       contactPhone: contactPhoneForField(account.phone),
-      address: account.address,
+      address: '',
     });
   }, [account, booking]);
+
+  const prefillDetectedPickup = useRef(booking.prefillDetectedPickup);
+  prefillDetectedPickup.current = booking.prefillDetectedPickup;
+
+  useEffect(() => {
+    let cancelled = false;
+    async function autofillPickup() {
+      let lookup: 'needs-street' | null = null;
+      try {
+        if (!(await expoPickupLocation.servicesEnabled())) return;
+        if ((await expoPickupLocation.permission()) !== 'granted') return;
+        const fix = await expoPickupLocation.readFix();
+        if (fix === 'timeout' || fix === 'invalid') return;
+        if (fix.accuracyMetres == null || fix.accuracyMetres > MAX_PICKUP_ACCURACY_METRES) return;
+        if (Date.now() - fix.capturedAt > MAX_PICKUP_FIX_AGE_MS) return;
+        if (!clientAllowsCoordinate(fix.latitude, fix.longitude, typeof __DEV__ !== 'undefined' && __DEV__)) return;
+        const found = await expoPickupLocation.reverseGeocode(fix.latitude, fix.longitude);
+        const decision = decideAddressAutofill(addressEdited.current, found);
+        if (cancelled || decision.status === 'ignore') return;
+        if (decision.status === 'needs-street') {
+          lookup = 'needs-street';
+          return;
+        }
+        prefillDetectedPickup.current({
+          address: decision.display,
+          resolvedAddress: decision.fullAddress,
+          latitude: String(fix.latitude),
+          longitude: String(fix.longitude),
+        });
+      } catch {
+        // Location is optional; manual pickup search remains available.
+      } finally {
+        if (!cancelled) {
+          setAddressLookup(addressEdited.current ? null : lookup);
+        }
+      }
+    }
+    void autofillPickup();
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     const y = scrollOffsets.current[booking.step] ?? 0;
@@ -151,12 +193,11 @@ export default function ParcelRequestScreen({ navigation }: ParcelRequestProps) 
             resolvePlace={(placeId, sessionToken) => resolvePlace(accessToken, placeId, sessionToken)}
             areaChoices={booking.areaChoices}
             showLandmark={false}
-            locationAction={showsCurrentLocationAction(booking.step) ? (
-              <PickupLocationAction
-                stop={booking.draft.pickup}
-                onApply={(patch) => booking.updateStop('pickup', patch)}
-              />
-            ) : null}
+            lookup={addressLookup}
+            onManualInput={() => {
+              addressEdited.current = true;
+              setAddressLookup(null);
+            }}
           />
         ) : null}
         {booking.step === 'destination' ? (

@@ -7,6 +7,7 @@ import { SERVICE_UNAVAILABLE_MESSAGE } from '../../../../services/api/apiClient'
 import { motionDuration, SUGGESTION_MS, suggestionListFades } from '../../../../navigation/screenMotion';
 import { colors, radius, spacing, typography } from '../../../../theme';
 import { confirmMapPin, typedHouseNumber } from '../../domain/addressResolution';
+import { ADDRESS_SEARCH_LABEL, STREET_ADDRESS_PROMPT } from '../../domain/pickupLocation';
 import type { StopDraft } from '../../domain/bookingDraft';
 import { createPlaceSessionToken } from '../../domain/placeSession';
 import { selectedAddressLabel, type PlaceSuggestion, type ResolvedPlace } from '../../domain/placeSuggestion';
@@ -37,6 +38,8 @@ type AddressFieldProps = {
   editable?: boolean;
   onFocus?: () => void;
   locationAction?: ReactNode;
+  lookup?: 'searching' | 'needs-street' | null;
+  onManualInput?: () => void;
 };
 
 export default function AddressField({
@@ -50,6 +53,8 @@ export default function AddressField({
   editable = true,
   onFocus,
   locationAction = null,
+  lookup = null,
+  onManualInput,
 }: AddressFieldProps) {
   const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
   const [searching, setSearching] = useState(false);
@@ -184,8 +189,10 @@ export default function AddressField({
         value={stop.address}
         onChangeText={(address) => {
           typedByUser.current = true;
+          onManualInput?.();
           onChange({
             address,
+            resolvedAddress: '',
             landmark: '',
             latitude: '',
             longitude: '',
@@ -195,6 +202,8 @@ export default function AddressField({
             coordinateSource: null,
           });
         }}
+        placeholder={lookup === 'needs-street' && !stop.address.trim() ? STREET_ADDRESS_PROMPT : undefined}
+        activity={lookup === 'searching' && !stop.address.trim() ? ADDRESS_SEARCH_LABEL : null}
         textContentType="fullStreetAddress"
         maxLength={500}
         error={error}

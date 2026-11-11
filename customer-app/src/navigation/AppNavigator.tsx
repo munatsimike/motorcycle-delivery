@@ -156,7 +156,7 @@ export default function AppNavigator() {
             <Stack.Screen
               name="DeliveryTracking"
               component={DeliveryTrackingScreen}
-              options={{ title: 'Track Delivery' }}
+              options={{ headerShown: false }}
             />
             <Stack.Screen
               name="EditProfile"

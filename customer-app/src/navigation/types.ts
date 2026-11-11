@@ -29,6 +29,6 @@ export type RootStackParamList = {
 
 export type CustomerTabParamList = {
   Dashboard: { nearbyRefreshAt?: number };
-  Requests: undefined;
+  Requests: { group?: 'active' | 'history' } | undefined;
   Profile: undefined;
 };

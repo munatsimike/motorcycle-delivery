@@ -1,4 +1,4 @@
-import { StyleSheet, Text, TextInput, View, type KeyboardTypeOptions } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, TextInput, View, type KeyboardTypeOptions } from 'react-native';
 
 import { colors, inputErrorStyle, radius, spacing, typography } from '../theme';
 import { useRevealFocusedField } from './useKeyboardLift';
@@ -19,6 +19,8 @@ type FormInputProps = {
   error?: string | null;
   invalid?: boolean;
   onFocus?: () => void;
+  /** Shown inside an empty field. The field stays editable. */
+  activity?: string | null;
 };
 
 export default function FormInput({
@@ -36,6 +38,7 @@ export default function FormInput({
   error,
   invalid = false,
   onFocus,
+  activity = null,
 }: FormInputProps) {
   const focus = useInputFocus();
   const revealFocusedField = useRevealFocusedField();
@@ -43,26 +46,34 @@ export default function FormInput({
   return (
     <View>
       <Text style={styles.label}>{label}</Text>
-      <TextInput
-        style={[styles.input, focus.style, (error || invalid) ? inputErrorStyle : null, !editable && styles.locked]}
-        value={value}
-        onChangeText={onChangeText}
-        placeholder={placeholder}
-        placeholderTextColor={colors.textSecondary}
-        keyboardType={keyboardType}
-        autoCapitalize={autoCapitalize}
-        autoComplete={secureTextEntry ? 'password' : autoComplete}
-        textContentType={secureTextEntry ? 'password' : textContentType}
-        secureTextEntry={secureTextEntry}
-        maxLength={maxLength}
-        editable={editable}
-        onFocus={() => {
-          focus.onFocus();
-          revealFocusedField();
-          onFocus?.();
-        }}
-        onBlur={focus.onBlur}
-      />
+      <View>
+        <TextInput
+          style={[styles.input, focus.style, (error || invalid) ? inputErrorStyle : null, !editable && styles.locked]}
+          value={value}
+          onChangeText={onChangeText}
+          placeholder={activity && !value ? undefined : placeholder}
+          placeholderTextColor={colors.textSecondary}
+          keyboardType={keyboardType}
+          autoCapitalize={autoCapitalize}
+          autoComplete={secureTextEntry ? 'password' : autoComplete}
+          textContentType={secureTextEntry ? 'password' : textContentType}
+          secureTextEntry={secureTextEntry}
+          maxLength={maxLength}
+          editable={editable}
+          onFocus={() => {
+            focus.onFocus();
+            revealFocusedField();
+            onFocus?.();
+          }}
+          onBlur={focus.onBlur}
+        />
+        {activity && !value ? (
+          <View pointerEvents="none" style={styles.activity}>
+            <ActivityIndicator color={colors.primary} size="small" />
+            <Text style={styles.activityText}>{activity}</Text>
+          </View>
+        ) : null}
+      </View>
       {error ? <Text style={styles.error}>{error}</Text> : null}
     </View>
   );
@@ -96,5 +107,20 @@ const styles = StyleSheet.create({
     fontSize: typography.caption,
     lineHeight: 20,
     color: colors.error,
+  },
+  activity: {
+    position: 'absolute',
+    left: spacing.lg,
+    right: spacing.lg,
+    top: 0,
+    height: 58,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  activityText: {
+    flex: 1,
+    fontSize: typography.button,
+    color: colors.textSecondary,
   },
 });
