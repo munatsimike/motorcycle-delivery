@@ -1,4 +1,4 @@
-import { Component, useEffect, useRef, type ReactNode } from 'react';
+import { Component, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE, type Details } from 'react-native-maps';
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
@@ -25,6 +25,9 @@ type RiderLocationMapProps = {
 
 const MIN_MAP_WIDTH = 200;
 const MIN_MAP_HEIGHT = 280;
+/** Same downward offset as the rider app's distance label bitmap. */
+const LABEL_SHADOW_OFFSET = 3;
+const LABEL_ANCHOR_Y = 1.55;
 
 export default function RiderLocationMap({
   deliveryId,
@@ -37,6 +40,7 @@ export default function RiderLocationMap({
   etaLabel,
 }: RiderLocationMapProps) {
   const summary = live ? riderSummary(distanceLabel, etaLabel) : null;
+  const [labelAnchorY, setLabelAnchorY] = useState(LABEL_ANCHOR_Y);
   const mapRef = useRef<MapView | null>(null);
   const gestured = useRef(false);
   const applied = useRef<string | null>(null);
@@ -146,9 +150,21 @@ export default function RiderLocationMap({
           </Marker>
         ) : null}
         {live && rider && summary ? (
-          <Marker coordinate={rider} anchor={{ x: 0.5, y: 1.55 }} tracksViewChanges={false} zIndex={4}>
-            <View collapsable={false} style={styles.riderLabel}>
-              <Text style={styles.riderSummary}>{summary}</Text>
+          <Marker coordinate={rider} anchor={{ x: 0.5, y: labelAnchorY }} tracksViewChanges={false} zIndex={4}>
+            <View
+              collapsable={false}
+              style={styles.riderLabelWrap}
+              onLayout={(event) => {
+                const height = event.nativeEvent.layout.height;
+                const pill = height - LABEL_SHADOW_OFFSET;
+                const next = pill > 0 ? (LABEL_ANCHOR_Y * pill) / height : LABEL_ANCHOR_Y;
+                setLabelAnchorY((current) => (Math.abs(current - next) < 0.01 ? current : next));
+              }}
+            >
+              <View style={styles.riderLabelShade} />
+              <View style={styles.riderLabel}>
+                <Text style={styles.riderSummary}>{summary}</Text>
+              </View>
             </View>
           </Marker>
         ) : null}
@@ -225,17 +241,24 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontSize: typography.body,
   },
+  riderLabelWrap: {
+    paddingBottom: LABEL_SHADOW_OFFSET,
+  },
+  riderLabelShade: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: LABEL_SHADOW_OFFSET,
+    bottom: 0,
+    borderRadius: radius.md,
+    backgroundColor: 'rgba(23, 33, 29, 0.2)',
+  },
   riderLabel: {
     alignItems: 'center',
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
     borderRadius: radius.md,
     backgroundColor: colors.background,
-    elevation: 2,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.16,
-    shadowRadius: 2,
   },
   riderSummary: {
     color: colors.text,

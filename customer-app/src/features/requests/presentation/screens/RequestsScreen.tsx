@@ -260,11 +260,12 @@ export default function RequestsScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#F1F8F2',
+    backgroundColor: colors.listBackground,
     overflow: 'hidden',
   },
   scroll: {
     flex: 1,
+    backgroundColor: colors.listBackground,
   },
   content: {
     flexGrow: 1,
@@ -273,7 +274,7 @@ const styles = StyleSheet.create({
     zIndex: 2,
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.xs,
-    backgroundColor: '#F1F8F2',
+    backgroundColor: colors.listBackground,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: 'rgba(40,75,60,0.16)',
   },
@@ -306,7 +307,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
     padding: spacing.xs,
     borderRadius: radius.pill,
-    backgroundColor: '#EAF5ED',
+    backgroundColor: '#E2EEE7',
   },
   filterRow: {
     flexDirection: 'row',

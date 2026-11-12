@@ -2,7 +2,7 @@ import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-
 import type { ComponentProps } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View, type StyleProp, type TextStyle } from 'react-native';
 
-import { colors, radius, spacing, typography } from '../theme';
+import { colors, radius, spacing } from '../theme';
 
 type PrimaryButtonProps = {
   label: string;
@@ -83,7 +83,7 @@ const styles = StyleSheet.create({
   button: {
     minHeight: 56,
     backgroundColor: colors.primary,
-    borderRadius: radius.lg,
+    borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: spacing.lg,
@@ -119,7 +119,7 @@ const styles = StyleSheet.create({
   },
   label: {
     color: colors.textInverse,
-    fontSize: typography.button,
-    fontWeight: '700',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });

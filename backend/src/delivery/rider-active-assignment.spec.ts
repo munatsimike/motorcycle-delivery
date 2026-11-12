@@ -1,5 +1,5 @@
 import { ForbiddenException, RequestMethod } from '@nestjs/common';
-import { GUARDS_METADATA, METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants.js';
+import { GUARDS_METADATA, METHOD_METADATA, PATH_METADATA, SELF_DECLARED_DEPS_METADATA } from '@nestjs/common/constants.js';
 import { describe, expect, it } from 'vitest';
 import {
   AssignmentStatus,
@@ -10,6 +10,7 @@ import {
 import { RiderAccessGuard } from '../auth/rider-access.guard.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import { DispatchService, type ActiveAssignment } from './dispatch.service.js';
+import { PlacesService } from './places.service.js';
 import { RiderAssignmentController } from './rider-assignment.controller.js';
 
 const NOW = new Date('2026-10-19T12:00:00.000Z');
@@ -205,6 +206,115 @@ describe('active rider assignment', () => {
     expect(encoded).not.toContain('Failed road');
     expect(encoded).not.toContain('Pending road');
     expect((await service.liveAssignments(rider('profile-1'), NOW)).assignments.map((assignment) => assignment.assignmentId)).toEqual(['active']);
+  });
+});
+
+describe('pickup route', () => {
+  const request = { rider: { userId: 'user-1', riderProfileId: 'profile-1' } };
+
+  it('returns the stored pickup driving geometry and does not invent a line when routing fails', async () => {
+    expect(Reflect.getMetadata(PATH_METADATA, RiderAssignmentController.prototype.pickupRoute)).toBe(':assignmentId/pickup-route');
+    expect(Reflect.getMetadata(METHOD_METADATA, RiderAssignmentController.prototype.pickupRoute)).toBe(RequestMethod.GET);
+    const queries: Array<{ pickupLatitude: number; riderLatitude: number }> = [];
+    const controller = new RiderAssignmentController({
+      async liveAssignments() {
+        return {
+          assignments: [{
+            assignmentId: 'assignment-1',
+            status: 'RIDER_ASSIGNED',
+            pickup: { latitude: '-17.8252000', longitude: '31.0335000' },
+          }],
+        };
+      },
+    } as unknown as DispatchService, {
+      async lookup(query: { pickupLatitude: number; riderLatitude: number }) {
+        queries.push(query);
+        return {
+          metres: 1200,
+          seconds: 180,
+          line: [
+            { latitude: -17.83, longitude: 31.04 },
+            { latitude: -17.8252, longitude: 31.0335 },
+          ],
+        };
+      },
+    });
+
+    const route = await controller.pickupRoute(request, 'assignment-1', '-17.83', '31.04');
+
+    expect(queries[0]).toMatchObject({ pickupLatitude: -17.8252, riderLatitude: -17.83 });
+    expect(route.line).toHaveLength(2);
+    expect(route.geometry.length).toBeGreaterThan(0);
+    expect(route).toMatchObject({ metres: 1200, seconds: 180 });
+
+    const failed = new RiderAssignmentController({
+      async liveAssignments() {
+        return { assignments: [{ assignmentId: 'assignment-1', status: 'RIDER_ASSIGNED', pickup: { latitude: '-17.82', longitude: '31.05' } }] };
+      },
+    } as unknown as DispatchService, {
+      async lookup() {
+        return null;
+      },
+    });
+    expect(await failed.pickupRoute(request, 'assignment-1', '-17.83', '31.04')).toEqual({ geometry: '', line: [] });
+  });
+});
+
+describe('delivery route', () => {
+  const request = { rider: { userId: 'user-1', riderProfileId: 'profile-1' } };
+
+  it('injects PlacesService and returns its road between pickup and drop-off', async () => {
+    const declared = Reflect.getMetadata(SELF_DECLARED_DEPS_METADATA, RiderAssignmentController) as Array<{ index: number; param: unknown }>;
+    expect(declared).toContainEqual({ index: 2, param: PlacesService });
+    const origins: number[][] = [];
+    let status = 'COLLECTED';
+    const controller = new RiderAssignmentController({
+      async liveAssignments() {
+        return {
+          assignments: [{
+            assignmentId: 'assignment-1',
+            status,
+            pickup: { latitude: '-17.8252000', longitude: '31.0335000' },
+            dropoff: { latitude: '-17.8200000', longitude: '31.0400000' },
+          }],
+        };
+      },
+    } as unknown as DispatchService, null, {
+      async deliveryRoute(originLatitude: number, originLongitude: number, dropoffLatitude: number, dropoffLongitude: number) {
+        origins.push([originLatitude, originLongitude, dropoffLatitude, dropoffLongitude]);
+        return {
+          line: [
+            { latitude: originLatitude, longitude: originLongitude },
+            { latitude: -17.823, longitude: 31.036 },
+            { latitude: dropoffLatitude, longitude: dropoffLongitude },
+          ],
+        };
+      },
+    } as unknown as PlacesService);
+
+    const route = await controller.deliveryRoute(request, 'assignment-1');
+
+    expect(route.line.length).toBeGreaterThan(2);
+    expect(route.geometry.length).toBeGreaterThan(0);
+    expect(origins[0]).toEqual([-17.8252, 31.0335, -17.82, 31.04]);
+    await controller.deliveryRoute(request, 'assignment-1', '-17.8300', '31.0500');
+    expect(origins[1]).toEqual([-17.83, 31.05, -17.82, 31.04]);
+    status = 'OUT_FOR_DELIVERY';
+    await controller.deliveryRoute(request, 'assignment-1', '-17.8300', '31.0500');
+    expect(origins[2]).toEqual([-17.8252, 31.0335, -17.82, 31.04]);
+    const missing = new RiderAssignmentController({
+      async liveAssignments() {
+        return {
+          assignments: [{
+            assignmentId: 'assignment-1',
+            status: 'COLLECTED',
+            pickup: { latitude: '-17.8252000', longitude: '31.0335000' },
+            dropoff: { latitude: '-17.8200000', longitude: '31.0400000' },
+          }],
+        };
+      },
+    } as unknown as DispatchService);
+    expect(await missing.deliveryRoute(request, 'assignment-1')).toEqual({ geometry: '', line: [] });
   });
 });
 

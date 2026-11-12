@@ -11,6 +11,9 @@ export const colors = {
   textInverse: '#FFFFFF',
 
   border: '#E1E8E3',
+  /** Deliveries list page, matching the rider bids screen. */
+  listBackground: '#F3F8F5',
+  listCardBorder: '#E1E9E4',
 
   error: '#D92D20',
 } as const;

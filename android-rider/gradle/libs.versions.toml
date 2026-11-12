@@ -17,6 +17,8 @@ serializationConverter = "1.0.0"
 security = "1.1.0-alpha06"
 coroutines = "1.10.2"
 playLocation = "21.3.0"
+playMaps = "19.2.0"
+mapsCompose = "6.6.0"
 junit = "4.13.2"
 coreKtx = "1.17.0"
 googleServices = "4.4.2"
@@ -51,6 +53,8 @@ security-crypto = { module = "androidx.security:security-crypto", version.ref = 
 coroutines = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
 coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
 play-location = { module = "com.google.android.gms:play-services-location", version.ref = "playLocation" }
+play-maps = { module = "com.google.android.gms:play-services-maps", version.ref = "playMaps" }
+maps-compose = { module = "com.google.maps.android:maps-compose", version.ref = "mapsCompose" }
 core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
 firebase-bom = { module = "com.google.firebase:firebase-bom", version.ref = "firebaseBom" }
 firebase-messaging = { module = "com.google.firebase:firebase-messaging" }

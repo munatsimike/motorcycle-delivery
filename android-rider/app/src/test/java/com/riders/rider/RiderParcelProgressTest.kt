@@ -16,6 +16,7 @@ import com.riders.rider.feature.delivery.domain.navigationActionLabel
 import com.riders.rider.feature.delivery.domain.v2ActionLabel
 import com.riders.rider.feature.delivery.domain.v2RiderAction
 import com.riders.rider.feature.delivery.domain.v2TapTarget
+import com.riders.rider.feature.delivery.domain.riderCancelReasonChoices
 import com.riders.rider.feature.delivery.domain.v2CancellationVisible
 import com.riders.rider.feature.delivery.domain.v2NextStatus
 import org.junit.Assert.assertEquals
@@ -62,6 +63,19 @@ class RiderParcelProgressTest {
         assertFalse(v2CancellationVisible("DELIVERED"))
         assertEquals("Enter a cancellation note", cancellationNoteError("OTHER", " "))
         assertNull(cancellationNoteError("BREAKDOWN", ""))
+        assertEquals(
+            listOf(
+                "PAYMENT_NOT_AGREED",
+                "PARCEL_NOT_AS_DESCRIBED",
+                "PARCEL_TOO_LARGE",
+                "SENDER_UNAVAILABLE",
+                "WRONG_ADDRESS",
+                "BREAKDOWN",
+            ),
+            riderCancelReasonChoices().map { it.first },
+        )
+        assertEquals("Payment was not agreed", riderCancelReasonChoices().first().second)
+        assertEquals("Breakdown", riderCancelReasonChoices().last().second)
     }
 
     @Test

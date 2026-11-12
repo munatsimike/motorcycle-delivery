@@ -12,6 +12,7 @@ import com.riders.rider.feature.delivery.domain.DeliveryContacts
 import com.riders.rider.feature.delivery.domain.DeliveryRecoveryCoordinator
 import com.riders.rider.feature.delivery.domain.DeliverySyncKind
 import com.riders.rider.feature.delivery.domain.deliveryCardAddress
+import com.riders.rider.feature.delivery.domain.distinctStopDetail
 import com.riders.rider.feature.delivery.domain.destinationSuburb
 import com.riders.rider.feature.delivery.domain.deliveryPriceLabel
 import com.riders.rider.feature.delivery.domain.deliveryWhenLabel
@@ -21,10 +22,13 @@ import com.riders.rider.feature.delivery.domain.MAPS_UNAVAILABLE
 import com.riders.rider.feature.delivery.domain.mapPointForStatus
 import com.riders.rider.feature.delivery.domain.navigationTarget
 import com.riders.rider.feature.delivery.domain.showsRecipientOnDelivery
+import com.riders.rider.feature.delivery.domain.collectedDeliverySupport
+import com.riders.rider.feature.delivery.domain.collectionDeliverySupport
 import com.riders.rider.feature.delivery.domain.riderDetailsHeading
 import com.riders.rider.feature.delivery.domain.riderDetailsSupport
 import com.riders.rider.feature.delivery.domain.partyContactVisible
 import com.riders.rider.feature.delivery.domain.senderDialUri
+import com.riders.rider.feature.delivery.domain.recipientAvatarSlot
 import com.riders.rider.feature.delivery.domain.senderInitials
 import com.riders.rider.feature.delivery.domain.senderWhatsAppUri
 import com.riders.rider.feature.delivery.domain.syncOpenDelivery
@@ -50,6 +54,14 @@ class RiderDeliveryTest {
         assertEquals("NM", senderInitials("Nyasha Moyo"))
         assertEquals("N", senderInitials("Nyasha"))
         assertEquals("S", senderInitials(" "))
+        assertEquals("M", senderInitials("Mike"))
+        assertEquals("JS", senderInitials("John Smith"))
+        assertEquals("SJ", senderInitials("Sarah Johnson"))
+        assertEquals("D", senderInitials("David"))
+        assertEquals(recipientAvatarSlot("Mike", 8), recipientAvatarSlot("  mike  ", 8))
+        assertEquals(0, recipientAvatarSlot(" ", 8))
+        val slots = listOf("Mike", "John Smith", "Sarah Johnson", "David").map { recipientAvatarSlot(it, 8) }
+        assertTrue(slots.toSet().size > 1)
         assertEquals("tel:+263771000001", senderDialUri("+263771000001"))
         assertEquals("whatsapp://send?phone=263771000001", senderWhatsAppUri("+263771000001"))
         assertNull(senderDialUri("0771000001"))
@@ -63,9 +75,13 @@ class RiderDeliveryTest {
     fun detailsHeadingFollowsTheDeliveryStage() {
         assertEquals("Ready for collection", riderDetailsHeading("RIDER_ASSIGNED"))
         assertEquals("Collect the parcel from the sender.", riderDetailsSupport("RIDER_ASSIGNED"))
+        assertEquals("Collect the parcel at 1Z Generaal Joubertstraat, Haarlem.", collectionDeliverySupport("1Z Generaal Joubertstraat, Haarlem"))
+        assertEquals(riderDetailsSupport("RIDER_ASSIGNED"), collectionDeliverySupport(" "))
         assertEquals("Ready for collection", riderDetailsHeading("COLLECTING"))
         assertEquals("Parcel collected", riderDetailsHeading("COLLECTED"))
-        assertEquals("You've collected the parcel. Finish and mark it delivered.", riderDetailsSupport("COLLECTED"))
+        assertEquals("Deliver the parcel to 56 Parklaan, Haarlem.", collectedDeliverySupport("56 Parklaan, Haarlem"))
+        assertEquals("Deliver the parcel to 12 Samora Machel Ave.", collectedDeliverySupport("12 Samora Machel Avenue, Harare, Zimbabwe"))
+        assertEquals(riderDetailsSupport("COLLECTED"), collectedDeliverySupport(" "))
         assertFalse(showsRecipientOnDelivery("RIDER_ASSIGNED"))
         assertFalse(showsRecipientOnDelivery("COLLECTING"))
         assertTrue(showsRecipientOnDelivery("COLLECTED"))
@@ -160,7 +176,13 @@ class RiderDeliveryTest {
         val stored = offer().copy(serviceClass = "EXPRESS").toActiveDelivery("delivery-1", "assignment-1", "RIDER_ASSIGNED")
         assertEquals("EXPRESS", stored.serviceClass)
         assertEquals("12 Samora Machel Ave", deliveryCardAddress("12 Samora Machel Avenue, Harare, Zimbabwe"))
+        assertNull(distinctStopDetail("12 Samora Machel Avenue, Harare", "12 Samora Machel Avenue, Harare, Zimbabwe"))
+        assertNull(distinctStopDetail("45 Parklaan, Haarlem", "45 Parklaan, Haarlem Netherlands"))
+        assertEquals("blue gate", distinctStopDetail("45 Parklaan, Haarlem", "blue gate"))
         assertEquals("9 Nelson Mandela Ave", deliveryCardAddress("9 Nelson Mandela Avenue"))
+        assertEquals("45 Parklaan, Haarlem", deliveryCardAddress("45 Parklaan, Haarlem, Netherlands"))
+        assertEquals("45 Parklaan, Haarlem", deliveryCardAddress("45 Parklaan, Haarlem Netherlands"))
+        assertEquals("45 Parklaan, Haarlem", deliveryCardAddress("45 Parklaan, Haarlem, The Netherlands"))
         assertEquals("Mufakose", destinationSuburb("66 Mungongoma Road, Mufakose, Harare, Zimbabwe"))
         assertEquals("Avondale", destinationSuburb("Avondale, Harare"))
         assertEquals("Budiriro", destinationSuburb("Budiriro"))

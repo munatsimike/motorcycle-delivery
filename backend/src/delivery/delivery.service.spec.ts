@@ -849,6 +849,112 @@ function listPrisma(rows: ListedDelivery[], bids: Array<{ deliveryId: string; st
   };
 }
 
+describe('customer live rider location', () => {
+  const pickup = { latitude: -17.8292, longitude: 31.0522 };
+  const dropoff = { latitude: -17.7833, longitude: 31.0531 };
+
+  it('routes a fresh accepted rider to pickup, then to the drop-off, and stops after delivery', async () => {
+    const collecting = trackingService(DeliveryStatus.COLLECTING);
+    const collectingView = await collecting.service.getById(CUSTOMER, 'delivery-1');
+    expect(collectingView).toMatchObject({
+      riderLocation: { latitude: '-17.8010000', longitude: '31.1090000' },
+      pickupApproach: { metres: 2400, seconds: 420 },
+    });
+    expect(collecting.destinations).toEqual([pickup]);
+    expect(JSON.stringify(collectingView)).not.toContain('rider-1');
+
+    const collected = trackingService(DeliveryStatus.COLLECTED);
+    expect((await collected.service.getById(CUSTOMER, 'delivery-1')).pickupApproach).toMatchObject({ metres: 2400 });
+    expect(collected.destinations).toEqual([dropoff]);
+
+    const delivering = trackingService(DeliveryStatus.OUT_FOR_DELIVERY);
+    expect(await delivering.service.getById(CUSTOMER, 'delivery-1')).toHaveProperty('riderLocation');
+    expect(delivering.destinations).toEqual([dropoff]);
+
+    for (const status of [DeliveryStatus.DELIVERED, DeliveryStatus.CANCELLED]) {
+      const ended = trackingService(status);
+      const view = await ended.service.getById(CUSTOMER, 'delivery-1');
+      expect(view).not.toHaveProperty('riderLocation');
+      expect(view).not.toHaveProperty('pickupApproach');
+      expect(ended.destinations).toEqual([]);
+    }
+  });
+
+  it('omits a stale, unassigned, or foreign rider point', async () => {
+    const stale = trackingService(DeliveryStatus.COLLECTING, { fresh: false });
+    const staleView = await stale.service.getById(CUSTOMER, 'delivery-1');
+    expect(staleView).not.toHaveProperty('riderLocation');
+    expect(stale.destinations).toEqual([]);
+
+    const released = trackingService(DeliveryStatus.OUT_FOR_DELIVERY, { assigned: false });
+    expect(await released.service.getById(CUSTOMER, 'delivery-1')).not.toHaveProperty('riderLocation');
+
+    const foreign = trackingService(DeliveryStatus.COLLECTING);
+    await expect(foreign.service.getById(
+      { userId: 'other', role: UserRole.CUSTOMER, customerAccountId: 'other-account' },
+      'delivery-1',
+    )).rejects.toThrow('Delivery not found');
+    expect(foreign.destinations).toEqual([]);
+  });
+});
+
+function trackingService(status: DeliveryStatus, options: { assigned?: boolean; fresh?: boolean } = {}) {
+  const destinations: Array<{ latitude: number; longitude: number }> = [];
+  const prisma = {
+    customerAccount: { async findFirst() { return null; } },
+    delivery: {
+      async findFirst({ where }: { where: { id: string; customerId: string } }) {
+        if (where.id !== 'delivery-1' || where.customerId !== CUSTOMER.customerAccountId) {
+          return null;
+        }
+        return {
+          id: 'delivery-1',
+          status,
+          currency: 'USD',
+          payer: 'SENDER',
+          paymentMethod: 'CASH',
+          distanceMeters: 1200,
+          pricingVersion: 1,
+          price: '9.00',
+          suggestedPrice: '8.00',
+          pickupLatitude: '-17.8292000',
+          pickupLongitude: '31.0522000',
+          pickupAddress: 'Pickup road',
+          dropoffLatitude: '-17.7833000',
+          dropoffLongitude: '31.0531000',
+          dropoffAddress: 'Dropoff road',
+          parcelDescription: 'Documents',
+          parcelSize: 'SMALL',
+        };
+      },
+    },
+    deliveryAssignment: {
+      async findFirst() {
+        return options.assigned === false ? null : { riderProfileId: 'rider-1' };
+      },
+    },
+    riderLocation: {
+      async findUnique() {
+        return {
+          latitude: '-17.8010000',
+          longitude: '31.1090000',
+          updatedAt: options.fresh === false ? new Date(Date.now() - 61_000) : new Date(),
+        };
+      },
+    },
+  };
+  const approach = {
+    async lookup(query: { pickupLatitude: number; pickupLongitude: number }) {
+      destinations.push({ latitude: query.pickupLatitude, longitude: query.pickupLongitude });
+      return { metres: 2400, seconds: 420, line: [{ latitude: -17.801, longitude: 31.109 }] };
+    },
+  };
+  return {
+    service: new DeliveryService(prisma as never, undefined, undefined, approach),
+    destinations,
+  };
+}
+
 type ListWhere = { customerId: string; status?: { in: DeliveryStatus[] } };
 
 type BidCountWhere = {

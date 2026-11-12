@@ -144,5 +144,6 @@ private fun CompletedDeliveryCard(parcel: CommittedParcel, onOpen: (String) -> U
         dropoff = parcel.dropoffAddress,
         onClick = { onOpen(parcel.deliveryId) },
         modifier = Modifier.fillMaxWidth(),
+        listBadge = true,
     )
 }

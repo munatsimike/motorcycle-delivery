@@ -163,8 +163,11 @@ export default function RidersMap({ customerLocation, riders = [], showCustomerM
           <PickupSearchPulse coordinate={pickupLocation} active />
         ) : null}
         {pickupLocation ? (
-          <Marker coordinate={pickupLocation} title="Parcel pickup" tracksViewChanges={false} {...(searchPulse ? { zIndex: 2 } : {})}>
-            <View style={styles.pickupPin}><View style={styles.pickupPinCenter} /></View>
+          <Marker coordinate={pickupLocation} title="Parcel pickup" anchor={{ x: 0.5, y: 1 }} zIndex={searchPulse ? 2 : 1}>
+            <View collapsable={false} style={styles.pickupPin}>
+              <View collapsable={false} style={styles.pickupPinCenter} />
+              <MaterialDesignIcons name="map-marker" size={36} color={deliveryIcon.pickup} style={styles.pickupGlyph} />
+            </View>
           </Marker>
         ) : null}
         {riders.map((rider) => (
@@ -188,7 +191,8 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   locationRing: { width: 27, height: 27, borderRadius: 14, backgroundColor: 'rgba(42,134,240,0.17)', alignItems: 'center', justifyContent: 'center' },
   locationDot: { width: 13, height: 13, borderRadius: 7, backgroundColor: '#2885E9', borderWidth: 2, borderColor: '#FFFFFF' },
-  pickupPin: { width: 28, height: 34, borderRadius: 15, borderBottomLeftRadius: 4, transform: [{ rotate: "-45deg" }], backgroundColor: deliveryIcon.pickup, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "#FFFFFF" },
-  pickupPinCenter: { width: 10, height: 10, borderRadius: 5, backgroundColor: "#FFFFFF" },
+  pickupPin: { width: 36, height: 36 },
+  pickupPinCenter: { position: 'absolute', width: 10, height: 10, borderRadius: 5, backgroundColor: '#FFFFFF', left: 13, top: 8.5 },
+  pickupGlyph: { width: 36, height: 36, lineHeight: 36, textAlign: 'center', textAlignVertical: 'center', includeFontPadding: false },
   recenter: { position: 'absolute', right: 20, width: 46, height: 46, borderRadius: 23, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center', elevation: 4, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8 },
 });

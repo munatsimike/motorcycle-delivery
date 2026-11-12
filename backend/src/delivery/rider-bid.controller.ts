@@ -38,6 +38,14 @@ export class RiderBidController {
     return this.bids.listOpenRequests(requiredRider(request));
   }
 
+  @Get('bid-requests/:deliveryId/route')
+  @ApiOperation({ summary: 'Read the driving route between an open request pickup and drop-off' })
+  @ApiParam({ name: 'deliveryId', format: 'uuid' })
+  @ApiOkResponse({ description: 'Road geometry between the stored pickup and drop-off. An empty line means no route is available.' })
+  requestRoad(@Req() request: BidRequest, @Param('deliveryId') deliveryId: string) {
+    return this.bids.requestRoad(requiredRider(request), deliveryId);
+  }
+
   @Get('bids')
   @ApiOperation({ summary: 'List bids owned by the signed-in rider' })
   @ApiOkResponse({ description: 'The rider own bids, newest first, with the request class, addresses, and deadline.' })

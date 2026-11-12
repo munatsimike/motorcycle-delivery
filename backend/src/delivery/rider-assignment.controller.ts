@@ -1,12 +1,18 @@
-import { BadRequestException, Body, Controller, ForbiddenException, Get, HttpCode, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, HttpCode, Inject, NotFoundException, Optional, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiForbiddenResponse, ApiHeader, ApiOkResponse, ApiOperation, ApiParam, ApiTags, ApiUnauthorizedResponse } from '@nestjs/swagger';
 import { RiderAccessGuard, type RiderRequest } from '../auth/rider-access.guard.js';
 import type { RiderContext } from '../auth/rider-access.service.js';
 import { DispatchService } from './dispatch.service.js';
+import { encodePolyline } from './geoapify.js';
+import { PICKUP_APPROACH, type PickupApproachLookup } from './pickup-approach.js';
+import { PlacesService } from './places.service.js';
 
 type AssignmentRequest = RiderRequest & {
   headers?: RiderRequest['headers'] & { 'idempotency-key'?: string | string[] };
 };
+
+const COLLECTION_STATUSES = new Set(['RIDER_ASSIGNED', 'ASSIGNED', 'COLLECTING', 'ARRIVED_AT_PICKUP']);
+const DELIVERY_ROUTE_STATUSES = new Set(['COLLECTED', 'PICKED_UP', 'OUT_FOR_DELIVERY', 'IN_TRANSIT', 'ARRIVED_AT_DROPOFF']);
 
 @ApiTags('Rider deliveries')
 @ApiBearerAuth('bearer')
@@ -15,7 +21,12 @@ type AssignmentRequest = RiderRequest & {
 @Controller('riders/me/assignments')
 @UseGuards(RiderAccessGuard)
 export class RiderAssignmentController {
-  constructor(private readonly dispatch: DispatchService) {}
+  constructor(
+    private readonly dispatch: DispatchService,
+    @Optional() @Inject(PICKUP_APPROACH) private readonly routes: PickupApproachLookup | null = null,
+    // `PlacesService | null` emits as Object, so Nest will not inject it unless the token is explicit.
+    @Optional() @Inject(PlacesService) private readonly places: PlacesService | null = null,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'Read the rider live accepted assignments' })
@@ -38,6 +49,96 @@ export class RiderAssignmentController {
     return this.dispatch.activeAssignment(requiredRider(request));
   }
 
+  @Get(':assignmentId/pickup-route')
+  @ApiOperation({ summary: 'Read the driving route from the rider to this assignment pickup' })
+  @ApiParam({ name: 'assignmentId', format: 'uuid' })
+  @ApiOkResponse({ description: 'Encoded road geometry from the rider fix to the stored pickup. An empty line means no route is available.' })
+  async pickupRoute(
+    @Req() request: RiderRequest,
+    @Param('assignmentId') assignmentId: string,
+    @Query('latitude') latitude: string,
+    @Query('longitude') longitude: string,
+  ) {
+    const rider = requiredRider(request);
+    const riderLatitude = finiteCoordinate(latitude, 90);
+    const riderLongitude = finiteCoordinate(longitude, 180);
+    if (riderLatitude === null || riderLongitude === null) {
+      throw new BadRequestException('Enter a valid location');
+    }
+    const { assignments } = await this.dispatch.liveAssignments(rider);
+    const match = assignments.find((item) => item.assignmentId === assignmentId);
+    if (!match) {
+      throw new NotFoundException('Delivery not found');
+    }
+    if (!COLLECTION_STATUSES.has(match.status) || !this.routes) {
+      return { geometry: '', line: [] };
+    }
+    const pickupLatitude = finiteCoordinate(match.pickup.latitude, 90);
+    const pickupLongitude = finiteCoordinate(match.pickup.longitude, 180);
+    if (pickupLatitude === null || pickupLongitude === null) {
+      return { geometry: '', line: [] };
+    }
+    const approach = await this.routes.lookup({
+      riderProfileId: rider.riderProfileId,
+      riderLatitude,
+      riderLongitude,
+      pickupLatitude,
+      pickupLongitude,
+    }).catch(() => null);
+    const line = approach?.line ?? [];
+    const drawn = line.length > 1;
+    return {
+      geometry: drawn ? encodePolyline(line.map((point) => [point.longitude, point.latitude])) : '',
+      line,
+      ...(approach && drawn ? { metres: approach.metres, seconds: approach.seconds } : {}),
+    };
+  }
+
+  @Get(':assignmentId/delivery-route')
+  @ApiOperation({ summary: 'Read the driving route from this assignment pickup to its drop-off' })
+  @ApiParam({ name: 'assignmentId', format: 'uuid' })
+  @ApiOkResponse({ description: 'Road geometry between the stored pickup and drop-off. After collection, latitude and longitude switch the origin to the rider. An empty line means no route is available.' })
+  async deliveryRoute(
+    @Req() request: RiderRequest,
+    @Param('assignmentId') assignmentId: string,
+    @Query('latitude') latitude?: string,
+    @Query('longitude') longitude?: string,
+  ) {
+    const rider = requiredRider(request);
+    const { assignments } = await this.dispatch.liveAssignments(rider);
+    const match = assignments.find((item) => item.assignmentId === assignmentId);
+    if (!match || !DELIVERY_ROUTE_STATUSES.has(match.status)) {
+      return { geometry: '', line: [] };
+    }
+    const pickupLatitude = finiteCoordinate(match.pickup.latitude, 90);
+    const pickupLongitude = finiteCoordinate(match.pickup.longitude, 180);
+    const dropoffLatitude = finiteCoordinate(match.dropoff.latitude, 90);
+    const dropoffLongitude = finiteCoordinate(match.dropoff.longitude, 180);
+    if (pickupLatitude === null || pickupLongitude === null || dropoffLatitude === null || dropoffLongitude === null) {
+      return { geometry: '', line: [] };
+    }
+    if (!this.places) {
+      return { geometry: '', line: [] };
+    }
+    const riderLatitude = finiteCoordinate(latitude, 90);
+    const riderLongitude = finiteCoordinate(longitude, 180);
+    const fromRider = (match.status === 'COLLECTED' || match.status === 'PICKED_UP')
+      && riderLatitude !== null
+      && riderLongitude !== null;
+    const route = await this.places.deliveryRoute(
+      fromRider ? riderLatitude : pickupLatitude,
+      fromRider ? riderLongitude : pickupLongitude,
+      dropoffLatitude,
+      dropoffLongitude,
+    );
+    const line = route.line;
+    const drawn = line.length > 1;
+    return {
+      geometry: drawn ? encodePolyline(line.map((point) => [point.longitude, point.latitude])) : '',
+      line,
+    };
+  }
+
   @Post(':assignmentId/cancellation')
   @HttpCode(200)
   @ApiOperation({ summary: 'Cancel an assigned V2 delivery before pickup and reopen the original request' })
@@ -57,6 +158,17 @@ function readIdempotencyKey(request: AssignmentRequest): string {
     throw new BadRequestException('Enter an idempotency key');
   }
   return value.trim();
+}
+
+function finiteCoordinate(value: string | null | undefined, limit: number): number | null {
+  if (value == null || !value.trim()) {
+    return null;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || Math.abs(parsed) > limit) {
+    return null;
+  }
+  return parsed;
 }
 
 function requiredRider(request: RiderRequest): RiderContext {

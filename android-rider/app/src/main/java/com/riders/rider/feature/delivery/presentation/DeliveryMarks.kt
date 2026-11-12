@@ -6,21 +6,25 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
@@ -28,8 +32,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
@@ -42,6 +46,7 @@ import com.riders.rider.core.design.RidersSpacing
 import com.riders.rider.core.design.RidersType
 import com.riders.rider.feature.delivery.domain.deliveryCardAddress
 import com.riders.rider.feature.delivery.domain.deliveryPriceLabel
+import com.riders.rider.feature.delivery.domain.deliveryListBadge
 import com.riders.rider.feature.delivery.domain.deliveryStatusLabel
 import com.riders.rider.feature.delivery.domain.deliveryWhenLabel
 import com.riders.rider.feature.delivery.domain.shortDeliveryReference
@@ -83,53 +88,54 @@ private fun contentIcon(description: String): Int {
 }
 
 @Composable
-fun ContentIcon(description: String, modifier: Modifier = Modifier, size: Dp = markSize) {
+fun ContentIcon(description: String, modifier: Modifier = Modifier, size: Dp = markSize, muted: Boolean = false) {
     Icon(
         painter = painterResource(contentIcon(description)),
         contentDescription = null,
         modifier = modifier.size(size),
-        tint = markColor,
+        tint = if (muted) RidersColors.textSecondary else markColor,
     )
 }
 
 @Composable
-fun ContentLabel(description: String, modifier: Modifier = Modifier) {
+fun ContentLabel(description: String, modifier: Modifier = Modifier, compact: Boolean = false) {
     val parcel = deliveryContentLabel(description) == "Parcel"
     Text(
         deliveryContentLabel(description),
         modifier = modifier,
         style = TextStyle(
-            fontSize = if (parcel) 16.sp else 14.sp,
+            fontSize = if (compact) 13.sp else if (parcel) 16.sp else 14.sp,
             lineHeight = if (parcel) 22.sp else 18.sp,
-            fontWeight = FontWeight.SemiBold,
+            fontWeight = if (compact) FontWeight.Medium else FontWeight.SemiBold,
             platformStyle = noFontPadding,
         ),
-        color = RidersColors.text,
+        color = if (compact) RidersColors.textSecondary else RidersColors.text,
     )
 }
 
+val pickupPinColor = Color(0xFF169B62)
+val dropoffPinColor = Color(0xFF1A73E8)
+private val locationPinWidth = 21.dp
+private val locationPinHeight = 25.dp
+/** Circle center in the pin artwork, as a fraction of its height. */
+private const val locationPinHeadCenter = 23f / 58f
+
 @Composable
-fun LocationPin(dropoff: Boolean, modifier: Modifier = Modifier) {
+fun LocationPin(
+    dropoff: Boolean,
+    modifier: Modifier = Modifier,
+    size: Dp? = null,
+) {
     Icon(
-        painter = painterResource(R.drawable.ic_map_marker_outline),
-        contentDescription = null,
-        modifier = modifier.size(markSize),
-        tint = if (dropoff) RidersColors.text else markColor,
+        painter = painterResource(if (dropoff) R.drawable.ic_solid_dropoff_location else R.drawable.ic_solid_pickup_location),
+        contentDescription = if (dropoff) "Drop-off" else "Pickup",
+        modifier = if (size != null) modifier.size(size) else modifier.size(width = locationPinWidth, height = locationPinHeight),
+        tint = Color.Unspecified,
     )
 }
 
 @Composable
-fun StopLabel(text: String, modifier: Modifier = Modifier) {
-    Text(
-        text,
-        modifier = modifier,
-        style = RidersType.caption,
-        color = RidersColors.textSecondary,
-    )
-}
-
-@Composable
-fun ServiceClassBadge(serviceClass: String?, modifier: Modifier = Modifier) {
+fun ServiceClassBadge(serviceClass: String?, modifier: Modifier = Modifier, subtle: Boolean = false) {
     val urgent = serviceClass == "EXPRESS"
     Row(
         modifier
@@ -143,24 +149,23 @@ fun ServiceClassBadge(serviceClass: String?, modifier: Modifier = Modifier) {
         Icon(
             painter = painterResource(if (urgent) R.drawable.ic_flash_outline else R.drawable.ic_message_text_outline),
             contentDescription = null,
-            modifier = Modifier.size(badgeIconSize),
-            tint = markColor,
+            modifier = Modifier.size(if (subtle) 12.dp else badgeIconSize),
+            tint = if (subtle) RidersColors.textSecondary else markColor,
         )
         Text(
             if (urgent) "Urgent" else "Flexible",
             style = TextStyle(
-                fontSize = 14.sp,
+                fontSize = if (subtle) 12.sp else 14.sp,
                 lineHeight = 18.sp,
                 fontWeight = FontWeight.Medium,
                 platformStyle = noFontPadding,
             ),
-            color = RidersColors.text,
+            color = if (subtle) RidersColors.textSecondary else RidersColors.text,
         )
     }
 }
 
 private val cardSurface = Color(0xFFF8FAF9)
-private val routeDot = Color(0xFFB7C2BC)
 private val placeText = TextStyle(
     fontSize = 14.sp,
     lineHeight = 18.sp,
@@ -187,9 +192,15 @@ fun DeliverySummaryCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     details: List<String> = emptyList(),
+    listBadge: Boolean = false,
 ) {
     val shape = RoundedCornerShape(RidersRadius.lg)
-    val tone = statusTone(status)
+    val listed = if (listBadge) deliveryListBadge(status) else null
+    val tone = if (listed != null) {
+        StatusTone(Color(listed.background), Color(listed.foreground))
+    } else {
+        statusTone(status)
+    }
     Column(
         modifier
             .shadow(elevation = 2.dp, shape = shape, ambientColor = Color(0xFF17211D), spotColor = Color(0xFF17211D))
@@ -214,19 +225,19 @@ fun DeliverySummaryCard(
                     horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    ContentIcon(description)
-                    ContentLabel(description)
+                    ContentIcon(description, size = 15.dp, muted = true)
+                    ContentLabel(description, compact = true)
                     if (serviceClass == "EXPRESS" || serviceClass == "FLEXIBLE") {
-                        ServiceClassBadge(serviceClass)
+                        ServiceClassBadge(serviceClass, subtle = true)
                     }
                 }
-                DeliveryRoute(pickup, dropoff)
+                DeliveryRoute(pickup, dropoff, constantSpacing = true, addressFontSize = 16.sp, addressLineHeight = 21.sp)
                 details.forEach { line ->
                     Text(line, style = RidersType.caption, color = RidersColors.textSecondary)
                 }
             }
             RidersChangingText(
-                value = deliveryStatusLabel(status),
+                value = listed?.label ?: deliveryStatusLabel(status),
                 style = RidersType.small.copy(fontWeight = FontWeight.Bold),
                 color = tone.content,
                 maxLines = 1,
@@ -248,20 +259,30 @@ fun DeliverySummaryCard(
 }
 
 @Composable
-fun DeliveryRoute(pickup: String, dropoff: String, modifier: Modifier = Modifier) {
+fun DeliveryRoute(
+    pickup: String,
+    dropoff: String,
+    modifier: Modifier = Modifier,
+    constantSpacing: Boolean = false,
+    addressFontSize: TextUnit = 14.sp,
+    addressLineHeight: TextUnit = 18.sp,
+) {
     val pickupLine = deliveryCardAddress(pickup)
     val dropoffLine = deliveryCardAddress(dropoff)
-    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm)) {
+    Column(
+        modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(if (constantSpacing) 8.dp else RidersSpacing.sm),
+    ) {
         if (pickupLine.isNotBlank()) {
-            DeliveryStop("Pickup", pickupLine, dropoff = false, connect = dropoffLine.isNotBlank())
+            DeliveryStop(pickupLine, dropoff = false, connect = false, fontSize = addressFontSize, lineHeight = addressLineHeight)
         }
         if (dropoffLine.isNotBlank()) {
-            DeliveryStop("Drop-off", dropoffLine, dropoff = true, connect = false)
+            DeliveryStop(dropoffLine, dropoff = true, connect = false, fontSize = addressFontSize, lineHeight = addressLineHeight)
         }
     }
 }
 
-private val detailPinColumn = 32.dp
+private val detailPinColumn = locationPinWidth
 
 @Composable
 fun DeliveryDetailsSummary(
@@ -276,10 +297,13 @@ fun DeliveryDetailsSummary(
     modifier: Modifier = Modifier,
     dateCaption: String = "Date",
     framed: Boolean = true,
+    flat: Boolean = false,
+    spacious: Boolean = false,
     pickupContact: @Composable () -> Unit = {},
     dropoffContact: @Composable () -> Unit = {},
     pickupDetail: @Composable () -> Unit = {},
     dropoffDetail: @Composable () -> Unit = {},
+    parcelSheet: Boolean = false,
 ) {
     val shape = RoundedCornerShape(RidersRadius.lg)
     val whenLabel = deliveryWhenLabel(createdAt)
@@ -287,26 +311,32 @@ fun DeliveryDetailsSummary(
     val dropoffLine = deliveryCardAddress(dropoff)
     val surface = if (framed) {
         modifier
-            .shadow(elevation = 8.dp, shape = shape, ambientColor = RidersColors.shadow, spotColor = RidersColors.shadow)
+            .then(
+                if (flat) {
+                    Modifier
+                } else {
+                    Modifier.shadow(elevation = 8.dp, shape = shape, ambientColor = RidersColors.shadow, spotColor = RidersColors.shadow)
+                },
+            )
             .clip(shape)
             .background(RidersColors.background)
-            .border(1.dp, RidersColors.border, shape)
-            .padding(RidersSpacing.lg)
+            .then(if (flat) Modifier else Modifier.border(1.dp, RidersColors.border, shape))
+            .padding(if (spacious) RidersSpacing.md else RidersSpacing.lg)
     } else {
         modifier
     }
     Column(
         surface,
-        verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
+        verticalArrangement = Arrangement.spacedBy(if (parcelSheet) 20.dp else RidersSpacing.sm),
     ) {
         Row(
             horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            ContentIcon(description)
-            ContentLabel(description)
+            ContentIcon(description, size = 15.dp, muted = true)
+            ContentLabel(description, compact = true)
             if (serviceClass == "EXPRESS" || serviceClass == "FLEXIBLE") {
-                ServiceClassBadge(serviceClass)
+                ServiceClassBadge(serviceClass, subtle = true)
             }
         }
         if (framed || whenLabel.isNotEmpty()) {
@@ -322,64 +352,122 @@ fun DeliveryDetailsSummary(
                 }
             }
         }
-        if (pickupLine.isNotBlank()) {
-            DeliveryStop(
-                label = "Pickup",
-                line = pickupLine,
-                dropoff = false,
-                connect = dropoffLine.isNotBlank(),
-                pinColumn = detailPinColumn,
-                lineHeight = 20.sp,
-                above = pickupContact,
-                below = pickupDetail,
-            )
-        }
-        if (dropoffLine.isNotBlank()) {
-            DeliveryStop(
-                label = "Drop-off",
-                line = dropoffLine,
-                dropoff = true,
-                connect = false,
-                pinColumn = detailPinColumn,
-                lineHeight = 20.sp,
-                above = dropoffContact,
-                below = dropoffDetail,
-            )
-        }
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .height(1.dp)
-                .background(
-                    Brush.horizontalGradient(
-                        listOf(Color.Transparent, RidersColors.border, Color.Transparent),
-                    ),
-                ),
-        )
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.Bottom,
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs)) {
-                Text("Distance", style = RidersType.caption, color = RidersColors.textSecondary)
-                Text(
-                    distanceMeters?.let(::offerDistanceLabel) ?: "Unavailable",
-                    style = RidersType.body,
-                    color = RidersColors.text,
-                )
-            }
+        if (parcelSheet) {
             Column(
-                horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs),
+                Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                Text("Price", style = RidersType.caption, color = RidersColors.textSecondary)
-                Text(
-                    deliveryPriceLabel(price) ?: "Unavailable",
-                    style = RidersType.heading,
-                    color = RidersColors.text,
+                if (pickupLine.isNotBlank()) {
+                    ParcelDetailStop(dropoff = false, contact = pickupContact, detail = pickupDetail)
+                }
+                if (dropoffLine.isNotBlank()) {
+                    ParcelDetailStop(dropoff = true, contact = dropoffContact, detail = dropoffDetail)
+                }
+            }
+        } else {
+            if (pickupLine.isNotBlank()) {
+                DeliveryStop(
+                    line = pickupLine,
+                    dropoff = false,
+                    connect = false,
+                    pinColumn = detailPinColumn,
+                    lineHeight = if (spacious) 23.sp else 20.sp,
+                    fontSize = if (spacious) 16.sp else 14.sp,
+                    above = pickupContact,
+                    below = pickupDetail,
                 )
             }
+            if (dropoffLine.isNotBlank()) {
+                DeliveryStop(
+                    line = dropoffLine,
+                    dropoff = true,
+                    connect = false,
+                    pinColumn = detailPinColumn,
+                    lineHeight = if (spacious) 23.sp else 20.sp,
+                    fontSize = if (spacious) 16.sp else 14.sp,
+                    above = dropoffContact,
+                    below = dropoffDetail,
+                )
+            }
+        }
+        if (parcelSheet && !spacious) {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                SheetDivider()
+                DistancePrice(distanceMeters, price)
+            }
+        } else {
+            if (!spacious) {
+                SheetDivider()
+            }
+            DistancePrice(distanceMeters, price)
+        }
+    }
+}
+
+@Composable
+private fun SheetDivider() {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(1.dp)
+            .background(
+                Brush.horizontalGradient(
+                    listOf(Color.Transparent, RidersColors.border, Color.Transparent),
+                ),
+            ),
+    )
+}
+
+@Composable
+private fun DistancePrice(distanceMeters: Int?, price: String?) {
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.Bottom,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs)) {
+            Text("Distance", style = RidersType.caption, color = RidersColors.textSecondary)
+            Text(
+                distanceMeters?.let(::offerDistanceLabel) ?: "Unavailable",
+                style = RidersType.body,
+                color = RidersColors.text,
+            )
+        }
+        Column(
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs),
+        ) {
+            Text("Price", style = RidersType.caption, color = RidersColors.textSecondary)
+            Text(
+                deliveryPriceLabel(price) ?: "Unavailable",
+                style = RidersType.heading,
+                color = RidersColors.text,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ParcelDetailStop(
+    dropoff: Boolean,
+    contact: @Composable () -> Unit,
+    detail: @Composable () -> Unit,
+) {
+    val density = LocalDensity.current
+    val pinTop = with(density) { 22.sp.toDp() } / 2 - 28.dp * locationPinHeadCenter
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        LocationPin(
+            dropoff = dropoff,
+            modifier = Modifier.offset(y = pinTop),
+            size = 28.dp,
+        )
+        Column(Modifier.weight(1f)) {
+            contact()
+            detail()
         }
     }
 }
@@ -394,51 +482,70 @@ private fun DetailFact(label: String, value: String, modifier: Modifier = Modifi
 
 @Composable
 fun DeliveryStop(
-    label: String,
     line: String,
     dropoff: Boolean,
     connect: Boolean,
     modifier: Modifier = Modifier,
     pinColumn: Dp = markSize,
     lineHeight: TextUnit = 18.sp,
+    fontSize: TextUnit = 14.sp,
     above: @Composable () -> Unit = {},
     below: @Composable () -> Unit = {},
 ) {
+    val density = LocalDensity.current
+    var aboveHeight by remember { mutableStateOf(0.dp) }
+    var belowHeight by remember { mutableStateOf(0.dp) }
+    val hasName = aboveHeight > 0.dp
+    // A name above the address owns the pin. Otherwise the pin head sits on the address line.
+    val pinTop = if (hasName) {
+        (aboveHeight / 2 - locationPinHeight * locationPinHeadCenter).coerceAtLeast(0.dp)
+    } else {
+        with(density) {
+            (lineHeight.toDp() / 2 - locationPinHeight * locationPinHeadCenter).coerceAtLeast(0.dp)
+        }
+    }
     Row(
-        modifier.height(IntrinsicSize.Min),
+        modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
         verticalAlignment = Alignment.Top,
     ) {
-        Column(
-            Modifier.width(pinColumn).fillMaxHeight(),
-            horizontalAlignment = Alignment.CenterHorizontally,
+        Box(
+            Modifier
+                .width(pinColumn)
+                .padding(top = pinTop),
+            contentAlignment = Alignment.TopCenter,
         ) {
             LocationPin(dropoff = dropoff)
-            if (connect) {
-                Column(
-                    Modifier.weight(1f).padding(vertical = RidersSpacing.xs),
-                    verticalArrangement = Arrangement.SpaceEvenly,
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    repeat(3) {
-                        Box(
-                            Modifier
-                                .size(3.dp)
-                                .clip(CircleShape)
-                                .background(routeDot),
-                        )
-                    }
-                }
-            }
         }
         Column(
-            Modifier.weight(1f).padding(bottom = if (connect) RidersSpacing.sm else 0.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+            Modifier
+                .weight(1f)
+                .padding(bottom = if (connect) RidersSpacing.sm else 0.dp),
         ) {
-            StopLabel(label)
-            above()
-            Text(line, style = placeText.copy(lineHeight = lineHeight), color = RidersColors.text)
-            below()
+            Box(
+                Modifier.onSizeChanged { size ->
+                    aboveHeight = with(density) { size.height.toDp() }
+                },
+            ) {
+                above()
+            }
+            Text(
+                line,
+                style = placeText.copy(
+                    fontSize = fontSize,
+                    lineHeight = if (hasName) fontSize else lineHeight,
+                ),
+                color = RidersColors.text,
+            )
+            Box(
+                Modifier
+                    .padding(top = if (belowHeight > 0.dp) 2.dp else 0.dp)
+                    .onSizeChanged { size ->
+                        belowHeight = with(density) { size.height.toDp() }
+                    },
+            ) {
+                below()
+            }
         }
     }
 }

@@ -97,6 +97,7 @@ export type AssignedRiderView = {
   verified: boolean;
   motorcycle: string | null;
   registrationNumber: string | null;
+  colour: string | null;
   phone: string | null;
   hasProfilePhoto: boolean;
 };
@@ -194,12 +195,18 @@ export function toCustomerDelivery(delivery: StoredDelivery) {
 const CUSTOMER_RIDER_LOCATION_STATUSES = new Set<DeliveryStatus>([
   DeliveryStatus.RIDER_ASSIGNED,
   DeliveryStatus.COLLECTING,
+  DeliveryStatus.COLLECTED,
+  DeliveryStatus.OUT_FOR_DELIVERY,
 ]);
 
-// The current rider point is included while the rider is travelling to pickup
-// or collecting. Confirming collection, and every later status, omits it.
+/** Live GPS stays with this delivery's accepted rider until it is delivered or cancelled. */
 export function customerSharesRiderLocation(status: DeliveryStatus): boolean {
   return CUSTOMER_RIDER_LOCATION_STATUSES.has(status);
+}
+
+/** After pickup the road route runs from the rider to the drop-off. */
+export function customerRoutesToDropoff(status: DeliveryStatus): boolean {
+  return status === DeliveryStatus.COLLECTED || status === DeliveryStatus.OUT_FOR_DELIVERY;
 }
 
 export function withCollectingRiderLocation<T extends { status: DeliveryStatus }>(

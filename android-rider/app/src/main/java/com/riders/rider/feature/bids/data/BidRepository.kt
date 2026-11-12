@@ -8,6 +8,10 @@ import com.riders.rider.core.network.apiCall
 import com.riders.rider.feature.bids.domain.OpenBidRequest
 import com.riders.rider.feature.bids.domain.OwnBid
 import com.riders.rider.feature.bids.domain.bidListProblemMessage
+import com.riders.rider.feature.delivery.domain.GeoPoint
+import com.riders.rider.feature.delivery.domain.decodeEncodedPolyline
+import com.riders.rider.feature.delivery.domain.decodeRouteLine
+import com.riders.rider.feature.delivery.domain.parseGeoPoint
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,6 +34,20 @@ class BidRepository @Inject constructor(
     val ownBidsKnownFlow: StateFlow<Boolean> = ownBidsKnownState.asStateFlow()
     val bidListProblemFlow: StateFlow<String?> = bidListProblemState.asStateFlow()
 
+    suspend fun requestRoad(deliveryId: String): List<GeoPoint> {
+        return when (val result = apiCall { riders.requestRoad(deliveryId) }) {
+            is ApiResult.Ok -> {
+                val decoded = decodeEncodedPolyline(result.value.geometry)
+                if (decoded.size > 1) {
+                    decoded
+                } else {
+                    decodeRouteLine(result.value.line.mapNotNull { parseGeoPoint(it.latitude.toString(), it.longitude.toString()) })
+                }
+            }
+            is ApiResult.Err -> emptyList()
+        }
+    }
+
     suspend fun openRequests(): ApiResult<List<OpenBidRequest>> {
         return when (val result = apiCall { riders.bidRequests() }) {
             is ApiResult.Ok -> ApiResult.Ok(result.value.map { request ->
@@ -41,6 +59,10 @@ class BidRepository @Inject constructor(
                     offeredPrice = request.offeredPrice,
                     pickupAddress = request.pickupAddress,
                     dropoffAddress = request.dropoffAddress,
+                    pickupLatitude = request.pickupLatitude,
+                    pickupLongitude = request.pickupLongitude,
+                    dropoffLatitude = request.dropoffLatitude,
+                    dropoffLongitude = request.dropoffLongitude,
                     parcelDescription = request.parcelDescription,
                     parcelSize = request.parcelSize,
                     distanceMeters = request.distanceMeters,

@@ -20,6 +20,19 @@ describe('Geoapify responses', () => {
       }],
     })?.seconds).toBe(420.4);
     expect(readRoadRoute({ features: [] })).toBeNull();
+    expect(readRoadRoute({
+      features: [{
+        properties: { distance: 983, time: 124 },
+        geometry: {
+          type: 'MultiLineString',
+          coordinates: [[[4.63, 52.381], [4.631, 52.382], [4.632, 52.383]]],
+        },
+      }],
+    })).toEqual({
+      metres: 983,
+      seconds: 124,
+      line: [[4.63, 52.381], [4.631, 52.382], [4.632, 52.383]],
+    });
   });
 
   it('encodes a route line without putting the API key in the result', () => {

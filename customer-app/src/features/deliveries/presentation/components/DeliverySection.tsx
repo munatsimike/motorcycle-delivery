@@ -85,7 +85,7 @@ export default function DeliverySection({
 
 const styles = StyleSheet.create({
   empty: {
-    backgroundColor: colors.background,
+    backgroundColor: 'transparent',
     borderRadius: radius.lg,
     padding: spacing.xl,
     alignItems: 'center',

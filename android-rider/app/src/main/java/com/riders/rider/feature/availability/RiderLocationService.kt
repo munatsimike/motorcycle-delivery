@@ -25,6 +25,7 @@ import com.riders.rider.R
 import com.riders.rider.core.session.SessionStore
 import com.riders.rider.feature.availability.data.AvailabilityRepository
 import com.riders.rider.feature.availability.domain.GpsFix
+import com.riders.rider.feature.availability.domain.isDispatchUsable
 import com.riders.rider.feature.availability.domain.LocationFreshness
 import com.riders.rider.feature.availability.domain.LocationRelay
 import com.riders.rider.feature.availability.domain.locationUpdatePolicy
@@ -42,6 +43,7 @@ class RiderLocationService : Service() {
     @Inject lateinit var availability: AvailabilityRepository
     @Inject lateinit var sessions: SessionStore
     @Inject lateinit var freshness: LocationFreshness
+    @Inject lateinit var locations: RiderLocationHub
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val relay = LocationRelay()
@@ -162,6 +164,10 @@ class RiderLocationService : Service() {
             return
         }
         val age = (System.currentTimeMillis() - point.time).coerceAtLeast(0L)
+        val accuracy = if (point.hasAccuracy()) point.accuracy else null
+        if (isDispatchUsable(age, accuracy)) {
+            locations.publish(GpsFix(point.latitude, point.longitude))
+        }
         relay.handle(
             active = true,
             fix = GpsFix(point.latitude, point.longitude),

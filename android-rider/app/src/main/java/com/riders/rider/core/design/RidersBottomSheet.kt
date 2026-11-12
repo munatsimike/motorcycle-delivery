@@ -1,6 +1,5 @@
 package com.riders.rider.core.design
 
-import android.graphics.drawable.ColorDrawable
 import android.view.ViewGroup
 import android.view.WindowManager
 import androidx.compose.animation.core.Animatable
@@ -40,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
+import androidx.core.graphics.drawable.toDrawable
 import androidx.core.view.WindowCompat
 
 private const val OPEN_MS = 360
@@ -85,7 +85,7 @@ fun RidersBottomSheet(
             val window = (view.parent as? DialogWindowProvider)?.window ?: return@SideEffect
             window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
             window.setDimAmount(0f)
-            window.setBackgroundDrawable(ColorDrawable(android.graphics.Color.TRANSPARENT))
+            window.setBackgroundDrawable(android.graphics.Color.TRANSPARENT.toDrawable())
             WindowCompat.setDecorFitsSystemWindows(window, false)
             window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
         }

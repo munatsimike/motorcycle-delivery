@@ -30,17 +30,7 @@ export function readRoadRoute(body: unknown): RoadRoute | null {
   const geometry = isRecord(feature.geometry) ? feature.geometry : null;
   const coordinates = geometry && Array.isArray(geometry.coordinates) ? geometry.coordinates : [];
   const line: Array<[number, number]> = [];
-  for (const pair of coordinates) {
-    if (!Array.isArray(pair) || pair.length < 2) {
-      continue;
-    }
-    const longitude = finite(pair[0]);
-    const latitude = finite(pair[1]);
-    if (longitude === null || latitude === null) {
-      continue;
-    }
-    line.push([longitude, latitude]);
-  }
+  collectPositions(coordinates, line);
   if (metres === null || metres < 0 || !Number.isFinite(metres)) {
     return null;
   }
@@ -233,6 +223,21 @@ function encodeSigned(value: number): string {
   }
   encoded += String.fromCharCode(shifted + 63);
   return encoded;
+}
+
+function collectPositions(value: unknown, line: Array<[number, number]>) {
+  if (!Array.isArray(value)) {
+    return;
+  }
+  const longitude = finite(value[0]);
+  const latitude = finite(value[1]);
+  if (longitude !== null && latitude !== null) {
+    line.push([longitude, latitude]);
+    return;
+  }
+  for (const child of value) {
+    collectPositions(child, line);
+  }
 }
 
 function finite(value: unknown): number | null {

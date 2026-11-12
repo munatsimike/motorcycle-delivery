@@ -767,6 +767,17 @@ export class NegativeWalletLimitBody {
   borrowingLimit!: string | null;
 }
 
+export class EcocashTopUpBody {
+  @ApiPropertyOptional({ enum: ['USD'] })
+  currency?: 'USD';
+
+  @ApiProperty({ pattern: '^\\d{1,10}\\.\\d{2}$', description: 'Amount greater than zero, in USD.' })
+  amount!: string;
+
+  @ApiProperty({ description: 'The rider EcoCash number. 077, 263, or the 9-digit number are the same subscriber.' })
+  endUserId!: string;
+}
+
 export class WalletTopUpBody {
   @ApiPropertyOptional({ enum: ['USD'] })
   currency?: 'USD';

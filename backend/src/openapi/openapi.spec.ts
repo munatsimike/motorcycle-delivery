@@ -75,6 +75,8 @@ import { RiderLocationService } from '../rider/rider-location.service.js';
 import { RiderOnboardingController } from '../rider/rider-onboarding.controller.js';
 import { RiderOnboardingService } from '../rider/rider-onboarding.service.js';
 import { RiderWalletController } from '../rider/rider-wallet.controller.js';
+import { EcocashTopUpController } from '../rider/ecocash-top-up.controller.js';
+import { EcocashTopUpService } from '../rider/ecocash-top-up.service.js';
 import { WalletConfigController } from '../rider/wallet-config.controller.js';
 import { WalletConfigService } from '../rider/wallet-config.service.js';
 import { WalletService } from '../rider/wallet.service.js';
@@ -189,6 +191,7 @@ describe('OpenAPI document', () => {
     expect(document.paths?.['/auth/rider/register/otp']).toBeUndefined();
     expect(document.paths?.['/auth/customer/login']).toBeUndefined();
     expect(document.paths?.['/auth/customer/register']).toBeUndefined();
+    const verify = document.paths?.['/auth/rider/register/whatsapp/verify']?.post;
     expect(verify?.requestBody).toBeTruthy();
     const verifySchema = schemaOf(document, verify?.requestBody);
     expect(verifySchema.required).toEqual(expect.arrayContaining(['phone', 'code']));

@@ -18,13 +18,6 @@ const ZIMBABWE_EXTENT: ReadonlyArray<readonly [number, number]> = [
   [26.40, -17.10],
 ];
 
-const NETHERLANDS_TEST_EXTENT = {
-  minLatitude: 50.75,
-  maxLatitude: 53.55,
-  minLongitude: 3.2,
-  maxLongitude: 7.23,
-};
-
 const HOSTED_ENV_KEYS = [
   'RENDER',
   'RENDER_SERVICE_ID',
@@ -97,7 +90,7 @@ export function coordinateIsServable(
   if (pointInRing(longitude, latitude, ZIMBABWE_EXTENT)) {
     return true;
   }
-  return netherlandsCoordinatesAllowed(env) && inBox(latitude, longitude, NETHERLANDS_TEST_EXTENT);
+  return netherlandsCoordinatesAllowed(env);
 }
 
 export function assertServiceCoordinates(
@@ -108,17 +101,6 @@ export function assertServiceCoordinates(
   if (!coordinateIsServable(Number(latitude), Number(longitude), env)) {
     throw new BadRequestException(OUTSIDE_SERVICE_AREA);
   }
-}
-
-function inBox(
-  latitude: number,
-  longitude: number,
-  box: { minLatitude: number; maxLatitude: number; minLongitude: number; maxLongitude: number },
-): boolean {
-  return latitude >= box.minLatitude
-    && latitude <= box.maxLatitude
-    && longitude >= box.minLongitude
-    && longitude <= box.maxLongitude;
 }
 
 function pointInRing(longitude: number, latitude: number, ring: ReadonlyArray<readonly [number, number]>): boolean {

@@ -198,8 +198,16 @@ describe('V2 bid lifecycle', () => {
     expect(rudo?.rider.hasProfilePhoto).toBe(false);
     expect(tendai?.rider.pickupEtaSeconds).toBeNull();
     expect(rudo?.rider.pickupEtaSeconds).toBeNull();
+    expect(tendai?.rider.mapPoint).toEqual({
+      latitude: expect.any(Number),
+      longitude: expect.any(Number),
+    });
+    expect(metresFrom(tendai?.rider.mapPoint, -17.824, 31.05)).toBeGreaterThan(0);
+    expect(metresFrom(tendai?.rider.mapPoint, -17.824, 31.05)).toBeLessThan(45);
+    expect(metresFrom(rudo?.rider.mapPoint, -17.8, 31.04)).toBeGreaterThan(0);
+    expect(metresFrom(rudo?.rider.mapPoint, -17.8, 31.04)).toBeLessThan(45);
     expect(JSON.stringify(page)).not.toContain('profile-photos');
-    expect(JSON.stringify(page)).not.toContain('latitude');
+    expect(JSON.stringify(page)).not.toContain('-17.824');
   });
 
   it('returns road pickupEtaSeconds for fresh GPS and skips stale or missing GPS', async () => {
@@ -226,11 +234,38 @@ describe('V2 bid lifecycle', () => {
     const rudo = page.find((bid) => bid.rider.name === 'Rudo Ncube');
     expect(tendai?.rider.pickupEtaSeconds).toBe(480);
     expect(rudo?.rider.pickupEtaSeconds).toBeNull();
+    expect(metresFrom(tendai?.rider.mapPoint, -17.824, 31.05)).toBeGreaterThan(0);
+    expect(metresFrom(tendai?.rider.mapPoint, -17.824, 31.05)).toBeLessThan(45);
+    expect(metresFrom(rudo?.rider.mapPoint, -17.8, 31.04)).toBeGreaterThan(0);
+    expect(metresFrom(rudo?.rider.mapPoint, -17.8, 31.04)).toBeLessThan(45);
     expect(calls).toBe(1);
     expect(queries).toEqual([RIDER]);
-    expect(JSON.stringify(page)).not.toContain('latitude');
-    expect(JSON.stringify(page)).not.toContain('31.05');
+    expect(JSON.stringify(page)).not.toContain('-17.824');
     expect(JSON.stringify(page)).not.toContain('"line"');
+  });
+
+  it('returns the privacy-safe marker before a slow pickup route finishes', async () => {
+    process.env.V2_MARKETPLACE_ENABLED = 'true';
+    const ctx = store();
+    Object.assign(ctx.deliveries[0]!, { pickupLatitude: -17.8292, pickupLongitude: 31.0522 });
+    ctx.locations.push({ riderProfileId: RIDER, latitude: -17.824, longitude: 31.05, updatedAt: NOW });
+    let release: ((value: { metres: number; seconds: number; line: number[][] }) => void) | undefined;
+    const bids = new BidService(ctx.prisma, {
+      lookup: () => new Promise((resolve) => {
+        release = resolve;
+      }),
+    });
+    await bids.submit(RIDER_CONTEXT, bidBody(1_500), 'key-1', NOW);
+    const page = await Promise.race([
+      bids.listForCustomer(CUSTOMER, DELIVERY, NOW),
+      new Promise<never>((_resolve, reject) => {
+        setTimeout(() => reject(new Error('offers waited for the route')), 500);
+      }),
+    ]);
+    expect(page[0]?.rider.pickupEtaSeconds).toBeNull();
+    expect(metresFrom(page[0]?.rider.mapPoint, -17.824, 31.05)).toBeGreaterThan(0);
+    expect(metresFrom(page[0]?.rider.mapPoint, -17.824, 31.05)).toBeLessThan(45);
+    release?.({ metres: 100, seconds: 30, line: [] });
   });
 
   it('omits pickupEtaSeconds when routing fails or travel time is missing', async () => {
@@ -348,6 +383,7 @@ describe('V2 bid lifecycle', () => {
       pickupAddress: '12 Samora Machel Avenue',
     })]);
     expect(JSON.stringify(open)).not.toContain('+263');
+    await expect(bids.requestRoad(RIDER_CONTEXT, DELIVERY)).resolves.toEqual({ line: [] });
     ctx.deliveries[0]!.deliverBy = new Date(NOW.getTime() - 1_000);
     await expect(bids.listOpenRequests(RIDER_CONTEXT, NOW)).resolves.toEqual([]);
     ctx.deliveries[0]!.status = DeliveryStatus.CREATED;
@@ -484,6 +520,15 @@ type Profile = {
   ratingSum: number;
   riderClass: 'SILVER' | 'GOLD' | 'PLATINUM';
 };
+
+function metresFrom(point: { latitude: number; longitude: number } | null | undefined, latitude: number, longitude: number): number {
+  if (!point) {
+    return Number.POSITIVE_INFINITY;
+  }
+  const north = (point.latitude - latitude) * 111_320;
+  const east = (point.longitude - longitude) * 111_320 * Math.cos((latitude * Math.PI) / 180);
+  return Math.hypot(north, east);
+}
 
 function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?: boolean }) {
   const bids: BidRow[] = [];

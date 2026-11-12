@@ -20,6 +20,25 @@ val localProperties = Properties().apply {
     }
 }
 
+val keystoreProperties = Properties().apply {
+    val file = rootProject.file("keystore.properties")
+    if (file.exists()) {
+        file.inputStream().use { load(it) }
+    }
+}
+
+fun signingValue(name: String, property: String): String {
+    return System.getenv(name)?.trim().orEmpty().ifEmpty {
+        keystoreProperties.getProperty(property)?.trim().orEmpty()
+    }
+}
+
+val releaseStoreFile = signingValue("RIDER_RELEASE_STORE_FILE", "storeFile")
+val releaseStorePassword = signingValue("RIDER_RELEASE_STORE_PASSWORD", "storePassword")
+val releaseKeyAlias = signingValue("RIDER_RELEASE_KEY_ALIAS", "keyAlias")
+val releaseKeyPassword = signingValue("RIDER_RELEASE_KEY_PASSWORD", "keyPassword")
+val releaseStoreType = signingValue("RIDER_RELEASE_STORE_TYPE", "storeType")
+
 val configuredApiBaseUrl = localProperties.getProperty("API_BASE_URL")?.trim().orEmpty().trimEnd('/')
 // Debug-only. Release reads API_BASE_URL and never this value.
 val debugApiBaseUrl = localProperties.getProperty("DEBUG_API_BASE_URL")?.trim().orEmpty().trimEnd('/')
@@ -41,6 +60,9 @@ gradle.taskGraph.whenReady {
     }
     if (buildingRelease && debugApiBaseUrl.isNotEmpty() && apiBaseUrl(true) == debugApiBaseUrl) {
         throw GradleException("The release build cannot use DEBUG_API_BASE_URL.")
+    }
+    if (buildingRelease && (releaseStoreFile.isEmpty() || releaseStorePassword.isEmpty() || releaseKeyAlias.isEmpty() || releaseKeyPassword.isEmpty())) {
+        throw GradleException("The release build requires signing credentials in keystore.properties or RIDER_RELEASE_* environment variables.")
     }
 }
 
@@ -66,11 +88,28 @@ android {
         versionName = "1.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "API_BASE_URL", "\"${apiBaseUrl(false)}\"")
+        manifestPlaceholders["GOOGLE_MAPS_API_KEY"] = localProperties.getProperty("GOOGLE_MAPS_API_KEY")?.trim().orEmpty()
+            .ifEmpty { System.getenv("GOOGLE_MAPS_API_KEY")?.trim().orEmpty() }
+    }
+
+    signingConfigs {
+        create("release") {
+            if (releaseStoreFile.isNotEmpty()) {
+                storeFile = file(releaseStoreFile)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+                if (releaseStoreType.isNotEmpty()) {
+                    storeType = releaseStoreType
+                }
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
             buildConfigField("String", "API_BASE_URL", "\"${apiBaseUrl(true)}\"")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
@@ -123,6 +162,8 @@ dependencies {
     implementation(libs.security.crypto)
     implementation(libs.coroutines)
     implementation(libs.play.location)
+    implementation(libs.play.maps)
+    implementation(libs.maps.compose)
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.messaging)
     implementation(libs.firebase.crashlytics)

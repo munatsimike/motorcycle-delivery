@@ -64,6 +64,7 @@ describe('service area', () => {
     expect(netherlandsCoordinatesAllowed(local)).toBe(true);
     expect(coordinateIsServable(52.3676, 4.9041, local)).toBe(true);
     expect(coordinateIsServable(52.35, 4.85, local)).toBe(true);
+    expect(coordinateIsServable(-26.2041, 28.0473, local)).toBe(true);
     const previousNode = process.env.NODE_ENV;
     process.env.ALLOW_TEST_NL_COORDINATES = 'true';
     process.env.NODE_ENV = 'development';

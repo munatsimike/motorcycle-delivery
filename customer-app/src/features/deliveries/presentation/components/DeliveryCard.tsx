@@ -193,7 +193,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: radius.lg,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: colors.listCardBorder,
     boxShadow: '0 2px 8px rgba(23, 33, 29, 0.08)',
   },
   cardTranslucent: {
@@ -288,7 +288,7 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
     borderWidth: 1,
     borderColor: colors.primary,
-    borderRadius: radius.md,
+    borderRadius: radius.pill,
     backgroundColor: colors.background,
     paddingHorizontal: spacing.sm,
   },
@@ -297,7 +297,7 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-end',
     minHeight: 32,
     paddingHorizontal: spacing.md,
-    borderRadius: radius.md,
+    borderRadius: radius.pill,
   },
   searchText: {
     fontSize: typography.caption,

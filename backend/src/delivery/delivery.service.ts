@@ -18,7 +18,7 @@ import { v2MarketplaceEnabled } from '../auth/v2-flags.js';
 import { recordDeliveryOpportunity } from './v2-outbox.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { readDeliveryDraft, readQuoteRequest, readV2DeliveryDraft, type QuotePins, type QuoteRequest, type V2DeliveryDraft } from './delivery-request.js';
-import { assignedRiderStatus, customerSharesRiderLocation, freshRiderPoint, toCustomerDelivery, toCustomerDeliverySummary, withAssignedRider, withCollectingRiderLocation, withCustomerRating, withPickupApproach, type AssignedRiderView, type PickupApproachView, type RiderPoint, type StoredDelivery } from './delivery-view.js';
+import { assignedRiderStatus, customerRoutesToDropoff, customerSharesRiderLocation, freshRiderPoint, toCustomerDelivery, toCustomerDeliverySummary, withAssignedRider, withCollectingRiderLocation, withCustomerRating, withPickupApproach, type AssignedRiderView, type PickupApproachView, type RiderPoint, type StoredDelivery } from './delivery-view.js';
 import { PICKUP_APPROACH, type PickupApproachLookup } from './pickup-approach.js';
 import { centsFromDecimal, formatCents } from './money.js';
 import { lockActiveClassPricing } from './pricing-lock.js';
@@ -72,7 +72,8 @@ export class DeliveryService {
       ? await this.collectingRiderPoint(delivery.id)
       : null;
     const rider = assignedRiderStatus(delivery.status) ? await this.assignedRider(delivery.id) : null;
-    const approach = await this.pickupApproachFor(point, view.pickup.latitude, view.pickup.longitude);
+    const destination = customerRoutesToDropoff(delivery.status) ? view.dropoff : view.pickup;
+    const approach = await this.pickupApproachFor(point, destination.latitude, destination.longitude);
     const rating = await this.customerRating(delivery.id, delivery.status, rider != null);
     return withCustomerRating(
       withAssignedRider(withPickupApproach(withCollectingRiderLocation(view, point), approach), rider),
@@ -169,7 +170,7 @@ export class DeliveryService {
             user: { select: { fullName: true, phone: true } },
             motorcycles: {
               where: { isActive: true, verificationStatus: 'VERIFIED' },
-              select: { make: true, model: true, registrationNumber: true },
+              select: { make: true, model: true, registrationNumber: true, colour: true },
               take: 1,
             },
           },
@@ -184,6 +185,7 @@ export class DeliveryService {
     const bike = profile.motorcycles[0];
     const motorcycle = [bike?.make, bike?.model].map((part) => part?.trim() ?? '').filter((part) => part.length > 0).join(' ');
     const registrationNumber = bike?.registrationNumber?.trim() ?? '';
+    const colour = bike?.colour?.trim() ?? '';
     const phone = profile.user.phone?.trim() ?? '';
     const photo = await this.prisma.riderProfilePhoto.findFirst({
       where: { riderProfileId: profile.id, status: ProfilePhotoStatus.STORED },
@@ -194,6 +196,7 @@ export class DeliveryService {
       verified: profile.verificationStatus === 'VERIFIED',
       motorcycle: motorcycle || null,
       registrationNumber: registrationNumber || null,
+      colour: colour || null,
       phone: phone || null,
       hasProfilePhoto: photo !== null,
     };

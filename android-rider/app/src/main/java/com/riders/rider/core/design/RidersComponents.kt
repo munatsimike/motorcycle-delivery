@@ -195,13 +195,13 @@ fun RidersPrimaryButton(
     val inactive = !enabled || loading
     Box(
         modifier = modifier
-            .defaultMinSize(minHeight = if (compact) 40.dp else 56.dp)
+            .defaultMinSize(minHeight = if (compact) 44.dp else 56.dp)
             .alpha(if (inactive) 0.6f else 1f)
-            .clip(RoundedCornerShape(RidersRadius.lg))
+            .clip(RoundedCornerShape(RidersRadius.pill))
             .background(RidersColors.primary)
             .clickable(enabled = !inactive, role = Role.Button, onClick = onClick)
             .padding(
-                horizontal = if (compact) RidersSpacing.md else RidersSpacing.lg,
+                horizontal = RidersSpacing.lg,
                 vertical = if (compact) RidersSpacing.xs else RidersSpacing.md,
             ),
         contentAlignment = Alignment.Center,
@@ -217,7 +217,7 @@ fun RidersPrimaryButton(
                     strokeWidth = 2.dp,
                 )
                 if (loadingLabel != null) {
-                    Text(loadingLabel, style = RidersType.button, color = RidersColors.textInverse)
+                    Text(loadingLabel, style = RidersType.bodyStrong, color = RidersColors.textInverse)
                 }
             }
         } else {
@@ -258,26 +258,27 @@ fun RidersSecondaryButton(
     containerColor: Color = RidersColors.background,
     icon: Int? = null,
     loadingLabel: String? = null,
+    regular: Boolean = false,
 ) {
     val inactive = !enabled || loading
     val accent = if (tone == RidersButtonTone.Danger) RidersColors.error else RidersColors.primary
     val fill = containerColor
     Box(
         modifier = modifier
-            .defaultMinSize(minHeight = if (compact) 40.dp else 56.dp)
+            .defaultMinSize(minHeight = if (compact) 44.dp else 56.dp)
             .alpha(if (inactive) 0.6f else 1f)
-            .clip(RoundedCornerShape(RidersRadius.lg))
+            .clip(RoundedCornerShape(RidersRadius.pill))
             .background(fill)
             .then(
                 if (bordered) {
-                    Modifier.border(1.dp, accent, RoundedCornerShape(RidersRadius.lg))
+                    Modifier.border(1.dp, accent, RoundedCornerShape(RidersRadius.pill))
                 } else {
                     Modifier
                 },
             )
             .clickable(enabled = !inactive, role = Role.Button, onClick = onClick)
             .padding(
-                horizontal = if (compact) RidersSpacing.md else RidersSpacing.lg,
+                horizontal = RidersSpacing.lg,
                 vertical = if (compact) RidersSpacing.xs else RidersSpacing.md,
             ),
         contentAlignment = Alignment.Center,
@@ -289,11 +290,15 @@ fun RidersSecondaryButton(
             ) {
                 CircularProgressIndicator(modifier = Modifier.size(22.dp), color = accent, strokeWidth = 2.dp)
                 if (loadingLabel != null) {
-                    Text(loadingLabel, style = RidersType.button, color = accent)
+                    Text(
+                        loadingLabel,
+                        style = if (regular) RidersType.body else RidersType.bodyStrong,
+                        color = accent,
+                    )
                 }
             }
         } else {
-            ButtonLabel(label, accent, icon)
+            ButtonLabel(label, accent, icon, regular)
         }
     }
 }
@@ -307,8 +312,8 @@ fun RidersViewDetailsButton(
         modifier
             .fillMaxWidth()
             .defaultMinSize(minHeight = 44.dp)
-            .clip(RoundedCornerShape(RidersRadius.md))
-            .border(1.dp, RidersColors.border, RoundedCornerShape(RidersRadius.md))
+            .clip(RoundedCornerShape(RidersRadius.pill))
+            .border(1.dp, RidersColors.border, RoundedCornerShape(RidersRadius.pill))
             .clickable(role = Role.Button, onClick = onClick)
             .padding(horizontal = RidersSpacing.md, vertical = RidersSpacing.sm),
         verticalAlignment = Alignment.CenterVertically,
@@ -336,9 +341,10 @@ fun RidersViewDetailsButton(
 }
 
 @Composable
-private fun ButtonLabel(label: String, color: Color, icon: Int?) {
+private fun ButtonLabel(label: String, color: Color, icon: Int?, regular: Boolean = false) {
+    val style = if (regular) RidersType.body else RidersType.bodyStrong
     if (icon == null) {
-        Text(label, style = RidersType.button, color = color, textAlign = TextAlign.Center)
+        Text(label, style = style, color = color, textAlign = TextAlign.Center)
         return
     }
     Row(
@@ -351,7 +357,7 @@ private fun ButtonLabel(label: String, color: Color, icon: Int?) {
             modifier = Modifier.size(22.dp),
             tint = color,
         )
-        Text(label, style = RidersType.button, color = color, textAlign = TextAlign.Center)
+        Text(label, style = style, color = color, textAlign = TextAlign.Center)
     }
 }
 
@@ -363,6 +369,8 @@ fun RidersCard(
     emphasizePress: Boolean = false,
     containerColor: Color = RidersColors.background,
     borderColor: Color = RidersColors.border,
+    bordered: Boolean = true,
+    bottomPadding: androidx.compose.ui.unit.Dp = RidersSpacing.lg,
     content: @Composable () -> Unit,
 ) {
     val shape = RoundedCornerShape(if (prominent) RidersRadius.xl else RidersRadius.lg)
@@ -393,9 +401,9 @@ fun RidersCard(
             .shadow(elevation = 4.dp, shape = shape, ambientColor = RidersColors.shadow, spotColor = RidersColors.shadow)
             .clip(shape)
             .background(containerColor)
-            .border(1.dp, borderColor, shape)
+            .then(if (bordered) Modifier.border(1.dp, borderColor, shape) else Modifier)
             .then(clickable)
-            .padding(RidersSpacing.lg),
+            .padding(start = RidersSpacing.lg, end = RidersSpacing.lg, top = RidersSpacing.lg, bottom = bottomPadding),
         verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
     ) {
         content()

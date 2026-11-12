@@ -122,6 +122,12 @@ export default function CustomerTabs() {
             <TabIcon name={focused ? "package" : "package-variant-closed"} color={color} size={size} focused={focused} />
           ),
           tabBarLabel: 'Deliveries',
+          tabBarStyle: {
+            backgroundColor: colors.listBackground,
+            borderTopColor: colors.listCardBorder,
+            borderTopWidth: StyleSheet.hairlineWidth,
+            elevation: 0,
+          },
         }}
       />
       <Tab.Screen

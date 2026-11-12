@@ -52,11 +52,55 @@ private val streetTypePattern = Regex(
     RegexOption.IGNORE_CASE,
 )
 
+/** A landmark or instruction that only repeats the address already shown on the stop. */
+fun distinctStopDetail(address: String, detail: String?): String? {
+    val extra = detail?.trim().orEmpty()
+    if (extra.isEmpty()) {
+        return null
+    }
+    val shown = deliveryCardAddress(address).ifBlank { address.trim() }
+    val placeKey = normalizePlace(shown)
+    val extraKey = normalizePlace(extra)
+    if (extraKey.isEmpty() || placeKey == extraKey || placeKey.contains(extraKey) || extraKey.contains(placeKey)) {
+        return null
+    }
+    return extra
+}
+
+private fun normalizePlace(value: String): String {
+    return value.lowercase().replace(Regex("[^a-z0-9]+"), " ").trim()
+}
+
+private val cardCountries = listOf("the netherlands", "netherlands", "nederland", "zimbabwe")
+
+private fun withoutTrailingCountry(parts: MutableList<String>) {
+    if (parts.isEmpty()) {
+        return
+    }
+    val last = parts.last()
+    var text = last.trim()
+    for (country in cardCountries) {
+        if (text.equals(country, ignoreCase = true)) {
+            text = ""
+            break
+        }
+        val suffix = " $country"
+        if (text.endsWith(suffix, ignoreCase = true)) {
+            text = text.dropLast(suffix.length).trim()
+        }
+    }
+    if (text.isEmpty()) {
+        parts.removeAt(parts.lastIndex)
+        return
+    }
+    if (text != last) {
+        parts[parts.lastIndex] = text
+    }
+}
+
 fun deliveryCardAddress(address: String): String {
     val parts = address.split(',').map { it.trim() }.filter { it.isNotEmpty() }.toMutableList()
-    if (parts.size > 1 && parts.last().equals("zimbabwe", ignoreCase = true)) {
-        parts.removeAt(parts.lastIndex)
-    }
+    withoutTrailingCountry(parts)
     if (parts.size > 1 && cardCities.contains(parts.last().lowercase())) {
         parts.removeAt(parts.lastIndex)
     }
@@ -69,9 +113,7 @@ fun deliveryCardAddress(address: String): String {
 
 fun destinationSuburb(address: String): String {
     val parts = address.split(',').map { it.trim() }.filter { it.isNotEmpty() }.toMutableList()
-    if (parts.size > 1 && parts.last().equals("zimbabwe", ignoreCase = true)) {
-        parts.removeAt(parts.lastIndex)
-    }
+    withoutTrailingCountry(parts)
     if (parts.size > 1 && cardCities.contains(parts.last().lowercase())) {
         parts.removeAt(parts.lastIndex)
     }

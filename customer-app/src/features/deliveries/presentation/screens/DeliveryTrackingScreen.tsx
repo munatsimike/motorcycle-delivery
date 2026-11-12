@@ -47,6 +47,7 @@ import { ratingPromptVisible } from '../../domain/riderRating';
 import AdjustPriceSheet from '../components/AdjustPriceSheet';
 import DeliveryDetailFrame from '../components/DeliveryDetailFrame';
 import RidersMap from '../../../../components/maps/RidersMap';
+import DeliveredDelivery from '../components/DeliveredDelivery';
 import DeliveryOutcome from '../components/DeliveryOutcome';
 import MarketplaceDelivery from '../components/MarketplaceDelivery';
 import RiderPortrait from '../components/RiderPortrait';
@@ -240,6 +241,88 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
     const rating = outcomeDelivery.rating;
     const submittedStars = rating.submitted ? rating.stars : ratingStars;
     const showRatingSheet = ratingPromptVisible(rating, ratingSkipped) && submittedStars == null;
+    const outcomeActions = (
+      <>
+        {submittedStars ? (
+          <View style={styles.ratedNoteRow}>
+            <MaterialDesignIcons name="star" size={19} color="#E8A317" />
+            <Text style={styles.ratedNote}>You rated this rider {submittedStars} of 5.</Text>
+          </View>
+        ) : null}
+        {rating.eligible && !submittedStars && ratingSkipped ? (
+          <SecondaryButton
+            label="Rate rider"
+            bordered={false}
+            onPress={() => setRatingSkipped(false)}
+          />
+        ) : null}
+        {canSearch || canDelete ? (
+          <>
+            {canSearch ? (
+              <PrimaryButton
+                label="Search again"
+                icon="magnify"
+                loading={searchingAgain}
+                loadingLabel="Searching"
+                onPress={() => {
+                  void searchAgain();
+                }}
+              />
+            ) : null}
+            {canDelete ? (
+              <SecondaryButton
+                label="Delete"
+                tone="danger"
+                bordered={false}
+                weight="regular"
+                loading={deleting}
+                onPress={confirmDelete}
+              />
+            ) : null}
+          </>
+        ) : null}
+      </>
+    );
+    if (outcomeDelivery.status === 'DELIVERED') {
+      return (
+        <>
+          <DeliveredDelivery
+            delivery={outcomeDelivery}
+            onBack={() => navigation.goBack()}
+            message={error ?? actionError ?? cancelError}
+          >
+            {rating.eligible && !submittedStars && ratingSkipped ? (
+              <SecondaryButton
+                label="Rate rider"
+                bordered={false}
+                onPress={() => setRatingSkipped(false)}
+              />
+            ) : null}
+          </DeliveredDelivery>
+          <RateRiderSheet
+            visible={showRatingSheet}
+            saving={savingRating}
+            onSkip={() => setRatingSkipped(true)}
+            onSubmit={(stars) => {
+              void (async () => {
+                if (!accessToken) {
+                  return;
+                }
+                setSavingRating(true);
+                try {
+                  const saved = await customerDeliveryRepository.rateDelivery(accessToken, outcomeDelivery.id, stars);
+                  setRatingStars(saved.stars);
+                } catch (caught: unknown) {
+                  setActionError(errorMessage(caught, 'This rating could not be saved.'));
+                } finally {
+                  setSavingRating(false);
+                }
+              })();
+            }}
+          />
+        </>
+      );
+    }
     return (
       <>
         <DeliveryOutcome
@@ -254,44 +337,7 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
             setOfferOpen(true);
           } : undefined}
         >
-          {submittedStars ? (
-            <View style={styles.ratedNoteRow}>
-              <MaterialDesignIcons name="star" size={19} color="#E8A317" />
-              <Text style={styles.ratedNote}>You rated this rider {submittedStars} of 5.</Text>
-            </View>
-          ) : null}
-          {rating.eligible && !submittedStars && ratingSkipped ? (
-            <SecondaryButton
-              label="Rate rider"
-              bordered={false}
-              onPress={() => setRatingSkipped(false)}
-            />
-          ) : null}
-          {canSearch || canDelete ? (
-            <>
-              {canSearch ? (
-                <PrimaryButton
-                  label="Search again"
-                  icon="magnify"
-                  loading={searchingAgain}
-                  loadingLabel="Searching"
-                  onPress={() => {
-                    void searchAgain();
-                  }}
-                />
-              ) : null}
-              {canDelete ? (
-                <SecondaryButton
-                  label="Delete"
-                  tone="danger"
-                  bordered={false}
-                  weight="regular"
-                  loading={deleting}
-                  onPress={confirmDelete}
-                />
-              ) : null}
-            </>
-          ) : null}
+          {outcomeActions}
         </DeliveryOutcome>
         <RateRiderSheet
           visible={showRatingSheet}
@@ -985,13 +1031,12 @@ const styles = StyleSheet.create({
   ratedNoteRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
     gap: spacing.xs,
   },
   ratedNote: {
+    flex: 1,
     fontSize: typography.body,
     color: colors.textSecondary,
-    textAlign: 'center',
   },
   offerCard: {
     overflow: 'hidden',
@@ -1191,7 +1236,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
     borderRadius: radius.lg,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: colors.listCardBorder,
     boxShadow: '0 8px 24px rgba(23, 33, 29, 0.08)',
     padding: spacing.lg,
     gap: spacing.sm,

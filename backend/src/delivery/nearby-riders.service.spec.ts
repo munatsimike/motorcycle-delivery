@@ -1,7 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
-import { DISPATCH_ROUND_RADII_METRES, GPS_FRESH_MS } from './dispatch.constants.js';
-import { countNearbyAvailableRiders, NEARBY_RIDER_RADIUS_METRES } from './nearby-riders.query.js';
+import { DISPATCH_ROUND_RADII_METRES } from './dispatch.constants.js';
+import { approximateCustomerMapPoint, countNearbyAvailableRiders, NEARBY_RIDER_FRESH_MS, NEARBY_RIDER_POINT_TTL_MS, NEARBY_RIDER_RADIUS_METRES } from './nearby-riders.query.js';
 import { NearbyRidersService, readNearbyPoint } from './nearby-riders.service.js';
 
 describe('nearby rider availability', () => {
@@ -20,12 +20,26 @@ describe('nearby rider availability', () => {
 
   it('counts only fresh approved riders inside the nearby radius', async () => {
     const now = new Date('2026-10-16T12:00:00.000Z');
-    const db = fakeDb([{ count: 2 }]);
+    const db = fakeDb([{ count: 2 }], [
+      { latitude: -17.8292, longitude: 31.0522 },
+      { latitude: -17.83, longitude: 31.053 },
+    ]);
     const service = new NearbyRidersService(db.client as never);
 
-    await expect(service.count({ latitude: '-17.8292', longitude: '31.0522' }, now)).resolves.toEqual({ count: 2 });
+    const nearby = await service.count({ latitude: '-17.8292', longitude: '31.0522' }, now);
+    expect(nearby.count).toBe(2);
+    expect(nearby.points).toHaveLength(2);
+    expect(nearby.points[0]).toEqual({
+      latitude: expect.any(Number),
+      longitude: expect.any(Number),
+      expiresAt: new Date(now.getTime() + NEARBY_RIDER_POINT_TTL_MS).toISOString(),
+    });
+    expect(nearby.points[0]).not.toHaveProperty('riderProfileId');
+    expect(Math.abs(nearby.points[0].latitude - -17.8292)).toBeLessThan(0.001);
+    expect(Math.abs(nearby.points[0].longitude - 31.0522)).toBeLessThan(0.001);
 
     expect(db.calls).toHaveLength(1);
+    expect(db.calls[0]?.sql).toContain('ST_Y');
     expect(db.calls[0]?.sql).toContain('ST_DWithin');
     expect(db.calls[0]?.sql).toContain(`'AVAILABLE'`);
     expect(db.calls[0]?.sql).toContain('receiving_requests" IS NOT FALSE');
@@ -35,7 +49,18 @@ describe('nearby rider availability', () => {
     expect(db.calls[0]?.values).toContain(NEARBY_RIDER_RADIUS_METRES);
     expect(db.calls[0]?.values).toContain(-17.8292);
     expect(db.calls[0]?.values).toContain(31.0522);
-    expect(db.calls[0]?.values).toContainEqual(new Date(now.getTime() - GPS_FRESH_MS));
+    expect(db.calls[0]?.values).toContainEqual(new Date(now.getTime() - NEARBY_RIDER_FRESH_MS));
+  });
+
+  it('keeps an offer marker approximate and stable inside one 20 m cell', () => {
+    const first = approximateCustomerMapPoint(-17.824, 31.05, 4);
+    const nudged = approximateCustomerMapPoint(-17.82401, 31.05001, 4);
+    const moved = approximateCustomerMapPoint(-17.826, 31.052, 4);
+    expect(first).toEqual(nudged);
+    expect(first).not.toEqual(moved);
+    expect(first).not.toEqual({ latitude: -17.824, longitude: 31.05 });
+    expect(Math.abs(first.latitude - -17.824)).toBeLessThan(0.0005);
+    expect(Math.abs(first.longitude - 31.05)).toBeLessThan(0.0005);
   });
 
   it('does not treat a database failure as zero riders', async () => {
@@ -49,16 +74,20 @@ describe('nearby rider availability', () => {
   });
 });
 
-function fakeDb(rows: Array<{ count: number }> = []) {
+function fakeDb(
+  rows: Array<{ count: number }> = [],
+  positions: Array<{ latitude: number; longitude: number }> = [],
+) {
   const calls: Array<{ sql: string; values: unknown[] }> = [];
   const state: { fail: boolean } = { fail: false };
   const client = {
     $queryRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
-      calls.push({ sql: strings.join(' '), values });
+      const sql = strings.join(' ');
+      calls.push({ sql, values });
       if (state.fail) {
         throw new Error('database');
       }
-      return rows;
+      return sql.includes('ST_Y') ? positions : rows;
     },
   };
   return {

@@ -500,8 +500,11 @@ it('shows the rider point on each assigned or collecting delivery for that custo
 
   await step(hired.rider, first.deliveryId, DeliveryStatus.COLLECTED);
   const collected = await deliveries.getById(customer, first.deliveryId);
-  expect(collected).not.toHaveProperty('riderLocation');
-  expect(JSON.stringify(collected)).not.toContain(RIDER_LATITUDE);
+  expect(riderPoint(collected)).toMatchObject({ latitude: RIDER_LATITUDE, longitude: RIDER_LONGITUDE });
+  await prisma.delivery.update({ where: { id: first.deliveryId }, data: { status: 'DELIVERED' } });
+  const delivered = await deliveries.getById(customer, first.deliveryId);
+  expect(delivered).not.toHaveProperty('riderLocation');
+  expect(JSON.stringify(delivered)).not.toContain(RIDER_LATITUDE);
 
   const other = await customerAccount('Other');
   await expect(deliveries.getById(other, first.deliveryId)).rejects.toThrow('Delivery not found');

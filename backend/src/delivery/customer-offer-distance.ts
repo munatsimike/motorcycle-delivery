@@ -10,6 +10,21 @@ export type FreshPickupCoords = {
   riderLongitude: number;
 };
 
+/** Last stored rider fix. Age does not matter; the offers map must not wait for a new upload. */
+export function knownRiderPoint(
+  location: { latitude: unknown; longitude: unknown } | null,
+): { latitude: number; longitude: number } | null {
+  if (!location) {
+    return null;
+  }
+  const latitude = readCoordinate(location.latitude);
+  const longitude = readCoordinate(location.longitude);
+  if (latitude === null || longitude === null || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) {
+    return null;
+  }
+  return { latitude, longitude };
+}
+
 export function freshPickupCoords(
   pickupLatitude: unknown,
   pickupLongitude: unknown,

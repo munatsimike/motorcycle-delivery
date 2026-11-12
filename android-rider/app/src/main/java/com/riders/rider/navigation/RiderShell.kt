@@ -22,6 +22,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -116,10 +117,11 @@ fun RiderShell(
         tabName = (tabAfterBack(tab) ?: RiderDestination.Home).name
     }
     NetworkSnackbarClearance(80.dp)
+    var requestOverlayVisible by remember { mutableStateOf(false) }
     Scaffold(
         containerColor = RidersColors.background,
         bottomBar = {
-            Column(Modifier.background(RidersColors.background)) {
+            if (!requestOverlayVisible || tab != RiderDestination.Home) Column(Modifier.background(RidersColors.background)) {
             Box(Modifier.fillMaxWidth().height(1.dp).background(RidersColors.border))
             NavigationBar(containerColor = RidersColors.background) {
                 RiderDestination.entries.forEach { destination ->
@@ -188,6 +190,7 @@ fun RiderShell(
                         onDelivery = onDelivery,
                         onSetup = onSetup,
                         inShell = true,
+                        onRequestOverlayVisible = { requestOverlayVisible = it },
                         profilePhoto = profilePhoto,
                         model = home,
                     )

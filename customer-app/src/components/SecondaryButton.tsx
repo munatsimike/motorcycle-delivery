@@ -2,7 +2,7 @@ import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-
 import type { ComponentProps } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { colors, radius, spacing, typography } from '../theme';
+import { colors, radius, spacing } from '../theme';
 
 type SecondaryButtonProps = {
   label: string;
@@ -67,7 +67,7 @@ const styles = StyleSheet.create({
   button: {
     minHeight: 56,
     backgroundColor: colors.background,
-    borderRadius: radius.lg,
+    borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: spacing.lg,
@@ -76,7 +76,7 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-end',
   },
   compactButton: {
-    minHeight: 40,
+    minHeight: 44,
     paddingHorizontal: spacing.lg,
   },
   borderless: {
@@ -95,8 +95,8 @@ const styles = StyleSheet.create({
   },
   label: {
     color: colors.primary,
-    fontSize: typography.button,
-    fontWeight: '700',
+    fontSize: 16,
+    fontWeight: '600',
   },
   labelRegular: {
     fontWeight: '400',

@@ -312,6 +312,20 @@ data class StatusRequest(val status: String)
 data class CancellationRequest(val reason: String, val note: String? = null)
 
 @Serializable
+data class PickupRouteResponse(
+    val geometry: String = "",
+    val line: List<RoutePointResponse> = emptyList(),
+    val metres: Double? = null,
+    val seconds: Int? = null,
+)
+
+@Serializable
+data class RoutePointResponse(
+    val latitude: Double,
+    val longitude: Double,
+)
+
+@Serializable
 data class BidRequestBody(
     val id: String,
     val serviceClass: String? = null,
@@ -322,6 +336,10 @@ data class BidRequestBody(
     val distanceMeters: Int? = null,
     val pickupAddress: String = "",
     val dropoffAddress: String = "",
+    val pickupLatitude: String? = null,
+    val pickupLongitude: String? = null,
+    val dropoffLatitude: String? = null,
+    val dropoffLongitude: String? = null,
     val parcelDescription: String = "",
     val parcelSize: String = "",
 )

@@ -666,6 +666,7 @@ private fun MotorcycleStep(
                 enabled = !ui.savingMotorcycle,
                 tone = RidersButtonTone.Danger,
                 bordered = false,
+                regular = true,
                 modifier = Modifier.fillMaxWidth(),
             )
         }

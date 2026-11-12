@@ -146,6 +146,7 @@ fun RidersDialogTextButton(
     tone: RidersDialogTone = RidersDialogTone.Primary,
     enabled: Boolean = true,
     loading: Boolean = false,
+    regular: Boolean = false,
 ) {
     val color = when (tone) {
         RidersDialogTone.Danger -> RidersColors.error

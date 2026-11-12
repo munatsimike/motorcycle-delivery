@@ -143,7 +143,7 @@ afterAll(async () => {
   else process.env.JWT_ACCESS_SECRET = previousSecret;
 }, 60_000);
 
-it('shows the current rider point only while that parcel is collecting', async () => {
+it('shows the current rider point from collecting until the parcel is delivered', async () => {
   const hired = await hire();
   const opened = await acceptJob(hired, customer);
   const hidden = await acceptJob(hired, otherCustomer, {
@@ -175,11 +175,15 @@ it('shows the current rider point only while that parcel is collecting', async (
 
   await step(hired.rider, opened.deliveryId, DeliveryStatus.COLLECTED);
   const collected = await read(opened.deliveryId);
-  expect(collected).not.toHaveProperty('riderLocation');
-  expect(JSON.stringify(collected)).not.toContain(MOVED_LATITUDE);
+  expect(riderPoint(collected)).toMatchObject({ latitude: MOVED_LATITUDE, longitude: MOVED_LONGITUDE });
+  expect(JSON.stringify(collected)).not.toContain(HIDDEN_ADDRESS);
+  expect(JSON.stringify(collected)).not.toContain(HIDDEN_RECIPIENT);
 
   await prisma.delivery.update({ where: { id: opened.deliveryId }, data: { status: 'OUT_FOR_DELIVERY' } });
-  expect(await read(opened.deliveryId)).not.toHaveProperty('riderLocation');
+  expect(riderPoint(await read(opened.deliveryId))).toMatchObject({
+    latitude: MOVED_LATITUDE,
+    longitude: MOVED_LONGITUDE,
+  });
   await step(hired.rider, opened.deliveryId, DeliveryStatus.DELIVERED);
   expect(await read(opened.deliveryId)).not.toHaveProperty('riderLocation');
   expect(JSON.stringify(await read(opened.deliveryId))).not.toContain(MOVED_LATITUDE);
@@ -205,11 +209,15 @@ it('keeps location visibility independent for two Flexible parcels', async () =>
 
   await step(hired.rider, first.deliveryId, DeliveryStatus.COLLECTED);
   await prisma.delivery.update({ where: { id: second.deliveryId }, data: { status: 'COLLECTING' } });
-  expect(await read(first.deliveryId)).not.toHaveProperty('riderLocation');
+  const collected = await read(first.deliveryId);
+  expect(riderPoint(collected)).toMatchObject({ latitude: RIDER_LATITUDE, longitude: RIDER_LONGITUDE });
+  expect(JSON.stringify(collected)).not.toContain('Second Pickup Road');
+  expect(JSON.stringify(collected)).not.toContain('Second Recipient');
   expect(riderPoint(await read(second.deliveryId))).toMatchObject({
     latitude: RIDER_LATITUDE,
     longitude: RIDER_LONGITUDE,
   });
+  expect(JSON.stringify(await read(second.deliveryId))).not.toContain(visible.pickup.address);
 });
 
 it('omits the rider point after cancellation and refuses other customers and rider tokens', async () => {

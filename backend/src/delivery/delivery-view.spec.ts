@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Currency, DeliveryPayer, DeliveryStatus, ParcelSize, PaymentMethod, CoordinateSource } from '../generated/prisma/client.js';
-import { assignedRiderStatus, freshRiderPoint, toCustomerDelivery, toRiderDelivery, withAssignedRider, withCollectingRiderLocation, withPickupApproach, type StoredDelivery } from './delivery-view.js';
+import { assignedRiderStatus, customerRoutesToDropoff, freshRiderPoint, toCustomerDelivery, toRiderDelivery, withAssignedRider, withCollectingRiderLocation, withPickupApproach, type StoredDelivery } from './delivery-view.js';
 
 describe('rider delivery view', () => {
   it('omits the suggested price', () => {
@@ -54,11 +54,9 @@ describe('rider delivery view', () => {
     expect(restored.status).toBe(DeliveryStatus.CREATED);
   });
 
-  it('adds the rider point while the rider is assigned or collecting', () => {
+  it('adds the rider point from acceptance until the parcel is out for delivery', () => {
     const point = { latitude: '-17.8010000', longitude: '31.1090000' };
     for (const status of [
-      DeliveryStatus.COLLECTED,
-      DeliveryStatus.OUT_FOR_DELIVERY,
       DeliveryStatus.DELIVERED,
       DeliveryStatus.CANCELLED,
       DeliveryStatus.ASSIGNED,
@@ -67,10 +65,17 @@ describe('rider delivery view', () => {
       const hidden = withCollectingRiderLocation(toCustomerDelivery({ ...stored(), status }), point);
       expect(hidden).not.toHaveProperty('riderLocation');
       expect(JSON.stringify(hidden)).not.toContain('-17.8010000');
+      expect(customerRoutesToDropoff(status)).toBe(false);
     }
-    for (const status of [DeliveryStatus.RIDER_ASSIGNED, DeliveryStatus.COLLECTING]) {
+    for (const status of [
+      DeliveryStatus.RIDER_ASSIGNED,
+      DeliveryStatus.COLLECTING,
+      DeliveryStatus.COLLECTED,
+      DeliveryStatus.OUT_FOR_DELIVERY,
+    ]) {
       const visible = withCollectingRiderLocation(toCustomerDelivery({ ...stored(), status }), point);
       expect(visible).toMatchObject({ status, riderLocation: point });
+      expect(customerRoutesToDropoff(status)).toBe(status === DeliveryStatus.COLLECTED || status === DeliveryStatus.OUT_FOR_DELIVERY);
     }
     expect(withCollectingRiderLocation(
       toCustomerDelivery({ ...stored(), status: DeliveryStatus.COLLECTING }),
@@ -91,7 +96,7 @@ describe('rider delivery view', () => {
   });
 
   it('adds the assigned rider only for an assigned delivery and drops a stale point', () => {
-    const rider = { name: 'Tendai Moyo', verified: true, motorcycle: 'Honda Ace', registrationNumber: 'ABC 1234', phone: '+263771000001', hasProfilePhoto: false };
+    const rider = { name: 'Tendai Moyo', verified: true, motorcycle: 'Honda Ace', registrationNumber: 'ABC 1234', colour: 'Red', phone: '+263771000001', hasProfilePhoto: false };
     expect(assignedRiderStatus(DeliveryStatus.CREATED)).toBe(false);
     expect(assignedRiderStatus(DeliveryStatus.RIDER_ASSIGNED)).toBe(true);
     expect(withAssignedRider(toCustomerDelivery(stored()), null)).not.toHaveProperty('rider');

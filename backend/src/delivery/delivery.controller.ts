@@ -69,6 +69,23 @@ export class DeliveryController {
     return this.deliveries.list(requiredCustomer(request), query);
   }
 
+  @Get(':deliveryId/route')
+  @ApiOperation({ summary: 'Read the driving route between this delivery pickup and drop-off' })
+  @ApiParam({ name: 'deliveryId', format: 'uuid' })
+  @ApiOkResponse({ description: 'Road geometry between the stored pickup and drop-off. An empty line means no route is available.' })
+  @ApiNotFoundResponse({ description: 'Delivery not found' })
+  async route(@Req() request: CustomerRequest, @Param('deliveryId') deliveryId: string) {
+    const delivery = await this.deliveries.getById(requiredCustomer(request), deliveryId);
+    const pickupLatitude = finiteCoordinate(delivery.pickup.latitude);
+    const pickupLongitude = finiteCoordinate(delivery.pickup.longitude);
+    const dropoffLatitude = finiteCoordinate(delivery.dropoff.latitude);
+    const dropoffLongitude = finiteCoordinate(delivery.dropoff.longitude);
+    if (pickupLatitude === null || pickupLongitude === null || dropoffLatitude === null || dropoffLongitude === null) {
+      return { line: [] };
+    }
+    return this.places.deliveryRoute(pickupLatitude, pickupLongitude, dropoffLatitude, dropoffLongitude);
+  }
+
   @Get(':deliveryId/map')
   @Header('Cache-Control', 'private, max-age=86400')
   @ApiOperation({ summary: 'Download the delivery route preview' })
@@ -96,7 +113,7 @@ export class DeliveryController {
   @Get(':deliveryId')
   @ApiOperation({ summary: 'Read one customer delivery' })
   @ApiParam({ name: 'deliveryId', format: 'uuid' })
-  @ApiOkResponse({ description: 'The delivery, including pickup, drop-off, and current status. riderLocation and pickupApproach are included while this delivery is RIDER_ASSIGNED or COLLECTING and the accepted rider point is fresh.' })
+  @ApiOkResponse({ description: 'The delivery, including pickup, drop-off, and current status. riderLocation and pickupApproach are included while this delivery is RIDER_ASSIGNED, COLLECTING, COLLECTED, or OUT_FOR_DELIVERY and the accepted rider point is fresh.' })
   @ApiNotFoundResponse({ description: 'Delivery not found' })
   getById(@Req() request: CustomerRequest, @Param('deliveryId') deliveryId: string) {
     return this.deliveries.getById(requiredCustomer(request), deliveryId);

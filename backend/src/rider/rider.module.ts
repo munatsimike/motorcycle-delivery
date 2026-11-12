@@ -34,6 +34,9 @@ import { RiderOnboardingController } from './rider-onboarding.controller.js';
 import { RiderPushDeviceController } from './rider-push-device.controller.js';
 import { RiderPushDeviceService } from './rider-push-device.service.js';
 import { RiderOnboardingService } from './rider-onboarding.service.js';
+import { EcocashTopUpController } from './ecocash-top-up.controller.js';
+import { EcocashTopUpService } from './ecocash-top-up.service.js';
+import { HttpEcocashPaymentProvider, EcocashPaymentProvider } from './ecocash-client.js';
 import { RiderWalletController } from './rider-wallet.controller.js';
 import { V2CommissionRateController } from './v2-commission-rate.controller.js';
 import { V2CommissionRateService } from './v2-commission-rate.service.js';
@@ -90,6 +93,8 @@ import { createS3Client, S3_CLIENT_FACTORY, S3ObjectStorage } from './s3-object-
     WalletConfigService,
     WalletService,
     { provide: S3_CLIENT_FACTORY, useValue: createS3Client },
+    EcocashTopUpService,
+    { provide: EcocashPaymentProvider, useFactory: () => new HttpEcocashPaymentProvider() },
     S3ObjectStorage,
     DatabaseObjectStorage,
     ConfiguredObjectStorage,

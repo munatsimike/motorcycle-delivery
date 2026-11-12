@@ -1,5 +1,6 @@
 package com.riders.rider.feature.delivery.domain
 
+import java.util.Locale
 import com.riders.rider.core.network.ActiveAssignmentBody
 import com.riders.rider.core.network.ApiError
 import com.riders.rider.core.network.OfferResponse
@@ -256,6 +257,19 @@ fun senderInitials(name: String): String {
         .mapNotNull { word -> word.firstOrNull { it.isLetter() }?.uppercaseChar() }
         .joinToString("")
     return letters.ifEmpty { "S" }
+}
+
+/** Same trimmed name always maps to the same palette slot. A blank name stays on the first color. */
+fun recipientAvatarSlot(name: String, count: Int): Int {
+    val key = name.trim().lowercase(Locale.US)
+    if (key.isEmpty() || count <= 1) {
+        return 0
+    }
+    var hash = 0
+    for (character in key) {
+        hash = ((hash.toLong() * 31 + character.code) and 0xFFFFFFFFL).toInt()
+    }
+    return (hash.toUInt() % count.toUInt()).toInt()
 }
 
 fun senderDialUri(phone: String): String? {

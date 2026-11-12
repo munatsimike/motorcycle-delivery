@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -25,6 +24,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -43,6 +44,7 @@ import com.riders.rider.core.design.RidersSpacing
 import com.riders.rider.core.design.RidersType
 import com.riders.rider.feature.delivery.domain.DeliveryListSort
 import com.riders.rider.feature.delivery.presentation.AssignmentListPane
+import com.riders.rider.feature.delivery.presentation.MapBackground
 import com.riders.rider.feature.delivery.presentation.CompletedDeliveriesPane
 import com.riders.rider.feature.delivery.presentation.filteredContentTitle
 import com.riders.rider.feature.bids.presentation.BidBoardScreen
@@ -83,38 +85,58 @@ fun DeliveriesScreen(
     var sortOpen by remember { mutableStateOf(false) }
     var filterOpen by remember { mutableStateOf(false) }
     val availability = ui.onboarding?.availability
-    Column(
+    val sheetShape = RoundedCornerShape(topStart = RidersRadius.xl, topEnd = RidersRadius.xl)
+    Box(
         Modifier
             .fillMaxSize()
-            .background(RidersColors.background)
-            .statusBarsPadding(),
+            .background(RidersColors.canvas),
     ) {
+        MapBackground(Modifier.fillMaxSize())
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        0f to RidersColors.canvas.copy(alpha = 0.78f),
+                        0.34f to RidersColors.canvas.copy(alpha = 0.12f),
+                        1f to RidersColors.text.copy(alpha = 0.18f),
+                    ),
+                ),
+        )
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(top = 28.dp)
+                .clip(sheetShape)
+                .background(RidersColors.background),
+        ) {
         val tabs = deliveryBoardTabs()
         val selected = if (tab in tabs) tab else defaultDeliveryBoardTab()
         val contentKind = content.kind()
-        if (tabs.size > 1) {
-            DeliveryTabs(
-                tabs = tabs,
-                selected = selected,
-                onSelect = { tab = it },
-                modifier = Modifier.padding(horizontal = RidersSpacing.lg).padding(top = RidersSpacing.lg, bottom = RidersSpacing.sm),
+        Column(
+            Modifier.padding(horizontal = RidersSpacing.lg, vertical = RidersSpacing.lg),
+            verticalArrangement = Arrangement.spacedBy(RidersSpacing.md),
+        ) {
+            if (tabs.size > 1) {
+                DeliveryTabs(
+                    tabs = tabs,
+                    selected = selected,
+                    onSelect = { tab = it },
+                )
+            }
+            DeliveryToolbar(
+                content = content,
+                sort = sort,
+                onFilter = {
+                    sortOpen = false
+                    filterOpen = true
+                },
+                onSort = {
+                    filterOpen = false
+                    sortOpen = true
+                },
             )
         }
-        DeliveryToolbar(
-            content = content,
-            sort = sort,
-            onFilter = {
-                sortOpen = false
-                filterOpen = true
-            },
-            onSort = {
-                filterOpen = false
-                sortOpen = true
-            },
-            modifier = Modifier
-                .padding(horizontal = RidersSpacing.lg)
-                .padding(top = if (tabs.size > 1) 0.dp else RidersSpacing.lg, bottom = RidersSpacing.lg),
-        )
         DeliveryFilterSheet(
             visible = filterOpen,
             selected = content,
@@ -164,6 +186,7 @@ fun DeliveriesScreen(
                 modifier = Modifier.weight(1f),
             )
         }
+        }
     }
 }
 
@@ -184,14 +207,12 @@ private fun DeliveryToolbar(
         ToolbarMenu(
             label = content.label,
             leading = R.drawable.ic_filter,
-            trailing = content.icon,
             contentDescription = "Filter deliveries, ${content.label}",
             onClick = onFilter,
         )
         ToolbarMenu(
             label = selectedSort.shortLabel,
             leading = R.drawable.ic_sort,
-            trailing = selectedSort.icon,
             contentDescription = "Sort deliveries, ${selectedSort.label}",
             onClick = onSort,
         )
@@ -202,7 +223,6 @@ private fun DeliveryToolbar(
 private fun ToolbarMenu(
     label: String,
     leading: Int,
-    trailing: Int,
     contentDescription: String,
     onClick: () -> Unit,
 ) {
@@ -224,12 +244,6 @@ private fun ToolbarMenu(
             colorFilter = ColorFilter.tint(RidersColors.text),
         )
         Text(label, style = RidersType.caption.copy(fontWeight = FontWeight.SemiBold), color = RidersColors.text)
-        Image(
-            painterResource(trailing),
-            contentDescription = null,
-            modifier = Modifier.size(18.dp),
-            colorFilter = ColorFilter.tint(RidersColors.text),
-        )
         Image(
             painterResource(R.drawable.ic_chevron_down),
             contentDescription = null,
@@ -370,19 +384,21 @@ private fun DeliveryTabs(
     modifier: Modifier = Modifier,
 ) {
     Row(
-        modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
+        modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(RidersRadius.pill))
+            .background(RidersColors.surface)
+            .padding(RidersSpacing.xs),
+        horizontalArrangement = Arrangement.spacedBy(RidersSpacing.xs),
     ) {
         tabs.forEach { tab ->
             val isSelected = tab == selected
-            val shape = RoundedCornerShape(RidersRadius.lg)
             Box(
                 Modifier
                     .weight(1f)
-                    .defaultMinSize(minHeight = 44.dp)
-                    .clip(shape)
-                    .background(if (isSelected) RidersColors.primaryLight else RidersColors.background)
-                    .border(1.dp, if (isSelected) RidersColors.primary else RidersColors.border, shape)
+                    .defaultMinSize(minHeight = 40.dp)
+                    .clip(RoundedCornerShape(RidersRadius.pill))
+                    .background(if (isSelected) RidersColors.background else Color.Transparent)
                     .clickable(role = Role.Button, onClick = { onSelect(tab) })
                     .semantics { this.selected = isSelected }
                     .padding(horizontal = RidersSpacing.xs, vertical = RidersSpacing.sm),

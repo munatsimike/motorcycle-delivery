@@ -43,9 +43,9 @@ type TopUpCommand = TopUpInput & {
   now: Date;
 };
 
-// Manual cash and EcoCash confirmation. A later gateway inserts its own
-// verified wallet_payments row, with provider fields set, then calls the
-// same creditWallet path. Provider fields stay empty for these payments.
+// Manual cash and EcoCash confirmation. An Online Payments charge is a
+// GATEWAY payment created by ecocash-top-up.ts. This function still credits
+// only an admin receipt. Provider fields stay empty for these payments.
 export async function recordManualTopUp(tx: Prisma.TransactionClient, command: TopUpCommand): Promise<ManualTopUpResult> {
   const hash = topUpPayloadHash(command);
   const wallet = await ensureRiderWallet(tx, command.riderProfileId, command.now);

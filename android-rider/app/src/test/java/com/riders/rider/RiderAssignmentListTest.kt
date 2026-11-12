@@ -5,6 +5,10 @@ import com.riders.rider.feature.delivery.domain.DeliveryContacts
 import com.riders.rider.feature.delivery.domain.agreedPriceLabel
 import com.riders.rider.feature.delivery.domain.applyAssignmentRefresh
 import com.riders.rider.feature.delivery.domain.committedAssignmentsForDisplay
+import com.riders.rider.feature.delivery.domain.NEW_OFFER_BACKGROUND
+import com.riders.rider.feature.delivery.domain.NEW_OFFER_BADGE
+import com.riders.rider.feature.delivery.domain.NEW_OFFER_FOREGROUND
+import com.riders.rider.feature.delivery.domain.deliveryListBadge
 import com.riders.rider.feature.delivery.domain.deliveryStatusLabel
 import com.riders.rider.feature.delivery.domain.navigationTarget
 import com.riders.rider.feature.delivery.domain.parcelRoute
@@ -71,6 +75,23 @@ class RiderAssignmentListTest {
         assertEquals(listOf("flex-a", "flex-b", "express-1"), shown.map { it.deliveryId })
         assertEquals(listOf("Flexible", "Flexible", "Urgent"), shown.map { serviceClassLabel(it.serviceClass) })
         assertEquals("Collecting", deliveryStatusLabel(shown[2].status))
+        assertEquals("Assigned to you", deliveryListBadge("RIDER_ASSIGNED")?.label)
+        assertEquals(0xFFE5F6ED, deliveryListBadge("RIDER_ASSIGNED")?.background)
+        assertEquals(0xFF16845B, deliveryListBadge("RIDER_ASSIGNED")?.foreground)
+        assertEquals(0xFFE7F1FF, deliveryListBadge("COLLECTING")?.background)
+        assertEquals("In transit", deliveryListBadge("COLLECTED")?.label)
+        assertEquals(deliveryListBadge("COLLECTED"), deliveryListBadge("OUT_FOR_DELIVERY"))
+        assertEquals("Delivered", deliveryListBadge("DELIVERED")?.label)
+        assertEquals(0xFFDDF5E6, deliveryListBadge("DELIVERED")?.background)
+        assertEquals("Cancelled", deliveryListBadge("CANCELLED")?.label)
+        assertEquals(0xFFF1F3F5, deliveryListBadge("CANCELLED")?.background)
+        assertEquals(0xFF606B75, deliveryListBadge("CANCELLED")?.foreground)
+        assertEquals("Rider assigned", deliveryStatusLabel("RIDER_ASSIGNED"))
+        assertNull(deliveryListBadge("FAILED"))
+        assertNull(deliveryListBadge("PICKED_UP"))
+        assertEquals(NEW_OFFER_BADGE, "New offer")
+        assertEquals(0xFFFFF3D6, NEW_OFFER_BACKGROUND)
+        assertEquals(0xFFA66300, NEW_OFFER_FOREGROUND)
         assertEquals("Agreed price \$9.00", agreedPriceLabel(shown[2].agreedPrice))
     }
 

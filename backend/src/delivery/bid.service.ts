@@ -24,7 +24,9 @@ import { v2MarketplaceEnabled } from '../auth/v2-flags.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { finiteDistance } from './delivery-view.js';
 import { centsFromDecimal, formatCents } from './money.js';
-import { freshPickupCoords, pickupDistanceMeters } from './customer-offer-distance.js';
+import { freshPickupCoords, knownRiderPoint, pickupDistanceMeters } from './customer-offer-distance.js';
+import { approximateCustomerMapPoint } from './nearby-riders.query.js';
+import { createGeoapifyClient, sampleRoadLine } from './geoapify.js';
 import { PICKUP_APPROACH, type PickupApproachLookup } from './pickup-approach.js';
 import { motorcycleForAcceptance } from '../rider/motorcycle-eligibility.js';
 import { lockWalletOwner } from '../rider/wallet-lock.js';
@@ -71,6 +73,7 @@ export type PublicBid = {
     registrationNumber: string | null;
     hasProfilePhoto: boolean;
     pickupEtaSeconds: number | null;
+    mapPoint: { latitude: number; longitude: number } | null;
   };
 };
 
@@ -83,6 +86,48 @@ export class BidService {
     @Optional() @Inject(PICKUP_APPROACH) pickupApproach?: PickupApproachLookup,
   ) {
     this.pickupApproach = pickupApproach ?? { lookup: async () => null };
+  }
+
+  async requestRoad(rider: RiderContext, deliveryId: string) {
+    this.requireMarketplace();
+    const empty = { line: [] as Array<{ latitude: number; longitude: number }> };
+    if (!UUID_TEXT.test(deliveryId)) {
+      return empty;
+    }
+    const allowed = await riderCanReceiveRequests(this.prisma, rider.riderProfileId);
+    if (!allowed) {
+      return empty;
+    }
+    const row = await this.prisma.delivery.findUnique({
+      where: { id: deliveryId },
+      select: {
+        status: true,
+        searchGeneration: true,
+        pickupLatitude: true,
+        pickupLongitude: true,
+        dropoffLatitude: true,
+        dropoffLongitude: true,
+      },
+    });
+    if (!row || row.status !== DeliveryStatus.CREATED || row.searchGeneration !== 0) {
+      return empty;
+    }
+    const pickupLatitude = finiteCoordinate(row.pickupLatitude);
+    const pickupLongitude = finiteCoordinate(row.pickupLongitude);
+    const dropoffLatitude = finiteCoordinate(row.dropoffLatitude);
+    const dropoffLongitude = finiteCoordinate(row.dropoffLongitude);
+    if (pickupLatitude === null || pickupLongitude === null || dropoffLatitude === null || dropoffLongitude === null) {
+      return empty;
+    }
+    try {
+      const road = await createGeoapifyClient().route(pickupLatitude, pickupLongitude, dropoffLatitude, dropoffLongitude);
+      const line = sampleRoadLine(road.line, 40).flatMap(([longitude, latitude]) => (
+        Number.isFinite(latitude) && Number.isFinite(longitude) ? [{ latitude, longitude }] : []
+      ));
+      return line.length > 1 ? { line } : empty;
+    } catch {
+      return empty;
+    }
   }
 
   async listOwn(rider: RiderContext, query: unknown, now = new Date()) {
@@ -168,6 +213,10 @@ export class BidService {
           distanceMeters: true,
           pickupAddress: true,
           dropoffAddress: true,
+          pickupLatitude: true,
+          pickupLongitude: true,
+          dropoffLatitude: true,
+          dropoffLongitude: true,
           parcelDescription: true,
           parcelSize: true,
         },
@@ -182,6 +231,10 @@ export class BidService {
         distanceMeters: row.distanceMeters,
         pickupAddress: row.pickupAddress,
         dropoffAddress: row.dropoffAddress,
+        pickupLatitude: coordinateText(row.pickupLatitude),
+        pickupLongitude: coordinateText(row.pickupLongitude),
+        dropoffLatitude: coordinateText(row.dropoffLatitude),
+        dropoffLongitude: coordinateText(row.dropoffLongitude),
         parcelDescription: row.parcelDescription,
         parcelSize: row.parcelSize,
       }));
@@ -330,6 +383,7 @@ export class BidService {
             motorcycle: motorcycleByRider.get(row.riderProfileId)?.motorcycle ?? null,
             registrationNumber: motorcycleByRider.get(row.riderProfileId)?.registrationNumber ?? null,
             hasProfilePhoto: photoRiders.has(row.riderProfileId),
+            point: knownRiderPoint(location),
             pickup: freshPickupCoords(
               delivery.pickupLatitude,
               delivery.pickupLongitude,
@@ -346,33 +400,57 @@ export class BidService {
     listed: Array<{
       row: StoredBid;
       name: string;
-      rider: Omit<PublicBid['rider'], 'id' | 'name' | 'pickupEtaSeconds'> & {
+      rider: Omit<PublicBid['rider'], 'id' | 'name' | 'pickupEtaSeconds' | 'mapPoint'> & {
+        point: ReturnType<typeof knownRiderPoint>;
         pickup: ReturnType<typeof freshPickupCoords>;
       };
     }>,
   ): Promise<PublicBid[]> {
-    const seconds = await Promise.all(listed.map(async (item) => {
-      if (!item.rider.pickup) {
-        return null;
-      }
-      const approach = await this.pickupApproach.lookup({
-        riderProfileId: item.row.riderProfileId,
-        riderLatitude: item.rider.pickup.riderLatitude,
-        riderLongitude: item.rider.pickup.riderLongitude,
-        pickupLatitude: item.rider.pickup.pickupLatitude,
-        pickupLongitude: item.rider.pickup.pickupLongitude,
-      });
-      if (approach == null || approach.seconds <= 0) {
-        return null;
-      }
-      return Math.round(approach.seconds);
-    }));
+    const seconds = await Promise.all(listed.map((item) => this.pickupEtaSeconds(item)));
     return listed.map((item, index) => {
-      const { pickup: _pickup, ...rider } = item.rider;
+      const { point, ...rider } = item.rider;
+      const mapPoint = point
+        ? approximateCustomerMapPoint(point.latitude, point.longitude, offerMapSeed(item.row.id))
+        : null;
       return toPublicBid(item.row, item.name, {
         ...rider,
         pickupEtaSeconds: seconds[index] ?? null,
+        mapPoint,
       });
+    });
+  }
+
+  /** A cached route can fill ETA immediately. A live lookup must not hold back the map point. */
+  private pickupEtaSeconds(item: {
+    row: StoredBid;
+    rider: { pickup: ReturnType<typeof freshPickupCoords> };
+  }): Promise<number | null> {
+    const pickup = item.rider.pickup;
+    if (!pickup) {
+      return Promise.resolve(null);
+    }
+    const lookup = this.pickupApproach.lookup({
+      riderProfileId: item.row.riderProfileId,
+      riderLatitude: pickup.riderLatitude,
+      riderLongitude: pickup.riderLongitude,
+      pickupLatitude: pickup.pickupLatitude,
+      pickupLongitude: pickup.pickupLongitude,
+    });
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (seconds: number | null) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        resolve(seconds);
+      };
+      const timer = setTimeout(() => finish(null), 0);
+      lookup.then(
+        (approach) => finish(approach != null && approach.seconds > 0 ? Math.round(approach.seconds) : null),
+        () => finish(null),
+      );
     });
   }
 
@@ -528,6 +606,28 @@ export class BidService {
   }
 }
 
+function coordinateText(value: unknown): string | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value.toFixed(7);
+  }
+  if (typeof value === 'string' && value.trim() && Number.isFinite(Number(value))) {
+    return Number(value).toFixed(7);
+  }
+  if (value && typeof value === 'object' && 'toFixed' in value && typeof value.toFixed === 'function') {
+    return value.toFixed(7);
+  }
+  return null;
+}
+
+function finiteCoordinate(value: unknown): number | null {
+  const text = coordinateText(value);
+  if (text === null) {
+    return null;
+  }
+  const numeric = Number(text);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
 async function riderCanReceiveRequests(tx: Prisma.TransactionClient, riderProfileId: string): Promise<boolean> {
   const profile = await tx.riderProfile.findUnique({
     where: { id: riderProfileId },
@@ -585,8 +685,17 @@ function toPublicBid(
       registrationNumber: rider.registrationNumber ?? null,
       hasProfilePhoto: rider.hasProfilePhoto === true,
       pickupEtaSeconds: rider.pickupEtaSeconds ?? null,
+      mapPoint: rider.mapPoint ?? null,
     },
   };
+}
+
+function offerMapSeed(bidId: string): number {
+  let hash = 0;
+  for (let index = 0; index < bidId.length; index += 1) {
+    hash = (hash + bidId.charCodeAt(index) * (index + 1)) % 997;
+  }
+  return hash;
 }
 
 function registrationLabel(value: string | null | undefined): string | null {

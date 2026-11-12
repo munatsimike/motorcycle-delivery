@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -34,6 +35,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -91,6 +93,9 @@ import com.riders.rider.feature.delivery.presentation.ContentLabel
 import com.riders.rider.feature.delivery.presentation.DeliveryStop
 import com.riders.rider.feature.delivery.presentation.ServiceClassBadge
 import com.riders.rider.feature.delivery.presentation.deliveryContentLabel
+import com.riders.rider.feature.delivery.domain.NEW_OFFER_BACKGROUND
+import com.riders.rider.feature.delivery.domain.NEW_OFFER_BADGE
+import com.riders.rider.feature.delivery.domain.NEW_OFFER_FOREGROUND
 import com.riders.rider.feature.delivery.presentation.deliveryContentMatches
 import com.riders.rider.feature.delivery.presentation.filteredContentTitle
 import com.riders.rider.feature.offers.domain.canAcceptOffer
@@ -159,7 +164,7 @@ fun OffersScreen(
         onRefresh = model::pullRefresh,
         modifier = modifier
             .fillMaxSize()
-            .background(RidersColors.background)
+            .background(Color.White)
             .then(if (inShell) Modifier else Modifier.statusBarsPadding())
             .then(if (inShell) Modifier else Modifier.navigationBarsPadding()),
     ) {
@@ -167,8 +172,7 @@ fun OffersScreen(
         Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = RidersSpacing.lg)
-            .padding(bottom = RidersSpacing.lg),
+            .padding(horizontal = RidersSpacing.lg),
         verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
     ) {
         if (selected == null) {
@@ -263,6 +267,7 @@ private fun OfferList(
                 onBid = { onBid(offer) },
                 onSubmitBid = { amount -> onSubmitBid(offer, amount) },
                 onInterest = { onInterest(offer) },
+                fresh = true,
             )
         }
     }
@@ -301,7 +306,7 @@ private fun OfferDetail(
     val motion = rememberRidersMotion()
     val bidMs = motion.millis(RiderTransition.BidRise)
     RidersCard(modifier = Modifier.fillMaxWidth()) {
-        OfferSummary(offer, nowMillis, detailed = true, statusLabel = statusLabel)
+        OfferSummary(offer, nowMillis, detailed = true, statusLabel = statusLabel, fresh = true)
     }
     AnimatedContent(
         targetState = placingBid,
@@ -417,6 +422,7 @@ private fun IncomingOfferActions(
                 label = "Cancel",
                 tone = RidersDialogTone.Neutral,
                 enabled = !submittingBid,
+                regular = true,
                 onClick = { offering = false },
             )
             RidersDialogTextButton(
@@ -431,10 +437,19 @@ private fun IncomingOfferActions(
             )
         }
     }
-    Row(
+    Column(
         Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
+        verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
     ) {
+        RidersPrimaryButton(
+            label = "Accept",
+            onClick = onAccept,
+            enabled = canAct && !submittingBid,
+            loading = accepting || submittingBid,
+            loadingLabel = if (senderChoosesRider(offer.serviceClass)) "Sending" else "Accepting",
+            modifier = Modifier.fillMaxWidth(),
+            compact = true,
+        )
         RidersSecondaryButton(
             label = OFFER_YOUR_PRICE,
             onClick = {
@@ -442,17 +457,8 @@ private fun IncomingOfferActions(
                 offering = true
             },
             enabled = canAct && !accepting && !submittingBid,
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.fillMaxWidth(),
             soft = false,
-            compact = true,
-        )
-        RidersPrimaryButton(
-            label = acceptOfferLabel(),
-            onClick = onAccept,
-            enabled = canAct && !submittingBid,
-            loading = accepting || submittingBid,
-            loadingLabel = if (senderChoosesRider(offer.serviceClass)) "Sending" else "Accepting",
-            modifier = Modifier.weight(1f),
             compact = true,
         )
     }
@@ -503,6 +509,7 @@ private fun BidPage(
                 label = "Cancel",
                 tone = RidersDialogTone.Neutral,
                 enabled = !submitting,
+                regular = true,
                 onClick = { confirmSend = false },
             )
             RidersDialogTextButton(
@@ -606,6 +613,7 @@ private fun BidPage(
         onClick = onBack,
         tone = RidersButtonTone.Danger,
         bordered = false,
+        regular = true,
         modifier = Modifier.fillMaxWidth(),
         soft = false,
     )
@@ -689,13 +697,12 @@ private fun OfferDetailsSheet(visible: Boolean, offer: OfferResponse, amount: St
                 horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                ContentIcon(offer.parcel.description)
-                ContentLabel(offer.parcel.description)
-                ServiceClassBadge(offer.serviceClass)
+                ContentIcon(offer.parcel.description, size = 15.dp, muted = true)
+                ContentLabel(offer.parcel.description, compact = true)
+                ServiceClassBadge(offer.serviceClass, subtle = true)
             }
             Column(Modifier.fillMaxWidth()) {
                 OfferStop(
-                    "Pickup",
                     offerStopLine(offer.pickup.address, offer.pickup.landmark),
                     pickup = true,
                     connected = true,
@@ -707,8 +714,8 @@ private fun OfferDetailsSheet(visible: Boolean, offer: OfferResponse, amount: St
                         )
                     },
                 )
+                Spacer(Modifier.height(8.dp))
                 OfferStop(
-                    "Drop-off",
                     offerStopLine(offer.dropoff.address, offer.dropoff.landmark),
                     pickup = false,
                     connected = false,
@@ -736,8 +743,9 @@ private fun SentOfferDetails(offer: OfferResponse, amount: String) {
         SentOfferNote(offer, amount)
         HorizontalDivider()
         Column(Modifier.fillMaxWidth()) {
-            OfferStop("Pickup", offerStopLine(offer.pickup.address, offer.pickup.landmark), pickup = true, connected = true)
-            OfferStop("Drop-off", offerStopLine(offer.dropoff.address, offer.dropoff.landmark), pickup = false, connected = false)
+            OfferStop(offerStopLine(offer.pickup.address, offer.pickup.landmark), pickup = true, connected = false)
+            Spacer(Modifier.height(8.dp))
+            OfferStop(offerStopLine(offer.dropoff.address, offer.dropoff.landmark), pickup = false, connected = false)
         }
         offer.parcel.instructions?.takeIf { it.isNotBlank() }?.let {
             Text(it, style = RidersType.caption, color = RidersColors.textSecondary)
@@ -838,6 +846,8 @@ fun OfferRequestCard(
     @Suppress("UNUSED_PARAMETER") onBid: () -> Unit,
     onSubmitBid: (String) -> Unit = {},
     @Suppress("UNUSED_PARAMETER") onInterest: () -> Unit = {},
+    onOpen: (() -> Unit)? = null,
+    fresh: Boolean = false,
 ) {
     if (sentAmount != null) {
         SentOfferCard(offer, sentAmount)
@@ -853,8 +863,8 @@ fun OfferRequestCard(
         canAcceptOffer(offer.expiresAt, nowMillis, accepting = false, unavailable = false),
         confirmed = false,
     ) && !accepting && !submittingBid
-    RidersCard(modifier = Modifier.fillMaxWidth()) {
-        OfferSummary(offer, nowMillis, detailed = false, statusLabel = statusLabel)
+    RidersCard(modifier = Modifier.fillMaxWidth(), onClick = onOpen, bordered = false, bottomPadding = RidersSpacing.xs) {
+        OfferSummary(offer, nowMillis, detailed = false, statusLabel = statusLabel, fresh = fresh)
         if (bidsOpen || !senderChoosesRider(offer.serviceClass)) {
             if (offer.serviceClass == "EXPRESS" && statusLabel != null) {
                 Text(statusLabel, style = RidersType.body, color = RidersColors.textSecondary)
@@ -879,7 +889,7 @@ fun OfferRequestCard(
 }
 
 @Composable
-private fun OfferSummary(offer: OfferResponse, nowMillis: Long, detailed: Boolean, statusLabel: String? = null) {
+private fun OfferSummary(offer: OfferResponse, nowMillis: Long, detailed: Boolean, statusLabel: String? = null, fresh: Boolean = false) {
     val hasDeadline = offer.expiresAt.isNotBlank()
     val expired = hasDeadline && offerIsExpired(offer.expiresAt, nowMillis)
     Row(
@@ -892,17 +902,18 @@ private fun OfferSummary(offer: OfferResponse, nowMillis: Long, detailed: Boolea
             horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            ContentIcon(offer.parcel.description)
-            ContentLabel(offer.parcel.description)
-            ServiceClassBadge(offer.serviceClass)
+            ContentIcon(offer.parcel.description, size = 14.dp, muted = true)
+            ContentLabel(offer.parcel.description, compact = true)
+            ServiceClassBadge(offer.serviceClass, subtle = true)
         }
         if (hasDeadline || statusLabel != null) {
-            OfferExpiry(offer.expiresAt, nowMillis, expired, statusLabel)
+            OfferExpiry(offer.expiresAt, nowMillis, expired, statusLabel, fresh)
         }
     }
     Column(Modifier.fillMaxWidth()) {
-        OfferStop("Pickup", offerStopLine(offer.pickup.address, offer.pickup.landmark), pickup = true, connected = true)
-        OfferStop("Drop-off", offerStopLine(offer.dropoff.address, offer.dropoff.landmark), pickup = false, connected = false)
+        OfferStop(offerStopLine(offer.pickup.address, offer.pickup.landmark), pickup = true, connected = false)
+        Spacer(Modifier.height(8.dp))
+        OfferStop(offerStopLine(offer.dropoff.address, offer.dropoff.landmark), pickup = false, connected = false)
     }
     if (detailed) {
         offer.parcel.instructions?.takeIf { it.isNotBlank() }?.let {
@@ -935,7 +946,20 @@ private fun OfferSummary(offer: OfferResponse, nowMillis: Long, detailed: Boolea
 }
 
 @Composable
-private fun OfferExpiry(expiresAt: String, nowMillis: Long, expired: Boolean, statusLabel: String? = null) {
+private fun OfferExpiry(expiresAt: String, nowMillis: Long, expired: Boolean, statusLabel: String? = null, fresh: Boolean = false) {
+    if (fresh && statusLabel == null && !expired) {
+        Text(
+            NEW_OFFER_BADGE,
+            modifier = Modifier
+                .clip(RoundedCornerShape(RidersRadius.pill))
+                .background(Color(NEW_OFFER_BACKGROUND))
+                .padding(horizontal = RidersSpacing.md, vertical = RidersSpacing.xs),
+            style = RidersType.captionStrong,
+            color = Color(NEW_OFFER_FOREGROUND),
+            maxLines = 1,
+        )
+        return
+    }
     if (statusLabel != null) {
         Text(
             statusLabel,
@@ -980,11 +1004,10 @@ private fun OfferExpiry(expiresAt: String, nowMillis: Long, expired: Boolean, st
 
 @Composable
 private fun OfferStop(
-    title: String,
     line: String,
     pickup: Boolean,
     connected: Boolean,
     above: @Composable () -> Unit = {},
 ) {
-    DeliveryStop(title, line, dropoff = !pickup, connect = connected, above = above)
+    DeliveryStop(line, dropoff = !pickup, connect = false, fontSize = 16.sp, lineHeight = 21.sp, above = above)
 }

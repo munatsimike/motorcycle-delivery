@@ -113,6 +113,40 @@ fun riderDetailsSupport(status: String): String = when (status) {
     else -> "This is the latest status for this delivery."
 }
 
+/** Pickup line for the ready-for-collection screen. A blank address keeps the plain status sentence. */
+fun collectionDeliverySupport(pickupAddress: String): String {
+    val place = deliveryCardAddress(pickupAddress).trim()
+    if (place.isEmpty()) {
+        return riderDetailsSupport("RIDER_ASSIGNED")
+    }
+    return "Collect the parcel at $place."
+}
+
+/** Destination line for the parcel-collected screen. A blank address keeps the plain status sentence. */
+fun collectedDeliverySupport(dropoffAddress: String): String {
+    val place = deliveryCardAddress(dropoffAddress).trim()
+    if (place.isEmpty()) {
+        return riderDetailsSupport("COLLECTED")
+    }
+    return "Deliver the parcel to $place."
+}
+
+data class DeliveryListBadge(val label: String, val background: Long, val foreground: Long)
+
+/** Badge copy and colors for the Deliveries list. Unmapped statuses keep the existing label. */
+fun deliveryListBadge(status: String): DeliveryListBadge? = when (status) {
+    "RIDER_ASSIGNED" -> DeliveryListBadge("Assigned to you", 0xFFE5F6ED, 0xFF16845B)
+    "COLLECTING" -> DeliveryListBadge("Collecting", 0xFFE7F1FF, 0xFF2563EB)
+    "COLLECTED", "OUT_FOR_DELIVERY", "IN_TRANSIT" -> DeliveryListBadge("In transit", 0xFFE7F1FF, 0xFF2563EB)
+    "DELIVERED" -> DeliveryListBadge("Delivered", 0xFFDDF5E6, 0xFF137333)
+    "CANCELLED" -> DeliveryListBadge("Cancelled", 0xFFF1F3F5, 0xFF606B75)
+    else -> null
+}
+
+const val NEW_OFFER_BADGE = "New offer"
+const val NEW_OFFER_BACKGROUND = 0xFFFFF3D6
+const val NEW_OFFER_FOREGROUND = 0xFFA66300
+
 fun deliveryStatusLabel(status: String): String = when (status) {
     "ASSIGNED" -> "Assigned"
     "ARRIVED_AT_PICKUP" -> "Arrived at pickup"

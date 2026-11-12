@@ -3,6 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module.js';
 import { firebaseAccountReady } from './delivery/fcm-v2-sender.js';
 import { assertSelectedWhatsAppProvider } from './auth/whatsapp-verification.js';
+import { assertEcocashConfiguration, ecocashEnabled } from './rider/ecocash-config.js';
 import { loadBackendEnv } from './load-env.js';
 import { adminCorsOptions } from './http/admin-cors.js';
 import { configureHttpSecurity, configureSwagger } from './openapi/setup.js';

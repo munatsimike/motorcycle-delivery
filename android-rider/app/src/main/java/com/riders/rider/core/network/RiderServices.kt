@@ -155,6 +155,20 @@ interface RiderService {
         @Body body: StatusRequest,
     ): ProgressResponse
 
+    @GET("riders/me/assignments/{assignmentId}/delivery-route")
+    suspend fun deliveryRoute(
+        @Path("assignmentId") assignmentId: String,
+        @Query("latitude") latitude: Double? = null,
+        @Query("longitude") longitude: Double? = null,
+    ): PickupRouteResponse
+
+    @GET("riders/me/assignments/{assignmentId}/pickup-route")
+    suspend fun pickupRoute(
+        @Path("assignmentId") assignmentId: String,
+        @Query("latitude") latitude: Double,
+        @Query("longitude") longitude: Double,
+    ): PickupRouteResponse
+
     @POST("riders/me/assignments/{assignmentId}/cancellation")
     suspend fun cancelAssignment(
         @Path("assignmentId") assignmentId: String,
@@ -164,6 +178,9 @@ interface RiderService {
 
     @GET("riders/me/bid-requests")
     suspend fun bidRequests(): List<BidRequestBody>
+
+    @GET("riders/me/bid-requests/{deliveryId}/route")
+    suspend fun requestRoad(@Path("deliveryId") deliveryId: String): PickupRouteResponse
 
     @GET("riders/me/bids")
     suspend fun ownBids(

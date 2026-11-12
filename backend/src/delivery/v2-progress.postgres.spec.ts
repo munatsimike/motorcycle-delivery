@@ -8,6 +8,7 @@ import { UserRole, WalletEntryType } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { BidAcceptanceService } from './bid-acceptance.service.js';
 import { DispatchService } from './dispatch.service.js';
+import { RiderRatingService } from './rider-rating.service.js';
 import { signedCentsFromDecimal } from '../rider/wallet-money.js';
 
 const exec = promisify(execFile);
@@ -236,6 +237,28 @@ it('increments completedDeliveryCount once when two DELIVERED requests race', as
   expect(sameKeyResults.filter((result) => result.status === 'fulfilled').length).toBeGreaterThanOrEqual(1);
   expect((await prisma.delivery.findUnique({ where: { id: replayed.deliveryId } }))?.status).toBe('DELIVERED');
   expect(await completedCount(replayed.rider.riderProfileId)).toBe(1);
+});
+
+it('writes one rider rating, replays the same stars, and rejects a different score', async () => {
+  const world = await acceptedDelivery();
+  await dispatch.progress(world.rider, world.deliveryId, { status: 'COLLECTED' }, NOW, `rate-collected-${world.deliveryId}`);
+  await dispatch.progress(world.rider, world.deliveryId, { status: 'DELIVERED' }, NOW, `rate-delivered-${world.deliveryId}`);
+  const ratings = new RiderRatingService(prisma);
+  const saved = await ratings.rate(customer, world.deliveryId, { stars: 5 });
+  expect(saved).toEqual({ deliveryId: world.deliveryId, stars: 5, riderClass: 'SILVER' });
+  const row = await prisma.riderRating.findUniqueOrThrow({ where: { deliveryId: world.deliveryId } });
+  expect(row.stars).toBe(5);
+  expect(row.riderProfileId).toBe(world.rider.riderProfileId);
+  expect(row.customerAccountId).toBe(customer.customerAccountId);
+  const profile = await prisma.riderProfile.findUniqueOrThrow({ where: { id: world.rider.riderProfileId } });
+  expect(profile.ratingCount).toBe(1);
+  expect(profile.ratingSum).toBe(5);
+  expect(profile.completedDeliveryCount).toBe(1);
+  expect(profile.riderClass).toBe('SILVER');
+  const replay = await ratings.rate(customer, world.deliveryId, { stars: 5 });
+  expect(replay).toEqual(saved);
+  expect(await prisma.riderRating.count({ where: { deliveryId: world.deliveryId } })).toBe(1);
+  await expect(ratings.rate(customer, world.deliveryId, { stars: 4 })).rejects.toThrow('This delivery was already rated');
 });
 
 async function completedCount(riderProfileId: string): Promise<number> {

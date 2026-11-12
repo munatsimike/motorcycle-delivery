@@ -9,8 +9,10 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,13 +20,17 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -41,13 +47,13 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -101,9 +107,12 @@ import com.riders.rider.core.design.RidersStatusIndicator
 import com.riders.rider.core.design.RidersType
 import com.riders.rider.feature.delivery.domain.ActiveDelivery
 import com.riders.rider.feature.delivery.presentation.DeliverySummaryCard
+import com.riders.rider.feature.delivery.presentation.MapBackground
 import com.riders.rider.core.network.OfferResponse
+import com.riders.rider.feature.offers.domain.RequestOverlay
 import com.riders.rider.feature.offers.presentation.OfferRequestCard
 import com.riders.rider.feature.offers.presentation.OfferViewModel
+import com.riders.rider.feature.offers.presentation.RequestMapOverlay
 import kotlinx.coroutines.delay
 import com.riders.rider.feature.offers.domain.opensDeliveriesAfterListedOffer
 import com.riders.rider.feature.offers.domain.senderChoosesRider
@@ -131,6 +140,7 @@ fun HomeScreen(
     onDelivery: (String) -> Unit,
     onSetup: () -> Unit = {},
     inShell: Boolean = false,
+    onRequestOverlayVisible: (Boolean) -> Unit = {},
     profilePhoto: Bitmap? = null,
     model: HomeViewModel = hiltViewModel(),
     offersModel: OfferViewModel = hiltViewModel(),
@@ -143,11 +153,32 @@ fun HomeScreen(
     }
     var confirmOffline by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val availability = ui.onboarding?.availability
+    val availabilityNow = rememberUpdatedState(availability)
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
         if (granted[Manifest.permission.ACCESS_FINE_LOCATION] == true) {
-            model.goOnline()
+            val sharing = availabilityNow.value == "AVAILABLE" || availabilityNow.value == "BUSY"
+            if (sharing) {
+                model.retryLocationSharing()
+            } else {
+                model.goOnline()
+            }
         } else {
             model.locationPermissionDenied()
+        }
+    }
+    var locationPrompted by remember { mutableStateOf(false) }
+    LaunchedEffect(availability) {
+        val sharing = availability == "AVAILABLE" || availability == "BUSY"
+        if (!sharing) {
+            return@LaunchedEffect
+        }
+        val allowed = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (allowed) {
+            model.retryLocationSharing()
+        } else if (!locationPrompted) {
+            locationPrompted = true
+            permission.launch(locationPermissions())
         }
     }
     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
@@ -158,6 +189,34 @@ fun HomeScreen(
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
+    var overlay by remember { mutableStateOf(RequestOverlay()) }
+    val eligibleIds = if (ui.shift.showOffers) ui.offers.map { it.deliveryId } else emptyList()
+    LaunchedEffect(eligibleIds, confirmOffline, overlay) {
+        val next = overlay.sync(eligibleIds, blocked = confirmOffline)
+        if (next != overlay) {
+            overlay = next
+        }
+    }
+    val shownRequest = ui.offers.firstOrNull { it.deliveryId == overlay.openId }
+    SideEffect { onRequestOverlayVisible(shownRequest != null) }
+    var requestNow by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(shownRequest?.deliveryId) {
+        if (shownRequest == null) {
+            return@LaunchedEffect
+        }
+        while (true) {
+            requestNow = System.currentTimeMillis()
+            delay(1_000)
+        }
+    }
+    LaunchedEffect(offersUi.accepted?.deliveryId, overlay.openId) {
+        val acceptedId = offersUi.accepted?.deliveryId
+        if (acceptedId != null && acceptedId == overlay.openId) {
+            overlay = overlay.copy(openId = null)
+            onOffers()
+        }
+    }
+    Box(Modifier.fillMaxSize()) {
     HomeDashboard(
         ui = ui,
         profilePhoto = profilePhoto,
@@ -199,6 +258,7 @@ fun HomeScreen(
             offersModel.submitBid(offer.deliveryId, amount, offer.currency)
         },
         onInterestOffer = offersModel::expressInterest,
+        onOpenRequest = { offer -> overlay = overlay.open(offer.deliveryId) },
         offerAccepting = offersUi.accepting,
         offerSubmitting = offersUi.submittingBid,
         offerBidError = offersUi.bidError,
@@ -210,10 +270,43 @@ fun HomeScreen(
         onWallet = onWallet,
         onDelivery = onDelivery,
         onRefresh = model::refresh,
-        onRetryLocation = model::retryLocationSharing,
+        onRetryLocation = {
+            val allowed = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+            if (allowed) {
+                model.retryLocationSharing()
+            } else {
+                permission.launch(locationPermissions())
+            }
+        },
         onSetup = onSetup,
         includeNavigationBars = !inShell,
+        inShell = inShell,
     )
+    if (shownRequest != null) {
+        BackHandler { overlay = overlay.dismiss() }
+        val sentAmount = resolvedSubmittedAmount(offersUi.ownBids, shownRequest.deliveryId, offersUi.sentAmounts[shownRequest.deliveryId])
+        RequestMapOverlay(
+            offer = shownRequest,
+            nowMillis = requestNow,
+            accepting = offersUi.accepting,
+            submittingBid = offersUi.submittingBid,
+            statusLabel = if (sentAmount == null) offersUi.sentLabels[shownRequest.deliveryId] else null,
+            sentAmount = sentAmount,
+            bidsOpen = marketplaceBidButtonsVisible(shownRequest.serviceClass, offersUi.ownBidsKnown, offersUi.bidError ?: offersUi.bidListError),
+            error = offersUi.error ?: offersUi.bidError,
+            onAccept = {
+                if (senderChoosesRider(shownRequest.serviceClass)) {
+                    offersModel.offerListedPrice(shownRequest)
+                } else {
+                    offersModel.accept(shownRequest)
+                }
+            },
+            onBid = { offersModel.openBid(shownRequest) },
+            onSubmitBid = { amount -> offersModel.submitBid(shownRequest.deliveryId, amount, shownRequest.currency) },
+            onInterest = { offersModel.expressInterest(shownRequest) },
+            onClose = { overlay = overlay.dismiss() },
+        )
+    }
     if (confirmOffline) {
         RidersDialog(visible = true, onDismiss = { confirmOffline = false }) {
             RidersDialogTitle(OFFLINE_WITH_DELIVERIES_TITLE)
@@ -233,6 +326,7 @@ fun HomeScreen(
                 )
             }
         }
+    }
     }
 }
 
@@ -270,6 +364,7 @@ fun HomeDashboard(
     onBidOffer: (OfferResponse) -> Unit = {},
     onSubmitBid: (OfferResponse, String) -> Unit = { _, _ -> },
     onInterestOffer: (OfferResponse) -> Unit = {},
+    onOpenRequest: (OfferResponse) -> Unit = {},
     offerAccepting: Boolean = false,
     offerSubmitting: Boolean = false,
     offerBidError: String? = null,
@@ -284,6 +379,7 @@ fun HomeDashboard(
     onSetup: () -> Unit = {},
     onWallet: () -> Unit = {},
     includeNavigationBars: Boolean = true,
+    inShell: Boolean = false,
 ) {
     var contentBottom by remember { mutableFloatStateOf(0f) }
     BoxWithConstraints(
@@ -297,23 +393,9 @@ fun HomeDashboard(
     ) {
         val horizontal = RidersSpacing.lg
         val readiness = ui.readiness
-        Image(
-            painter = painterResource(R.drawable.map_background),
-            contentDescription = null,
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop,
-        )
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        0f to Color(0xD1C9EFD9),
-                        0.38f to Color(0xCCE5F7EE),
-                        1f to Color(0xB8F7FCF9),
-                    ),
-                ),
-        )
+        val statusTop = with(LocalDensity.current) { WindowInsets.statusBars.getTop(this).toDp() }
+        val topInset = if (inShell) 0.dp else statusTop
+        val headerHeight = topInset + 200.dp
         RidersPullRefresh(
             refreshing = ui.refreshing && readiness != null,
             onRefresh = onRefresh,
@@ -325,15 +407,31 @@ fun HomeDashboard(
                 .verticalScroll(rememberScrollState())
                 .then(if (includeNavigationBars) Modifier.navigationBarsPadding() else Modifier),
         ) {
-            Box(Modifier.fillMaxWidth().clipToBounds()) {
-                Column(
+            Box(Modifier.fillMaxWidth()) {
+                Box(
                     Modifier
                         .fillMaxWidth()
-                        .padding(top = RidersSpacing.lg, bottom = RidersSpacing.xl),
-                    verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
+                        .height(headerHeight)
+                        .clipToBounds(),
                 ) {
+                    MapBackground(Modifier.fillMaxSize())
+                    Box(
+                        Modifier
+                            .matchParentSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    0f to Color(0xFFC9EFD9).copy(alpha = 0.72f),
+                                    0.62f to Color(0xFFE5F7EE).copy(alpha = 0.35f),
+                                    1f to Color(0xFFF7FCF9).copy(alpha = 0.55f),
+                                ),
+                            ),
+                    )
                     Row(
-                        Modifier.fillMaxWidth().padding(horizontal = horizontal),
+                        Modifier
+                            .fillMaxWidth()
+                            .then(if (inShell) Modifier else Modifier.statusBarsPadding())
+                            .padding(top = RidersSpacing.md)
+                            .padding(horizontal = horizontal),
                         horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -342,7 +440,11 @@ fun HomeDashboard(
                             Modifier.weight(1f),
                             verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs),
                         ) {
-                            Text(greeting, style = RidersType.caption, color = RidersColors.textSecondary)
+                            Text(
+                                greeting,
+                                style = RidersType.caption.copy(fontWeight = FontWeight.SemiBold),
+                                color = RidersColors.text,
+                            )
                             riderFirstName(ui.fullName)?.let { firstName ->
                                 Text(
                                     firstName,
@@ -351,22 +453,14 @@ fun HomeDashboard(
                                 )
                             }
                         }
-                        Box(
-                            Modifier
-                                .size(40.dp)
-                                .clip(RoundedCornerShape(RidersRadius.lg))
-                                .background(RidersColors.background)
-                                .clickable(role = Role.Button, onClick = onOffers),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_bell_outline),
-                                contentDescription = "Notifications",
-                                modifier = Modifier.size(22.dp),
-                                tint = RidersColors.text,
-                            )
-                        }
                     }
+                }
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(top = topInset + 76.dp),
+                    verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
+                ) {
                     Column(Modifier.padding(horizontal = horizontal)) {
                     when {
                         ui.loading && readiness == null -> RidersLoadingState("Checking your account")
@@ -405,7 +499,7 @@ fun HomeDashboard(
                     }
                 }
             }
-            Spacer(Modifier.height(RidersSpacing.xs))
+            Spacer(Modifier.height(RidersSpacing.xl))
             if (readiness != null) {
                 Column(
                     Modifier.padding(bottom = RidersSpacing.lg),
@@ -434,6 +528,7 @@ fun HomeDashboard(
                             onBidOffer,
                             onSubmitBid,
                             onInterestOffer,
+                            onOpenRequest,
                             offerAccepting,
                             offerSubmitting,
                             offerBidError,
@@ -546,11 +641,12 @@ private fun HomeSummaries(
                 icon = R.drawable.ic_plus,
                 label = "New",
                 value = newRequestCount?.toString() ?: "—",
+                valueColor = if ((newRequestCount ?: 0) > 0) RidersColors.primaryDark else RidersColors.text,
                 onClick = onNew,
                 modifier = Modifier.weight(1f),
             )
             SummaryTile(
-                icon = R.drawable.ic_check,
+                icon = R.drawable.ic_nav_deliveries,
                 label = "Active",
                 value = activeCount?.toString() ?: "—",
                 onClick = onActive,
@@ -562,7 +658,7 @@ private fun HomeSummaries(
                 value = if (balance != null && currency != null) signedWalletLabel(currency, balance) else "—",
                 valueColor = if (balance != null && walletBalanceIsNegative(balance)) RidersColors.error else RidersColors.text,
                 onClick = onWallet,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1.25f),
             )
         }
         if (restricted) {
@@ -584,38 +680,38 @@ private fun SummaryTile(
     modifier: Modifier = Modifier,
     valueColor: Color = RidersColors.text,
 ) {
-    val shape = RoundedCornerShape(18.dp)
+    val shape = RoundedCornerShape(RidersRadius.lg)
+    val valueSize = when {
+        value.length > 9 -> 13.sp
+        value.length > 7 -> 15.sp
+        else -> 20.sp
+    }
     Column(
         modifier
             .fillMaxWidth()
-            .shadow(elevation = 14.dp, shape = shape, ambientColor = Color(0x5917211D), spotColor = Color(0x8017211D))
+            .defaultMinSize(minHeight = 96.dp)
             .clip(shape)
             .background(RidersColors.background)
+            .border(1.dp, RidersColors.border, shape)
             .clickable(role = Role.Button, onClick = onClick)
-            .padding(horizontal = RidersSpacing.xs, vertical = RidersSpacing.lg),
+            .padding(horizontal = RidersSpacing.sm, vertical = RidersSpacing.md),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
+        verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs),
     ) {
-        Icon(
-            painter = painterResource(icon),
-            contentDescription = null,
-            modifier = Modifier.size(22.dp),
-            tint = RidersColors.text,
-        )
-        Text(
-            label,
-            maxLines = 1,
-            softWrap = false,
-            overflow = TextOverflow.Ellipsis,
-            style = RidersType.captionStrong.copy(
-                fontSize = 12.sp,
-                lineHeight = 15.sp,
-                fontWeight = FontWeight.SemiBold,
-                platformStyle = PlatformTextStyle(includeFontPadding = false),
-            ),
-            color = RidersColors.text,
-            textAlign = TextAlign.Center,
-        )
+        Box(
+            Modifier
+                .size(28.dp)
+                .clip(CircleShape)
+                .background(RidersColors.primaryLight),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                painter = painterResource(icon),
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = RidersColors.primaryDark,
+            )
+        }
         Text(
             value,
             modifier = Modifier.fillMaxWidth(),
@@ -623,12 +719,26 @@ private fun SummaryTile(
             softWrap = false,
             overflow = TextOverflow.Ellipsis,
             style = RidersType.heading.copy(
-                fontSize = 18.sp,
-                lineHeight = 22.sp,
+                fontSize = valueSize,
+                lineHeight = valueSize,
                 fontWeight = FontWeight.Bold,
                 platformStyle = PlatformTextStyle(includeFontPadding = false),
             ),
             color = valueColor,
+            textAlign = TextAlign.Center,
+        )
+        Text(
+            label,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
+            style = RidersType.caption.copy(
+                fontSize = 12.sp,
+                lineHeight = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+                platformStyle = PlatformTextStyle(includeFontPadding = false),
+            ),
+            color = RidersColors.textSecondary,
             textAlign = TextAlign.Center,
         )
     }
@@ -663,166 +773,160 @@ private fun AvailabilityCard(
     val displayGoOffline = (showGoOffline || goingOffline) && !goingOnline
     val onlineNow = !goingOnline &&
         (readiness.availabilityLabel == "Online" || readiness.availabilityLabel == "Available")
-
+    val statusTitle = RidersType.heading.copy(
+        fontSize = 18.sp,
+        lineHeight = 22.sp,
+        platformStyle = PlatformTextStyle(includeFontPadding = false),
+    )
     RidersCard(
         prominent = true,
-        containerColor = RidersColors.surface,
+        containerColor = RidersColors.background,
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md),
-            verticalAlignment = Alignment.Bottom,
-        ) {
-            Box(
-                Modifier
-                    .width(120.dp)
-                    .height(108.dp),
+        Column(verticalArrangement = Arrangement.spacedBy(RidersSpacing.md)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
+                Column(
+                    Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
+                    horizontalAlignment = Alignment.Start,
+                ) {
+                    if (onlineNow) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Box(
+                                Modifier
+                                    .size(10.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF3DAF78)),
+                            )
+                            Text("You are online", style = statusTitle, color = RidersColors.text)
+                        }
+                        Text(
+                            "Stay online to receive delivery requests.",
+                            style = RidersType.body,
+                            color = RidersColors.textSecondary,
+                        )
+                    } else if (readiness.canGoOnline) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Box(
+                                Modifier
+                                    .size(10.dp)
+                                    .clip(CircleShape)
+                                    .background(RidersColors.textSecondary),
+                            )
+                            Text("You are offline", style = statusTitle, color = RidersColors.text)
+                        }
+                        Text(
+                            "You cannot accept deliveries.",
+                            style = RidersType.body,
+                            color = RidersColors.textSecondary,
+                        )
+                    } else if (readiness.approvalLabel == "Pending") {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Box(
+                                Modifier
+                                    .size(10.dp)
+                                    .clip(CircleShape)
+                                    .background(RidersColors.textSecondary),
+                            )
+                            Text("You are offline", style = statusTitle, color = RidersColors.text)
+                        }
+                        Text(
+                            "Your account is waiting for approval",
+                            style = RidersType.body,
+                            color = RidersColors.textSecondary,
+                        )
+                    } else {
+                        RidersStatusIndicator(availabilityFor(readiness))
+                        Text(readiness.message, style = RidersType.body, color = RidersColors.text)
+                    }
+                }
                 Image(
                     painter = painterResource(R.drawable.rider_cutout),
                     contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .width(112.dp)
+                        .height(96.dp),
                     contentScale = ContentScale.Fit,
                 )
             }
-            Column(
-                Modifier
-                    .weight(1f)
-                    .padding(bottom = 22.dp),
-                verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
-                horizontalAlignment = Alignment.Start,
-            ) {
-                if (onlineNow) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Box(
-                            Modifier
-                                .size(10.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFF3DAF78)),
-                        )
-                        Text("You are online", style = RidersType.heading, color = RidersColors.text)
-                    }
-                    Text(
-                        "Stay online to receive delivery requests.",
-                        style = RidersType.body,
-                        color = RidersColors.textSecondary,
-                    )
-                } else if (readiness.canGoOnline) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Box(
-                            Modifier
-                                .size(10.dp)
-                                .clip(CircleShape)
-                                .background(RidersColors.textSecondary),
-                        )
-                        Text("You are offline", style = RidersType.heading, color = RidersColors.text)
-                    }
-                    Text(
-                        "You cannot accept deliveries.",
-                        style = RidersType.body,
-                        color = RidersColors.textSecondary,
-                    )
-                } else if (readiness.approvalLabel == "Pending") {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Box(
-                            Modifier
-                                .size(10.dp)
-                                .clip(CircleShape)
-                                .background(RidersColors.textSecondary),
-                        )
-                        Text("You are offline", style = RidersType.heading, color = RidersColors.text)
-                    }
-                    Text(
-                        "Your account is waiting for approval",
-                        style = RidersType.body,
-                        color = RidersColors.textSecondary,
-                    )
-                } else {
-                    RidersStatusIndicator(availabilityFor(readiness))
-                    Text(readiness.message, style = RidersType.body, color = RidersColors.text)
-                }
+            if (showViewApplication) {
+                RidersSecondaryButton(
+                    label = "View application",
+                    onClick = onSetup,
+                    enabled = !loading,
+                    icon = R.drawable.ic_file_document_outline,
+                    bordered = false,
+                    containerColor = RidersColors.surface,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
-        }
-        if (showViewApplication) {
-            RidersSecondaryButton(
-                label = "View application",
-                onClick = onSetup,
-                enabled = !loading,
-                icon = R.drawable.ic_file_document_outline,
-                bordered = false,
-                containerColor = RidersColors.surface,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-        if (showFinishSetup) {
-            RidersPrimaryButton(
-                label = "Finish setup",
-                onClick = onSetup,
-                enabled = !loading,
-                modifier = Modifier
-                    .padding(top = RidersSpacing.lg)
-                    .fillMaxWidth(),
-            )
-        }
-        if (displayGoOnline) {
-            val motion = rememberRidersMotion()
-            var shown by remember { mutableStateOf(false) }
-            LaunchedEffect(Unit) { shown = true }
-            val appear by animateFloatAsState(
-                targetValue = if (shown) 1f else 0f,
-                animationSpec = tween(
-                    durationMillis = motion.duration(RidersMotion.DELIVERY_MS),
-                    easing = FastOutSlowInEasing,
-                ),
-                label = "go-online-appear",
-            )
-            RidersPrimaryButton(
-                label = "Go online",
-                onClick = onGoOnline,
-                enabled = !loading && !changingAvailability,
-                loading = goingOnline,
-                loadingLabel = "Going online…",
-                icon = R.drawable.ic_power,
-                modifier = Modifier
-                    .graphicsLayer {
-                        alpha = appear
-                        val scale = 0.98f + 0.02f * appear
-                        scaleX = scale
-                        scaleY = scale
-                    }
-                    .padding(top = RidersSpacing.lg)
-                    .fillMaxWidth()
-                    .heightIn(min = 56.dp),
-            )
-        }
-        if (displayGoOffline) {
-            RidersSecondaryButton(
-                label = "Go offline",
-                onClick = onGoOffline,
-                enabled = !loading && !changingAvailability,
-                loading = goingOffline,
-                loadingLabel = "Going offline…",
-                icon = R.drawable.ic_power,
-                bordered = false,
-                compact = !goingOffline,
-                containerColor = RidersColors.surface,
-                modifier = Modifier
-                    .padding(top = if (displayGoOnline) 0.dp else RidersSpacing.sm)
-                    .fillMaxWidth()
-                    .then(if (goingOffline) Modifier.heightIn(min = 56.dp) else Modifier),
-            )
-        }
+            if (showFinishSetup) {
+                RidersPrimaryButton(
+                    label = "Finish setup",
+                    onClick = onSetup,
+                    enabled = !loading,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            if (displayGoOnline) {
+                val motion = rememberRidersMotion()
+                var shown by remember { mutableStateOf(false) }
+                LaunchedEffect(Unit) { shown = true }
+                val appear by animateFloatAsState(
+                    targetValue = if (shown) 1f else 0f,
+                    animationSpec = tween(
+                        durationMillis = motion.duration(RidersMotion.DELIVERY_MS),
+                        easing = FastOutSlowInEasing,
+                    ),
+                    label = "go-online-appear",
+                )
+                RidersPrimaryButton(
+                    label = "Go online",
+                    onClick = onGoOnline,
+                    enabled = !loading && !changingAvailability,
+                    loading = goingOnline,
+                    loadingLabel = "Going online…",
+                    icon = R.drawable.ic_power,
+                    modifier = Modifier
+                        .graphicsLayer {
+                            alpha = appear
+                            val scale = 0.98f + 0.02f * appear
+                            scaleX = scale
+                            scaleY = scale
+                        }
+                        .fillMaxWidth()
+                        .heightIn(min = 56.dp),
+                )
+            }
+            if (displayGoOffline) {
+                RidersSecondaryButton(
+                    label = "Go offline",
+                    onClick = onGoOffline,
+                    enabled = !loading && !changingAvailability,
+                    loading = goingOffline,
+                    loadingLabel = "Going offline…",
+                    icon = R.drawable.ic_power,
+                    bordered = false,
+                    compact = !goingOffline,
+                    containerColor = RidersColors.surface,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(if (goingOffline) Modifier.heightIn(min = 56.dp) else Modifier),
+                )
+            }
         }
     }
 }
@@ -881,6 +985,7 @@ private fun RequestsSection(
     onBidOffer: (OfferResponse) -> Unit,
     onSubmitBid: (OfferResponse, String) -> Unit,
     onInterestOffer: (OfferResponse) -> Unit,
+    onOpenRequest: (OfferResponse) -> Unit,
     offerAccepting: Boolean,
     offerSubmitting: Boolean,
     offerBidError: String?,
@@ -924,7 +1029,8 @@ private fun RequestsSection(
         }
         if (hasRequests) {
             Column(
-                Modifier.padding(horizontal = horizontal),
+                Modifier
+                    .padding(horizontal = horizontal),
                 verticalArrangement = Arrangement.spacedBy(RidersSpacing.md),
             ) {
             shown.forEach { offer ->
@@ -941,6 +1047,7 @@ private fun RequestsSection(
                     onBid = { onBidOffer(offer) },
                     onSubmitBid = { amount -> onSubmitBid(offer, amount) },
                     onInterest = { onInterestOffer(offer) },
+                    onOpen = { onOpenRequest(offer) },
                 )
             }
             val bidProblem = displayedBidProblem(

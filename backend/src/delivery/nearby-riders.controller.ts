@@ -16,7 +16,7 @@ export class NearbyRidersController {
   @ApiOperation({ summary: 'Count available riders near a coordinate' })
   @ApiQuery({ name: 'latitude', required: false, schema: { type: 'string' } })
   @ApiQuery({ name: 'longitude', required: false, schema: { type: 'string' } })
-  @ApiOkResponse({ description: 'The nearby available rider count.' })
+  @ApiOkResponse({ description: 'The nearby available rider count and short-lived approximate positions. Positions are not precise GPS and do not identify a rider.' })
   count(
     @Req() request: CustomerRequest,
     @Query('latitude') latitude?: string,

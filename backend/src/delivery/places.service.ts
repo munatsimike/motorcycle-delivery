@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, ServiceUnavailableException } from '@nestjs/common';
-import { createGeoapifyClient, GeoapifyRequestError } from './geoapify.js';
+import { createGeoapifyClient, GeoapifyRequestError, sampleRoadLine } from './geoapify.js';
 import {
   createGooglePlacesClient,
   GooglePlacesRequestError,
@@ -54,6 +54,30 @@ export class PlacesService {
         throw error;
       }
       throw new ServiceUnavailableException('The map preview is unavailable.');
+    }
+  }
+
+  async deliveryRoute(
+    pickupLatitude: number,
+    pickupLongitude: number,
+    dropoffLatitude: number,
+    dropoffLongitude: number,
+  ): Promise<{ line: Array<{ latitude: number; longitude: number }> }> {
+    assertCoordinate(pickupLatitude, 90);
+    assertCoordinate(pickupLongitude, 180);
+    assertCoordinate(dropoffLatitude, 90);
+    assertCoordinate(dropoffLongitude, 180);
+    try {
+      const road = await this.geoapify.route(pickupLatitude, pickupLongitude, dropoffLatitude, dropoffLongitude);
+      const line = sampleRoadLine(road.line, 40).flatMap(([longitude, latitude]) => (
+        Number.isFinite(latitude) && Number.isFinite(longitude) ? [{ latitude, longitude }] : []
+      ));
+      return line.length > 1 ? { line } : { line: [] };
+    } catch (error) {
+      if (error instanceof ServiceUnavailableException) {
+        throw error;
+      }
+      return { line: [] };
     }
   }
 

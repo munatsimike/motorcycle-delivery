@@ -16,6 +16,9 @@ val V2CancellationReasons = listOf(
     "OTHER" to "Other",
 )
 
+/** Reasons offered in the rider cancellation modal. Other stays available to the API. */
+fun riderCancelReasonChoices(): List<Pair<String, String>> = V2CancellationReasons.filter { it.first != "OTHER" }
+
 @Serializable
 data class TransitionAttempt(
     val deliveryId: String,
