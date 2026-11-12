@@ -1,6 +1,25 @@
 package com.riders.rider.feature.availability.domain
 
-data class GpsFix(val latitude: Double, val longitude: Double)
+data class GpsFix(
+    val latitude: Double,
+    val longitude: Double,
+    val bearingDegrees: Float? = null,
+    val speedMetresPerSecond: Float? = null,
+    val bearingAccuracyDegrees: Float? = null,
+    val accuracyMetres: Float? = null,
+)
+
+fun gpsFix(point: android.location.Location): GpsFix {
+    val bearing = if (point.hasBearing()) point.bearing else null
+    val speed = if (point.hasSpeed()) point.speed else null
+    val bearingAccuracy = if (android.os.Build.VERSION.SDK_INT >= 26 && point.hasBearingAccuracy()) {
+        point.bearingAccuracyDegrees
+    } else {
+        null
+    }
+    val accuracy = if (point.hasAccuracy()) point.accuracy else null
+    return GpsFix(point.latitude, point.longitude, bearing, speed, bearingAccuracy, accuracy)
+}
 
 class LocationRelay(
     @Suppress("unused") private val persist: (GpsFix) -> Unit = {},

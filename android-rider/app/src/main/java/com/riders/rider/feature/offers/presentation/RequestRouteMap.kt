@@ -525,7 +525,7 @@ private fun deliveryClockLabel(raw: String?): String {
     return date.hour.toString().padStart(2, '0') + ":" + date.minute.toString().padStart(2, '0')
 }
 
-private fun locationDrawableMarker(context: android.content.Context, drawableId: Int): BitmapDescriptor? {
+internal fun locationDrawableMarker(context: android.content.Context, drawableId: Int): BitmapDescriptor? {
     val drawable = ContextCompat.getDrawable(context, drawableId)?.mutate() ?: return null
     val density = context.resources.displayMetrics.density
     val width = (32f * density).toInt().coerceAtLeast(1)

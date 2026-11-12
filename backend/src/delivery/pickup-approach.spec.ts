@@ -20,6 +20,7 @@ function road(seconds: number | null = 420): RoadRoute {
     metres: 2400,
     seconds,
     line: [[31.1094, -17.8012], [31.08, -17.81], [31.0522, -17.8292]],
+    steps: [],
   };
 }
 

@@ -315,8 +315,23 @@ data class CancellationRequest(val reason: String, val note: String? = null)
 data class PickupRouteResponse(
     val geometry: String = "",
     val line: List<RoutePointResponse> = emptyList(),
+    val path: List<RoutePointResponse> = emptyList(),
+    val steps: List<RouteManeuverResponse> = emptyList(),
     val metres: Double? = null,
     val seconds: Int? = null,
+)
+
+@Serializable
+data class RouteManeuverResponse(
+    val text: String = "",
+    val type: String = "",
+    val streets: List<String> = emptyList(),
+    val metres: Double = 0.0,
+    val seconds: Double = 0.0,
+    val fromIndex: Int = 0,
+    val toIndex: Int = 0,
+    val latitude: Double = 0.0,
+    val longitude: Double = 0.0,
 )
 
 @Serializable

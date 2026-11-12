@@ -90,19 +90,25 @@ export class RiderAssignmentController {
     return {
       geometry: drawn ? encodePolyline(line.map((point) => [point.longitude, point.latitude])) : '',
       line,
-      ...(approach && drawn ? { metres: approach.metres, seconds: approach.seconds } : {}),
+      ...(approach && drawn ? {
+        metres: approach.metres,
+        seconds: approach.seconds,
+        path: approach.path && approach.path.length > 1 ? approach.path : line,
+        steps: approach.steps ?? [],
+      } : {}),
     };
   }
 
   @Get(':assignmentId/delivery-route')
   @ApiOperation({ summary: 'Read the driving route from this assignment pickup to its drop-off' })
   @ApiParam({ name: 'assignmentId', format: 'uuid' })
-  @ApiOkResponse({ description: 'Road geometry between the stored pickup and drop-off. After collection, latitude and longitude switch the origin to the rider. An empty line means no route is available.' })
+  @ApiOkResponse({ description: 'Road geometry between the stored pickup and drop-off. After collection, latitude and longitude switch the origin to the rider. guidance=1 uses the rider as the origin for every drop-off status. path and steps are added when a road is drawn. An empty line means no route is available.' })
   async deliveryRoute(
     @Req() request: RiderRequest,
     @Param('assignmentId') assignmentId: string,
     @Query('latitude') latitude?: string,
     @Query('longitude') longitude?: string,
+    @Query('guidance') guidance?: string,
   ) {
     const rider = requiredRider(request);
     const { assignments } = await this.dispatch.liveAssignments(rider);
@@ -122,20 +128,29 @@ export class RiderAssignmentController {
     }
     const riderLatitude = finiteCoordinate(latitude, 90);
     const riderLongitude = finiteCoordinate(longitude, 180);
-    const fromRider = (match.status === 'COLLECTED' || match.status === 'PICKED_UP')
-      && riderLatitude !== null
-      && riderLongitude !== null;
+    const guiding = guidance === '1' || guidance === 'true';
+    const fromRider = riderLatitude !== null
+      && riderLongitude !== null
+      && (guiding || match.status === 'COLLECTED' || match.status === 'PICKED_UP');
     const route = await this.places.deliveryRoute(
-      fromRider ? riderLatitude : pickupLatitude,
-      fromRider ? riderLongitude : pickupLongitude,
+      fromRider && riderLatitude !== null ? riderLatitude : pickupLatitude,
+      fromRider && riderLongitude !== null ? riderLongitude : pickupLongitude,
       dropoffLatitude,
       dropoffLongitude,
     );
     const line = route.line;
     const drawn = line.length > 1;
+    const path = drawn && Array.isArray(route.path) && route.path.length > 1 ? route.path : line;
+    const steps = drawn && Array.isArray(route.steps) ? route.steps : [];
     return {
       geometry: drawn ? encodePolyline(line.map((point) => [point.longitude, point.latitude])) : '',
       line,
+      ...(drawn ? {
+        path,
+        steps,
+        ...(typeof route.metres === 'number' ? { metres: route.metres } : {}),
+        ...(typeof route.seconds === 'number' ? { seconds: Math.round(route.seconds) } : {}),
+      } : {}),
     };
   }
 

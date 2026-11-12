@@ -11,6 +11,7 @@ import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
 import com.riders.rider.feature.availability.domain.GpsFix
+import com.riders.rider.feature.availability.domain.gpsFix
 import com.riders.rider.feature.availability.domain.isDispatchUsable
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -55,7 +56,7 @@ class FusedCurrentFix @Inject constructor(
                 }
             }
         } ?: return null
-        return GpsFix(location.latitude, location.longitude)
+        return gpsFix(location)
     }
 
     suspend fun read(): CurrentFix? {
@@ -68,7 +69,7 @@ class FusedCurrentFix @Inject constructor(
         if (!isDispatchUsable(age, accuracy)) {
             return null
         }
-        return CurrentFix(GpsFix(point.latitude, point.longitude), age, accuracy)
+        return CurrentFix(gpsFix(point), age, accuracy)
     }
 
     private fun fineLocationGranted(): Boolean {

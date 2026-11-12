@@ -160,6 +160,7 @@ interface RiderService {
         @Path("assignmentId") assignmentId: String,
         @Query("latitude") latitude: Double? = null,
         @Query("longitude") longitude: Double? = null,
+        @Query("guidance") guidance: String? = null,
     ): PickupRouteResponse
 
     @GET("riders/me/assignments/{assignmentId}/pickup-route")

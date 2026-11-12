@@ -396,9 +396,12 @@ internal fun riderMarkerIcon(context: android.content.Context, label: String?): 
 }
 
 /** Green motorcycle with a yellow delivery box, drawn locally without external images. */
-internal fun riderMotorcycleBitmap(context: android.content.Context): BitmapDescriptor {
+internal fun riderMotorcycleImage(context: android.content.Context): Bitmap {
     val source = android.graphics.BitmapFactory.decodeResource(context.resources, R.drawable.rider_motorcycle_yellow_box)
     val size = (64f * context.resources.displayMetrics.density).toInt().coerceAtLeast(1)
-    val scaled = Bitmap.createScaledBitmap(source, size, size, true)
-    return BitmapDescriptorFactory.fromBitmap(scaled)
+    return Bitmap.createScaledBitmap(source, size, size, true)
+}
+
+internal fun riderMotorcycleBitmap(context: android.content.Context): BitmapDescriptor {
+    return BitmapDescriptorFactory.fromBitmap(riderMotorcycleImage(context))
 }

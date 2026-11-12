@@ -15,7 +15,7 @@ import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.riders.rider.feature.availability.LocationServiceGate
 import com.riders.rider.feature.availability.RiderLocationHub
-import com.riders.rider.feature.availability.domain.GpsFix
+import com.riders.rider.feature.availability.domain.gpsFix
 import com.riders.rider.feature.availability.domain.isDispatchUsable
 import com.riders.rider.feature.availability.domain.locationUpdatePolicy
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -98,7 +98,7 @@ class CollectionLocationWatch @Inject constructor(
         if (!isDispatchUsable(age, accuracy)) {
             return
         }
-        hub.publish(GpsFix(point.latitude, point.longitude))
+        hub.publish(gpsFix(point))
     }
 
     fun hasFineLocation(): Boolean = fineLocationGranted()

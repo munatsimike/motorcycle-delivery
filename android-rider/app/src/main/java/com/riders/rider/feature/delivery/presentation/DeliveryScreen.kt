@@ -1,7 +1,6 @@
 package com.riders.rider.feature.delivery.presentation
 
-import android.content.Intent
-import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -57,7 +56,6 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -114,6 +112,7 @@ fun DeliveryScreen(
     model: DeliveryViewModel = hiltViewModel(),
     mapModel: CollectionMapModel = hiltViewModel(),
     routeModel: CollectedRouteModel = hiltViewModel(),
+    guidanceModel: TurnByTurnModel = hiltViewModel(),
 ) {
     val ui by model.ui.collectAsStateWithLifecycle()
     val riderArrived by mapModel.arrived.collectAsStateWithLifecycle()
@@ -122,6 +121,9 @@ fun DeliveryScreen(
     var cancelOpen by remember(ui.deliveryId) { mutableStateOf(false) }
     var confirmAction by remember(ui.deliveryId, ui.status) { mutableStateOf<String?>(null) }
     var cancelReason by remember(ui.deliveryId) { mutableStateOf<String?>(null) }
+    var guidance by remember { mutableStateOf<GuidanceTarget?>(null) }
+    var destinationNote by remember(ui.deliveryId, ui.status) { mutableStateOf<String?>(null) }
+    BackHandler(enabled = guidance != null) { guidance = null }
     DisposableEffect(lifecycle, deliveryId) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
@@ -162,13 +164,24 @@ fun DeliveryScreen(
             routeModel.load(ui.assignmentId, pickupPoint, dropoffPoint)
         }
     }
-    androidx.compose.runtime.DisposableEffect(collected, ui.assignmentId, dropoffPoint) {
-        if (collected && dropoffPoint != null) {
+    androidx.compose.runtime.DisposableEffect(collected, ui.assignmentId, dropoffPoint, guidance) {
+        if (guidance == null && collected && dropoffPoint != null) {
             routeModel.follow(ui.assignmentId, dropoffPoint)
         } else {
             routeModel.stopFollowing()
         }
         onDispose { routeModel.stopFollowing() }
+    }
+    androidx.compose.runtime.LaunchedEffect(guidance) {
+        val active = guidance
+        if (active == null) {
+            guidanceModel.stop()
+        } else {
+            guidanceModel.start(active)
+        }
+    }
+    DisposableEffect(guidanceModel) {
+        onDispose { guidanceModel.stop() }
     }
     val riderFix = if (collected) routeModel.rider else null
     val riderPoint = riderFix?.let { GeoPoint(it.latitude, it.longitude) }
@@ -176,6 +189,28 @@ fun DeliveryScreen(
     val sheetTop = if (collected) 400.dp else 280.dp
     val headerHeight = statusTop + mapHeight
     val sheetShape = RoundedCornerShape(topStart = RidersRadius.xl, topEnd = RidersRadius.xl)
+    val startGuidance = {
+        val dropoffLeg = showsRecipientOnDelivery(ui.status)
+        val point = if (dropoffLeg) dropoffPoint else pickupPoint
+        if (point == null) {
+            destinationNote = "This stop has no map location yet."
+        } else if (ui.assignmentId.isBlank()) {
+            destinationNote = "This delivery is not ready for navigation yet."
+        } else {
+            destinationNote = null
+            guidance = GuidanceTarget(ui.assignmentId, point, dropoffLeg)
+        }
+    }
+    val activeGuidance = guidance
+    if (activeGuidance != null) {
+        TurnByTurnScreen(
+            destination = activeGuidance.destination,
+            dropoff = activeGuidance.dropoff,
+            onExit = { guidance = null },
+            model = guidanceModel,
+        )
+        return
+    }
     Box(
         Modifier
             .fillMaxSize()
@@ -193,6 +228,8 @@ fun DeliveryScreen(
             onOpenDetails = { detailsOpen = true },
             onStartCancel = { cancelOpen = true },
             navigationBottom = navigationBottom,
+            onNavigate = startGuidance,
+            destinationNote = destinationNote,
         )
     } else if (ui.status == "DELIVERED") {
         DeliveredPage(
@@ -223,6 +260,8 @@ fun DeliveryScreen(
                 navigationBottom = navigationBottom,
                 statusTop = statusTop,
                 completed = completed,
+                onNavigate = startGuidance,
+                destinationNote = destinationNote,
             )
         }
     } else {
@@ -355,6 +394,8 @@ fun DeliveryScreen(
                     onOpenDetails = { detailsOpen = true },
                     onStartCancel = { cancelOpen = true },
                     completed = completed,
+                    onNavigate = startGuidance,
+                    destinationNote = destinationNote,
                 )
             }
         }
@@ -433,6 +474,8 @@ private fun CollectionMapPage(
     onOpenDetails: () -> Unit,
     onStartCancel: () -> Unit,
     navigationBottom: Dp,
+    onNavigate: () -> Unit,
+    destinationNote: String?,
 ) {
     val density = LocalDensity.current
     val cardShape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
@@ -517,6 +560,8 @@ private fun CollectionMapPage(
                             onOpenDetails = onOpenDetails,
                             onStartCancel = onStartCancel,
                             compact = true,
+                            onNavigate = onNavigate,
+                            destinationNote = destinationNote,
                         )
                     }
                 }
@@ -548,8 +593,9 @@ private fun DeliveryActionBlock(
     completed: Boolean = false,
     atDropoff: Boolean = false,
     locationGranted: Boolean = true,
+    onNavigate: () -> Unit,
+    destinationNote: String? = null,
 ) {
-    val context = LocalContext.current
     val target = navigationTarget(
         status = ui.status,
         contacts = ui.contacts,
@@ -607,9 +653,9 @@ private fun DeliveryActionBlock(
                 riderArrived = riderArrived,
                 blocked = blocked,
                 targetUri = target?.uri,
-                model = model,
-                context = context,
                 onConfirm = onConfirm,
+                onNavigate = onNavigate,
+                destinationNote = destinationNote,
             )
         }
         if (ui.status != "DELIVERED") {
@@ -637,9 +683,9 @@ private fun DeliveryActionBlock(
                 riderArrived = riderArrived,
                 blocked = blocked,
                 targetUri = target?.uri,
-                model = model,
-                context = context,
                 onConfirm = onConfirm,
+                onNavigate = onNavigate,
+                destinationNote = destinationNote,
             )
         }
         if (!collecting && ui.marketplaceParcel && ui.nextLabel != null && target != null && !confirmCollected) {
@@ -647,17 +693,26 @@ private fun DeliveryActionBlock(
             if (collected) {
                 RidersPrimaryButton(
                     label = navigationLabel,
-                    onClick = { openNavigation(context, model, target.uri) },
+                    onClick = onNavigate,
                     enabled = !blocked,
                     modifier = Modifier.fillMaxWidth(),
                 )
             } else {
                 RidersSecondaryButton(
                     label = navigationLabel,
-                    onClick = { openNavigation(context, model, target.uri) },
+                    onClick = onNavigate,
                     enabled = !blocked,
                     modifier = Modifier.fillMaxWidth(),
                     soft = false,
+                )
+            }
+            destinationNote?.let { note ->
+                Text(
+                    note,
+                    style = RidersType.body,
+                    color = RidersColors.text,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
         }
@@ -790,9 +845,9 @@ private fun CollectionActions(
     riderArrived: Boolean,
     blocked: Boolean,
     targetUri: String?,
-    model: DeliveryViewModel,
-    context: android.content.Context,
     onConfirm: (String) -> Unit,
+    onNavigate: () -> Unit,
+    destinationNote: String?,
 ) {
     if (!collecting) {
         return
@@ -809,10 +864,19 @@ private fun CollectionActions(
     } else if (targetUri != null) {
         RidersPrimaryButton(
             label = "Navigate to pickup",
-            onClick = { openNavigation(context, model, targetUri) },
+            onClick = onNavigate,
             enabled = !blocked,
             modifier = Modifier.fillMaxWidth(),
         )
+        destinationNote?.let { note ->
+            Text(
+                note,
+                style = RidersType.body,
+                color = RidersColors.text,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
     }
 }
 
@@ -1034,15 +1098,6 @@ private fun CancelDeliveryModal(
     }
 }
 
-private fun openNavigation(context: android.content.Context, model: DeliveryViewModel, uri: String) {
-    val opened = runCatching {
-        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(uri)))
-    }.isSuccess
-    if (!opened) {
-        model.reportNavigationFailure()
-    }
-}
-
 private fun readyForCollection(status: String): Boolean = status == "RIDER_ASSIGNED" ||
     status == "ASSIGNED" ||
     status == "COLLECTING" ||
@@ -1066,6 +1121,8 @@ private fun CollectedPage(
     navigationBottom: Dp,
     statusTop: Dp,
     completed: Boolean,
+    onNavigate: () -> Unit,
+    destinationNote: String?,
 ) {
     val density = LocalDensity.current
     val riderPoint = routeModel.rider?.let { GeoPoint(it.latitude, it.longitude) }
@@ -1163,6 +1220,8 @@ private fun CollectedPage(
                             completed = completed,
                             atDropoff = routeModel.arrivedAtDropoff,
                             locationGranted = routeModel.locationGranted,
+                            onNavigate = onNavigate,
+                            destinationNote = destinationNote,
                         )
                     }
                 }

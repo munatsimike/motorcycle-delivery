@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, ServiceUnavailableException } from '@nestjs/common';
-import { createGeoapifyClient, GeoapifyRequestError, sampleRoadLine } from './geoapify.js';
+import { createGeoapifyClient, GeoapifyRequestError, sampleRoadLine, type RouteManeuver } from './geoapify.js';
 import {
   createGooglePlacesClient,
   GooglePlacesRequestError,
@@ -62,17 +62,26 @@ export class PlacesService {
     pickupLongitude: number,
     dropoffLatitude: number,
     dropoffLongitude: number,
-  ): Promise<{ line: Array<{ latitude: number; longitude: number }> }> {
+  ): Promise<{
+    line: Array<{ latitude: number; longitude: number }>;
+    path?: Array<{ latitude: number; longitude: number }>;
+    steps?: RouteManeuver[];
+    metres?: number;
+    seconds?: number | null;
+  }> {
     assertCoordinate(pickupLatitude, 90);
     assertCoordinate(pickupLongitude, 180);
     assertCoordinate(dropoffLatitude, 90);
     assertCoordinate(dropoffLongitude, 180);
     try {
       const road = await this.geoapify.route(pickupLatitude, pickupLongitude, dropoffLatitude, dropoffLongitude);
+      const path = road.line.flatMap(([longitude, latitude]) => (
+        Number.isFinite(latitude) && Number.isFinite(longitude) ? [{ latitude, longitude }] : []
+      ));
       const line = sampleRoadLine(road.line, 40).flatMap(([longitude, latitude]) => (
         Number.isFinite(latitude) && Number.isFinite(longitude) ? [{ latitude, longitude }] : []
       ));
-      return line.length > 1 ? { line } : { line: [] };
+      return line.length > 1 ? { line, path, steps: road.steps, metres: road.metres, seconds: road.seconds } : { line: [] };
     } catch (error) {
       if (error instanceof ServiceUnavailableException) {
         throw error;

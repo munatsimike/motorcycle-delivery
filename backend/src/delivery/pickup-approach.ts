@@ -1,4 +1,4 @@
-import { createGeoapifyClient, sampleRoadLine, type RoadRoute } from './geoapify.js';
+import { createGeoapifyClient, sampleRoadLine, type RoadRoute, type RouteManeuver } from './geoapify.js';
 
 export const PICKUP_APPROACH = Symbol('PICKUP_APPROACH');
 export const PICKUP_APPROACH_CELL = 0.0015;
@@ -11,6 +11,8 @@ export type PickupApproachView = {
   metres: number;
   seconds: number;
   line: Array<{ latitude: number; longitude: number }>;
+  path?: Array<{ latitude: number; longitude: number }>;
+  steps?: RouteManeuver[];
 };
 
 export type PickupApproachQuery = {
@@ -143,14 +145,21 @@ function toApproach(road: RoadRoute): PickupApproachView | null {
   if (!Number.isFinite(road.metres) || road.metres < 0 || road.seconds == null || road.seconds < 0) {
     return null;
   }
-  const line = sampleRoadLine(road.line, PICKUP_APPROACH_LINE_LIMIT).flatMap(([longitude, latitude]) => (
-    Number.isFinite(latitude) && Number.isFinite(longitude) ? [{ latitude, longitude }] : []
-  ));
+  const path = roadPoints(road.line);
+  const line = roadPoints(sampleRoadLine(road.line, PICKUP_APPROACH_LINE_LIMIT));
   return {
     metres: road.metres,
     seconds: Math.round(road.seconds),
     line,
+    path,
+    steps: road.steps,
   };
+}
+
+function roadPoints(line: Array<[number, number]>): Array<{ latitude: number; longitude: number }> {
+  return line.flatMap(([longitude, latitude]) => (
+    Number.isFinite(latitude) && Number.isFinite(longitude) ? [{ latitude, longitude }] : []
+  ));
 }
 
 function remember(cache: Map<string, CacheEntry>, key: string, approach: PickupApproachView | null, at: number) {
