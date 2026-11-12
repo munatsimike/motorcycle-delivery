@@ -9,58 +9,60 @@ import {
 import {
   AssignmentReleaseReason,
   AssignmentStatus,
+  BidStatus,
   CoordinateSource,
   Currency,
   DeliveryActorType,
   DeliveryStatus,
-  DispatchRoundStatus,
   Prisma,
   RiderAvailability,
-  UserRole,
 } from '../generated/prisma/client.js';
 import type { CustomerContext } from '../auth/customer-access.service.js';
 import type { RiderContext } from '../auth/rider-access.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { shouldWithholdCoordinates } from './coordinate-retention.js';
-import { motorcycleForAcceptance, type AcceptanceRider } from '../rider/motorcycle-eligibility.js';
+import { v2MarketplaceEnabled } from '../auth/v2-flags.js';
+import { v2RequestRemainsOpen } from './v2-deadline.js';
+import { expireDueV2Searches, restartV2Search, v2SearchStartData } from './v2-search.js';
 import { lockRiderProfile } from '../rider/motorcycle-lock.js';
 import {
   IDEMPOTENCY_CONFLICT,
   isUniqueViolation,
-  openPlatformFeeReservation,
   releasePlatformFeeReservation,
-  capturePlatformFeeReservation,
-  refundAcceptanceCommission,
+  captureV2CommissionReservation,
 } from '../rider/wallet-ledger.js';
-import { findDispatchCandidates } from './dispatch-query.js';
-import {
-  AUTO_RETRY_MAX_COUNT,
-  AUTO_RETRY_DELAY_MS,
-  DISPATCH_ROUND_DELAYS_MS,
-  DISPATCH_ROUND_RADII_METRES,
-  GPS_FRESH_MS,
-  OFFER_TTL_MS,
-  gpsIsFresh,
-  offerIsOpen,
-} from './dispatch.constants.js';
+import { recordDeliveryOpportunity, recordRequestReopened, recordV2CustomerStatus } from './v2-outbox.js';
+import { recordSuccessfulDelivery } from './rider-stats.js';
+import { offerIsOpen } from './dispatch.constants.js';
 import { centsFromDecimal, formatCents } from './money.js';
-
-const RIDER_RELEASE_REASONS = new Set<AssignmentReleaseReason>([
-  AssignmentReleaseReason.RIDER_CANCELLED,
-  AssignmentReleaseReason.VEHICLE_PROBLEM,
-]);
+import { readCustomerOfferCents } from './delivery-request.js';
 
 const CANCELLABLE = new Set<DeliveryStatus>([
   DeliveryStatus.CREATED,
   DeliveryStatus.SEARCHING,
   DeliveryStatus.NO_RIDER_FOUND,
-  DeliveryStatus.ASSIGNED,
-  DeliveryStatus.ARRIVED_AT_PICKUP,
 ]);
 
-const RELEASEABLE = new Set<DeliveryStatus>([
-  DeliveryStatus.ASSIGNED,
-  DeliveryStatus.ARRIVED_AT_PICKUP,
+const V2_PRE_PICKUP = new Set<DeliveryStatus>([
+  DeliveryStatus.RIDER_ASSIGNED,
+  DeliveryStatus.COLLECTING,
+]);
+
+const V2_RIDER_CANCELLABLE = new Set<DeliveryStatus>([
+  DeliveryStatus.RIDER_ASSIGNED,
+  DeliveryStatus.COLLECTING,
+  DeliveryStatus.COLLECTED,
+  DeliveryStatus.OUT_FOR_DELIVERY,
+]);
+
+const V2_CANCEL_REASONS = new Set<AssignmentReleaseReason>([
+  AssignmentReleaseReason.PAYMENT_NOT_AGREED,
+  AssignmentReleaseReason.PARCEL_NOT_AS_DESCRIBED,
+  AssignmentReleaseReason.PARCEL_TOO_LARGE,
+  AssignmentReleaseReason.SENDER_UNAVAILABLE,
+  AssignmentReleaseReason.WRONG_ADDRESS,
+  AssignmentReleaseReason.BREAKDOWN,
+  AssignmentReleaseReason.OTHER,
 ]);
 
 export const RIDER_RESUMABLE_STATUSES = [
@@ -71,23 +73,34 @@ export const RIDER_RESUMABLE_STATUSES = [
   DeliveryStatus.ARRIVED_AT_DROPOFF,
 ] as const;
 
-const RIDER_RESUMABLE = new Set<DeliveryStatus>(RIDER_RESUMABLE_STATUSES);
+const V2_LIVE_STATUSES = [
+  DeliveryStatus.RIDER_ASSIGNED,
+  DeliveryStatus.COLLECTING,
+  DeliveryStatus.COLLECTED,
+  DeliveryStatus.OUT_FOR_DELIVERY,
+] as const;
 
-const DELIVERY_PROGRESS = [
-  DeliveryStatus.ASSIGNED,
-  DeliveryStatus.ARRIVED_AT_PICKUP,
-  DeliveryStatus.PICKED_UP,
-  DeliveryStatus.IN_TRANSIT,
-  DeliveryStatus.ARRIVED_AT_DROPOFF,
+const V2_DELIVERY_PROGRESS = [
+  DeliveryStatus.RIDER_ASSIGNED,
+  DeliveryStatus.COLLECTED,
   DeliveryStatus.DELIVERED,
 ] as const;
+
+const LIVE_ASSIGNMENT_STATUSES = [
+  ...RIDER_RESUMABLE_STATUSES,
+  ...V2_LIVE_STATUSES,
+] as const;
+
+const LIVE_ASSIGNMENT_STATUS_SET = new Set<DeliveryStatus>(LIVE_ASSIGNMENT_STATUSES);
+
+const LIVE_ASSIGNMENT_ORDER = [{ createdAt: 'asc' as const }, { id: 'asc' as const }];
 
 type AssignmentRow = {
   id: string;
   deliveryId: string;
   riderProfileId: string;
   status: AssignmentStatus;
-  offerExpiresAt: Date;
+  offerExpiresAt: Date | null;
   respondedAt: Date | null;
   searchGeneration: number | null;
   idempotencyKey: string | null;
@@ -101,13 +114,14 @@ type DeliveryRow = {
   customerId: string;
   status: DeliveryStatus;
   searchGeneration: number;
-  price: string | { toFixed(digits: number): string };
+  price: string | { toFixed(digits: number): string } | null;
   currency: Currency;
-  payer: string;
-  paymentMethod: string;
+  payer: string | null;
+  paymentMethod: string | null;
   parcelDescription: string;
   parcelSize: string;
   parcelInstructions: string | null;
+  distanceMeters: number;
   pickupAddress: string;
   pickupLatitude: string | { toFixed(digits: number): string } | null;
   pickupLongitude: string | { toFixed(digits: number): string } | null;
@@ -123,6 +137,8 @@ type DeliveryRow = {
   recipientName: string;
   recipientPhone: string;
   createdAt?: Date;
+  serviceClass?: 'EXPRESS' | 'FLEXIBLE' | null;
+  deliverBy?: Date | null;
   pickupCoordinateSource?: CoordinateSource;
   pickupPlaceId?: string | null;
   pickupCoordinateRetrievedAt?: Date | null;
@@ -133,29 +149,10 @@ type DeliveryRow = {
   dropoffCoordinateRefreshAttemptedAt?: Date | null;
 };
 
-type ProfileRow = {
-  id: string;
-  userId: string;
-  approvalStatus: AcceptanceRider['approvalStatus'];
-  verificationStatus: AcceptanceRider['licenceVerificationStatus'];
-  availability: RiderAvailability;
-};
-
-export type RiderOffer = {
-  assignmentId: string;
-  deliveryId: string;
-  expiresAt: string;
-  offeredPrice: string;
-  currency: Currency;
-  payer: string;
-  paymentMethod: string;
-  parcel: {
-    description: string;
-    size: string;
-    instructions: string | null;
-  };
-  pickup: StopView;
-  dropoff: StopView;
+type ParcelView = {
+  description: string;
+  size: string;
+  instructions: string | null;
 };
 
 type StopView = {
@@ -171,29 +168,28 @@ type StopView = {
 export type ActiveAssignment = {
   assignmentId: string;
   deliveryId: string;
-  status: (typeof RIDER_RESUMABLE_STATUSES)[number];
-  parcel: RiderOffer['parcel'];
+  status: (typeof LIVE_ASSIGNMENT_STATUSES)[number];
+  parcel: ParcelView;
   pickup: StopView;
   dropoff: StopView;
+  serviceClass: 'EXPRESS' | 'FLEXIBLE' | null;
+  deliverBy: string | null;
+  agreedPrice: string | null;
+  distanceMeters: number | null;
+  createdAt: string | null;
+};
+
+export type CompletedAssignment = Omit<ActiveAssignment, 'status'> & {
+  status: typeof DeliveryStatus.DELIVERED;
+  completedAt: string;
 };
 
 type ActiveAssignmentRow = {
   id: string;
   riderProfileId: string;
   status: AssignmentStatus;
+  acceptedBidAmount?: string | { toFixed(digits: number): string } | null;
   delivery: DeliveryRow;
-};
-
-export type AcceptanceResult = {
-  assignmentId: string;
-  deliveryId: string;
-  status: typeof DeliveryStatus.ASSIGNED;
-  availability: typeof RiderAvailability.BUSY;
-  offeredPrice: string;
-  currency: typeof Currency.USD;
-  reservedFee: string;
-  configVersion: number;
-  replayed: boolean;
 };
 
 export type DeliveryProgress = {
@@ -202,20 +198,39 @@ export type DeliveryProgress = {
   availability: RiderAvailability;
 };
 
+export type V2CancellationResult = {
+  assignmentId: string;
+  deliveryId: string;
+  status: DeliveryStatus;
+  reopened: boolean;
+  released: boolean;
+  availability: RiderAvailability;
+  replayed: boolean;
+};
+
 @Injectable()
 export class DispatchService {
   constructor(private readonly prisma: PrismaService) {}
 
   search(customer: CustomerContext, deliveryId: string, now = new Date()) {
-    return this.prisma.$transaction((tx) => startSearch(tx, customer, deliveryId, now));
+    return this.prisma.$transaction(async (tx) => {
+      const delivery = await tx.delivery.findUnique({ where: { id: deliveryId } });
+      if (!delivery || delivery.customerId !== customer.customerAccountId) {
+        throw new NotFoundException('Delivery not found');
+      }
+      if (delivery.serviceClass !== 'EXPRESS' && delivery.serviceClass !== 'FLEXIBLE') {
+        throw new ConflictException('This delivery cannot be searched');
+      }
+      return startSearch(tx, customer, deliveryId, now);
+    });
+  }
+
+  adjustOffer(customer: CustomerContext, deliveryId: string, body: unknown, now = new Date()) {
+    return this.prisma.$transaction((tx) => adjustCustomerOffer(tx, customer, deliveryId, body, now));
   }
 
   cancel(customer: CustomerContext, deliveryId: string, now = new Date()) {
     return this.prisma.$transaction((tx) => cancelDelivery(tx, customer, deliveryId, now));
-  }
-
-  listOffers(rider: RiderContext, now = new Date()) {
-    return this.prisma.$transaction((tx) => listOpenOffers(tx, rider, now));
   }
 
   async activeAssignment(rider: RiderContext, now = new Date()) {
@@ -223,91 +238,128 @@ export class DispatchService {
       where: {
         riderProfileId: rider.riderProfileId,
         status: AssignmentStatus.ACCEPTED,
-        delivery: { status: { in: [...RIDER_RESUMABLE_STATUSES] } },
+        delivery: { status: { in: [...LIVE_ASSIGNMENT_STATUSES] } },
       },
       include: { delivery: true },
+      orderBy: LIVE_ASSIGNMENT_ORDER,
     });
     return { assignment: activeAssignmentFromRows(rider.riderProfileId, rows, now) };
   }
 
-  async accept(rider: RiderContext, assignmentId: string, idempotencyKey: string, now = new Date()) {
-    const key = readIdempotencyKey(idempotencyKey);
-    const hash = acceptancePayloadHash(assignmentId, rider.riderProfileId);
-    try {
-      return await this.prisma.$transaction((tx) => acceptOffer(tx, rider, assignmentId, key, hash, now));
-    } catch (error) {
-      if (error instanceof OfferExpiredError) {
-        await this.prisma.$transaction((tx) => persistExpiry(tx, error.deliveryId, error.assignmentId, now));
-        throw new ConflictException('This offer has expired');
+  async liveAssignments(rider: RiderContext, now = new Date()) {
+    const rows = await this.prisma.deliveryAssignment.findMany({
+      where: {
+        riderProfileId: rider.riderProfileId,
+        status: AssignmentStatus.ACCEPTED,
+        delivery: { status: { in: [...LIVE_ASSIGNMENT_STATUSES] } },
+      },
+      include: { delivery: true },
+      orderBy: LIVE_ASSIGNMENT_ORDER,
+    });
+    return {
+      assignments: rows.flatMap((row) => {
+        if (row.riderProfileId !== rider.riderProfileId) {
+          return [];
+        }
+        const assignment = activeAssignmentFromRows(rider.riderProfileId, [row], now);
+        return assignment ? [assignment] : [];
+      }),
+    };
+  }
+
+  async completedAssignments(rider: RiderContext, now = new Date()) {
+    const rows = await this.prisma.deliveryAssignment.findMany({
+      where: {
+        riderProfileId: rider.riderProfileId,
+        status: AssignmentStatus.COMPLETED,
+        delivery: { status: DeliveryStatus.DELIVERED },
+      },
+      include: {
+        delivery: {
+          include: {
+            statusEvents: {
+              where: { newStatus: DeliveryStatus.DELIVERED },
+              orderBy: { occurredAt: 'desc' },
+              take: 1,
+            },
+          },
+        },
+      },
+    });
+    const assignments = rows.flatMap((row) => {
+      const assignment = completedAssignmentFromRow(rider.riderProfileId, row, now);
+      return assignment ? [assignment] : [];
+    });
+    assignments.sort((left, right) => {
+      const byTime = right.completedAt.localeCompare(left.completedAt);
+      if (byTime !== 0) {
+        return byTime;
       }
-      if (!isUniqueViolation(error)) {
+      return right.assignmentId.localeCompare(left.assignmentId);
+    });
+    return { assignments };
+  }
+
+  async progress(
+    rider: RiderContext,
+    deliveryId: string,
+    body: unknown,
+    now = new Date(),
+    idempotencyKey?: string | null,
+  ) {
+    const requested = readRequestedStatus(body);
+    const key = normalizeProgressKey(idempotencyKey);
+    const hash = key ? progressPayloadHash(deliveryId, rider.riderProfileId, requested) : null;
+    try {
+      return await this.prisma.$transaction((tx) => progressDelivery(tx, rider, deliveryId, requested, now, key, hash));
+    } catch (error) {
+      if (!key || !hash || !isUniqueViolation(error)) {
         throw error;
       }
-      return this.prisma.$transaction((tx) => replayAcceptance(tx, rider, key, hash));
+      try {
+        return await this.prisma.$transaction((tx) => replayProgressCommand(tx, rider.riderProfileId, key, hash));
+      } catch (replayError) {
+        if (replayError instanceof ConflictException && replayError.message === 'This delivery status cannot be changed') {
+          throw error;
+        }
+        throw replayError;
+      }
     }
   }
 
-  async progress(rider: RiderContext, deliveryId: string, body: unknown, now = new Date()) {
-    const requested = readRequestedStatus(body);
-    return this.prisma.$transaction((tx) => progressDelivery(tx, rider, deliveryId, requested, now));
-  }
-
-  async release(rider: RiderContext, assignmentId: string, body: unknown, now = new Date()) {
-    const reason = readReleaseReason(body);
-    return this.prisma.$transaction((tx) => releaseDelivery(tx, rider, assignmentId, reason, now));
-  }
-
-  processAutoRetry(now = new Date()): Promise<boolean> {
-    return this.prisma.$transaction(async (tx) => {
-      return processAutoRetry(tx, now);
-    });
-  }
-
-  processCreatedRecovery(now = new Date()): Promise<boolean> {
-    return this.prisma.$transaction(async (tx) => recoverCreatedDelivery(tx, now));
-  }
-
-  processDueRound(now = new Date()): Promise<boolean> {
-    return this.prisma.$transaction(async (tx) => {
-      const claimed = await claimDueRound(tx, now);
-      if (!claimed) {
-        return false;
+  async cancelBeforePickup(
+    rider: RiderContext,
+    assignmentId: string,
+    idempotencyKey: string,
+    body: unknown,
+    now = new Date(),
+  ): Promise<V2CancellationResult> {
+    const key = readIdempotencyKey(idempotencyKey);
+    const reason = readV2CancelReason(body);
+    const note = readV2CancelNote(body, reason);
+    const hash = cancellationHash(assignmentId, rider.riderProfileId, reason, note);
+    try {
+      return await this.prisma.$transaction((tx) => cancelBeforePickup(tx, rider, assignmentId, key, hash, reason, note, now));
+    } catch (error) {
+      if (!isUniqueViolation(error)) {
+        throw error;
       }
-      await executeRound(tx, claimed.id, now);
-      return true;
+      return this.prisma.$transaction(async (tx) => {
+        const existing = await tx.deliveryAssignment.findUnique({ where: { cancellationIdempotencyKey: key } });
+        if (existing && existing.cancellationPayloadHash === hash && existing.riderProfileId === rider.riderProfileId) {
+          return cancellationReplay(tx, existing.id, true);
+        }
+        throw new ConflictException(existing ? IDEMPOTENCY_CONFLICT : 'This delivery cannot be cancelled');
+      });
+    }
+  }
+
+  processV2SearchExpiry(now = new Date()): Promise<boolean> {
+    return this.prisma.$transaction(async (tx) => {
+      const expired = await expireDueV2Searches(tx, now);
+      return expired > 0;
     });
   }
-}
-
-class OfferExpiredError extends Error {
-  constructor(
-    readonly deliveryId: string,
-    readonly assignmentId: string,
-  ) {
-    super('This offer has expired');
-  }
-}
-
-async function persistExpiry(
-  tx: Prisma.TransactionClient,
-  deliveryId: string,
-  assignmentId: string,
-  now: Date,
-): Promise<void> {
-  await lockDelivery(tx, deliveryId);
-  await lockAssignment(tx, assignmentId);
-  const assignment = await tx.deliveryAssignment.findUnique({ where: { id: assignmentId } });
-  if (!assignment || assignment.status !== AssignmentStatus.OFFERED || offerIsOpen(assignment.offerExpiresAt, now)) {
-    return;
-  }
-  await tx.deliveryAssignment.update({
-    where: { id: assignment.id },
-    data: { status: AssignmentStatus.EXPIRED },
-  });
-}
-
-export function acceptancePayloadHash(assignmentId: string, riderProfileId: string): string {
-  return createHash('sha256').update(JSON.stringify({ assignmentId, riderProfileId })).digest('hex');
 }
 
 export function readRequestedStatus(body: unknown): DeliveryStatus {
@@ -321,12 +373,42 @@ export function readRequestedStatus(body: unknown): DeliveryStatus {
   return status as DeliveryStatus;
 }
 
-function nextDeliveryStatus(status: DeliveryStatus): DeliveryStatus | null {
-  const index = DELIVERY_PROGRESS.indexOf(status as (typeof DELIVERY_PROGRESS)[number]);
-  if (index < 0 || index === DELIVERY_PROGRESS.length - 1) {
+function nextDeliveryStatus(status: DeliveryStatus, v2: boolean): DeliveryStatus | null {
+  if (!v2) {
     return null;
   }
-  return DELIVERY_PROGRESS[index + 1] ?? null;
+  if (status === DeliveryStatus.COLLECTING) {
+    return DeliveryStatus.COLLECTED;
+  }
+  if (status === DeliveryStatus.OUT_FOR_DELIVERY) {
+    return DeliveryStatus.DELIVERED;
+  }
+  const chain: readonly DeliveryStatus[] = V2_DELIVERY_PROGRESS;
+  const index = chain.indexOf(status);
+  if (index < 0 || index === chain.length - 1) {
+    return null;
+  }
+  return chain[index + 1] ?? null;
+}
+
+function progressPayloadHash(deliveryId: string, riderProfileId: string, requested: DeliveryStatus): string {
+  return createHash('sha256')
+    .update(JSON.stringify({ kind: 'v2-delivery-progress', deliveryId, riderProfileId, status: requested }))
+    .digest('hex');
+}
+
+function normalizeProgressKey(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const key = value.trim();
+  if (!key) {
+    return null;
+  }
+  if (key.length > 200) {
+    throw new BadRequestException('Enter an idempotency key');
+  }
+  return key;
 }
 
 // Moves an accepted delivery one step. The caller locks the delivery, then the
@@ -339,7 +421,15 @@ async function progressDelivery(
   deliveryId: string,
   requested: DeliveryStatus,
   now: Date,
+  key: string | null,
+  hash: string | null,
 ): Promise<DeliveryProgress> {
+  if (key && hash) {
+    const prior = await tx.deliveryProgressCommand.findUnique({ where: { idempotencyKey: key } });
+    if (prior) {
+      return progressReplay(prior, rider.riderProfileId, hash);
+    }
+  }
   const existing = await tx.deliveryAssignment.findFirst({
     where: {
       deliveryId,
@@ -367,14 +457,21 @@ async function progressDelivery(
   ) {
     throw new NotFoundException('Delivery not found');
   }
-  if (nextDeliveryStatus(delivery.status) !== requested) {
+  if (key && hash) {
+    const prior = await tx.deliveryProgressCommand.findUnique({ where: { idempotencyKey: key } });
+    if (prior) {
+      return progressReplay(prior, rider.riderProfileId, hash);
+    }
+  }
+  const v2 = assignment.acceptedBidAmount != null;
+  if (v2 && (!key || !hash)) {
+    throw new BadRequestException('Enter an idempotency key');
+  }
+  if (nextDeliveryStatus(delivery.status, v2) !== requested) {
     throw new ConflictException('This delivery status cannot be changed');
   }
-  if (
-    requested === DeliveryStatus.DELIVERED
-    && (assignment.acceptedCommissionModel ?? 'ON_COMPLETION') === 'ON_COMPLETION'
-  ) {
-    await capturePlatformFeeReservation(tx, delivery.id, profile.id, now);
+  if (requested === DeliveryStatus.DELIVERED) {
+    await captureV2CommissionReservation(tx, delivery.id, profile.id, assignment.id, now);
   }
   await tx.delivery.update({
     where: { id: delivery.id },
@@ -389,13 +486,35 @@ async function progressDelivery(
     DeliveryActorType.RIDER,
     now,
   );
-  let availability = profile.availability;
+  const availability = profile.availability;
   if (requested === DeliveryStatus.DELIVERED) {
+    await recordSuccessfulDelivery(tx, profile);
     await tx.deliveryAssignment.update({
       where: { id: assignment.id },
       data: { status: AssignmentStatus.COMPLETED },
     });
-    availability = await restoreAvailability(tx, profile, now);
+  }
+  if (v2) {
+    await recordV2CustomerStatus(tx, {
+      status: requested,
+      deliveryId: delivery.id,
+      assignmentId: assignment.id,
+      customerAccountId: delivery.customerId,
+    });
+  }
+  if (v2 && key && hash) {
+    await tx.deliveryProgressCommand.create({
+      data: {
+        idempotencyKey: key,
+        payloadHash: hash,
+        riderProfileId: rider.riderProfileId,
+        deliveryId: delivery.id,
+        assignmentId: assignment.id,
+        requestedStatus: requested,
+        resultStatus: requested,
+        availability,
+      },
+    });
   }
   return {
     deliveryId: delivery.id,
@@ -404,80 +523,180 @@ async function progressDelivery(
   };
 }
 
-export function readReleaseReason(body: unknown): AssignmentReleaseReason {
+function progressReplay(
+  prior: { payloadHash: string; riderProfileId: string; deliveryId: string; resultStatus: DeliveryStatus; availability: RiderAvailability },
+  riderProfileId: string,
+  hash: string,
+): DeliveryProgress {
+  if (prior.payloadHash !== hash || prior.riderProfileId !== riderProfileId) {
+    throw new ConflictException(IDEMPOTENCY_CONFLICT);
+  }
+  return {
+    deliveryId: prior.deliveryId,
+    status: prior.resultStatus,
+    availability: prior.availability,
+  };
+}
+
+async function replayProgressCommand(
+  tx: Prisma.TransactionClient,
+  riderProfileId: string,
+  key: string,
+  hash: string,
+): Promise<DeliveryProgress> {
+  const prior = await tx.deliveryProgressCommand.findUnique({ where: { idempotencyKey: key } });
+  if (!prior) {
+    throw new ConflictException('This delivery status cannot be changed');
+  }
+  return progressReplay(prior, riderProfileId, hash);
+}
+
+async function cancelBeforePickup(
+  tx: Prisma.TransactionClient,
+  rider: RiderContext,
+  assignmentId: string,
+  key: string,
+  hash: string,
+  reason: AssignmentReleaseReason,
+  note: string | null,
+  now: Date,
+): Promise<V2CancellationResult> {
+  const existingKey = await tx.deliveryAssignment.findUnique({ where: { cancellationIdempotencyKey: key } });
+  if (existingKey) {
+    if (existingKey.cancellationPayloadHash !== hash || existingKey.riderProfileId !== rider.riderProfileId) {
+      throw new ConflictException(IDEMPOTENCY_CONFLICT);
+    }
+    return cancellationReplay(tx, existingKey.id, true);
+  }
+  const peeked = await tx.deliveryAssignment.findUnique({ where: { id: assignmentId } });
+  if (!peeked || peeked.riderProfileId !== rider.riderProfileId) {
+    throw new NotFoundException('Delivery not found');
+  }
+  await lockDelivery(tx, peeked.deliveryId);
+  const profile = await lockRiderProfile(tx, rider.riderProfileId, 'Rider profile not found');
+  if (profile.userId !== rider.userId) {
+    throw new ForbiddenException('Rider access is required');
+  }
+  await lockAssignment(tx, assignmentId);
+  const assignment = await tx.deliveryAssignment.findUnique({ where: { id: assignmentId } });
+  const delivery = await tx.delivery.findUnique({ where: { id: peeked.deliveryId } });
+  if (!assignment || !delivery || assignment.riderProfileId !== rider.riderProfileId) {
+    throw new NotFoundException('Delivery not found');
+  }
+  if (assignment.cancellationIdempotencyKey === key) {
+    if (assignment.cancellationPayloadHash !== hash) {
+      throw new ConflictException(IDEMPOTENCY_CONFLICT);
+    }
+    return cancellationReplay(tx, assignment.id, true);
+  }
+  if (
+    assignment.status !== AssignmentStatus.ACCEPTED
+    || assignment.acceptedBidAmount == null
+    || assignment.acceptedCommissionAmount == null
+    || !V2_RIDER_CANCELLABLE.has(delivery.status)
+  ) {
+    throw new ConflictException('This delivery cannot be cancelled');
+  }
+  const released = await releaseMatchingV2Reservation(tx, assignment, now);
+  await closeAcceptedBid(tx, delivery.id, profile.id, assignment.acceptedBidId, now);
+  const nextStatus = v2RequestRemainsOpen(delivery.deliverBy, now)
+    ? DeliveryStatus.CREATED
+    : DeliveryStatus.CANCELLED;
+  await tx.deliveryAssignment.update({
+    where: { id: assignment.id },
+    data: {
+      status: AssignmentStatus.RELEASED,
+      releaseReason: reason,
+      releasedAt: now,
+      cancellationNote: note,
+      cancellationStage: delivery.status,
+      cancellationIdempotencyKey: key,
+      cancellationPayloadHash: hash,
+    },
+  });
+  const availability = profile.availability;
+  await tx.delivery.update({
+    where: { id: delivery.id },
+    data: nextStatus === DeliveryStatus.CREATED
+      ? { status: nextStatus, price: null, updatedAt: now, ...v2SearchStartData(now) }
+      : { status: nextStatus, price: null, nextRetryAt: null, updatedAt: now },
+  });
+  await recordStatus(tx, delivery.id, delivery.status, nextStatus, rider.userId, DeliveryActorType.RIDER, now);
+  if (nextStatus === DeliveryStatus.CREATED) {
+    await recordRequestReopened(tx, {
+      deliveryId: delivery.id,
+      assignmentId: assignment.id,
+      customerAccountId: delivery.customerId,
+    });
+    await recordDeliveryOpportunity(tx, { deliveryId: delivery.id, openedAt: now });
+  }
+  return {
+    assignmentId: assignment.id,
+    deliveryId: delivery.id,
+    status: nextStatus,
+    reopened: nextStatus === DeliveryStatus.CREATED,
+    released,
+    availability,
+    replayed: false,
+  };
+}
+
+async function cancellationReplay(
+  tx: Prisma.TransactionClient,
+  assignmentId: string,
+  replayed: boolean,
+): Promise<V2CancellationResult> {
+  const assignment = await tx.deliveryAssignment.findUnique({ where: { id: assignmentId } });
+  if (!assignment || assignment.status !== AssignmentStatus.RELEASED) {
+    throw new ConflictException(IDEMPOTENCY_CONFLICT);
+  }
+  const delivery = await tx.delivery.findUnique({ where: { id: assignment.deliveryId } });
+  const profile = await tx.riderProfile.findUnique({ where: { id: assignment.riderProfileId } });
+  const reservation = await tx.walletFeeReservation.findFirst({ where: { assignmentId: assignment.id } });
+  if (!delivery || !profile || assignment.releasedAt == null) {
+    throw new ConflictException(IDEMPOTENCY_CONFLICT);
+  }
+  const reopened = v2RequestRemainsOpen(delivery.deliverBy, assignment.releasedAt);
+  return {
+    assignmentId: assignment.id,
+    deliveryId: delivery.id,
+    status: reopened ? DeliveryStatus.CREATED : DeliveryStatus.CANCELLED,
+    reopened,
+    released: reservation?.status === 'RELEASED',
+    availability: profile.availability,
+    replayed,
+  };
+}
+
+function readV2CancelReason(body: unknown): AssignmentReleaseReason {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) {
-    throw new BadRequestException('Choose a release reason');
+    throw new BadRequestException('Choose a cancellation reason');
   }
   const reason = (body as { reason?: unknown }).reason;
-  if (typeof reason !== 'string' || !RIDER_RELEASE_REASONS.has(reason as AssignmentReleaseReason)) {
-    throw new BadRequestException('Choose a release reason');
+  if (typeof reason !== 'string' || !V2_CANCEL_REASONS.has(reason as AssignmentReleaseReason)) {
+    throw new BadRequestException('Choose a cancellation reason');
   }
   return reason as AssignmentReleaseReason;
 }
 
-async function recoverCreatedDelivery(tx: Prisma.TransactionClient, now: Date): Promise<boolean> {
-  const claimed = await claimStrandedCreated(tx);
-  if (!claimed) {
-    return false;
-  }
-  const delivery = await tx.delivery.findUnique({ where: { id: claimed.id } });
-  if (!delivery || delivery.status !== DeliveryStatus.CREATED || delivery.searchGeneration !== 0) {
-    return true;
-  }
-  const rounds = await tx.deliveryDispatchRound.findMany({ where: { deliveryId: delivery.id } });
-  if (rounds.length > 0) {
-    return true;
-  }
-  const offers = await tx.deliveryAssignment.findMany({
-    where: { deliveryId: delivery.id, status: AssignmentStatus.OFFERED },
-  });
-  if (offers.length > 0) {
-    return true;
-  }
-  const account = await tx.customerAccount.findUnique({
-    where: { id: delivery.customerId },
-    select: { id: true, userId: true },
-  });
-  if (!account) {
-    throw new NotFoundException('Delivery not found');
-  }
-  try {
-    await startSearch(tx, {
-      userId: account.userId,
-      role: UserRole.CUSTOMER,
-      customerAccountId: account.id,
-    }, delivery.id, now);
-  } catch (error) {
-    if (error instanceof ConflictException || error instanceof NotFoundException) {
-      return true;
+function readV2CancelNote(body: unknown, reason: AssignmentReleaseReason): string | null {
+  const note = (body as { note?: unknown }).note;
+  if (note == null || note === '') {
+    if (reason === AssignmentReleaseReason.OTHER) {
+      throw new BadRequestException('Enter a cancellation note');
     }
-    throw error;
+    return null;
   }
-  return true;
+  if (typeof note !== 'string' || note.trim().length === 0 || note.trim().length > 500) {
+    throw new BadRequestException('Enter a cancellation note');
+  }
+  return note.trim();
 }
 
-async function claimStrandedCreated(tx: Prisma.TransactionClient): Promise<{ id: string } | null> {
-  const rows = await tx.$queryRaw<Array<{ id: string }>>`
-    SELECT d."id"
-    FROM "deliveries" d
-    WHERE d."status" = 'CREATED'::"delivery_status"
-      AND d."search_generation" = 0
-      AND NOT EXISTS (
-        SELECT 1
-        FROM "delivery_dispatch_rounds" r
-        WHERE r."delivery_id" = d."id"
-      )
-      AND NOT EXISTS (
-        SELECT 1
-        FROM "delivery_assignments" a
-        WHERE a."delivery_id" = d."id"
-          AND a."status" = 'OFFERED'::"assignment_status"
-      )
-    ORDER BY d."created_at" ASC, d."id" ASC
-    LIMIT 1
-    FOR UPDATE OF d SKIP LOCKED
-  `;
-  return rows[0] ?? null;
+function cancellationHash(assignmentId: string, riderProfileId: string, reason: AssignmentReleaseReason, note: string | null): string {
+  return createHash('sha256')
+    .update(JSON.stringify({ kind: 'v2-pre-pickup-cancel', assignmentId, riderProfileId, reason, note }))
+    .digest('hex');
 }
 
 async function startSearch(
@@ -491,28 +710,142 @@ async function startSearch(
   if (delivery.status !== DeliveryStatus.CREATED && delivery.status !== DeliveryStatus.NO_RIDER_FOUND) {
     throw new ConflictException('This delivery cannot be searched');
   }
-  await expireOffers(tx, delivery.id, null, now);
-  const pending = await tx.deliveryDispatchRound.findMany({
-    where: { deliveryId: delivery.id, status: DispatchRoundStatus.PENDING },
-  });
-  if (pending.length > 0) {
-    throw new ConflictException('A search is already running');
+  if (delivery.serviceClass !== 'EXPRESS' && delivery.serviceClass !== 'FLEXIBLE') {
+    throw new ConflictException('This delivery cannot be searched');
   }
-  const offers = await tx.deliveryAssignment.findMany({
-    where: { deliveryId: delivery.id, status: AssignmentStatus.OFFERED },
-  });
-  if (offers.length > 0) {
-    throw new ConflictException('A search is already running');
+  if (!v2MarketplaceEnabled()) {
+    throw new ConflictException('This delivery cannot be searched');
   }
-  const nextGeneration = delivery.searchGeneration + 1;
-  const nextStatus = DeliveryStatus.SEARCHING;
+  return restartV2Search(tx, delivery, customer.userId, now);
+}
+
+async function adjustCustomerOffer(
+  tx: Prisma.TransactionClient,
+  customer: CustomerContext,
+  deliveryId: string,
+  body: unknown,
+  now: Date,
+) {
+  await lockDelivery(tx, deliveryId);
+  const delivery = await requiredDelivery(tx, deliveryId, customer.customerAccountId);
+  if (
+    delivery.status !== DeliveryStatus.NO_RIDER_FOUND
+    || (delivery.serviceClass !== 'EXPRESS' && delivery.serviceClass !== 'FLEXIBLE')
+    || !v2RequestRemainsOpen(delivery.deliverBy ?? null, now)
+    || !v2MarketplaceEnabled()
+  ) {
+    throw new ConflictException('This offer cannot be changed');
+  }
+  const accepted = await tx.deliveryAssignment.findFirst({
+    where: { deliveryId: delivery.id, status: AssignmentStatus.ACCEPTED },
+  });
+  if (accepted) {
+    throw new ConflictException('This offer cannot be changed');
+  }
+  const customerOffer = formatCents(readCustomerOfferCents(offeredPriceOf(body)));
   await tx.delivery.update({
     where: { id: delivery.id },
-    data: { status: nextStatus, searchGeneration: nextGeneration, autoRetryCount: 0, nextRetryAt: null, searchStartedAt: now, updatedAt: now },
+    data: { customerOffer },
   });
-  await recordStatus(tx, delivery.id, delivery.status, nextStatus, customer.userId, DeliveryActorType.CUSTOMER, now);
-  await insertRounds(tx, delivery.id, nextGeneration, now);
-  return { deliveryId: delivery.id, status: nextStatus, searchGeneration: nextGeneration };
+  return { customerOffer };
+}
+
+function offeredPriceOf(body: unknown): unknown {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    throw new BadRequestException('Enter an offered price');
+  }
+  return (body as { offeredPrice?: unknown }).offeredPrice;
+}
+
+async function releaseMatchingV2Reservation(
+  tx: Prisma.TransactionClient,
+  assignment: { id: string; deliveryId: string; acceptedCommissionAmount: { toFixed(digits: number): string } | string | null },
+  now: Date,
+): Promise<boolean> {
+  if (assignment.acceptedCommissionAmount == null) {
+    throw new ConflictException('This commission reservation does not match the accepted bid');
+  }
+  const commissionCents = centsFromDecimal(assignment.acceptedCommissionAmount);
+  const reservation = await tx.walletFeeReservation.findFirst({
+    where: { assignmentId: assignment.id, status: 'OPEN' },
+  });
+  if (commissionCents > 0) {
+    if (!reservation || centsFromDecimal(reservation.amount) !== commissionCents) {
+      throw new ConflictException('This commission reservation does not match the accepted bid');
+    }
+  } else if (reservation) {
+    throw new ConflictException('This commission reservation does not match the accepted bid');
+  }
+  if (reservation) {
+    await releasePlatformFeeReservation(tx, assignment.deliveryId, now);
+  }
+  return reservation != null;
+}
+
+async function closeAcceptedBid(
+  tx: Prisma.TransactionClient,
+  deliveryId: string,
+  riderProfileId: string,
+  acceptedBidId: string | null,
+  now: Date,
+): Promise<void> {
+  await tx.$queryRaw`SELECT "id" FROM "bids" WHERE "delivery_id" = CAST(${deliveryId} AS uuid) AND "rider_profile_id" = CAST(${riderProfileId} AS uuid) AND "status" = 'ACCEPTED'::"bid_status" FOR UPDATE`;
+  const bid = await tx.bid.findFirst({
+    where: acceptedBidId
+      ? { id: acceptedBidId, deliveryId, status: BidStatus.ACCEPTED, closedAt: null }
+      : { deliveryId, riderProfileId, status: BidStatus.ACCEPTED, closedAt: null },
+  });
+  if (!bid) {
+    throw new ConflictException('This delivery cannot be cancelled');
+  }
+  await tx.bid.update({
+    where: { id: bid.id },
+    data: { closedAt: now },
+  });
+}
+
+async function cancelV2DeliveryByCustomer(
+  tx: Prisma.TransactionClient,
+  customer: CustomerContext,
+  assignmentId: string,
+  now: Date,
+) {
+  const peeked = await tx.deliveryAssignment.findUnique({ where: { id: assignmentId } });
+  if (!peeked) {
+    throw new ConflictException('This delivery cannot be cancelled');
+  }
+  const profile = await lockRiderProfile(tx, peeked.riderProfileId, 'Rider profile not found');
+  await lockAssignment(tx, peeked.id);
+  const assignment = await tx.deliveryAssignment.findUnique({ where: { id: peeked.id } });
+  const delivery = await tx.delivery.findUnique({ where: { id: peeked.deliveryId } });
+  if (
+    !assignment
+    || !delivery
+    || delivery.customerId !== customer.customerAccountId
+    || assignment.status !== AssignmentStatus.ACCEPTED
+    || assignment.acceptedBidAmount == null
+    || assignment.acceptedCommissionAmount == null
+    || !V2_PRE_PICKUP.has(delivery.status)
+  ) {
+    throw new ConflictException('This delivery cannot be cancelled');
+  }
+  await releaseMatchingV2Reservation(tx, assignment, now);
+  await closeAcceptedBid(tx, delivery.id, profile.id, assignment.acceptedBidId, now);
+  await tx.deliveryAssignment.update({
+    where: { id: assignment.id },
+    data: {
+      status: AssignmentStatus.RELEASED,
+      releaseReason: AssignmentReleaseReason.CUSTOMER_CANCELLED,
+      releasedAt: now,
+      cancellationStage: delivery.status,
+    },
+  });
+  await tx.delivery.update({
+    where: { id: delivery.id },
+    data: { status: DeliveryStatus.CANCELLED, updatedAt: now },
+  });
+  await recordStatus(tx, delivery.id, delivery.status, DeliveryStatus.CANCELLED, customer.userId, DeliveryActorType.CUSTOMER, now);
+  return { deliveryId: delivery.id, status: DeliveryStatus.CANCELLED };
 }
 
 async function cancelDelivery(
@@ -523,44 +856,21 @@ async function cancelDelivery(
 ) {
   await lockDelivery(tx, deliveryId);
   const delivery = await requiredDelivery(tx, deliveryId, customer.customerAccountId);
+  const committed = await tx.deliveryAssignment.findFirst({
+    where: { deliveryId: delivery.id, status: AssignmentStatus.ACCEPTED },
+  });
+  if (committed?.acceptedBidAmount != null) {
+    return cancelV2DeliveryByCustomer(tx, customer, committed.id, now);
+  }
   if (!CANCELLABLE.has(delivery.status)) {
     throw new ConflictException('This delivery cannot be cancelled');
   }
   await expireOffers(tx, delivery.id, null, now);
-  const accepted = await tx.deliveryAssignment.findFirst({
-    where: { deliveryId: delivery.id, status: AssignmentStatus.ACCEPTED },
-  });
-  if (accepted) {
-    const profile = await lockRiderProfile(tx, accepted.riderProfileId, 'Rider profile not found');
-    await lockAssignment(tx, accepted.id);
-    await releasePlatformFeeReservation(tx, delivery.id, now);
-    await tx.deliveryAssignment.update({
-      where: { id: accepted.id },
-      data: {
-        status: AssignmentStatus.RELEASED,
-        releaseReason: AssignmentReleaseReason.CUSTOMER_CANCELLED,
-        releasedAt: now,
-      },
-    });
-    await restoreAvailability(tx, profile, now);
-  }
-  const chargedAssignments = await tx.deliveryAssignment.findMany({
-    where: {
-      deliveryId: delivery.id,
-      acceptedCommissionModel: 'ON_ACCEPTANCE',
-    },
-    orderBy: [{ riderProfileId: 'asc' }, { id: 'asc' }],
-  });
-
-  for (const chargedAssignment of chargedAssignments) {
-    if (
-      chargedAssignment.acceptedPlatformFee != null
-      && centsFromDecimal(chargedAssignment.acceptedPlatformFee) > 0
-    ) {
-      await refundAcceptanceCommission(tx, chargedAssignment.id, now);
-    }
-  }
   await cancelOffered(tx, { deliveryId: delivery.id });
+  await tx.bid.updateMany({
+    where: { deliveryId: delivery.id, status: BidStatus.OPEN },
+    data: { status: BidStatus.EXPIRED },
+  });
   await tx.delivery.update({
     where: { id: delivery.id },
     data: { status: DeliveryStatus.CANCELLED, updatedAt: now },
@@ -577,389 +887,17 @@ async function cancelDelivery(
   return { deliveryId: delivery.id, status: DeliveryStatus.CANCELLED };
 }
 
-async function listOpenOffers(tx: Prisma.TransactionClient, rider: RiderContext, now: Date) {
-  await expireOffers(tx, null, rider.riderProfileId, now);
-  const offers = await tx.deliveryAssignment.findMany({
-    where: { riderProfileId: rider.riderProfileId, status: AssignmentStatus.OFFERED },
-  });
-  const visible: RiderOffer[] = [];
-  for (const offer of offers) {
-    if (!offerIsOpen(offer.offerExpiresAt, now)) {
-      continue;
-    }
-    const delivery = await tx.delivery.findUnique({ where: { id: offer.deliveryId } });
-    if (!delivery || delivery.status !== DeliveryStatus.SEARCHING) {
-      continue;
-    }
-    visible.push(toRiderOffer(offer, delivery));
-  }
-  return { offers: visible };
-}
-
-async function acceptOffer(
-  tx: Prisma.TransactionClient,
-  rider: RiderContext,
-  assignmentId: string,
-  key: string,
-  hash: string,
-  now: Date,
-): Promise<AcceptanceResult> {
-  const existingKey = await tx.deliveryAssignment.findUnique({ where: { idempotencyKey: key } });
-  if (existingKey) {
-    if (existingKey.payloadHash !== hash || existingKey.riderProfileId !== rider.riderProfileId) {
-      throw new ConflictException(IDEMPOTENCY_CONFLICT);
-    }
-    return acceptanceResult(tx, existingKey, true);
-  }
-  const offered = await tx.deliveryAssignment.findUnique({ where: { id: assignmentId } });
-  if (!offered || offered.riderProfileId !== rider.riderProfileId) {
-    throw new NotFoundException('Offer not found');
-  }
-  await lockDelivery(tx, offered.deliveryId);
-  const profile = await lockRiderProfile(tx, rider.riderProfileId, 'Rider profile not found');
-  if (profile.userId !== rider.userId) {
-    throw new ForbiddenException('Rider access is required');
-  }
-  await lockAssignment(tx, assignmentId);
-  const assignment = await tx.deliveryAssignment.findUnique({ where: { id: assignmentId } });
-  const delivery = await tx.delivery.findUnique({ where: { id: offered.deliveryId } });
-  if (!assignment || assignment.riderProfileId !== rider.riderProfileId) {
-    throw new NotFoundException('Offer not found');
-  }
-  if (assignment.idempotencyKey) {
-    if (assignment.idempotencyKey !== key || assignment.payloadHash !== hash) {
-      throw new ConflictException(IDEMPOTENCY_CONFLICT);
-    }
-    return acceptanceResult(tx, assignment, true);
-  }
-  if (!delivery || delivery.status !== DeliveryStatus.SEARCHING || assignment.status !== AssignmentStatus.OFFERED) {
-    throw new ConflictException('This offer is no longer available');
-  }
-  if (!offerIsOpen(assignment.offerExpiresAt, now)) {
-    throw new OfferExpiredError(delivery.id, assignment.id);
-  }
-  if (profile.availability !== RiderAvailability.AVAILABLE) {
-    throw new ConflictException('You are not available');
-  }
-  const location = await tx.riderLocation.findUnique({ where: { riderProfileId: profile.id } });
-  if (!location || !gpsIsFresh(location.updatedAt, now)) {
-    throw new ConflictException('A fresh location is required');
-  }
-  const eligible = await acceptanceRider(tx, profile);
-  if (!eligible) {
-    throw new ConflictException('An active verified account is required');
-  }
-  const motorcycleId = motorcycleForAcceptance(eligible);
-  const otherAccepted = await tx.deliveryAssignment.findFirst({
-    where: { riderProfileId: profile.id, status: AssignmentStatus.ACCEPTED },
-  });
-  if (otherAccepted) {
-    throw new ConflictException('You already have an accepted delivery');
-  }
-  const commissionPolicy = await tx.commissionPolicy.findFirst({
-    where: { isActive: true },
-  });
-  if (!commissionPolicy) {
-    throw new ConflictException('Active commission policy not found');
-  }
-
-  const reservation = await openPlatformFeeReservation(tx, profile.id, delivery.id, now, assignment.id);
-  await tx.deliveryAssignment.update({
-    where: { id: assignment.id },
-    data: {
-      status: AssignmentStatus.ACCEPTED,
-      motorcycleId,
-      respondedAt: now,
-      idempotencyKey: key,
-      payloadHash: hash,
-      acceptedPlatformFee: reservation.amount,
-      acceptedFeeConfigVersion: reservation.configVersion,
-      acceptedCommissionModel: commissionPolicy.model,
-      acceptedCommissionPolicyVersion: commissionPolicy.policyVersion,
-    },
-  });
-  if (commissionPolicy.model === 'ON_ACCEPTANCE') {
-    await capturePlatformFeeReservation(tx, delivery.id, profile.id, now, assignment.id);
-  }
-  await cancelOffered(tx, { deliveryId: delivery.id });
-  await cancelOffered(tx, { riderProfileId: profile.id });
-  await tx.riderProfile.update({
-    where: { id: profile.id },
-    data: { availability: RiderAvailability.BUSY, updatedAt: now },
-  });
-  await tx.delivery.update({
-    where: { id: delivery.id },
-    data: { status: DeliveryStatus.ASSIGNED, updatedAt: now },
-  });
-  await recordStatus(
-    tx,
-    delivery.id,
-    delivery.status,
-    DeliveryStatus.ASSIGNED,
-    rider.userId,
-    DeliveryActorType.RIDER,
-    now,
-  );
-  return {
-    assignmentId: assignment.id,
-    deliveryId: delivery.id,
-    status: DeliveryStatus.ASSIGNED,
-    availability: RiderAvailability.BUSY,
-    offeredPrice: formatCents(centsFromDecimal(delivery.price)),
-    currency: Currency.USD,
-    reservedFee: reservation.amount,
-    configVersion: reservation.configVersion,
-    replayed: false,
-  };
-}
-
-async function replayAcceptance(
-  tx: Prisma.TransactionClient,
-  rider: RiderContext,
-  key: string,
-  hash: string,
-): Promise<AcceptanceResult> {
-  const existing = await tx.deliveryAssignment.findUnique({ where: { idempotencyKey: key } });
-  if (!existing || existing.riderProfileId !== rider.riderProfileId) {
-    throw new ConflictException('This offer is no longer available');
-  }
-  if (existing.payloadHash !== hash) {
-    throw new ConflictException(IDEMPOTENCY_CONFLICT);
-  }
-  return acceptanceResult(tx, existing, true);
-}
-
-async function releaseDelivery(
-  tx: Prisma.TransactionClient,
-  rider: RiderContext,
-  assignmentId: string,
-  reason: AssignmentReleaseReason,
-  now: Date,
-) {
-  const existing = await tx.deliveryAssignment.findUnique({ where: { id: assignmentId } });
-  if (!existing || existing.riderProfileId !== rider.riderProfileId) {
-    throw new NotFoundException('Offer not found');
-  }
-  await lockDelivery(tx, existing.deliveryId);
-  const profile = await lockRiderProfile(tx, rider.riderProfileId, 'Rider profile not found');
-  if (profile.userId !== rider.userId) {
-    throw new ForbiddenException('Rider access is required');
-  }
-  await lockAssignment(tx, assignmentId);
-  const assignment = await tx.deliveryAssignment.findUnique({ where: { id: assignmentId } });
-  const delivery = await tx.delivery.findUnique({ where: { id: existing.deliveryId } });
-  if (!assignment || assignment.riderProfileId !== rider.riderProfileId) {
-    throw new NotFoundException('Offer not found');
-  }
-  if (!delivery || assignment.status !== AssignmentStatus.ACCEPTED || !RELEASEABLE.has(delivery.status)) {
-    throw new ConflictException('This delivery cannot be released');
-  }
-  await releasePlatformFeeReservation(tx, delivery.id, now);
-  await tx.deliveryAssignment.update({
-    where: { id: assignment.id },
-    data: {
-      status: AssignmentStatus.RELEASED,
-      releaseReason: reason,
-      releasedAt: now,
-    },
-  });
-  await cancelOffered(tx, { deliveryId: delivery.id });
-  const availability = await restoreAvailability(tx, profile, now);
-  const nextGeneration = delivery.searchGeneration + 1;
-  await tx.delivery.update({
-    where: { id: delivery.id },
-    data: { status: DeliveryStatus.SEARCHING, searchGeneration: nextGeneration, updatedAt: now },
-  });
-  await recordStatus(
-    tx,
-    delivery.id,
-    delivery.status,
-    DeliveryStatus.SEARCHING,
-    rider.userId,
-    DeliveryActorType.RIDER,
-    now,
-  );
-  await insertRounds(tx, delivery.id, nextGeneration, now);
-  return {
-    deliveryId: delivery.id,
-    status: DeliveryStatus.SEARCHING,
-    searchGeneration: nextGeneration,
-    availability,
-  };
-}
-
-async function executeRound(tx: Prisma.TransactionClient, roundId: string, now: Date): Promise<void> {
-  const claimed = await tx.deliveryDispatchRound.findUnique({ where: { id: roundId } });
-  if (!claimed || claimed.status !== DispatchRoundStatus.PENDING) {
-    return;
-  }
-  await lockDelivery(tx, claimed.deliveryId);
-  const delivery = await tx.delivery.findUnique({ where: { id: claimed.deliveryId } });
-  const round = await tx.deliveryDispatchRound.findUnique({ where: { id: roundId } });
-  if (!round || round.status !== DispatchRoundStatus.PENDING) {
-    return;
-  }
-  const active = delivery
-    && delivery.status === DeliveryStatus.SEARCHING
-    && delivery.searchGeneration === round.searchGeneration;
-  if (active && delivery) {
-    await expireOffers(tx, delivery.id, null, now);
-    const pickupLatitude = servableCoordinate(delivery, 'pickup', delivery.pickupLatitude);
-    const pickupLongitude = servableCoordinate(delivery, 'pickup', delivery.pickupLongitude);
-    const candidates = pickupLatitude == null || pickupLongitude == null
-      ? []
-      : await findDispatchCandidates(tx, {
-        pickupLatitude,
-        pickupLongitude,
-        radiusMetres: round.radiusMetres,
-        freshAfter: new Date(now.getTime() - GPS_FRESH_MS),
-        deliveryId: delivery.id,
-        searchGeneration: round.searchGeneration,
-      });
-    const assignments = await tx.deliveryAssignment.findMany({ where: { deliveryId: delivery.id } });
-    for (const candidate of candidates) {
-      if (riderIsBlocked(assignments, candidate.riderProfileId, round.searchGeneration)) {
-        continue;
-      }
-      const offer = await offerRider(tx, delivery.id, candidate.riderProfileId, round.searchGeneration, now);
-      if (offer) {
-        assignments.push(offer);
-      }
-    }
-  }
-  await tx.deliveryDispatchRound.update({
-    where: { id: roundId },
-    data: { status: DispatchRoundStatus.COMPLETED, completedAt: now },
-  });
-}
-
-async function offerRider(
-  tx: Prisma.TransactionClient,
-  deliveryId: string,
-  riderProfileId: string,
-  searchGeneration: number,
-  now: Date,
-) {
-  const profile = await tx.riderProfile.findUnique({ where: { id: riderProfileId } });
-  if (!profile || profile.availability !== RiderAvailability.AVAILABLE) {
+function marketplaceServiceClass(
+  serviceClass: string | null | undefined,
+  acceptedBidAmount: unknown,
+): 'EXPRESS' | 'FLEXIBLE' | null {
+  if (acceptedBidAmount == null) {
     return null;
   }
-  const location = await tx.riderLocation.findUnique({ where: { riderProfileId } });
-  if (!location || !gpsIsFresh(location.updatedAt, now)) {
-    return null;
+  if (serviceClass === 'EXPRESS' || serviceClass === 'FLEXIBLE') {
+    return serviceClass;
   }
-  const eligible = await acceptanceRider(tx, profile);
-  if (!eligible) {
-    return null;
-  }
-  try {
-    motorcycleForAcceptance(eligible);
-  } catch (error) {
-    if (error instanceof ConflictException) {
-      return null;
-    }
-    throw error;
-  }
-  const created = await tx.deliveryAssignment.create({
-    data: {
-      deliveryId,
-      riderProfileId,
-      motorcycleId: null,
-      status: AssignmentStatus.OFFERED,
-      offerExpiresAt: new Date(now.getTime() + OFFER_TTL_MS),
-      searchGeneration,
-      createdAt: now,
-      acceptedPlatformFee: null,
-      acceptedFeeConfigVersion: null,
-    },
-  });
-  return created;
-}
-
-async function acceptanceResult(
-  tx: Prisma.TransactionClient,
-  assignment: AssignmentRow,
-  replayed: boolean,
-): Promise<AcceptanceResult> {
-  const delivery = await tx.delivery.findUnique({ where: { id: assignment.deliveryId } });
-  if (!delivery) {
-    throw new NotFoundException('Delivery not found');
-  }
-  if (assignment.acceptedPlatformFee == null || assignment.acceptedFeeConfigVersion == null) {
-    throw new ConflictException('Platform fee reservation is corrupted');
-  }
-  return {
-    assignmentId: assignment.id,
-    deliveryId: delivery.id,
-    status: DeliveryStatus.ASSIGNED,
-    availability: RiderAvailability.BUSY,
-    offeredPrice: formatCents(centsFromDecimal(delivery.price)),
-    currency: Currency.USD,
-    reservedFee: moneyText(assignment.acceptedPlatformFee),
-    configVersion: assignment.acceptedFeeConfigVersion,
-    replayed,
-  };
-}
-
-async function acceptanceRider(
-  tx: Prisma.TransactionClient,
-  profile: ProfileRow,
-): Promise<AcceptanceRider | null> {
-  const user = await tx.user.findUnique({ where: { id: profile.userId } });
-  if (!user) {
-    return null;
-  }
-  const motorcycles = await tx.motorcycle.findMany({
-    where: { riderProfileId: profile.id },
-    select: { id: true, verificationStatus: true, isActive: true },
-  });
-  return {
-    accountStatus: user.accountStatus,
-    phoneVerifiedAt: user.phoneVerifiedAt,
-    approvalStatus: profile.approvalStatus,
-    licenceVerificationStatus: profile.verificationStatus,
-    motorcycles,
-  };
-}
-
-async function restoreAvailability(
-  tx: Prisma.TransactionClient,
-  profile: ProfileRow,
-  now: Date,
-): Promise<RiderAvailability> {
-  if (profile.availability !== RiderAvailability.BUSY) {
-    return profile.availability;
-  }
-  const eligible = await acceptanceRider(tx, profile);
-  let next: RiderAvailability = RiderAvailability.OFFLINE;
-  if (eligible) {
-    try {
-      motorcycleForAcceptance(eligible);
-      next = RiderAvailability.AVAILABLE;
-    } catch (error) {
-      if (!(error instanceof ConflictException)) {
-        throw error;
-      }
-    }
-  }
-  await tx.riderProfile.update({
-    where: { id: profile.id },
-    data: { availability: next, updatedAt: now },
-  });
-  return next;
-}
-
-function riderIsBlocked(
-  assignments: Array<{ riderProfileId: string; status: AssignmentStatus; searchGeneration: number | null }>,
-  riderProfileId: string,
-  generation: number,
-): boolean {
-  return assignments.some((row) => row.riderProfileId === riderProfileId && (
-    row.status === AssignmentStatus.RELEASED
-    || row.searchGeneration === generation
-    || row.status === AssignmentStatus.OFFERED
-    || row.status === AssignmentStatus.ACCEPTED
-  ));
+  return null;
 }
 
 async function expireOffers(
@@ -979,7 +917,7 @@ async function expireOffers(
   }
   const offers = await tx.deliveryAssignment.findMany({ where });
   for (const offer of offers) {
-    if (!offerIsOpen(offer.offerExpiresAt, now)) {
+    if (offer.offerExpiresAt != null && !offerIsOpen(offer.offerExpiresAt, now)) {
       await tx.deliveryAssignment.update({
         where: { id: offer.id },
         data: { status: AssignmentStatus.EXPIRED },
@@ -999,130 +937,6 @@ async function cancelOffered(
     await tx.deliveryAssignment.update({
       where: { id: offer.id },
       data: { status: AssignmentStatus.CANCELLED },
-    });
-  }
-}
-
-async function processAutoRetry(
-  tx: Prisma.TransactionClient,
-  now: Date,
-): Promise<boolean> {
-  const rows = await tx.$queryRaw<Array<{ id: string }>>`
-    SELECT d."id"
-    FROM "deliveries" d
-    WHERE d."status" = 'SEARCHING'::"delivery_status"
-      AND d."search_generation" > 0
-      AND NOT EXISTS (
-        SELECT 1
-        FROM "delivery_dispatch_rounds" r
-        WHERE r."delivery_id" = d."id"
-          AND r."status" = 'PENDING'::"dispatch_round_status"
-      )
-      AND NOT EXISTS (
-        SELECT 1
-        FROM "delivery_assignments" a
-        WHERE a."delivery_id" = d."id"
-          AND a."status" = 'OFFERED'::"assignment_status"
-          AND a."offer_expires_at" > ${now}
-      )
-      AND (
-        (d."next_retry_at" IS NOT NULL AND d."next_retry_at" <= ${now})
-        OR d."next_retry_at" IS NULL
-      )
-    ORDER BY d."updated_at" ASC
-    LIMIT 1
-    FOR UPDATE OF d SKIP LOCKED
-  `;
-
-  const claimed = rows[0];
-  if (!claimed) {
-    return false;
-  }
-
-  await expireOffers(tx, claimed.id, null, now);
-
-  const delivery = await tx.delivery.findUnique({
-    where: { id: claimed.id },
-  });
-
-  if (!delivery || delivery.status !== DeliveryStatus.SEARCHING) {
-    return true;
-  }
-
-  if (delivery.nextRetryAt === null && delivery.autoRetryCount < AUTO_RETRY_MAX_COUNT) {
-    await tx.delivery.update({
-      where: { id: delivery.id },
-      data: {
-        nextRetryAt: new Date(now.getTime() + AUTO_RETRY_DELAY_MS),
-        updatedAt: now,
-      },
-    });
-    return true;
-  }
-
-  if (delivery.nextRetryAt === null && delivery.autoRetryCount >= AUTO_RETRY_MAX_COUNT) {
-    await tx.delivery.update({
-      where: { id: delivery.id },
-      data: {
-        status: DeliveryStatus.NO_RIDER_FOUND,
-        nextRetryAt: null,
-        updatedAt: now,
-      },
-    });
-
-    await tx.deliveryStatusEvent.create({
-      data: {
-        deliveryId: delivery.id,
-        previousStatus: DeliveryStatus.SEARCHING,
-        newStatus: DeliveryStatus.NO_RIDER_FOUND,
-        actorId: null,
-        actorType: DeliveryActorType.SYSTEM,
-        occurredAt: now,
-      },
-    });
-
-    return true;
-  }
-
-  if (delivery.nextRetryAt !== null && delivery.nextRetryAt <= now) {
-    const nextGeneration = delivery.searchGeneration + 1;
-
-    await tx.delivery.update({
-      where: { id: delivery.id },
-      data: {
-        searchGeneration: nextGeneration,
-        autoRetryCount: { increment: 1 },
-        nextRetryAt: null,
-        searchStartedAt: now,
-        updatedAt: now,
-      },
-    });
-
-    await insertRounds(tx, delivery.id, nextGeneration, now);
-    return true;
-  }
-
-  return true;
-}
-
-async function insertRounds(
-  tx: Prisma.TransactionClient,
-  deliveryId: string,
-  searchGeneration: number,
-  now: Date,
-): Promise<void> {
-  for (let index = 0; index < DISPATCH_ROUND_RADII_METRES.length; index += 1) {
-    await tx.deliveryDispatchRound.create({
-      data: {
-        deliveryId,
-        searchGeneration,
-        roundNumber: index + 1,
-        radiusMetres: DISPATCH_ROUND_RADII_METRES[index],
-        dueAt: new Date(now.getTime() + DISPATCH_ROUND_DELAYS_MS[index]),
-        status: DispatchRoundStatus.PENDING,
-        createdAt: now,
-        completedAt: null,
-      },
     });
   }
 }
@@ -1172,35 +986,6 @@ async function lockAssignment(tx: Prisma.TransactionClient, assignmentId: string
   `;
 }
 
-async function claimDueRound(tx: Prisma.TransactionClient, now: Date): Promise<{ id: string } | null> {
-  const rows = await tx.$queryRaw<Array<{ id: string }>>`
-    SELECT "id"
-    FROM "delivery_dispatch_rounds"
-    WHERE "status" = 'PENDING'::"dispatch_round_status"
-      AND "due_at" <= ${now}
-    ORDER BY "due_at" ASC, "id" ASC
-    LIMIT 1
-    FOR UPDATE SKIP LOCKED
-  `;
-  return rows[0] ?? null;
-}
-
-function toRiderOffer(assignment: AssignmentRow, delivery: DeliveryRow): RiderOffer {
-  const stops = riderStops(delivery, new Date());
-  return {
-    assignmentId: assignment.id,
-    deliveryId: delivery.id,
-    expiresAt: assignment.offerExpiresAt.toISOString(),
-    offeredPrice: formatCents(centsFromDecimal(delivery.price)),
-    currency: delivery.currency,
-    payer: delivery.payer,
-    paymentMethod: delivery.paymentMethod,
-    parcel: stops.parcel,
-    pickup: stops.pickup,
-    dropoff: stops.dropoff,
-  };
-}
-
 export function activeAssignmentFromRows(
   riderProfileId: string,
   rows: ActiveAssignmentRow[],
@@ -1209,12 +994,13 @@ export function activeAssignmentFromRows(
   const match = rows.find((row) =>
     row.riderProfileId === riderProfileId
     && row.status === AssignmentStatus.ACCEPTED
-    && RIDER_RESUMABLE.has(row.delivery.status),
+    && LIVE_ASSIGNMENT_STATUS_SET.has(row.delivery.status),
   );
   if (!match) {
     return null;
   }
   const stops = riderStops(match.delivery, now);
+  const serviceClass = marketplaceServiceClass(match.delivery.serviceClass, match.acceptedBidAmount);
   return {
     assignmentId: match.id,
     deliveryId: match.delivery.id,
@@ -1222,6 +1008,48 @@ export function activeAssignmentFromRows(
     parcel: stops.parcel,
     pickup: stops.pickup,
     dropoff: stops.dropoff,
+    serviceClass,
+    deliverBy: match.delivery.deliverBy instanceof Date ? match.delivery.deliverBy.toISOString() : null,
+    agreedPrice: match.acceptedBidAmount == null ? null : moneyText(match.acceptedBidAmount),
+    distanceMeters: typeof match.delivery.distanceMeters === 'number' ? match.delivery.distanceMeters : null,
+    createdAt: match.delivery.createdAt instanceof Date ? match.delivery.createdAt.toISOString() : null,
+  };
+}
+
+export function completedAssignmentFromRow(
+  riderProfileId: string,
+  row: ActiveAssignmentRow & {
+    delivery: DeliveryRow & {
+      updatedAt?: Date;
+      statusEvents?: Array<{ newStatus: DeliveryStatus; occurredAt: Date }>;
+    };
+  },
+  now: Date,
+): CompletedAssignment | null {
+  if (
+    row.riderProfileId !== riderProfileId
+    || row.status !== AssignmentStatus.COMPLETED
+    || row.delivery.status !== DeliveryStatus.DELIVERED
+  ) {
+    return null;
+  }
+  const stops = riderStops(row.delivery, now);
+  const serviceClass = marketplaceServiceClass(row.delivery.serviceClass, row.acceptedBidAmount);
+  const delivered = row.delivery.statusEvents?.find((event) => event.newStatus === DeliveryStatus.DELIVERED);
+  const completedAt = delivered?.occurredAt ?? row.delivery.updatedAt ?? row.delivery.createdAt ?? now;
+  return {
+    assignmentId: row.id,
+    deliveryId: row.delivery.id,
+    status: DeliveryStatus.DELIVERED,
+    parcel: stops.parcel,
+    pickup: stops.pickup,
+    dropoff: stops.dropoff,
+    serviceClass,
+    deliverBy: row.delivery.deliverBy instanceof Date ? row.delivery.deliverBy.toISOString() : null,
+    agreedPrice: row.acceptedBidAmount == null ? null : moneyText(row.acceptedBidAmount),
+    distanceMeters: typeof row.delivery.distanceMeters === 'number' ? row.delivery.distanceMeters : null,
+    createdAt: row.delivery.createdAt instanceof Date ? row.delivery.createdAt.toISOString() : null,
+    completedAt: completedAt.toISOString(),
   };
 }
 
@@ -1296,6 +1124,13 @@ function moneyText(value: string | { toFixed(digits: number): string }): string 
   return typeof value === 'string' ? value : value.toFixed(2);
 }
 
+function agreedPriceCents(price: string | { toFixed(digits: number): string } | null): number {
+  if (price == null) {
+    throw new ConflictException('This delivery has no agreed price');
+  }
+  return centsFromDecimal(price);
+}
+
 function readIdempotencyKey(value: string): string {
   const key = typeof value === 'string' ? value.trim() : '';
   if (!key || key.length > 200) {
@@ -1303,19 +1138,4 @@ function readIdempotencyKey(value: string): string {
   }
   return key;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 

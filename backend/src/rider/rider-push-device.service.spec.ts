@@ -33,11 +33,13 @@ describe('rider push devices', () => {
     expect(calls[0]?.[2]).toBe(rider.riderProfileId);
     expect(calls[0]?.[3]).toBe('device-token');
 
-    const remove = String(calls[1]?.[0]);
-    expect(remove).toContain('DELETE FROM rider_push_devices');
+    const wake = calls.map((call) => String(call[0])).find((sql) => sql.includes('RIDER_OPPORTUNITY'));
+    expect(wake).toContain('next_attempt_at');
+    const removeCall = calls.find((call) => String(call[0]).includes('DELETE FROM rider_push_devices'));
+    const remove = String(removeCall?.[0]);
     expect(remove).toContain('rider_profile_id = $2::uuid');
     expect(remove).not.toContain('device-token');
-    expect(calls[1]?.[1]).toBe('device-token');
-    expect(calls[1]?.[2]).toBe(rider.riderProfileId);
+    expect(removeCall?.[1]).toBe('device-token');
+    expect(removeCall?.[2]).toBe(rider.riderProfileId);
   });
 });

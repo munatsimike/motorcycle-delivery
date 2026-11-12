@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import { readGps } from './rider-location.js';
 import { RiderLocationService } from './rider-location.service.js';
+import { OUTSIDE_SERVICE_AREA } from '../delivery/service-area.js';
 
 const RIDER = { userId: 'user-1', riderProfileId: 'profile-1' };
 const NOW = new Date('2026-10-14T12:00:00.000Z');
@@ -48,5 +49,68 @@ describe('rider location updates', () => {
     expect(calls[0]?.values[0]).toBe('profile-1');
     expect(calls[0]?.values[3]).toBeCloseTo(31.05);
     expect(calls[0]?.values[4]).toBeCloseTo(-17.8);
+  });
+
+  it('stores a location while marketplace bidding is unavailable', async () => {
+    const previous = process.env.V2_MARKETPLACE_ENABLED;
+    process.env.V2_MARKETPLACE_ENABLED = 'false';
+    const calls: unknown[] = [];
+    const service = new RiderLocationService({
+      async $executeRaw() {
+        calls.push(true);
+        return 1;
+      },
+    } as unknown as PrismaService);
+    try {
+      await expect(service.update(RIDER, { latitude: -17.8292, longitude: 31.0522 }, NOW))
+        .resolves.toEqual({ updatedAt: NOW.toISOString() });
+      expect(calls).toHaveLength(1);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.V2_MARKETPLACE_ENABLED;
+      } else {
+        process.env.V2_MARKETPLACE_ENABLED = previous;
+      }
+    }
+  });
+
+  it('stores a Netherlands point only when local coordinate testing is enabled', async () => {
+    const calls: unknown[] = [];
+    const service = new RiderLocationService({
+      async $executeRaw() {
+        calls.push(true);
+        return 1;
+      },
+    } as unknown as PrismaService);
+    await expect(service.update(RIDER, { latitude: 52.3676, longitude: 4.9041 }, NOW))
+      .rejects.toThrow(OUTSIDE_SERVICE_AREA);
+    expect(calls).toHaveLength(0);
+
+    const previousNode = process.env.NODE_ENV;
+    const previousFlag = process.env.ALLOW_TEST_NL_COORDINATES;
+    process.env.NODE_ENV = 'development';
+    process.env.ALLOW_TEST_NL_COORDINATES = 'true';
+    try {
+      await expect(service.update(RIDER, { latitude: 52.3676, longitude: 4.9041 }, NOW))
+        .resolves.toEqual({ updatedAt: NOW.toISOString() });
+      expect(calls).toHaveLength(1);
+    } finally {
+      process.env.NODE_ENV = previousNode;
+      if (previousFlag === undefined) {
+        delete process.env.ALLOW_TEST_NL_COORDINATES;
+      } else {
+        process.env.ALLOW_TEST_NL_COORDINATES = previousFlag;
+      }
+    }
+
+    process.env.NODE_ENV = 'production';
+    process.env.ALLOW_TEST_NL_COORDINATES = 'true';
+    try {
+      await expect(service.update(RIDER, { latitude: 52.37, longitude: 4.9 }, NOW))
+        .rejects.toThrow(OUTSIDE_SERVICE_AREA);
+    } finally {
+      process.env.NODE_ENV = previousNode;
+      delete process.env.ALLOW_TEST_NL_COORDINATES;
+    }
   });
 });

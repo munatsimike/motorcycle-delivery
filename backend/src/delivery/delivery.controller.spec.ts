@@ -1,4 +1,4 @@
-import { ConflictException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 import { UserRole } from '../generated/prisma/client.js';
 import { DeliveryController } from './delivery.controller.js';
@@ -6,13 +6,14 @@ import { DeliveryController } from './delivery.controller.js';
 const CUSTOMER = { userId: 'user-1', role: UserRole.CUSTOMER, customerAccountId: 'account-1' };
 
 describe('DeliveryController', () => {
-  const seen: { accountId?: string; deliveryId?: string } = {};
+  const seen: { accountId?: string; deliveryId?: string; idempotencyKey?: string } = {};
   const controller = new DeliveryController({
     async quote() {
       return { suggestedPrice: '2.00' };
     },
-    async create(customer: { customerAccountId: string }) {
+    async create(customer: { customerAccountId: string }, _body: unknown, idempotencyKey: string) {
       seen.accountId = customer.customerAccountId;
+      seen.idempotencyKey = idempotencyKey;
       return { id: 'delivery-1', status: 'CREATED', customerAccountId: customer.customerAccountId };
     },
     async list(customer: { customerAccountId: string }, query: { customerId?: string }) {
@@ -32,68 +33,76 @@ describe('DeliveryController', () => {
     async cancel() {
       return { status: 'CANCELLED' };
     },
+    async adjustOffer() {
+      return { customerOffer: '1.00' };
+    },
   } as never, {} as never);
 
   it('requires an authenticated customer account', async () => {
     expect(() => controller.quote({}, {})).toThrow(ForbiddenException);
-    await expect(controller.create({}, {})).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(controller.create({ headers: { 'idempotency-key': 'booking-1' } }, {})).rejects.toBeInstanceOf(ForbiddenException);
     expect(() => controller.list({}, {})).toThrow(ForbiddenException);
     expect(() => controller.getById({}, 'delivery-1')).toThrow(ForbiddenException);
     expect(() => controller.search({}, 'delivery-1')).toThrow(ForbiddenException);
+    expect(() => controller.adjustOffer({}, 'delivery-1', {})).toThrow(ForbiddenException);
     expect(() => controller.cancel({}, 'delivery-1')).toThrow(ForbiddenException);
   });
 
-  it('searches only after the booking is committed and returns the persisted status', async () => {
-    const response = await controller.create({ customer: CUSTOMER }, { customerId: 'other-account' });
+  it('returns the created booking without starting a search', async () => {
+    const created = { id: 'delivery-v2', status: 'CREATED', searchGeneration: 0 };
+    let searched = false;
+    const flagged = new DeliveryController({
+      async create() {
+        return created;
+      },
+    } as never, {
+      async search() {
+        searched = true;
+        return { deliveryId: created.id, status: 'SEARCHING', searchGeneration: 1 };
+      },
+    } as never, {} as never);
+    delete process.env.V2_MARKETPLACE_ENABLED;
+    const booking = { customer: CUSTOMER, headers: { 'idempotency-key': ' booking-1 ' } };
+    await expect(flagged.create(booking, {})).resolves.toEqual(created);
+    process.env.V2_MARKETPLACE_ENABLED = 'true';
+    await expect(flagged.create(booking, {})).resolves.toEqual(created);
+    delete process.env.V2_MARKETPLACE_ENABLED;
+    expect(searched).toBe(false);
+    await expect(flagged.create({ customer: CUSTOMER }, {})).rejects.toBeInstanceOf(BadRequestException);
+
+    const response = await controller.create({ customer: CUSTOMER, headers: { 'idempotency-key': ' booking-1 ' } }, { customerId: 'other-account' });
     expect(seen.accountId).toBe('account-1');
-    expect(seen.deliveryId).toBe('delivery-1');
-    expect(response).toEqual({ id: 'delivery-1', status: 'SEARCHING' });
+    expect(seen.idempotencyKey).toBe('booking-1');
+    expect(seen.deliveryId).toBeUndefined();
+    expect(response).toEqual({ id: 'delivery-1', status: 'CREATED', customerAccountId: 'account-1' });
   });
 
-  it('keeps the committed booking when automatic search fails', async () => {
-    const created = { id: 'delivery-9', status: 'CREATED', searchGeneration: 0 };
-    let reloaded = false;
-    const failing = new DeliveryController({
-      async create() {
-        return created;
-      },
+  it('draws the cached route from pickup and dropoff', async () => {
+    const drawn: number[] = [];
+    const mapped = new DeliveryController({
       async getById() {
-        reloaded = true;
-        return { id: 'delivery-9', status: 'SEARCHING' };
+        return {
+          pickup: { latitude: '-17.1000000', longitude: '31.1000000' },
+          dropoff: { latitude: '-17.2000000', longitude: '31.2000000' },
+          riderLocation: { latitude: '-17.8010000', longitude: '31.1090000' },
+        };
       },
-    } as never, {
-      async search() {
-        throw new ConflictException('A search is already running');
+    } as never, {} as never, {
+      async deliveryMap(
+        pickupLatitude: number,
+        pickupLongitude: number,
+        dropoffLatitude: number,
+        dropoffLongitude: number,
+      ) {
+        drawn.push(pickupLatitude, pickupLongitude, dropoffLatitude, dropoffLongitude);
+        return new Uint8Array([1, 2, 3]);
       },
-    } as never, {} as never);
+    } as never);
 
-    const response = await failing.create({ customer: CUSTOMER }, {});
-    expect(response).toEqual(created);
-    expect(reloaded).toBe(false);
-  });
-
-  it('returns the search result when the delivery cannot be reloaded', async () => {
-    const created = { id: 'delivery-4', status: 'CREATED', searchGeneration: 0, autoRetryCount: 0, nextRetryAt: null };
-    const reloading = new DeliveryController({
-      async create() {
-        return created;
-      },
-      async getById() {
-        throw new Error('database unavailable');
-      },
-    } as never, {
-      async search() {
-        return { deliveryId: 'delivery-4', status: 'SEARCHING', searchGeneration: 1 };
-      },
-    } as never, {} as never);
-
-    await expect(reloading.create({ customer: CUSTOMER }, {})).resolves.toEqual({
-      id: 'delivery-4',
-      status: 'SEARCHING',
-      searchGeneration: 1,
-      autoRetryCount: 0,
-      nextRetryAt: null,
-    });
+    const file = await mapped.map({ customer: CUSTOMER }, 'delivery-1');
+    expect(drawn).toEqual([-17.1, 31.1, -17.2, 31.2]);
+    expect(JSON.stringify(drawn)).not.toContain('17.801');
+    expect(file.options.type).toBe('image/png');
   });
 
   it('lists with the session account and ignores a customer id in the query', async () => {

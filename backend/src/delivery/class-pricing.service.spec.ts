@@ -59,6 +59,20 @@ describe('ClassPricingService', () => {
       expect.objectContaining({ kind: 'NIGHT', enabled: true, startsAt: '22:00', endsAt: '02:00', adjustmentBasisPoints: 1_000 }),
     ]);
     expect(ctx.configs.filter((row) => row.isActive).map((row) => row.serviceClass).sort()).toEqual(['EXPRESS', 'FLEXIBLE']);
+
+    const included = await ctx.service.publish(ADMIN, 'EXPRESS', includedTariff());
+    expect(included).toMatchObject({
+      pricingModel: 'INCLUDED_DISTANCE',
+      baseFee: '5.00',
+      pricePerKilometre: '0.80',
+      includedMetres: 5_000,
+      minimumTripMetres: 100,
+      maximumTripMetres: 100_000,
+      tiers: [],
+      windows: [],
+      isActive: true,
+    });
+    expect(ctx.configs.find((row) => row.pricingVersion === 3)).toMatchObject({ isActive: false, pricingModel: 'BASE_PLUS_PER_KILOMETRE' });
   });
 
   it('publishes one class without changing the other class or the V1 tariff', async () => {
@@ -75,6 +89,29 @@ describe('ClassPricingService', () => {
     expect(ctx.configs.find((row) => row.serviceClass === null)).toMatchObject({ isActive: true, baseFee: '2.00', pricingVersion: 1 });
     expect(ctx.configs.find((row) => row.serviceClass === 'EXPRESS' && row.pricingVersion === 3)).toMatchObject({ isActive: false, baseFee: '9.00' });
     expect(ctx.audits.map((row) => row.previousVersion)).toEqual([null, null, 3]);
+    expect(ctx.configs.find((row) => row.serviceClass === null)).toMatchObject({ includedMetres: null });
+  });
+
+  it('keeps the included distance when a window publishes the next version', async () => {
+    const ctx = context();
+    const published = await ctx.service.publish(ADMIN, 'FLEXIBLE', {
+      ...includedTariff(),
+      windows: [midnightWindow()],
+    });
+    const windowId = published.windows[0]?.id ?? '';
+    const next = await ctx.service.setWindowEnabled(ADMIN, 'FLEXIBLE', windowId, { enabled: false });
+    expect(next).toMatchObject({
+      pricingVersion: 2,
+      includedMetres: 5_000,
+      baseFee: '5.00',
+      pricePerKilometre: '0.80',
+    });
+    expect(next.windows[0]).toMatchObject({ enabled: false });
+    expect(ctx.configs.find((row) => row.pricingVersion === 1)).toMatchObject({
+      isActive: false,
+      includedMetres: 5_000,
+      windows: [expect.objectContaining({ id: windowId, enabled: true })],
+    });
   });
 
   it('keeps a disabled window on the historical version when a later version enables it', async () => {
@@ -106,6 +143,12 @@ describe('ClassPricingService', () => {
     await expect(ctx.service.publish(ADMIN, 'EXPRESS', { ...fixedTariff('-1.00') })).rejects.toBeInstanceOf(BadRequestException);
     await expect(ctx.service.publish(ADMIN, 'EXPRESS', { ...fixedTariff('1.00'), minimumTripMetres: 10, maximumTripMetres: 10 })).rejects.toThrow('greater than the minimum');
     await expect(ctx.service.publish(ADMIN, 'EXPRESS', { ...fixedTariff('1.00'), pricePerKilometre: '1.00' })).rejects.toThrow('does not apply');
+    await expect(ctx.service.publish(ADMIN, 'EXPRESS', { ...fixedTariff('1.00'), includedMetres: 1_000 })).rejects.toThrow('does not apply');
+    await expect(ctx.service.publish(ADMIN, 'FLEXIBLE', { ...includedTariff(), includedMetres: undefined })).rejects.toThrow('Enter the included distance');
+    await expect(ctx.service.publish(ADMIN, 'FLEXIBLE', { ...includedTariff(), includedMetres: 0 })).rejects.toThrow('Enter the included distance');
+    await expect(ctx.service.publish(ADMIN, 'FLEXIBLE', { ...includedTariff(), includedMetres: 1.5 })).rejects.toThrow('Enter the included distance');
+    await expect(ctx.service.publish(ADMIN, 'FLEXIBLE', { ...includedTariff(), includedMetres: 50 })).rejects.toThrow('inside the trip range');
+    await expect(ctx.service.publish(ADMIN, 'FLEXIBLE', { ...includedTariff(), includedMetres: 100_001 })).rejects.toThrow('inside the trip range');
     await expect(ctx.service.publish(ADMIN, 'FLEXIBLE', {
       pricingModel: 'DISTANCE_TIERS',
       minimumTripMetres: 0,
@@ -167,6 +210,17 @@ describe('ClassPricingService', () => {
   });
 });
 
+function includedTariff() {
+  return {
+    pricingModel: 'INCLUDED_DISTANCE',
+    baseFee: '5.00',
+    pricePerKilometre: '0.80',
+    includedMetres: 5_000,
+    minimumTripMetres: 100,
+    maximumTripMetres: 100_000,
+  };
+}
+
 function fixedTariff(baseFee: string) {
   return {
     pricingModel: 'FIXED',
@@ -211,6 +265,7 @@ function row(overrides: Record<string, unknown>): {
   pricePerKilometre: string;
   minimumTripMetres: number;
   maximumTripMetres: number;
+  includedMetres: number | null;
   createdById: string;
   tiers: Array<Record<string, unknown> & { id: string; position: number; upToMetres: number | null; amount: string }>;
   windows: Array<Record<string, unknown> & { id: string; enabled: boolean; createdAt: Date; daysOfWeek: number[] }>;
@@ -226,6 +281,7 @@ function row(overrides: Record<string, unknown>): {
     pricePerKilometre: '0.00',
     minimumTripMetres: 0,
     maximumTripMetres: 10_000,
+    includedMetres: null,
     createdById: 'admin-1',
     tiers: [],
     windows: [],
@@ -264,7 +320,7 @@ function context() {
         return rows[0] ?? null;
       },
       async update({ where, data }: { where: { id: string }; data: { isActive?: boolean; baseFee?: string } }) {
-        if ('baseFee' in data || 'pricePerKilometre' in data) throw new Error('historical tariff fees were edited');
+        if ('baseFee' in data || 'pricePerKilometre' in data || 'includedMetres' in data) throw new Error('historical tariff fees were edited');
         const item = configs.find((row) => row.id === where.id);
         if (!item) throw new Error('missing tariff');
         Object.assign(item, data);
@@ -311,7 +367,7 @@ function context() {
     async $queryRaw(strings: TemplateStringsArray) {
       return strings.join(' ');
     },
-    async $transaction<T>(callback: (tx: typeof db & { $queryRaw: (strings: TemplateStringsArray) => Promise<string> }) => Promise<T>) {
+    async $transaction<T>(callback: (tx: object) => Promise<T>) {
       let snapshot = clone();
       const auditSnapshot = audits.map((item) => ({ ...item }));
       let release: (() => void) | undefined;

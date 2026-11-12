@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { DeliveryStatus } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { ADMIN_DELIVERY_DETAIL_SELECT, toAdminDeliveryDetail } from './admin-delivery-detail.js';
 
 @Injectable()
 export class AdminDeliveryListService {
@@ -89,74 +90,14 @@ export class AdminDeliveryListService {
 
     const delivery = await this.prisma.delivery.findUnique({
       where: { id: deliveryId },
-      select: {
-        id: true,
-        deliveryType: true,
-        status: true,
-        pickupAddress: true,
-        dropoffAddress: true,
-        parcelSize: true,
-        price: true,
-        suggestedPrice: true,
-        distanceMeters: true,
-        pricingVersion: true,
-        payer: true,
-        currency: true,
-        paymentMethod: true,
-        createdAt: true,
-        updatedAt: true,
-        statusEvents: {
-          orderBy: [{ occurredAt: 'asc' }, { id: 'asc' }],
-          select: {
-            id: true,
-            previousStatus: true,
-            newStatus: true,
-            actorType: true,
-            occurredAt: true,
-          },
-        },
-        assignments: {
-          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-          select: {
-            id: true,
-            riderProfileId: true,
-            motorcycleId: true,
-            status: true,
-            offerExpiresAt: true,
-            respondedAt: true,
-            releaseReason: true,
-            releasedAt: true,
-            createdAt: true,
-          },
-        },
-      },
+      select: ADMIN_DELIVERY_DETAIL_SELECT,
     });
 
     if (!delivery) {
       throw new NotFoundException('Delivery not found');
     }
 
-    return {
-      deliveryId: delivery.id,
-      deliveryType: delivery.deliveryType,
-      status: delivery.status,
-      pickupAddress: delivery.pickupAddress,
-      dropoffAddress: delivery.dropoffAddress,
-      parcelSize: delivery.parcelSize,
-      price: delivery.price,
-      suggestedPrice: delivery.suggestedPrice,
-      distanceMeters: delivery.distanceMeters,
-      pricingVersion: delivery.pricingVersion,
-      payer: delivery.payer,
-      currency: delivery.currency,
-      paymentMethod: delivery.paymentMethod,
-      createdAt: delivery.createdAt,
-      updatedAt: delivery.updatedAt,
-      activeAssignment:
-        delivery.assignments.find((assignment) => assignment.status === 'ACCEPTED') ?? null,
-      assignments: delivery.assignments,
-      statusTimeline: delivery.statusEvents,
-    };
+    return toAdminDeliveryDetail(delivery);
   }
 }
 

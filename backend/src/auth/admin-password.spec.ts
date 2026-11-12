@@ -1,7 +1,7 @@
 import {
   hashAdminPassword,
   verifyAdminPassword,
-} from './admin-password';
+} from './admin-password.js';
 
 describe('Admin password security', () => {
   it('hashes passwords using Argon2id', async () => {

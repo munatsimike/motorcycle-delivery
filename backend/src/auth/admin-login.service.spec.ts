@@ -25,7 +25,7 @@ describe('Admin login OTP verification', () => {
   };
 
   const prisma = {
-    $transaction: vi.fn(async (callback: (tx: typeof tx) => Promise<unknown>) =>
+    $transaction: vi.fn(async (callback: (transaction: typeof tx) => Promise<unknown>) =>
       callback(tx),
     ),
   };
@@ -157,7 +157,7 @@ describe('Admin login OTP verification', () => {
     let queue = Promise.resolve();
 
     prisma.$transaction.mockImplementation(
-      async (callback: (tx: typeof tx) => Promise<unknown>) => {
+      async (callback: (transaction: typeof tx) => Promise<unknown>) => {
         const previous = queue;
         let release!: () => void;
         queue = new Promise<void>((resolve) => {

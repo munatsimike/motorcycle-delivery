@@ -25,6 +25,7 @@ describe('Google Places autocomplete', () => {
       },
     });
     expect(autocompleteBody('Budiriro', TOKEN, null).locationBias).toBeUndefined();
+    expect(autocompleteBody('Amsterdam', TOKEN, null, null).includedRegionCodes).toBeUndefined();
     expect(JSON.stringify(body)).not.toContain('31.05');
   });
 

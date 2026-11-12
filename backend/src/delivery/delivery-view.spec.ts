@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Currency, DeliveryPayer, DeliveryStatus, ParcelSize, PaymentMethod, CoordinateSource } from '../generated/prisma/client.js';
-import { toCustomerDelivery, toRiderDelivery, type StoredDelivery } from './delivery-view.js';
+import { assignedRiderStatus, customerRoutesToDropoff, freshRiderPoint, toCustomerDelivery, toRiderDelivery, withAssignedRider, withCollectingRiderLocation, withPickupApproach, type StoredDelivery } from './delivery-view.js';
 
 describe('rider delivery view', () => {
   it('omits the suggested price', () => {
@@ -8,6 +8,14 @@ describe('rider delivery view', () => {
     expect(view.offeredPrice).toBe('4.00');
     expect(JSON.stringify(view)).not.toContain('suggestedPrice');
     expect(JSON.stringify(view)).not.toContain('1.50');
+  });
+
+  it('returns the customer offer apart from the agreed price', () => {
+    const view = toCustomerDelivery({ ...stored(), customerOffer: '4.00', price: '9.00', suggestedPrice: '8.00' });
+    expect(view.customerOffer).toBe('4.00');
+    expect(view.offeredPrice).toBe('9.00');
+    expect(view.suggestedPrice).toBe('8.00');
+    expect(toCustomerDelivery(stored()).customerOffer).toBeNull();
   });
 
   it('keeps a present coordinate and returns null when one is missing', () => {
@@ -44,6 +52,62 @@ describe('rider delivery view', () => {
     expect(restored.dropoff.address).toBe('4 Jason Moyo Avenue');
     expect(restored.offeredPrice).toBe('4.00');
     expect(restored.status).toBe(DeliveryStatus.CREATED);
+  });
+
+  it('adds the rider point from acceptance until the parcel is out for delivery', () => {
+    const point = { latitude: '-17.8010000', longitude: '31.1090000' };
+    for (const status of [
+      DeliveryStatus.DELIVERED,
+      DeliveryStatus.CANCELLED,
+      DeliveryStatus.ASSIGNED,
+      DeliveryStatus.IN_TRANSIT,
+    ]) {
+      const hidden = withCollectingRiderLocation(toCustomerDelivery({ ...stored(), status }), point);
+      expect(hidden).not.toHaveProperty('riderLocation');
+      expect(JSON.stringify(hidden)).not.toContain('-17.8010000');
+      expect(customerRoutesToDropoff(status)).toBe(false);
+    }
+    for (const status of [
+      DeliveryStatus.RIDER_ASSIGNED,
+      DeliveryStatus.COLLECTING,
+      DeliveryStatus.COLLECTED,
+      DeliveryStatus.OUT_FOR_DELIVERY,
+    ]) {
+      const visible = withCollectingRiderLocation(toCustomerDelivery({ ...stored(), status }), point);
+      expect(visible).toMatchObject({ status, riderLocation: point });
+      expect(customerRoutesToDropoff(status)).toBe(status === DeliveryStatus.COLLECTED || status === DeliveryStatus.OUT_FOR_DELIVERY);
+    }
+    expect(withCollectingRiderLocation(
+      toCustomerDelivery({ ...stored(), status: DeliveryStatus.COLLECTING }),
+      null,
+    )).not.toHaveProperty('riderLocation');
+    const shared = withCollectingRiderLocation(
+      toCustomerDelivery({ ...stored(), status: DeliveryStatus.RIDER_ASSIGNED }),
+      { ...point, updatedAt: '2026-10-28T16:00:00.000Z', riderProfileId: 'profile-1' },
+    );
+    expect(shared).toMatchObject({
+      riderLocation: { latitude: point.latitude, longitude: point.longitude, updatedAt: '2026-10-28T16:00:00.000Z' },
+    });
+    expect(JSON.stringify(shared)).not.toContain('profile-1');
+    const approach = { metres: 2400, seconds: 420, line: [{ latitude: -17.82, longitude: 31.05 }] };
+    expect(withPickupApproach(shared, approach)).toMatchObject({ pickupApproach: approach });
+    expect(withPickupApproach(shared, null)).not.toHaveProperty('pickupApproach');
+    expect(toRiderDelivery({ ...stored(), status: DeliveryStatus.COLLECTING })).not.toHaveProperty('riderLocation');
+  });
+
+  it('adds the assigned rider only for an assigned delivery and drops a stale point', () => {
+    const rider = { name: 'Tendai Moyo', verified: true, motorcycle: 'Honda Ace', registrationNumber: 'ABC 1234', colour: 'Red', phone: '+263771000001', hasProfilePhoto: false };
+    expect(assignedRiderStatus(DeliveryStatus.CREATED)).toBe(false);
+    expect(assignedRiderStatus(DeliveryStatus.RIDER_ASSIGNED)).toBe(true);
+    expect(withAssignedRider(toCustomerDelivery(stored()), null)).not.toHaveProperty('rider');
+    const assigned = withAssignedRider(toCustomerDelivery({ ...stored(), status: DeliveryStatus.RIDER_ASSIGNED }), rider);
+    expect(assigned).toMatchObject({ rider });
+    expect(JSON.stringify(assigned)).not.toContain('riderProfileId');
+    const now = new Date('2026-10-26T12:00:00.000Z');
+    const point = { latitude: '-17.8010000', longitude: '31.1090000' };
+    expect(freshRiderPoint(point, new Date(now.getTime() - 60_000), now)).toBeNull();
+    expect(freshRiderPoint(point, new Date(now.getTime() - 59_000), now)).toEqual(point);
+    expect(freshRiderPoint(null, now, now)).toBeNull();
   });
 });
 

@@ -12,39 +12,52 @@ import { AdminLoginService } from '../auth/admin-login.service.js';
 import { AccessTokenService } from '../auth/access-token.service.js';
 import { CustomerAccessService } from '../auth/customer-access.service.js';
 import { CustomerAuthController } from '../auth/customer-auth.controller.js';
-import { OtpAuthService } from '../auth/otp-auth.service.js';
-import { PasswordAuthService } from '../auth/password-auth.service.js';
 import { RiderAccessService } from '../auth/rider-access.service.js';
 import { WhatsAppAuthService } from '../auth/whatsapp-auth.service.js';
 import { RiderAuthController } from '../auth/rider-auth.controller.js';
 import { SessionController } from '../auth/session.controller.js';
 import { SessionService } from '../auth/session.service.js';
+import { AdminCustomerController } from '../customer/admin-customer.controller.js';
+import { AdminCustomerListService } from '../customer/admin-customer-list.service.js';
 import { CustomerAccountController } from '../customer/customer-account.controller.js';
 import { CustomerAccountService } from '../customer/customer-account.service.js';
+import { CustomerFcmDeviceController } from '../customer/customer-fcm-device.controller.js';
+import { CustomerFcmDeviceService } from '../customer/customer-fcm-device.service.js';
 import { AdminDeliveryController } from '../delivery/admin-delivery.controller.js';
 import { AdminDeliveryListService } from '../delivery/admin-delivery-list.service.js';
+import { CustomerBidController } from '../delivery/customer-bid.controller.js';
 import { DeliveryController } from '../delivery/delivery.controller.js';
+import { BidAcceptanceService } from '../delivery/bid-acceptance.service.js';
+import { BidService } from '../delivery/bid.service.js';
+import { RiderRatingService } from '../delivery/rider-rating.service.js';
+import { RiderBidController } from '../delivery/rider-bid.controller.js';
 import { ClassPricingService } from '../delivery/class-pricing.service.js';
 import { DeliveryPricingController } from '../delivery/delivery-pricing.controller.js';
-import { DeliveryPricingService } from '../delivery/delivery-pricing.service.js';
 import { DeliveryService } from '../delivery/delivery.service.js';
 import { DispatchService } from '../delivery/dispatch.service.js';
 import { NearbyRidersController } from '../delivery/nearby-riders.controller.js';
 import { NearbyRidersService } from '../delivery/nearby-riders.service.js';
 import { PlacesController } from '../delivery/places.controller.js';
 import { PlacesService } from '../delivery/places.service.js';
+import { RegistrationAddressController } from '../delivery/registration-address.controller.js';
+import { RegistrationPlaceLimiter } from '../delivery/registration-address-limit.js';
 import { RegistrationPlacesController } from '../delivery/registration-places.controller.js';
 import { RiderAssignmentController } from '../delivery/rider-assignment.controller.js';
 import { RiderAvailabilityAlertController } from '../delivery/rider-availability-alert.controller.js';
 import { RiderAvailabilityAlertService } from '../delivery/rider-availability-alert.service.js';
 import { RiderDeliveryController } from '../delivery/rider-delivery.controller.js';
-import { RiderOfferController } from '../delivery/rider-offer.controller.js';
 import { RiderPushDeviceController } from '../rider/rider-push-device.controller.js';
 import { RiderPushDeviceService } from '../rider/rider-push-device.service.js';
-import { CommissionPolicyController } from '../rider/commission-policy.controller.js';
-import { CommissionPolicyService } from '../rider/commission-policy.service.js';
+import { V2CommissionRateController } from '../rider/v2-commission-rate.controller.js';
+import { V2CommissionRateService } from '../rider/v2-commission-rate.service.js';
 import { LicenceImageController } from '../rider/licence-image.controller.js';
 import { LicenceImageService } from '../rider/licence-image.service.js';
+import { CustomerAccountProfilePhotoController } from '../rider/customer-account-profile-photo.controller.js';
+import { CustomerAccountProfilePhotoService } from '../rider/customer-account-profile-photo.service.js';
+import { CustomerProfilePhotoController } from '../rider/customer-profile-photo.controller.js';
+import { CustomerProfilePhotoService } from '../rider/customer-profile-photo.service.js';
+import { ProfilePhotoController } from '../rider/profile-photo.controller.js';
+import { ProfilePhotoService } from '../rider/profile-photo.service.js';
 import { LicenceReviewService } from '../rider/licence-review.service.js';
 import { MotorcycleController } from '../rider/motorcycle.controller.js';
 import { MotorcycleListService } from '../rider/motorcycle-list.service.js';
@@ -54,6 +67,7 @@ import { MotorcycleService } from '../rider/motorcycle.service.js';
 import { RiderAdminController } from '../rider/rider-admin.controller.js';
 import { RiderApprovalService } from '../rider/rider-approval.service.js';
 import { RiderAvailabilityController } from '../rider/rider-availability.controller.js';
+import { RiderReceivingController } from '../rider/rider-receiving.controller.js';
 import { RiderAvailabilityService } from '../rider/rider-availability.service.js';
 import { RiderListService } from '../rider/rider-list.service.js';
 import { RiderLocationController } from '../rider/rider-location.controller.js';
@@ -61,6 +75,8 @@ import { RiderLocationService } from '../rider/rider-location.service.js';
 import { RiderOnboardingController } from '../rider/rider-onboarding.controller.js';
 import { RiderOnboardingService } from '../rider/rider-onboarding.service.js';
 import { RiderWalletController } from '../rider/rider-wallet.controller.js';
+import { EcocashTopUpController } from '../rider/ecocash-top-up.controller.js';
+import { EcocashTopUpService } from '../rider/ecocash-top-up.service.js';
 import { WalletConfigController } from '../rider/wallet-config.controller.js';
 import { WalletConfigService } from '../rider/wallet-config.service.js';
 import { WalletService } from '../rider/wallet.service.js';
@@ -80,33 +96,39 @@ describe('OpenAPI document', () => {
         AdminAuthController,
         SessionController,
         CustomerAccountController,
+        AdminCustomerController,
+        CustomerFcmDeviceController,
+        CustomerBidController,
         DeliveryController,
+        RiderBidController,
         PlacesController,
+        RegistrationAddressController,
         RegistrationPlacesController,
         NearbyRidersController,
         RiderAvailabilityAlertController,
         AdminDeliveryController,
         DeliveryPricingController,
-        RiderOfferController,
         RiderPushDeviceController,
         RiderDeliveryController,
         RiderAssignmentController,
         RiderOnboardingController,
         RiderAvailabilityController,
+        RiderReceivingController,
         RiderLocationController,
         MotorcycleController,
         LicenceImageController,
+        ProfilePhotoController,
+        CustomerProfilePhotoController,
+        CustomerAccountProfilePhotoController,
         RiderWalletController,
         RiderAdminController,
         MotorcycleReviewController,
-        CommissionPolicyController,
+        V2CommissionRateController,
         WalletConfigController,
         AdminDashboardController,
       ],
       providers: [
         { provide: AppService, useValue: unused },
-        { provide: OtpAuthService, useValue: unused },
-        { provide: PasswordAuthService, useValue: unused },
         { provide: WhatsAppAuthService, useValue: unused },
         { provide: AdminLoginService, useValue: unused },
         { provide: AccessTokenService, useValue: unused },
@@ -115,13 +137,18 @@ describe('OpenAPI document', () => {
         { provide: RiderAccessService, useValue: unused },
         { provide: AdminAccessService, useValue: unused },
         { provide: CustomerAccountService, useValue: unused },
+        { provide: AdminCustomerListService, useValue: unused },
+        { provide: CustomerFcmDeviceService, useValue: unused },
+        { provide: BidAcceptanceService, useValue: unused },
+        { provide: BidService, useValue: unused },
+        { provide: RiderRatingService, useValue: unused },
         { provide: DeliveryService, useValue: unused },
         { provide: DispatchService, useValue: unused },
         { provide: PlacesService, useValue: unused },
+        RegistrationPlaceLimiter,
         { provide: NearbyRidersService, useValue: unused },
         { provide: RiderAvailabilityAlertService, useValue: unused },
         { provide: AdminDeliveryListService, useValue: unused },
-        { provide: DeliveryPricingService, useValue: unused },
         { provide: ClassPricingService, useValue: unused },
         { provide: RiderOnboardingService, useValue: unused },
         { provide: RiderAvailabilityService, useValue: unused },
@@ -129,13 +156,16 @@ describe('OpenAPI document', () => {
         { provide: RiderLocationService, useValue: unused },
         { provide: MotorcycleService, useValue: unused },
         { provide: LicenceImageService, useValue: unused },
+        { provide: ProfilePhotoService, useValue: unused },
+        { provide: CustomerProfilePhotoService, useValue: unused },
+        { provide: CustomerAccountProfilePhotoService, useValue: unused },
         { provide: WalletService, useValue: unused },
         { provide: LicenceReviewService, useValue: unused },
         { provide: RiderApprovalService, useValue: unused },
         { provide: RiderListService, useValue: unused },
         { provide: MotorcycleReviewService, useValue: unused },
         { provide: MotorcycleListService, useValue: unused },
-        { provide: CommissionPolicyService, useValue: unused },
+        { provide: V2CommissionRateService, useValue: unused },
         { provide: WalletConfigService, useValue: unused },
         { provide: AdminDashboardService, useValue: unused },
       ],
@@ -156,7 +186,12 @@ describe('OpenAPI document', () => {
       scheme: 'bearer',
     });
 
-    const verify = document.paths?.['/auth/rider/login/verify']?.post;
+    const verify = document.paths?.['/auth/rider/register/whatsapp/verify']?.post;
+    expect(document.paths?.['/auth/rider/login/otp']).toBeUndefined();
+    expect(document.paths?.['/auth/rider/register/otp']).toBeUndefined();
+    expect(document.paths?.['/auth/customer/login']).toBeUndefined();
+    expect(document.paths?.['/auth/customer/register']).toBeUndefined();
+    const verify = document.paths?.['/auth/rider/register/whatsapp/verify']?.post;
     expect(verify?.requestBody).toBeTruthy();
     const verifySchema = schemaOf(document, verify?.requestBody);
     expect(verifySchema.required).toEqual(expect.arrayContaining(['phone', 'code']));
@@ -164,23 +199,9 @@ describe('OpenAPI document', () => {
     expect(verify?.responses?.['200']).toBeTruthy();
     expect(verify?.responses?.['401']).toBeTruthy();
 
-    const pricingGet = document.paths?.['/admin/delivery-pricing']?.get;
-    const pricingPut = document.paths?.['/admin/delivery-pricing']?.put;
-    expect(pricingGet?.security).toEqual([{ bearer: [] }]);
-    expect(pricingPut?.security).toEqual([{ bearer: [] }]);
-    const pricingSchema = schemaOf(document, pricingPut?.requestBody);
-    expect(pricingSchema.required).toEqual(expect.arrayContaining([
-      'baseFee',
-      'pricePerKilometre',
-      'minimumTripMetres',
-      'maximumTripMetres',
-    ]));
-    expect(pricingSchema.properties?.currency?.enum).toEqual(['USD']);
-    expect(document.paths?.['/admin/delivery-pricing']?.get?.responses?.['404']).toBeTruthy();
-    const v1Response = schemaOf(document, pricingGet?.responses?.['200']);
-    expect(v1Response.properties?.baseFee).toBeTruthy();
-    expect(v1Response.properties?.pricingModel).toBeUndefined();
-    expect(v1Response.properties?.serviceClass).toBeUndefined();
+    expect(document.paths?.['/admin/delivery-pricing']?.get).toBeUndefined();
+    expect(document.paths?.['/admin/delivery-pricing']?.put).toBeUndefined();
+    expect(document.paths?.['/admin/commission-policy']).toBeUndefined();
 
     const classes = document.paths?.['/admin/delivery-pricing/classes']?.get;
     const publish = document.paths?.['/admin/delivery-pricing/classes/{serviceClass}']?.post;
@@ -202,6 +223,7 @@ describe('OpenAPI document', () => {
       'PER_KILOMETRE',
       'BASE_PLUS_PER_KILOMETRE',
       'DISTANCE_TIERS',
+      'INCLUDED_DISTANCE',
     ]);
     const classList = schemaOf(document, classes?.responses?.['200']);
     expect(classList.required).toEqual(expect.arrayContaining(['express', 'flexible']));
@@ -214,6 +236,15 @@ describe('OpenAPI document', () => {
     };
     expect(pagination.required).toEqual(expect.arrayContaining(['page', 'limit', 'total', 'totalPages']));
 
+    const v2Rate = document.paths?.['/admin/v2-commission-rate']?.get;
+    const v2Publish = document.paths?.['/admin/v2-commission-rate']?.post;
+    const v2Audits = document.paths?.['/admin/v2-commission-rate/audits']?.get;
+    expect(v2Rate?.security).toEqual([{ bearer: [] }]);
+    expect(v2Publish?.security).toEqual([{ bearer: [] }]);
+    expect(v2Audits?.security).toEqual([{ bearer: [] }]);
+    const v2Body = schemaOf(document, v2Publish?.requestBody);
+    expect(v2Body.required).toEqual(['percentage']);
+
     const operations = Object.values(document.paths ?? {}).flatMap((path) =>
       Object.keys(path ?? {}).filter((method) => ['get', 'post', 'put', 'patch', 'delete'].includes(method)),
     );
@@ -224,6 +255,11 @@ describe('OpenAPI document', () => {
     const pushSchema = schemaOf(document, push?.put?.requestBody);
     expect(pushSchema.properties?.fcmToken).toBeTruthy();
     expect(JSON.stringify(pushSchema)).not.toMatch(/fcm-token|device-token/);
+    const customerPush = document.paths?.['/customers/me/push-devices'];
+    expect(customerPush?.put?.security).toEqual([{ bearer: [] }]);
+    expect(customerPush?.put?.responses?.['200']).toBeTruthy();
+    expect(customerPush?.delete?.responses?.['204']).toBeTruthy();
+    expect(JSON.stringify(customerPush)).not.toMatch(/rider_offer/);
 
     expect(operations.length).toBeGreaterThan(60);
     expect(JSON.stringify(document)).not.toMatch(/refresh-token-value|password-value|123456/);

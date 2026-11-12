@@ -14,7 +14,7 @@ Run one Railway web service from the `backend` directory.
 
 The API process is the only dispatcher. `DispatchWorker` starts inside NestJS with that one replica. Do not scale the service above one replica, and do not run `npm run start:prod` a second time.
 
-Set `NODE_ENV=production`. Leave `COORDINATE_RETENTION_ENABLED=false`. Leave `ALLOW_TEST_NL_PHONE_NUMBERS` and `ALLOW_DEV_ADMIN_BOOTSTRAP` unset or `false`. `npm run retention:once` is the deletion command. Do not add it to a cron.
+Set `NODE_ENV=production`. Leave `COORDINATE_RETENTION_ENABLED=false`. Leave `ALLOW_TEST_NL_PHONE_NUMBERS`, `ALLOW_DEV_ADMIN_BOOTSTRAP`, and `DEV_OTP_ENABLED` unset or `false`. A true `DEV_OTP_ENABLED` value stops the API from starting on Railway, staging, or production. `npm run retention:once` is the deletion command. Do not add it to a cron.
 
 Railway sends `SIGTERM` on shutdown. The process enables Nest shutdown hooks, which stop the in-process timers and disconnect Prisma.
 

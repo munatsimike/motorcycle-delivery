@@ -1,46 +1,60 @@
 import { Module } from '@nestjs/common';
 import { AdminDeliveryController } from './admin-delivery.controller.js';
 import { AdminDeliveryListService } from './admin-delivery-list.service.js';
+import { AdminNoticeController } from './admin-notice.controller.js';
+import { AdminNoticeService } from './admin-notice.service.js';
 import { AuthModule } from '../auth/auth.module.js';
+import { BidAcceptanceService } from './bid-acceptance.service.js';
+import { BidService } from './bid.service.js';
+import { CustomerBidController } from './customer-bid.controller.js';
+import { RiderRatingService } from './rider-rating.service.js';
 import { DeliveryController } from './delivery.controller.js';
 import { DeliveryPricingController } from './delivery-pricing.controller.js';
 import { ClassPricingService } from './class-pricing.service.js';
-import { DeliveryPricingService } from './delivery-pricing.service.js';
 import { DeliveryService } from './delivery.service.js';
 import { CoordinateRetentionService } from './coordinate-retention.service.js';
 import { DispatchService } from './dispatch.service.js';
-import { FcmOfferSender, OfferPushSender } from './fcm-offer-sender.js';
-import { RiderOfferNotificationService } from './rider-offer-notification.service.js';
+import { FcmV2PushSender } from './fcm-v2-sender.js';
+import { V2OutboxSender } from './v2-outbox-sender.service.js';
+import { V2PushSender } from './v2-push-sender.js';
 import { ROAD_DISTANCE, geoapifyRoadDistance } from './geoapify.js';
+import { PICKUP_APPROACH, createGeoapifyPickupApproach } from './pickup-approach.js';
 import { NearbyRidersController } from './nearby-riders.controller.js';
 import { NearbyRidersService } from './nearby-riders.service.js';
 import { PlacesController } from './places.controller.js';
+import { RegistrationAddressController } from './registration-address.controller.js';
+import { RegistrationPlaceLimiter } from './registration-address-limit.js';
 import { RegistrationPlacesController } from './registration-places.controller.js';
 import { PlacesService } from './places.service.js';
 import { RiderAvailabilityAlertController } from './rider-availability-alert.controller.js';
 import { RiderAvailabilityAlertService } from './rider-availability-alert.service.js';
 import { RiderAssignmentController } from './rider-assignment.controller.js';
+import { RiderBidController } from './rider-bid.controller.js';
 import { RiderDeliveryController } from './rider-delivery.controller.js';
-import { RiderOfferController } from './rider-offer.controller.js';
 
 @Module({
   imports: [AuthModule],
-  controllers: [AdminDeliveryController, DeliveryController, DeliveryPricingController, NearbyRidersController, PlacesController, RegistrationPlacesController, RiderAssignmentController, RiderAvailabilityAlertController, RiderDeliveryController, RiderOfferController],
+  controllers: [AdminDeliveryController, AdminNoticeController, CustomerBidController, DeliveryController, DeliveryPricingController, NearbyRidersController, PlacesController, RegistrationAddressController, RegistrationPlacesController, RiderAssignmentController, RiderAvailabilityAlertController, RiderBidController, RiderDeliveryController],
   providers: [
     AdminDeliveryListService,
+    AdminNoticeService,
+    BidAcceptanceService,
+    BidService,
+    RiderRatingService,
     DeliveryService,
     ClassPricingService,
-    DeliveryPricingService,
     DispatchService,
-    RiderOfferNotificationService,
-    FcmOfferSender,
-    { provide: OfferPushSender, useExisting: FcmOfferSender },
+    FcmV2PushSender,
+    { provide: V2PushSender, useExisting: FcmV2PushSender },
+    V2OutboxSender,
     NearbyRidersService,
     PlacesService,
+    RegistrationPlaceLimiter,
     RiderAvailabilityAlertService,
     CoordinateRetentionService,
     { provide: ROAD_DISTANCE, useFactory: () => geoapifyRoadDistance() },
+    { provide: PICKUP_APPROACH, useFactory: () => createGeoapifyPickupApproach() },
   ],
-  exports: [DispatchService, RiderOfferNotificationService, RiderAvailabilityAlertService, CoordinateRetentionService],
+  exports: [DispatchService, V2OutboxSender, RiderAvailabilityAlertService, CoordinateRetentionService],
 })
 export class DeliveryModule {}

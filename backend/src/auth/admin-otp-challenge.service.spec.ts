@@ -15,7 +15,7 @@ describe('Admin OTP challenge service', () => {
   };
 
   const prisma = {
-    $transaction: vi.fn(async (callback: (tx: typeof tx) => Promise<unknown>) =>
+    $transaction: vi.fn(async (callback: (transaction: typeof tx) => Promise<unknown>) =>
       callback(tx),
     ),
   };

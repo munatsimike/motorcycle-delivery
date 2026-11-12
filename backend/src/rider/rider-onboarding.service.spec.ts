@@ -54,8 +54,33 @@ describe('rider onboarding', () => {
       fullName: 'Tendai Moyo',
       phone: '+263771234567',
       address: null,
+      hasProfilePhoto: false,
     });
     expect(ctx.userUpdates).toBe(0);
+  });
+
+  it('changes only the rider address', async () => {
+    const ctx = context();
+    await expect(ctx.service.updateAddress(RIDER, { address: '  12   Samora Machel Avenue ' })).resolves.toEqual({
+      fullName: 'Tendai Moyo',
+      phone: '+263771234567',
+      address: '12 Samora Machel Avenue',
+      hasProfilePhoto: false,
+    });
+    expect(ctx.profile.address).toBe('12 Samora Machel Avenue');
+    expect(ctx.userUpdates).toBe(0);
+    await expect(ctx.service.updateAddress(RIDER, { address: ' ' })).rejects.toThrow('Address is required');
+  });
+
+  it('returns the address saved with the rider profile', async () => {
+    const ctx = context();
+    ctx.profile!.address = '12 Samora Machel Avenue';
+    await expect(ctx.service.profile(RIDER)).resolves.toEqual({
+      fullName: 'Tendai Moyo',
+      phone: '+263771234567',
+      address: '12 Samora Machel Avenue',
+      hasProfilePhoto: false,
+    });
   });
 
   it('returns the customer address for a customer who also has a rider profile', async () => {
@@ -66,6 +91,7 @@ describe('rider onboarding', () => {
       fullName: 'Tendai Moyo',
       phone: '+263771234567',
       address: '1 First Street',
+      hasProfilePhoto: false,
     });
   });
 
@@ -107,6 +133,39 @@ describe('rider onboarding', () => {
       activeVerifiedMotorcycle: true,
     });
   });
+
+  it('includes receiving only while the marketplace flag is on', async () => {
+    const previous = process.env.V2_MARKETPLACE_ENABLED;
+    const ctx = context();
+    ctx.profile.receivingRequests = true;
+    process.env.V2_MARKETPLACE_ENABLED = 'true';
+    try {
+      await expect(ctx.service.current(RIDER)).resolves.toMatchObject({ receiving: true, availability: RiderAvailability.OFFLINE });
+      ctx.profile.receivingRequests = false;
+      await expect(ctx.service.current(RIDER)).resolves.toMatchObject({ receiving: false });
+    } finally {
+      if (previous === undefined) delete process.env.V2_MARKETPLACE_ENABLED;
+      else process.env.V2_MARKETPLACE_ENABLED = previous;
+    }
+    await expect(ctx.service.current(RIDER)).resolves.not.toHaveProperty('receiving');
+  });
+
+  it('selects the earliest verified motorcycle for an approved rider who has none active', async () => {
+    const ctx = context();
+    ctx.profile.approvalStatus = RiderApprovalStatus.APPROVED;
+    ctx.profile.verificationStatus = RiderVerificationStatus.VERIFIED;
+    ctx.motorcycles.push(
+      { id: 'bike-later', riderProfileId: 'profile-1', verificationStatus: MotorcycleVerificationStatus.VERIFIED, isActive: false, createdAt: new Date('2026-10-14T12:00:00.000Z') },
+      { id: 'bike-first', riderProfileId: 'profile-1', verificationStatus: MotorcycleVerificationStatus.VERIFIED, isActive: false, createdAt: new Date('2026-10-13T12:00:00.000Z') },
+    );
+
+    await expect(ctx.service.current(RIDER)).resolves.toMatchObject({
+      approvalStatus: RiderApprovalStatus.APPROVED,
+      verifiedMotorcycleCount: 2,
+      activeVerifiedMotorcycle: true,
+    });
+    expect(ctx.motorcycles.find((row) => row.isActive)?.id).toBe('bike-first');
+  });
 });
 
 type ProfileRow = {
@@ -115,8 +174,10 @@ type ProfileRow = {
   verificationStatus: RiderVerificationStatus;
   approvalStatus: RiderApprovalStatus;
   availability: RiderAvailability;
+  receivingRequests?: boolean | null;
   licenceNumber: string | null;
   licenceClass: string | null;
+  address?: string | null;
 };
 
 type ReviewRow = {
@@ -138,8 +199,14 @@ function context() {
     licenceClass: null,
   }];
   const reviews: ReviewRow[] = [];
-  const motorcycles: Array<{ riderProfileId: string; verificationStatus: MotorcycleVerificationStatus; isActive: boolean }> = [];
-  const user = {
+  const motorcycles: Array<{ id?: string; riderProfileId: string; verificationStatus: MotorcycleVerificationStatus; isActive: boolean; createdAt?: Date }> = [];
+  const user: {
+    id: string;
+    fullName: string;
+    phone: string;
+    role: UserRole;
+    accountStatus: AccountStatus;
+  } = {
     id: 'user-1',
     fullName: 'Tendai Moyo',
     phone: '+263771234567',
@@ -168,6 +235,11 @@ function context() {
         return user;
       },
     },
+    riderProfilePhoto: {
+      async findFirst() {
+        return null;
+      },
+    },
     riderProfile: {
       async findUnique({ where }: { where: { id?: string; userId?: string } }) {
         return profiles.find((profile) => {
@@ -179,6 +251,14 @@ function context() {
           }
           return false;
         }) ?? null;
+      },
+      async update({ where, data }: { where: { id: string }; data: { address: string } }) {
+        const profile = profiles.find((row) => row.id === where.id);
+        if (!profile) {
+          throw new Error('missing profile');
+        }
+        profile.address = data.address;
+        return profile;
       },
     },
     riderLicenceReview: {
@@ -196,6 +276,29 @@ function context() {
           && row.verificationStatus === where.verificationStatus
           && (where.isActive === undefined || row.isActive === where.isActive)).length;
       },
+      async findFirst({ where }: { where: { riderProfileId?: string; verificationStatus?: MotorcycleVerificationStatus; isActive?: boolean } }) {
+        const rows = motorcycles.filter((row) => (
+          (where.riderProfileId === undefined || row.riderProfileId === where.riderProfileId)
+          && (where.verificationStatus === undefined || row.verificationStatus === where.verificationStatus)
+          && (where.isActive === undefined || row.isActive === where.isActive)
+        ));
+        rows.sort((left, right) => (left.createdAt?.getTime() ?? 0) - (right.createdAt?.getTime() ?? 0));
+        return rows[0] ?? null;
+      },
+      async update({ where, data }: { where: { id: string }; data: { isActive?: boolean } }) {
+        const row = motorcycles.find((candidate) => candidate.id === where.id);
+        if (!row) throw new Error('missing motorcycle');
+        Object.assign(row, data);
+        return row;
+      },
+    },
+    async $transaction<T>(callback: (tx: { motorcycle: { findFirst: Function; update: Function }; $queryRaw: () => Promise<unknown[]> }) => Promise<T>) {
+      return callback({
+        motorcycle: this.motorcycle,
+        async $queryRaw() {
+          return [];
+        },
+      });
     },
   };
   return {

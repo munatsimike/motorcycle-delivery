@@ -33,7 +33,26 @@ export class RiderPushDeviceService {
       rider.riderProfileId,
       token,
     );
+    await this.wakeRiderNotices(rider.riderProfileId);
     return { registered: true };
+  }
+
+  private async wakeRiderNotices(riderProfileId: string): Promise<void> {
+    try {
+      await this.prisma.$executeRawUnsafe(
+        `UPDATE "v2_outbox_events"
+         SET "next_attempt_at" = LEAST("next_attempt_at", now())
+         WHERE "status" = 'PENDING'::"v2_outbox_status"
+           AND "next_attempt_at" IS NOT NULL
+           AND (
+             "rider_profile_id" = $1::uuid
+             OR "event_type" = 'RIDER_OPPORTUNITY'::"v2_outbox_event_type"
+           )`,
+        riderProfileId,
+      );
+    } catch {
+      // Registration still succeeds when a deferred notice cannot be woken.
+    }
   }
 
   async remove(rider: RiderContext, fcmToken: unknown): Promise<void> {

@@ -1,8 +1,9 @@
-import { ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { ForbiddenException, Injectable } from '@nestjs/common';
 import { AccountStatus, UserRole } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { hasAccountCredential } from './account-credential.js';
 import { AccessTokenService, readBearerToken } from './access-token.service.js';
+import { rejectClosedRiderSession } from './rider-session-policy.js';
 
 export type RiderContext = {
   userId: string;
@@ -30,7 +31,7 @@ export class RiderAccessService {
       || session.replacedBySessionId
       || session.expiresAt <= now
     ) {
-      throw new UnauthorizedException('Authentication failed');
+      return rejectClosedRiderSession(this.prisma, session?.userId === claims.sub ? session : null);
     }
 
     const user = await this.prisma.user.findUnique({

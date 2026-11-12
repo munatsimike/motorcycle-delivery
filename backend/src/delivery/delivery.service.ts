@@ -1,50 +1,61 @@
-import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
+import { createHash } from 'node:crypto';
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
 import {
+  AssignmentStatus,
+  BidStatus,
   Currency,
   DeliveryActorType,
   DeliveryStatus,
   DeliveryType,
   PricingModel,
   PricingWindowKind,
+  ProfilePhotoStatus,
   ServiceClass,
+  UserRole,
 } from '../generated/prisma/client.js';
 import type { CustomerContext } from '../auth/customer-access.service.js';
 import { v2MarketplaceEnabled } from '../auth/v2-flags.js';
+import { recordDeliveryOpportunity } from './v2-outbox.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { readDeliveryDraft, readQuoteRequest, type QuotePins, type QuoteRequest } from './delivery-request.js';
-import { toCustomerDelivery, toCustomerDeliverySummary, type StoredDelivery } from './delivery-view.js';
+import { readDeliveryDraft, readQuoteRequest, readV2DeliveryDraft, type QuotePins, type QuoteRequest, type V2DeliveryDraft } from './delivery-request.js';
+import { assignedRiderStatus, customerRoutesToDropoff, customerSharesRiderLocation, freshRiderPoint, toCustomerDelivery, toCustomerDeliverySummary, withAssignedRider, withCollectingRiderLocation, withCustomerRating, withPickupApproach, type AssignedRiderView, type PickupApproachView, type RiderPoint, type StoredDelivery } from './delivery-view.js';
+import { PICKUP_APPROACH, type PickupApproachLookup } from './pickup-approach.js';
 import { centsFromDecimal, formatCents } from './money.js';
-import { missingPricing } from './delivery-pricing.service.js';
-import { activeV1PricingWhere, lockActivePricing } from './pricing-lock.js';
+import { lockActiveClassPricing } from './pricing-lock.js';
 import { calculateTariffPrice, PricingCalculationError, type TariffSnapshot } from './pricing-calculator.js';
 import { ROAD_DISTANCE, geoapifyRoadDistance, type RoadDistance } from './geoapify.js';
-import { suggestedCents } from './straight-line.js';
+import { V2_SEARCH_WINDOW_MS } from './v2-search.js';
+import { IDEMPOTENCY_CONFLICT } from '../rider/wallet-ledger.js';
 
 export const PRICING_CLOCK = Symbol('PRICING_CLOCK');
-
-type ActiveTariff = {
-  pricingVersion: number;
-  baseFee: string | { toFixed(digits: number): string };
-  pricePerKilometre: string | { toFixed(digits: number): string };
-  minimumTripMetres: number;
-  maximumTripMetres: number;
-};
 
 @Injectable()
 export class DeliveryService {
   private readonly roads: RoadDistance;
   private readonly clock: () => Date;
+  private readonly pickupApproach: PickupApproachLookup;
 
   constructor(
     private readonly prisma: PrismaService,
     @Optional() @Inject(ROAD_DISTANCE) roads?: RoadDistance,
     @Optional() @Inject(PRICING_CLOCK) clock?: () => Date,
+    @Optional() @Inject(PICKUP_APPROACH) pickupApproach?: PickupApproachLookup,
   ) {
     this.roads = roads ?? geoapifyRoadDistance();
     this.clock = clock ?? (() => new Date());
+    this.pickupApproach = pickupApproach ?? { lookup: async () => null };
   }
 
   async getById(customer: CustomerContext, deliveryId: string) {
+    if (customer.role !== UserRole.CUSTOMER) {
+      const owned = await this.prisma.customerAccount.findFirst({
+        where: { id: customer.customerAccountId, userId: customer.userId },
+        select: { id: true },
+      });
+      if (!owned) {
+        throw new ForbiddenException('Customer access is required');
+      }
+    }
     const delivery = await this.prisma.delivery.findFirst({
       where: {
         id: deliveryId,
@@ -56,7 +67,139 @@ export class DeliveryService {
       throw new NotFoundException('Delivery not found');
     }
 
-    return toCustomerDelivery(delivery);
+    const view = toCustomerDelivery(delivery);
+    const point = customerSharesRiderLocation(delivery.status)
+      ? await this.collectingRiderPoint(delivery.id)
+      : null;
+    const rider = assignedRiderStatus(delivery.status) ? await this.assignedRider(delivery.id) : null;
+    const destination = customerRoutesToDropoff(delivery.status) ? view.dropoff : view.pickup;
+    const approach = await this.pickupApproachFor(point, destination.latitude, destination.longitude);
+    const rating = await this.customerRating(delivery.id, delivery.status, rider != null);
+    return withCustomerRating(
+      withAssignedRider(withPickupApproach(withCollectingRiderLocation(view, point), approach), rider),
+      rating,
+    );
+  }
+
+  private async customerRating(
+    deliveryId: string,
+    status: DeliveryStatus,
+    hasAssignedRider: boolean,
+  ) {
+    const stored = this.prisma.riderRating
+      ? await this.prisma.riderRating.findUnique({ where: { deliveryId }, select: { stars: true } })
+      : null;
+    if (stored) {
+      return { eligible: false, submitted: true, stars: stored.stars };
+    }
+    return {
+      eligible: status === DeliveryStatus.DELIVERED && hasAssignedRider,
+      submitted: false,
+      stars: null,
+    };
+  }
+
+  private async pickupApproachFor(
+    point: RiderPoint | null,
+    pickupLatitude: string | null,
+    pickupLongitude: string | null,
+  ): Promise<PickupApproachView | null> {
+    const riderProfileId = point?.riderProfileId;
+    const riderLatitude = coordinateNumber(point?.latitude);
+    const riderLongitude = coordinateNumber(point?.longitude);
+    const pickupLat = coordinateNumber(pickupLatitude);
+    const pickupLng = coordinateNumber(pickupLongitude);
+    if (!riderProfileId || riderLatitude === null || riderLongitude === null || pickupLat === null || pickupLng === null) {
+      return null;
+    }
+    try {
+      return await this.pickupApproach.lookup({
+        riderProfileId,
+        riderLatitude,
+        riderLongitude,
+        pickupLatitude: pickupLat,
+        pickupLongitude: pickupLng,
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  private async collectingRiderPoint(deliveryId: string): Promise<RiderPoint | null> {
+    const assignment = await this.prisma.deliveryAssignment.findFirst({
+      where: {
+        deliveryId,
+        status: AssignmentStatus.ACCEPTED,
+        acceptedBidAmount: { not: null },
+      },
+      select: { riderProfileId: true },
+    });
+    if (!assignment) {
+      return null;
+    }
+    const location = await this.prisma.riderLocation.findUnique({
+      where: { riderProfileId: assignment.riderProfileId },
+      select: { latitude: true, longitude: true, updatedAt: true },
+    });
+    if (!location) {
+      return null;
+    }
+    const fresh = freshRiderPoint({
+      latitude: pointText(location.latitude),
+      longitude: pointText(location.longitude),
+    }, location.updatedAt, new Date());
+    if (!fresh) {
+      return null;
+    }
+    return {
+      ...fresh,
+      updatedAt: location.updatedAt.toISOString(),
+      riderProfileId: assignment.riderProfileId,
+    };
+  }
+
+  private async assignedRider(deliveryId: string): Promise<AssignedRiderView | null> {
+    const assignment = await this.prisma.deliveryAssignment.findFirst({
+      where: { deliveryId, status: { in: [AssignmentStatus.ACCEPTED, AssignmentStatus.COMPLETED] } },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        riderProfile: {
+          select: {
+            id: true,
+            verificationStatus: true,
+            user: { select: { fullName: true, phone: true } },
+            motorcycles: {
+              where: { isActive: true, verificationStatus: 'VERIFIED' },
+              select: { make: true, model: true, registrationNumber: true, colour: true },
+              take: 1,
+            },
+          },
+        },
+      },
+    });
+    const profile = assignment?.riderProfile;
+    const name = profile?.user.fullName?.trim() ?? '';
+    if (!profile || !name) {
+      return null;
+    }
+    const bike = profile.motorcycles[0];
+    const motorcycle = [bike?.make, bike?.model].map((part) => part?.trim() ?? '').filter((part) => part.length > 0).join(' ');
+    const registrationNumber = bike?.registrationNumber?.trim() ?? '';
+    const colour = bike?.colour?.trim() ?? '';
+    const phone = profile.user.phone?.trim() ?? '';
+    const photo = await this.prisma.riderProfilePhoto.findFirst({
+      where: { riderProfileId: profile.id, status: ProfilePhotoStatus.STORED },
+      select: { id: true },
+    });
+    return {
+      name,
+      verified: profile.verificationStatus === 'VERIFIED',
+      motorcycle: motorcycle || null,
+      registrationNumber: registrationNumber || null,
+      colour: colour || null,
+      phone: phone || null,
+      hasProfilePhoto: photo !== null,
+    };
   }
 
   async list(customer: CustomerContext, query: Record<string, unknown>) {
@@ -80,11 +223,18 @@ export class DeliveryService {
           createdAt: true,
           pickupAddress: true,
           dropoffAddress: true,
+          serviceClass: true,
+          deliverBy: true,
+          currency: true,
+          suggestedPrice: true,
+          price: true,
+          distanceMeters: true,
         },
       }),
     ]);
+    const openBidCount = await countOpenBids(this.prisma, rows, new Date());
     return {
-      data: rows.map((delivery) => toCustomerDeliverySummary(delivery)),
+      data: rows.map((delivery) => toCustomerDeliverySummary(delivery, openBidCount.get(delivery.id) ?? 0)),
       pagination: {
         page,
         limit,
@@ -96,80 +246,141 @@ export class DeliveryService {
 
   async quote(body: unknown) {
     const request = readQuoteRequest(body);
-    if (v2MarketplaceEnabled()) {
-      return this.quoteServiceClass(request);
+    if (!v2MarketplaceEnabled()) {
+      throw new NotFoundException('Bidding is not available');
     }
-    const active = await this.prisma.deliveryPricingConfig.findFirst({ where: activeV1PricingWhere });
-    if (!active) {
-      throw missingPricing();
-    }
-    const priced = this.priceMetres(await this.roadMetres(request), active);
-    return {
-      distanceMeters: priced.distanceMeters,
-      pricingVersion: priced.pricingVersion,
-      currency: Currency.USD,
-      suggestedPrice: priced.suggestedPrice,
-    };
+    return this.quoteServiceClass(request);
   }
 
-  async create(customer: CustomerContext, body: unknown) {
-    const draft = readDeliveryDraft(body);
+  async create(customer: CustomerContext, body: unknown, idempotencyKey?: string) {
+    if (!v2MarketplaceEnabled()) {
+      readDeliveryDraft(body);
+      throw new NotFoundException('Bidding is not available');
+    }
+    return this.createV2Request(customer, body, readIdempotencyKey(idempotencyKey));
+  }
+
+  private async createV2Request(customer: CustomerContext, body: unknown, key: string) {
+    const now = this.clock();
+    const draft = readV2DeliveryDraft(body, now);
+    const hash = creationHash(customer.customerAccountId, draft);
+    const replayed = await this.replayCreate(this.prisma, key, hash, customer.customerAccountId);
+    if (replayed) {
+      return replayed;
+    }
     const metres = await this.roadMetres(draft);
-    return this.prisma.$transaction(async (tx) => {
-      const active = await lockActivePricing(tx);
-      if (!active) {
-        throw missingPricing();
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const raced = await this.replayCreate(tx, key, hash, customer.customerAccountId);
+        if (raced) {
+          return raced;
+        }
+        await lockActiveClassPricing(tx, draft.serviceClass);
+        const active = await tx.deliveryPricingConfig.findFirst({
+          where: { isActive: true, serviceClass: draft.serviceClass },
+          include: {
+            tiers: { orderBy: { position: 'asc' } },
+            windows: true,
+          },
+        });
+        if (!active) {
+          throw classPricingUnavailable(draft.serviceClass);
+        }
+        let priced;
+        try {
+          priced = calculateTariffPrice(toClassSnapshot(active), metres, now);
+        } catch (error) {
+          throw quotedPriceError(error);
+        }
+        const retrievedAt = new Date();
+        const created = await tx.delivery.create({
+          data: {
+            customerId: customer.customerAccountId,
+            deliveryType: DeliveryType.PARCEL,
+            pickupAddress: draft.pickupAddress,
+            pickupLatitude: draft.pickupLatitude,
+            pickupLongitude: draft.pickupLongitude,
+            pickupPlaceId: draft.pickupPlaceId,
+            pickupCoordinateSource: draft.pickupCoordinateSource,
+            pickupCoordinateRetrievedAt: retrievedAt,
+            pickupLandmark: draft.pickupLandmark,
+            pickupInstructions: draft.pickupInstructions,
+            pickupContactName: draft.pickupContactName,
+            pickupContactPhone: draft.pickupContactPhone,
+            dropoffAddress: draft.dropoffAddress,
+            dropoffLatitude: draft.dropoffLatitude,
+            dropoffLongitude: draft.dropoffLongitude,
+            dropoffPlaceId: draft.dropoffPlaceId,
+            dropoffCoordinateSource: draft.dropoffCoordinateSource,
+            dropoffCoordinateRetrievedAt: retrievedAt,
+            dropoffLandmark: draft.dropoffLandmark,
+            dropoffInstructions: draft.dropoffInstructions,
+            parcelDescription: draft.parcelDescription,
+            parcelSize: draft.parcelSize,
+            parcelInstructions: draft.parcelInstructions,
+            recipientName: draft.dropoffContactName,
+            recipientPhone: draft.dropoffContactPhone,
+            price: null,
+            suggestedPrice: formatCents(priced.suggestedPriceCents),
+            customerOffer: formatCents(draft.offeredPriceCents),
+            distanceMeters: priced.distanceMetres,
+            pricingVersion: priced.pricingVersion,
+            pricingModel: priced.pricingModel,
+            pricingBasisPoints: priced.basisPoints,
+            pricingWindowId: priced.pricingWindow?.id ?? null,
+            payer: null,
+            currency: Currency.USD,
+            paymentMethod: draft.paymentMethod,
+            serviceClass: draft.serviceClass,
+            deliverBy: draft.deliverBy,
+            status: DeliveryStatus.CREATED,
+            searchGeneration: 0,
+            searchStartedAt: now,
+            nextRetryAt: new Date(now.getTime() + V2_SEARCH_WINDOW_MS),
+            autoRetryCount: 0,
+            createIdempotencyKey: key,
+            createPayloadHash: hash,
+          },
+        });
+        await tx.deliveryStatusEvent.create({
+          data: {
+            deliveryId: created.id,
+            previousStatus: null,
+            newStatus: DeliveryStatus.CREATED,
+            actorId: customer.userId,
+            actorType: DeliveryActorType.CUSTOMER,
+          },
+        });
+        await recordDeliveryOpportunity(tx, { deliveryId: created.id, openedAt: now });
+        return toCustomerDelivery(created as StoredDelivery);
+      });
+    } catch (error) {
+      if (!isUniqueViolation(error)) {
+        throw error;
       }
-      const priced = this.priceMetres(metres, active);
-      const retrievedAt = new Date();
-      const created = await tx.delivery.create({
-        data: {
-          customerId: customer.customerAccountId,
-          deliveryType: DeliveryType.PARCEL,
-          pickupAddress: draft.pickupAddress,
-          pickupLatitude: draft.pickupLatitude,
-          pickupLongitude: draft.pickupLongitude,
-          pickupPlaceId: draft.pickupPlaceId,
-          pickupCoordinateSource: draft.pickupCoordinateSource,
-          pickupCoordinateRetrievedAt: retrievedAt,
-          pickupLandmark: draft.pickupLandmark,
-          pickupInstructions: draft.pickupInstructions,
-          pickupContactName: draft.pickupContactName,
-          pickupContactPhone: draft.pickupContactPhone,
-          dropoffAddress: draft.dropoffAddress,
-          dropoffLatitude: draft.dropoffLatitude,
-          dropoffLongitude: draft.dropoffLongitude,
-          dropoffPlaceId: draft.dropoffPlaceId,
-          dropoffCoordinateSource: draft.dropoffCoordinateSource,
-          dropoffCoordinateRetrievedAt: retrievedAt,
-          dropoffLandmark: draft.dropoffLandmark,
-          dropoffInstructions: draft.dropoffInstructions,
-          parcelDescription: draft.parcelDescription,
-          parcelSize: draft.parcelSize,
-          parcelInstructions: draft.parcelInstructions,
-          recipientName: draft.dropoffContactName,
-          recipientPhone: draft.dropoffContactPhone,
-          price: formatCents(draft.offeredPriceCents),
-          suggestedPrice: priced.suggestedPrice,
-          distanceMeters: priced.distanceMeters,
-          pricingVersion: priced.pricingVersion,
-          payer: draft.payer,
-          currency: Currency.USD,
-          paymentMethod: draft.paymentMethod,
-          status: DeliveryStatus.CREATED,
-        },
-      });
-      await tx.deliveryStatusEvent.create({
-        data: {
-          deliveryId: created.id,
-          previousStatus: null,
-          newStatus: DeliveryStatus.CREATED,
-          actorId: customer.userId,
-          actorType: DeliveryActorType.CUSTOMER,
-        },
-      });
-      return toCustomerDelivery(created as StoredDelivery);
-    });
+      const existing = await this.replayCreate(this.prisma, key, hash, customer.customerAccountId);
+      if (existing) {
+        return existing;
+      }
+      throw new ConflictException(IDEMPOTENCY_CONFLICT);
+    }
+  }
+
+  private async replayCreate(
+    db: { delivery: { findUnique(args: { where: { createIdempotencyKey: string } }): Promise<unknown> } },
+    key: string,
+    hash: string,
+    customerAccountId: string,
+  ) {
+    const existing = await db.delivery.findUnique({ where: { createIdempotencyKey: key } });
+    if (!existing) {
+      return null;
+    }
+    const row = existing as StoredDelivery & { customerId?: string; createPayloadHash?: string | null };
+    if (row.createPayloadHash !== hash || row.customerId !== customerAccountId) {
+      throw new ConflictException(IDEMPOTENCY_CONFLICT);
+    }
+    return toCustomerDelivery(row);
   }
 
   private async quoteServiceClass(request: QuoteRequest) {
@@ -220,32 +431,6 @@ export class DeliveryService {
       throw new BadRequestException('A road route is not available for these locations.');
     }
   }
-
-  private priceMetres(distanceMeters: number, tariff: ActiveTariff) {
-    if (!Number.isSafeInteger(distanceMeters) || distanceMeters < 0) {
-      throw new BadRequestException('A road route is not available for these locations.');
-    }
-    if (distanceMeters < tariff.minimumTripMetres || distanceMeters > tariff.maximumTripMetres) {
-      throw new BadRequestException('Trip distance is outside the configured range');
-    }
-    let cents: number;
-    try {
-      cents = suggestedCents(distanceMeters, {
-        baseFeeCents: centsFromDecimal(tariff.baseFee),
-        pricePerKilometreCents: centsFromDecimal(tariff.pricePerKilometre),
-      });
-    } catch (error) {
-      if (error instanceof RangeError) {
-        throw new BadRequestException('Suggested price is too large');
-      }
-      throw error;
-    }
-    return {
-      distanceMeters,
-      pricingVersion: tariff.pricingVersion,
-      suggestedPrice: formatCents(cents),
-    };
-  }
 }
 
 type StoredClassTariff = {
@@ -256,6 +441,7 @@ type StoredClassTariff = {
   pricePerKilometre: string | { toFixed(digits: number): string };
   minimumTripMetres: number;
   maximumTripMetres: number;
+  includedMetres?: number | null;
   tiers?: Array<{
     position: number;
     upToMetres: number | null;
@@ -282,6 +468,7 @@ function toClassSnapshot(row: StoredClassTariff): TariffSnapshot {
     pricePerKilometreCents: centsFromDecimal(row.pricePerKilometre),
     minimumTripMetres: row.minimumTripMetres,
     maximumTripMetres: row.maximumTripMetres,
+    includedMetres: row.includedMetres ?? null,
     tiers: [...(row.tiers ?? [])]
       .sort((left, right) => left.position - right.position)
       .map((tier) => ({
@@ -329,6 +516,34 @@ function quotedPriceError(error: unknown): BadRequestException | ConflictExcepti
   throw error;
 }
 
+async function countOpenBids(
+  prisma: PrismaService,
+  rows: Array<{ id: string; status: DeliveryStatus; serviceClass?: ServiceClass | null }>,
+  now: Date,
+): Promise<Map<string, number>> {
+  const deliveryIds = rows
+    .filter((row) => row.status === DeliveryStatus.CREATED && (row.serviceClass === ServiceClass.EXPRESS || row.serviceClass === ServiceClass.FLEXIBLE))
+    .map((row) => row.id);
+  if (deliveryIds.length === 0) {
+    return new Map();
+  }
+  const grouped = await prisma.bid.groupBy({
+    by: ['deliveryId'],
+    where: {
+      deliveryId: { in: deliveryIds },
+      status: BidStatus.OPEN,
+      delivery: {
+        OR: [
+          { deliverBy: null },
+          { deliverBy: { gt: now } },
+        ],
+      },
+    },
+    _count: { _all: true },
+  });
+  return new Map(grouped.map((row) => [row.deliveryId, row._count._all]));
+}
+
 function readPage(value: unknown, fallback: number, minimum: number, maximum: number): number {
   if (value === undefined) {
     return fallback;
@@ -361,6 +576,65 @@ function readStatuses(value: unknown): DeliveryStatus[] | undefined {
     statuses.push(item as DeliveryStatus);
   }
   return statuses;
+}
+
+function coordinateNumber(value: string | null | undefined): number | null {
+  if (value == null) {
+    return null;
+  }
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function pointText(value: string | { toFixed(digits: number): string }): string {
+  return typeof value === 'string' ? value : value.toFixed(7);
+}
+
+function readIdempotencyKey(value: string | undefined): string {
+  const key = typeof value === 'string' ? value.trim() : '';
+  if (!key || key.length > 200) {
+    throw new BadRequestException('Enter an idempotency key');
+  }
+  return key;
+}
+
+function creationHash(customerAccountId: string, draft: V2DeliveryDraft): string {
+  return createHash('sha256')
+    .update(JSON.stringify({
+      kind: 'v2-delivery-create',
+      customerAccountId,
+      pickupAddress: draft.pickupAddress,
+      pickupLatitude: draft.pickupLatitude,
+      pickupLongitude: draft.pickupLongitude,
+      pickupPlaceId: draft.pickupPlaceId,
+      pickupCoordinateSource: draft.pickupCoordinateSource,
+      pickupLandmark: draft.pickupLandmark,
+      pickupInstructions: draft.pickupInstructions,
+      pickupContactName: draft.pickupContactName,
+      pickupContactPhone: draft.pickupContactPhone,
+      dropoffAddress: draft.dropoffAddress,
+      dropoffLatitude: draft.dropoffLatitude,
+      dropoffLongitude: draft.dropoffLongitude,
+      dropoffPlaceId: draft.dropoffPlaceId,
+      dropoffCoordinateSource: draft.dropoffCoordinateSource,
+      dropoffLandmark: draft.dropoffLandmark,
+      dropoffInstructions: draft.dropoffInstructions,
+      dropoffContactName: draft.dropoffContactName,
+      dropoffContactPhone: draft.dropoffContactPhone,
+      parcelDescription: draft.parcelDescription,
+      parcelSize: draft.parcelSize,
+      parcelInstructions: draft.parcelInstructions,
+      serviceClass: draft.serviceClass,
+      deliverBy: draft.deliverBy?.toISOString() ?? null,
+      paymentMethod: draft.paymentMethod,
+      offeredPriceCents: draft.offeredPriceCents,
+      currency: Currency.USD,
+    }))
+    .digest('hex');
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && (error as { code: string }).code === 'P2002';
 }
 
 

@@ -1,5 +1,5 @@
 import { ForbiddenException, RequestMethod } from '@nestjs/common';
-import { GUARDS_METADATA, METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants.js';
+import { GUARDS_METADATA, METHOD_METADATA, PATH_METADATA, SELF_DECLARED_DEPS_METADATA } from '@nestjs/common/constants.js';
 import { describe, expect, it } from 'vitest';
 import {
   AssignmentStatus,
@@ -10,6 +10,7 @@ import {
 import { RiderAccessGuard } from '../auth/rider-access.guard.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import { DispatchService, type ActiveAssignment } from './dispatch.service.js';
+import { PlacesService } from './places.service.js';
 import { RiderAssignmentController } from './rider-assignment.controller.js';
 
 const NOW = new Date('2026-10-19T12:00:00.000Z');
@@ -71,6 +72,35 @@ describe('active rider assignment', () => {
     expect(JSON.stringify(result)).not.toContain('customer-1');
   });
 
+  it('returns the stored V2 status for a live assignment', async () => {
+    const service = serviceFor([
+      row('v2', 'profile-1', AssignmentStatus.ACCEPTED, DeliveryStatus.RIDER_ASSIGNED, '12 Samora Machel Avenue'),
+      row('collecting', 'profile-1', AssignmentStatus.ACCEPTED, DeliveryStatus.COLLECTING, 'Collecting road'),
+    ]);
+
+    const result = await service.activeAssignment(rider('profile-1'), NOW);
+
+    expect(result.assignment?.status).toBe(DeliveryStatus.RIDER_ASSIGNED);
+    const listed = await service.liveAssignments(rider('profile-1'), NOW);
+    expect(listed.assignments.map((assignment) => assignment.status)).toEqual([
+      DeliveryStatus.RIDER_ASSIGNED,
+      DeliveryStatus.COLLECTING,
+    ]);
+  });
+
+  it('selects the earliest live assignment using the list order', async () => {
+    const service = serviceFor([
+      row('later', 'profile-1', AssignmentStatus.ACCEPTED, DeliveryStatus.COLLECTING, 'Later road', FRESH, {}, new Date('2026-10-20T12:00:00.000Z')),
+      row('earlier', 'profile-1', AssignmentStatus.ACCEPTED, DeliveryStatus.RIDER_ASSIGNED, 'Earlier road', FRESH, {}, new Date('2026-10-18T12:00:00.000Z')),
+    ]);
+
+    const active = await service.activeAssignment(rider('profile-1'), NOW);
+    const listed = await service.liveAssignments(rider('profile-1'), NOW);
+
+    expect(active.assignment?.assignmentId).toBe('earlier');
+    expect(listed.assignments.map((assignment) => assignment.assignmentId)).toEqual(['earlier', 'later']);
+  });
+
   it('returns assignment null when nothing is resumable', async () => {
     const service = serviceFor([
       row('delivered', 'profile-1', AssignmentStatus.ACCEPTED, DeliveryStatus.DELIVERED, 'Finished road'),
@@ -96,6 +126,196 @@ describe('active rider assignment', () => {
     expect(JSON.stringify(result)).not.toContain('-17.8252000');
     expect(JSON.stringify(result)).not.toContain('31.0335000');
   });
+
+  it('returns the accepted bid, service class, and deadline without the suggested price', async () => {
+    const deliverBy = new Date('2026-10-25T16:00:00.000Z');
+    const service = serviceFor([
+      row('flexible', 'profile-1', AssignmentStatus.ACCEPTED, DeliveryStatus.RIDER_ASSIGNED, 'Flexible road', FRESH, {
+        serviceClass: 'FLEXIBLE',
+        deliverBy,
+        acceptedBidAmount: '12.50',
+        price: '9.99',
+      }),
+      row('express', 'profile-1', AssignmentStatus.ACCEPTED, DeliveryStatus.COLLECTING, 'Express road', FRESH, {
+        serviceClass: 'EXPRESS',
+        deliverBy,
+        acceptedBidAmount: { toFixed: () => '8.00' },
+        price: '20.00',
+      }),
+      row('legacy', 'profile-1', AssignmentStatus.ACCEPTED, DeliveryStatus.ASSIGNED, 'Legacy road'),
+    ]);
+
+    const listed = await service.liveAssignments(rider('profile-1'), NOW);
+
+    expect(listed.assignments.map((assignment) => assignment.serviceClass)).toEqual(['FLEXIBLE', 'EXPRESS', null]);
+    expect(listed.assignments[0]).toMatchObject({
+      deliverBy: '2026-10-25T16:00:00.000Z',
+      agreedPrice: '12.50',
+      distanceMeters: 1_500,
+      createdAt: FRESH.toISOString(),
+    });
+    expect(listed.assignments[1]?.agreedPrice).toBe('8.00');
+    expect(listed.assignments[2]).toMatchObject({ deliverBy: null, agreedPrice: null, serviceClass: null });
+    const encoded = JSON.stringify(listed);
+    expect(encoded).not.toContain('9.99');
+    expect(encoded).not.toContain('20.00');
+    expect(encoded).not.toContain('suggestedPrice');
+  });
+
+  it('returns this rider completed marketplace and V1 deliveries newest first', async () => {
+    expect(Reflect.getMetadata(PATH_METADATA, RiderAssignmentController.prototype.completed)).toBe('completed');
+    expect(Reflect.getMetadata(METHOD_METADATA, RiderAssignmentController.prototype.completed)).toBe(RequestMethod.GET);
+    const service = serviceFor([
+      row('older-market', 'profile-1', AssignmentStatus.COMPLETED, DeliveryStatus.DELIVERED, 'Older market road', FRESH, {
+        serviceClass: 'FLEXIBLE',
+        acceptedBidAmount: '10.00',
+        completedAt: new Date('2026-10-18T08:00:00.000Z'),
+      }),
+      row('newer-v1', 'profile-1', AssignmentStatus.COMPLETED, DeliveryStatus.DELIVERED, 'Newer legacy road', FRESH, {
+        completedAt: new Date('2026-10-20T08:00:00.000Z'),
+      }),
+      row('active', 'profile-1', AssignmentStatus.ACCEPTED, DeliveryStatus.PICKED_UP, 'Active road'),
+      row('pending', 'profile-1', AssignmentStatus.OFFERED, DeliveryStatus.SEARCHING, 'Pending road'),
+      row('accepted-delivered', 'profile-1', AssignmentStatus.ACCEPTED, DeliveryStatus.DELIVERED, 'Unclosed road'),
+      row('cancelled', 'profile-1', AssignmentStatus.COMPLETED, DeliveryStatus.CANCELLED, 'Cancelled road'),
+      row('failed', 'profile-1', AssignmentStatus.COMPLETED, DeliveryStatus.FAILED, 'Failed road'),
+      row('released', 'profile-1', AssignmentStatus.RELEASED, DeliveryStatus.DELIVERED, 'Released road'),
+      row('other', 'other-profile', AssignmentStatus.COMPLETED, DeliveryStatus.DELIVERED, 'Other rider road', FRESH, {
+        completedAt: new Date('2026-10-21T08:00:00.000Z'),
+      }),
+    ]);
+
+    const listed = await service.completedAssignments(rider('profile-1'), NOW);
+
+    expect(listed.assignments.map((assignment) => assignment.assignmentId)).toEqual(['newer-v1', 'older-market']);
+    expect(listed.assignments[0]).toMatchObject({
+      status: DeliveryStatus.DELIVERED,
+      serviceClass: null,
+      completedAt: '2026-10-20T08:00:00.000Z',
+      pickup: { address: 'Newer legacy road' },
+    });
+    expect(listed.assignments[1]).toMatchObject({
+      serviceClass: 'FLEXIBLE',
+      agreedPrice: '10.00',
+      completedAt: '2026-10-18T08:00:00.000Z',
+    });
+    const encoded = JSON.stringify(listed);
+    expect(encoded).not.toContain('other-profile');
+    expect(encoded).not.toContain('Active road');
+    expect(encoded).not.toContain('Cancelled road');
+    expect(encoded).not.toContain('Failed road');
+    expect(encoded).not.toContain('Pending road');
+    expect((await service.liveAssignments(rider('profile-1'), NOW)).assignments.map((assignment) => assignment.assignmentId)).toEqual(['active']);
+  });
+});
+
+describe('pickup route', () => {
+  const request = { rider: { userId: 'user-1', riderProfileId: 'profile-1' } };
+
+  it('returns the stored pickup driving geometry and does not invent a line when routing fails', async () => {
+    expect(Reflect.getMetadata(PATH_METADATA, RiderAssignmentController.prototype.pickupRoute)).toBe(':assignmentId/pickup-route');
+    expect(Reflect.getMetadata(METHOD_METADATA, RiderAssignmentController.prototype.pickupRoute)).toBe(RequestMethod.GET);
+    const queries: Array<{ pickupLatitude: number; riderLatitude: number }> = [];
+    const controller = new RiderAssignmentController({
+      async liveAssignments() {
+        return {
+          assignments: [{
+            assignmentId: 'assignment-1',
+            status: 'RIDER_ASSIGNED',
+            pickup: { latitude: '-17.8252000', longitude: '31.0335000' },
+          }],
+        };
+      },
+    } as unknown as DispatchService, {
+      async lookup(query: { pickupLatitude: number; riderLatitude: number }) {
+        queries.push(query);
+        return {
+          metres: 1200,
+          seconds: 180,
+          line: [
+            { latitude: -17.83, longitude: 31.04 },
+            { latitude: -17.8252, longitude: 31.0335 },
+          ],
+        };
+      },
+    });
+
+    const route = await controller.pickupRoute(request, 'assignment-1', '-17.83', '31.04');
+
+    expect(queries[0]).toMatchObject({ pickupLatitude: -17.8252, riderLatitude: -17.83 });
+    expect(route.line).toHaveLength(2);
+    expect(route.geometry.length).toBeGreaterThan(0);
+    expect(route).toMatchObject({ metres: 1200, seconds: 180 });
+
+    const failed = new RiderAssignmentController({
+      async liveAssignments() {
+        return { assignments: [{ assignmentId: 'assignment-1', status: 'RIDER_ASSIGNED', pickup: { latitude: '-17.82', longitude: '31.05' } }] };
+      },
+    } as unknown as DispatchService, {
+      async lookup() {
+        return null;
+      },
+    });
+    expect(await failed.pickupRoute(request, 'assignment-1', '-17.83', '31.04')).toEqual({ geometry: '', line: [] });
+  });
+});
+
+describe('delivery route', () => {
+  const request = { rider: { userId: 'user-1', riderProfileId: 'profile-1' } };
+
+  it('injects PlacesService and returns its road between pickup and drop-off', async () => {
+    const declared = Reflect.getMetadata(SELF_DECLARED_DEPS_METADATA, RiderAssignmentController) as Array<{ index: number; param: unknown }>;
+    expect(declared).toContainEqual({ index: 2, param: PlacesService });
+    const origins: number[][] = [];
+    let status = 'COLLECTED';
+    const controller = new RiderAssignmentController({
+      async liveAssignments() {
+        return {
+          assignments: [{
+            assignmentId: 'assignment-1',
+            status,
+            pickup: { latitude: '-17.8252000', longitude: '31.0335000' },
+            dropoff: { latitude: '-17.8200000', longitude: '31.0400000' },
+          }],
+        };
+      },
+    } as unknown as DispatchService, null, {
+      async deliveryRoute(originLatitude: number, originLongitude: number, dropoffLatitude: number, dropoffLongitude: number) {
+        origins.push([originLatitude, originLongitude, dropoffLatitude, dropoffLongitude]);
+        return {
+          line: [
+            { latitude: originLatitude, longitude: originLongitude },
+            { latitude: -17.823, longitude: 31.036 },
+            { latitude: dropoffLatitude, longitude: dropoffLongitude },
+          ],
+        };
+      },
+    } as unknown as PlacesService);
+
+    const route = await controller.deliveryRoute(request, 'assignment-1');
+
+    expect(route.line.length).toBeGreaterThan(2);
+    expect(route.geometry.length).toBeGreaterThan(0);
+    expect(origins[0]).toEqual([-17.8252, 31.0335, -17.82, 31.04]);
+    await controller.deliveryRoute(request, 'assignment-1', '-17.8300', '31.0500');
+    expect(origins[1]).toEqual([-17.83, 31.05, -17.82, 31.04]);
+    status = 'OUT_FOR_DELIVERY';
+    await controller.deliveryRoute(request, 'assignment-1', '-17.8300', '31.0500');
+    expect(origins[2]).toEqual([-17.8252, 31.0335, -17.82, 31.04]);
+    const missing = new RiderAssignmentController({
+      async liveAssignments() {
+        return {
+          assignments: [{
+            assignmentId: 'assignment-1',
+            status: 'COLLECTED',
+            pickup: { latitude: '-17.8252000', longitude: '31.0335000' },
+            dropoff: { latitude: '-17.8200000', longitude: '31.0400000' },
+          }],
+        };
+      },
+    } as unknown as DispatchService);
+    expect(await missing.deliveryRoute(request, 'assignment-1')).toEqual({ geometry: '', line: [] });
+  });
 });
 
 function serialized(assignment: ActiveAssignment | null): Record<string, unknown> {
@@ -107,10 +327,23 @@ function rider(riderProfileId: string) {
 }
 
 function serviceFor(rows: ReturnType<typeof row>[]) {
+  const indexed = rows.map((entry, index) => ({
+    ...entry,
+    createdAt: entry.createdAt ?? new Date(index),
+  }));
   const prisma = {
     deliveryAssignment: {
-      async findMany() {
-        return rows;
+      async findMany(args?: { orderBy?: unknown }) {
+        if (!args?.orderBy) {
+          return indexed;
+        }
+        return [...indexed].sort((left, right) => {
+          const byTime = left.createdAt.getTime() - right.createdAt.getTime();
+          if (byTime !== 0) {
+            return byTime;
+          }
+          return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
+        });
       },
     },
   };
@@ -124,18 +357,27 @@ function row(
   deliveryStatus: DeliveryStatus,
   pickupAddress: string,
   retrievedAt = FRESH,
+  read: {
+    serviceClass?: 'FLEXIBLE' | 'EXPRESS' | null;
+    deliverBy?: Date | null;
+    acceptedBidAmount?: string | { toFixed(digits: number): string } | null;
+    price?: string;
+    completedAt?: Date;
+  } = {},
+  assignmentCreatedAt?: Date,
 ) {
   return {
     id,
     riderProfileId,
     status,
+    createdAt: assignmentCreatedAt,
     idempotencyKey: `key-${id}`,
     acceptedPlatformFee: '0.50',
+    acceptedBidAmount: read.acceptedBidAmount ?? null,
     delivery: {
       id: `delivery-${id}`,
       customerId: 'customer-1',
       status: deliveryStatus,
-      price: '3.00',
       currency: Currency.USD,
       payer: 'SENDER',
       paymentMethod: 'CASH',
@@ -157,6 +399,14 @@ function row(
       recipientName: 'Recipient Person',
       recipientPhone: '+263772222222',
       createdAt: retrievedAt,
+      updatedAt: read.completedAt,
+      statusEvents: read.completedAt
+        ? [{ newStatus: DeliveryStatus.DELIVERED, occurredAt: read.completedAt }]
+        : [],
+      distanceMeters: 1_500,
+      price: read.price ?? '3.00',
+      serviceClass: read.serviceClass ?? null,
+      deliverBy: read.deliverBy ?? null,
       pickupCoordinateSource: CoordinateSource.GOOGLE_PLACES,
       pickupPlaceId: 'ChIJpickup',
       pickupCoordinateRetrievedAt: retrievedAt,

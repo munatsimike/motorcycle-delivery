@@ -22,6 +22,9 @@ describe('rider wallet reads', () => {
       borrowingLimitSource: 'DEFAULT',
       reservedFees: '0.30',
       availableCapacity: '0.70',
+      promotionalBalance: '0.00',
+      availablePromotionalCredit: '0.00',
+      newDeliveriesRestricted: false,
       currency: 'USD',
     });
     expect(ctx.writes).toBe(0);
@@ -363,7 +366,7 @@ function context() {
         return refuseWrite();
       },
     },
-    async $transaction<T>(callback: (tx: typeof db) => Promise<T>) {
+    async $transaction<T>(callback: (tx: object) => Promise<T>) {
       return callback(db);
     },
   };

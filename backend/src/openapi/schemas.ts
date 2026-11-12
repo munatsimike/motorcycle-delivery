@@ -7,16 +7,7 @@ export class RiderWhatsAppRegistrationBody {
   @ApiProperty({ description: 'Zimbabwe mobile number. A national or +263 form is accepted and stored as E.164.' })
   phone!: string;
 
-  @ApiProperty({ minLength: 12, maxLength: 128 })
-  password!: string;
-
-  @ApiProperty({ maxLength: 200 })
-  fullName!: string;
-
-  @ApiProperty({ minLength: 1, maxLength: 500 })
-  address!: string;
-
-  @ApiProperty({ description: 'Must be true. The account consents to WhatsApp authentication messages.' })
+  @ApiProperty({ description: 'Must be true. The account consents to WhatsApp authentication messages. Name and address are collected after the code is verified.' })
   whatsappConsent!: boolean;
 }
 
@@ -24,11 +15,8 @@ export class CustomerWhatsAppRegistrationBody {
   @ApiProperty({ description: 'Zimbabwe mobile number. A national or +263 form is accepted and stored as E.164.' })
   phone!: string;
 
-  @ApiProperty({ minLength: 12, maxLength: 128 })
-  password!: string;
-
-  @ApiProperty({ enum: ['INDIVIDUAL', 'BUSINESS'] })
-  accountKind!: 'INDIVIDUAL' | 'BUSINESS';
+  @ApiPropertyOptional({ enum: ['INDIVIDUAL', 'BUSINESS'], description: 'Collected after the phone is verified. Older clients may still send it with the code request.' })
+  accountKind?: 'INDIVIDUAL' | 'BUSINESS';
 
   @ApiPropertyOptional({ maxLength: 200 })
   fullName?: string;
@@ -39,10 +27,10 @@ export class CustomerWhatsAppRegistrationBody {
   @ApiPropertyOptional({ maxLength: 200 })
   contactName?: string;
 
-  @ApiProperty({ minLength: 1, maxLength: 500 })
-  address!: string;
+  @ApiPropertyOptional({ minLength: 1, maxLength: 500, description: 'Collected after the phone is verified. Older clients may still send it with the code request.' })
+  address?: string;
 
-  @ApiProperty({ description: 'Must be true. The account consents to WhatsApp authentication messages.' })
+  @ApiProperty({ description: 'Must be true. The account consents to WhatsApp authentication messages. Name and address are collected after the code is verified.' })
   whatsappConsent!: boolean;
 }
 
@@ -50,19 +38,8 @@ export class WhatsAppRecoveryBody {
   @ApiProperty({ description: 'Zimbabwe mobile number. A national or +263 form is accepted and stored as E.164.' })
   phone!: string;
 
-  @ApiProperty({ description: 'Must be true. Recovery codes are sent only with consent to WhatsApp authentication messages.' })
+  @ApiProperty({ description: 'Must be true. Sign-in codes are sent only with consent to WhatsApp authentication messages.' })
   whatsappConsent!: boolean;
-}
-
-export class PasswordResetBody {
-  @ApiProperty({ description: 'Zimbabwe mobile number. A national or +263 form is accepted and stored as E.164.' })
-  phone!: string;
-
-  @ApiProperty({ description: 'WhatsApp verification code. The code is not returned or logged.' })
-  code!: string;
-
-  @ApiProperty({ minLength: 12, maxLength: 128 })
-  password!: string;
 }
 
 export class PhoneBody {
@@ -127,7 +104,7 @@ export class OtpVerifyBody {
   @ApiProperty({ description: 'The same phone number used to request the code.' })
   phone!: string;
 
-  @ApiProperty({ pattern: '^\\d{4,10}$', description: 'One-time code from the SMS. Do not put a real code in a saved request.' })
+  @ApiProperty({ pattern: '^\\d{4,10}$', description: 'One-time WhatsApp code. Do not put a real code in a saved request.' })
   code!: string;
 }
 
@@ -273,8 +250,8 @@ export class QuoteResponse {
   @ApiProperty({ pattern: MONEY, description: moneyDescription })
   suggestedPrice!: string;
 
-  @ApiPropertyOptional({ enum: ['FIXED', 'PER_KILOMETRE', 'BASE_PLUS_PER_KILOMETRE', 'DISTANCE_TIERS'] })
-  pricingModel?: 'FIXED' | 'PER_KILOMETRE' | 'BASE_PLUS_PER_KILOMETRE' | 'DISTANCE_TIERS';
+  @ApiPropertyOptional({ enum: ['FIXED', 'PER_KILOMETRE', 'BASE_PLUS_PER_KILOMETRE', 'DISTANCE_TIERS', 'INCLUDED_DISTANCE'] })
+  pricingModel?: 'FIXED' | 'PER_KILOMETRE' | 'BASE_PLUS_PER_KILOMETRE' | 'DISTANCE_TIERS' | 'INCLUDED_DISTANCE';
 
   @ApiPropertyOptional({ enum: ['EXPRESS', 'FLEXIBLE'] })
   serviceClass?: 'EXPRESS' | 'FLEXIBLE';
@@ -326,6 +303,17 @@ export class ParcelBody {
   instructions?: string | null;
 }
 
+export class BidSubmissionBody {
+  @ApiProperty({ format: 'uuid' })
+  deliveryId!: string;
+
+  @ApiProperty({ minimum: 0, description: 'Bid amount in integer cents.' })
+  amountCents!: number;
+
+  @ApiPropertyOptional({ enum: ['USD'] })
+  currency?: 'USD';
+}
+
 export class CreateDeliveryBody {
   @ApiProperty({ type: DeliveryStopBody })
   pickup!: DeliveryStopBody;
@@ -347,43 +335,6 @@ export class CreateDeliveryBody {
 
   @ApiProperty({ enum: ['CASH', 'ECOCASH', 'ONEMONEY', 'INNBUCKS', 'ZIPIT'] })
   paymentMethod!: 'CASH' | 'ECOCASH' | 'ONEMONEY' | 'INNBUCKS' | 'ZIPIT';
-}
-
-export class DeliveryPricingBody {
-  @ApiPropertyOptional({ enum: ['USD'], description: 'Omitted or USD. Any other currency is rejected.' })
-  currency?: 'USD';
-
-  @ApiProperty({ pattern: MONEY, description: `${moneyDescription} Zero is allowed.` })
-  baseFee!: string;
-
-  @ApiProperty({ pattern: MONEY, description: `${moneyDescription} Zero is allowed.` })
-  pricePerKilometre!: string;
-
-  @ApiProperty({ type: 'integer', minimum: 0, maximum: 2_000_000_000 })
-  minimumTripMetres!: number;
-
-  @ApiProperty({ type: 'integer', minimum: 0, maximum: 2_000_000_000, description: 'Must be greater than minimumTripMetres.' })
-  maximumTripMetres!: number;
-}
-
-export class DeliveryPricingResponse {
-  @ApiProperty({ type: 'integer' })
-  pricingVersion!: number;
-
-  @ApiProperty({ enum: ['USD'] })
-  currency!: 'USD';
-
-  @ApiProperty({ pattern: MONEY })
-  baseFee!: string;
-
-  @ApiProperty({ pattern: MONEY })
-  pricePerKilometre!: string;
-
-  @ApiProperty({ type: 'integer' })
-  minimumTripMetres!: number;
-
-  @ApiProperty({ type: 'integer' })
-  maximumTripMetres!: number;
 }
 
 export class DistanceTierBody {
@@ -418,16 +369,16 @@ export class PricingWindowBody {
 }
 
 export class ClassTariffBody {
-  @ApiProperty({ enum: ['FIXED', 'PER_KILOMETRE', 'BASE_PLUS_PER_KILOMETRE', 'DISTANCE_TIERS'] })
-  pricingModel!: 'FIXED' | 'PER_KILOMETRE' | 'BASE_PLUS_PER_KILOMETRE' | 'DISTANCE_TIERS';
+  @ApiProperty({ enum: ['FIXED', 'PER_KILOMETRE', 'BASE_PLUS_PER_KILOMETRE', 'DISTANCE_TIERS', 'INCLUDED_DISTANCE'] })
+  pricingModel!: 'FIXED' | 'PER_KILOMETRE' | 'BASE_PLUS_PER_KILOMETRE' | 'DISTANCE_TIERS' | 'INCLUDED_DISTANCE';
 
   @ApiPropertyOptional({ enum: ['USD'] })
   currency?: 'USD';
 
-  @ApiPropertyOptional({ pattern: MONEY, description: 'Required for FIXED and BASE_PLUS_PER_KILOMETRE.' })
+  @ApiPropertyOptional({ pattern: MONEY, description: 'Required for FIXED, BASE_PLUS_PER_KILOMETRE, and INCLUDED_DISTANCE.' })
   baseFee?: string;
 
-  @ApiPropertyOptional({ pattern: MONEY, description: 'Required for PER_KILOMETRE and BASE_PLUS_PER_KILOMETRE.' })
+  @ApiPropertyOptional({ pattern: MONEY, description: 'Required for PER_KILOMETRE, BASE_PLUS_PER_KILOMETRE, and INCLUDED_DISTANCE.' })
   pricePerKilometre?: string;
 
   @ApiProperty({ type: 'integer', minimum: 0 })
@@ -435,6 +386,9 @@ export class ClassTariffBody {
 
   @ApiProperty({ type: 'integer', minimum: 0 })
   maximumTripMetres!: number;
+
+  @ApiPropertyOptional({ type: 'integer', minimum: 1, description: 'Metres covered by the base fee. Required for INCLUDED_DISTANCE.' })
+  includedMetres?: number;
 
   @ApiPropertyOptional({ type: [DistanceTierBody] })
   tiers?: DistanceTierBody[];
@@ -490,8 +444,8 @@ export class ClassTariffResponse {
   @ApiProperty({ type: 'integer' })
   pricingVersion!: number;
 
-  @ApiProperty({ enum: ['FIXED', 'PER_KILOMETRE', 'BASE_PLUS_PER_KILOMETRE', 'DISTANCE_TIERS'] })
-  pricingModel!: 'FIXED' | 'PER_KILOMETRE' | 'BASE_PLUS_PER_KILOMETRE' | 'DISTANCE_TIERS';
+  @ApiProperty({ enum: ['FIXED', 'PER_KILOMETRE', 'BASE_PLUS_PER_KILOMETRE', 'DISTANCE_TIERS', 'INCLUDED_DISTANCE'] })
+  pricingModel!: 'FIXED' | 'PER_KILOMETRE' | 'BASE_PLUS_PER_KILOMETRE' | 'DISTANCE_TIERS' | 'INCLUDED_DISTANCE';
 
   @ApiProperty({ enum: ['USD'] })
   currency!: 'USD';
@@ -507,6 +461,9 @@ export class ClassTariffResponse {
 
   @ApiProperty({ type: 'integer' })
   maximumTripMetres!: number;
+
+  @ApiProperty({ type: 'integer', nullable: true })
+  includedMetres!: number | null;
 
   @ApiProperty()
   isActive!: boolean;
@@ -597,15 +554,10 @@ export class MotorcycleBody {
   colour!: string;
 }
 
-export class ReleaseOfferBody {
-  @ApiProperty({ enum: ['RIDER_CANCELLED', 'VEHICLE_PROBLEM'] })
-  reason!: 'RIDER_CANCELLED' | 'VEHICLE_PROBLEM';
-}
-
 export class DeliveryStatusBody {
   @ApiProperty({
-    enum: ['CREATED', 'SEARCHING', 'NO_RIDER_FOUND', 'ASSIGNED', 'ARRIVED_AT_PICKUP', 'PICKED_UP', 'IN_TRANSIT', 'ARRIVED_AT_DROPOFF', 'DELIVERED', 'CANCELLED', 'FAILED'],
-    description: 'The next status in the accepted delivery sequence.',
+    enum: ['CREATED', 'SEARCHING', 'NO_RIDER_FOUND', 'ASSIGNED', 'RIDER_ASSIGNED', 'COLLECTING', 'COLLECTED', 'OUT_FOR_DELIVERY', 'ARRIVED_AT_PICKUP', 'PICKED_UP', 'IN_TRANSIT', 'ARRIVED_AT_DROPOFF', 'DELIVERED', 'CANCELLED', 'FAILED'],
+    description: 'The next status. A marketplace delivery moves from RIDER_ASSIGNED to COLLECTED, then DELIVERED. A delivery already COLLECTING can still move to COLLECTED, and a delivery already OUT_FOR_DELIVERY can still move to DELIVERED.',
   })
   status!: string;
 }
@@ -627,6 +579,12 @@ export class RiderSelfProfileResponse {
 
   @ApiProperty()
   phone!: string;
+
+  @ApiProperty({ nullable: true, maxLength: 500 })
+  address!: string | null;
+
+  @ApiProperty()
+  hasProfilePhoto!: boolean;
 }
 
 export class RiderOnboardingResponse {
@@ -653,11 +611,30 @@ export class RiderOnboardingResponse {
 
   @ApiProperty()
   activeVerifiedMotorcycle!: boolean;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Included when the marketplace is enabled. True while this rider is receiving new requests.',
+  })
+  receiving?: boolean | null;
 }
 
 export class AvailabilityResponse {
   @ApiProperty({ enum: ['OFFLINE', 'AVAILABLE', 'BUSY'] })
   availability!: string;
+}
+
+export class ReceivingPreferenceBody {
+  @ApiProperty()
+  receiving!: boolean;
+}
+
+export class ReceivingPreferenceResponse {
+  @ApiProperty({ enum: ['OFFLINE', 'AVAILABLE', 'BUSY'] })
+  availability!: string;
+
+  @ApiProperty()
+  receiving!: boolean;
 }
 
 export class PushDeviceBody {
@@ -716,6 +693,12 @@ export class CustomerAccountResponse {
 
   @ApiProperty({ nullable: true })
   email!: string | null;
+
+  @ApiProperty({ description: 'Whether this customer has a stored profile photo. The bytes are downloaded separately.' })
+  hasProfilePhoto!: boolean;
+
+  @ApiProperty({ description: 'Whether V2 Express and Flexible booking is enabled for this server.' })
+  marketplaceEnabled!: boolean;
 }
 
 export class CustomerProfileUpdateBody {
@@ -775,6 +758,26 @@ export class MotorcycleVerificationBody {
   decision!: 'VERIFY' | 'REJECT' | 'REVOKE';
 }
 
+export class NegativeWalletLimitBody {
+  @ApiProperty({
+    nullable: true,
+    description: 'USD amount with two decimal places. Zero is allowed and removes negative allowance. Null uses the global default. A negative amount is rejected. The wallet balance is left unchanged.',
+    oneOf: [{ type: 'string', pattern: MONEY }, { type: 'null' }],
+  })
+  borrowingLimit!: string | null;
+}
+
+export class EcocashTopUpBody {
+  @ApiPropertyOptional({ enum: ['USD'] })
+  currency?: 'USD';
+
+  @ApiProperty({ pattern: '^\\d{1,10}\\.\\d{2}$', description: 'Amount greater than zero, in USD.' })
+  amount!: string;
+
+  @ApiProperty({ description: 'The rider EcoCash number. 077, 263, or the 9-digit number are the same subscriber.' })
+  endUserId!: string;
+}
+
 export class WalletTopUpBody {
   @ApiPropertyOptional({ enum: ['USD'] })
   currency?: 'USD';
@@ -795,17 +798,74 @@ export class WalletTopUpBody {
   ecocashReference?: string | null;
 }
 
-export class CommissionPolicyBody {
-  @ApiProperty({ enum: ['ON_COMPLETION', 'ON_ACCEPTANCE'] })
-  model!: 'ON_COMPLETION' | 'ON_ACCEPTANCE';
+export class V2CommissionRateBody {
+  @ApiProperty({ description: 'A percentage from 0 to 100 with at most two decimal places. 10 is 1000 basis points. 0 is a published rate.' })
+  percentage!: string;
 }
 
-export class CommissionPolicyResponse {
-  @ApiProperty({ enum: ['ON_COMPLETION', 'ON_ACCEPTANCE'] })
-  model!: 'ON_COMPLETION' | 'ON_ACCEPTANCE';
+export class V2CommissionRateResponse {
+  @ApiProperty()
+  configured!: boolean;
+
+  @ApiPropertyOptional({ type: 'integer', minimum: 0, maximum: 10000 })
+  basisPoints?: number;
+
+  @ApiPropertyOptional({ description: 'The percentage without a percent sign. 0 is a published rate.' })
+  percentage?: string;
+
+  @ApiPropertyOptional({ type: 'integer' })
+  rateVersion?: number;
+
+  @ApiPropertyOptional()
+  createdById?: string;
+
+  @ApiPropertyOptional({ format: 'date-time' })
+  createdAt?: string;
+}
+
+export class V2CommissionAuditResponse {
+  @ApiProperty()
+  id!: string;
+
+  @ApiProperty()
+  actorId!: string;
+
+  @ApiProperty()
+  actorName!: string;
+
+  @ApiPropertyOptional({ type: 'integer', nullable: true })
+  previousVersion!: number | null;
 
   @ApiProperty({ type: 'integer' })
-  policyVersion!: number;
+  nextVersion!: number;
+
+  @ApiPropertyOptional({ type: 'integer', nullable: true, minimum: 0, maximum: 10000 })
+  previousBasisPoints!: number | null;
+
+  @ApiProperty({ type: 'integer', minimum: 0, maximum: 10000 })
+  nextBasisPoints!: number;
+
+  @ApiPropertyOptional({ nullable: true })
+  previousPercentage!: string | null;
+
+  @ApiProperty()
+  nextPercentage!: string;
+
+  @ApiProperty({ format: 'date-time' })
+  createdAt!: string;
+}
+
+export class V2CommissionAuditPage {
+  @ApiProperty({ type: [V2CommissionAuditResponse] })
+  data!: V2CommissionAuditResponse[];
+
+  @ApiProperty({ type: PricingAuditPagination })
+  pagination!: PricingAuditPagination;
+}
+
+export class DeliveryRatingBody {
+  @ApiProperty({ type: 'integer', minimum: 1, maximum: 5, description: 'Customer star rating for the assigned rider. One rating per delivered parcel.' })
+  stars!: number;
 }
 
 export class WalletConfigBody {

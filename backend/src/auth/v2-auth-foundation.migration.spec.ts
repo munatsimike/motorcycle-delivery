@@ -22,7 +22,8 @@ describe('V2 auth foundation migration', () => {
 
   it('matches the authentication schema and leaves offer tables and V1 indexes alone', () => {
     expect(schema).toContain('whatsappConsentAt');
-    expect(schema).toContain('model PasswordLoginAttempt');
+    expect(sql).toContain('CREATE TABLE "password_login_attempts"');
+    expect(schema).not.toContain('model PasswordLoginAttempt');
     expect(schema).toContain('model Bid');
     expect(schema).toContain('model PricingWindow');
     expect(schema).toContain('model PricingConfigAudit');

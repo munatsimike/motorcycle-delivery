@@ -1,9 +1,14 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { countNearbyAvailableRiders, nearbyFreshAfter } from './nearby-riders.query.js';
+import {
+  nearbyAvailableRiderPoints,
+  nearbyFreshAfter,
+  type NearbyRiderMapPoint,
+} from './nearby-riders.query.js';
 
 export type NearbyRiderCount = {
   count: number;
+  points: NearbyRiderMapPoint[];
 };
 
 @Injectable()
@@ -12,12 +17,14 @@ export class NearbyRidersService {
 
   async count(query: { latitude?: string; longitude?: string }, now = new Date()): Promise<NearbyRiderCount> {
     const point = readNearbyPoint(query);
-    const count = await countNearbyAvailableRiders(this.prisma, {
+    const freshAfter = nearbyFreshAfter(now);
+    const points = await nearbyAvailableRiderPoints(this.prisma, {
       latitude: point.latitude,
       longitude: point.longitude,
-      freshAfter: nearbyFreshAfter(now),
+      freshAfter,
+      now,
     });
-    return { count };
+    return { count: points.length, points };
   }
 }
 

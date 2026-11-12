@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { RiderContext } from '../auth/rider-access.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { assertServiceCoordinates } from '../delivery/service-area.js';
 import { readGps } from './rider-location.js';
 
 @Injectable()
@@ -9,6 +10,7 @@ export class RiderLocationService {
 
   async update(rider: RiderContext, body: unknown, now = new Date()): Promise<{ updatedAt: string }> {
     const point = readGps(body);
+    assertServiceCoordinates(point.latitude, point.longitude);
     await this.prisma.$executeRaw`
       INSERT INTO "rider_locations" (
         "rider_profile_id",

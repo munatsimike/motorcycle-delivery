@@ -24,6 +24,10 @@ export const ACTIVE_DELIVERY_STATUSES: readonly DeliveryStatus[] = [
   DeliveryStatus.SEARCHING,
   DeliveryStatus.NO_RIDER_FOUND,
   DeliveryStatus.ASSIGNED,
+  DeliveryStatus.RIDER_ASSIGNED,
+  DeliveryStatus.COLLECTING,
+  DeliveryStatus.COLLECTED,
+  DeliveryStatus.OUT_FOR_DELIVERY,
   DeliveryStatus.ARRIVED_AT_PICKUP,
   DeliveryStatus.PICKED_UP,
   DeliveryStatus.IN_TRANSIT,
@@ -188,7 +192,7 @@ export async function runRetention(
   now: Date,
   clock: () => Date = () => now,
   log: (message: string) => void = () => undefined,
-  owner = randomUUID(),
+  owner: string = randomUUID(),
 ): Promise<RetentionRunResult> {
   const result: RetentionRunResult = { status: 'finished', refreshed: 0, cleared: 0, refreshFailed: 0 };
   const claimed = await store.claim(owner, clock(), COORDINATE_RETENTION_LEASE_MS);

@@ -45,6 +45,7 @@ export type TariffSnapshot = {
   pricePerKilometreCents: number;
   minimumTripMetres: number;
   maximumTripMetres: number;
+  includedMetres: number | null;
   tiers: PricingTierSnapshot[];
   windows: PricingWindowSnapshot[];
 };
@@ -77,6 +78,8 @@ type LocalTime = {
 // A window whose end is less than or equal to its start crosses midnight.
 // The end minute is exclusive, so adjacent windows do not both match.
 // Tier amountCents is the per-kilometre rate for metres inside that slice.
+// INCLUDED_DISTANCE charges the base fee through includedMetres, then the
+// per-kilometre rate only on the metres beyond that distance.
 export function calculateTariffPrice(snapshot: TariffSnapshot, distanceMetres: number, at: Date): PricingCalculation {
   const tariff = readTariff(snapshot);
   const distance = readDistance(distanceMetres, tariff.minimumTripMetres, tariff.maximumTripMetres);
@@ -119,6 +122,7 @@ function readTariff(snapshot: TariffSnapshot): ResolvedTariff {
   if (!Number.isSafeInteger(snapshot.maximumTripMetres) || snapshot.maximumTripMetres < snapshot.minimumTripMetres) {
     throw new PricingCalculationError('Pricing configuration is invalid: maximum trip is invalid');
   }
+  const includedMetres = readIncludedMetres(snapshot);
   const tiers = readTiers(snapshot);
   const windows = readWindows(snapshot.windows);
   return {
@@ -129,6 +133,7 @@ function readTariff(snapshot: TariffSnapshot): ResolvedTariff {
     pricePerKilometreCents,
     minimumTripMetres: snapshot.minimumTripMetres,
     maximumTripMetres: snapshot.maximumTripMetres,
+    includedMetres,
     tiers,
     windows,
   };
@@ -140,6 +145,23 @@ function readNonNegativeCents(value: unknown, label: string): number {
   }
   if (value < 0) {
     throw new PricingCalculationError(`Pricing configuration is invalid: ${label} is negative`);
+  }
+  return value;
+}
+
+function readIncludedMetres(snapshot: TariffSnapshot): number | null {
+  const value = snapshot.includedMetres ?? null;
+  if (snapshot.pricingModel !== PricingModel.INCLUDED_DISTANCE) {
+    if (value !== null) {
+      throw new PricingCalculationError('Pricing configuration is invalid: included distance belongs only to the included-distance model');
+    }
+    return null;
+  }
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
+    throw new PricingCalculationError('Pricing configuration is invalid: included distance is invalid');
+  }
+  if (value < snapshot.minimumTripMetres || value > snapshot.maximumTripMetres) {
+    throw new PricingCalculationError('Pricing configuration is invalid: included distance is outside the configured range');
   }
   return value;
 }
@@ -259,7 +281,21 @@ function basePriceCents(tariff: ResolvedTariff, distanceMetres: number): number 
   if (tariff.pricingModel === PricingModel.BASE_PLUS_PER_KILOMETRE) {
     return suggestedCents(distanceMetres, tariff);
   }
-  return marginalTierCents(tariff.tiers, distanceMetres);
+  if (tariff.pricingModel === PricingModel.DISTANCE_TIERS) {
+    return marginalTierCents(tariff.tiers, distanceMetres);
+  }
+  return includedDistanceCents(tariff, distanceMetres);
+}
+
+function includedDistanceCents(tariff: ResolvedTariff, distanceMetres: number): number {
+  const included = tariff.includedMetres ?? 0;
+  const excess = distanceMetres > included ? distanceMetres - included : 0;
+  const charge = distanceChargeCents(tariff.pricePerKilometreCents, excess);
+  const total = BigInt(tariff.baseFeeCents) + BigInt(charge);
+  if (total > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new PricingCalculationError('Suggested price is too large');
+  }
+  return Number(total);
 }
 
 function distanceChargeCents(rateCents: number, metres: number): number {

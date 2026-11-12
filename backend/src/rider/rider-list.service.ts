@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { RiderApprovalStatus, RiderVerificationStatus } from '../generated/prisma/client.js';
+import { adminPage, readAdminPage } from '../http/admin-query.js';
 
 @Injectable()
 export class RiderListService {
@@ -74,6 +75,66 @@ export class RiderListService {
       updatedAt: rider.updatedAt,
     };
   }
+
+  async activity(riderProfileId: string, query: Record<string, unknown>) {
+    const rider = await this.prisma.riderProfile.findUnique({
+      where: { id: riderProfileId },
+      select: { id: true },
+    });
+    if (!rider) {
+      throw new NotFoundException('Rider not found');
+    }
+    const page = readAdminPage(query.page, 1, 1, 100000);
+    const limit = readAdminPage(query.limit, 20, 1, 100);
+    const where = { riderProfileId };
+    const [total, rows] = await Promise.all([
+      this.prisma.deliveryAssignment.count({ where }),
+      this.prisma.deliveryAssignment.findMany({
+        where,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip: (page - 1) * limit,
+        take: limit,
+        select: {
+          id: true,
+          status: true,
+          respondedAt: true,
+          releaseReason: true,
+          releasedAt: true,
+          acceptedBidAmount: true,
+          createdAt: true,
+          delivery: {
+            select: {
+              id: true,
+              status: true,
+              pickupAddress: true,
+              dropoffAddress: true,
+              currency: true,
+              createdAt: true,
+            },
+          },
+        },
+      }),
+    ]);
+    return {
+      data: rows.map((row) => ({
+        assignmentId: row.id,
+        assignmentStatus: row.status,
+        respondedAt: row.respondedAt,
+        releaseReason: row.releaseReason,
+        releasedAt: row.releasedAt,
+        acceptedBidAmount: row.acceptedBidAmount,
+        createdAt: row.createdAt,
+        deliveryId: row.delivery.id,
+        deliveryStatus: row.delivery.status,
+        pickupAddress: row.delivery.pickupAddress,
+        dropoffAddress: row.delivery.dropoffAddress,
+        currency: row.delivery.currency,
+        deliveryCreatedAt: row.delivery.createdAt,
+      })),
+      pagination: adminPage(page, limit, total),
+    };
+  }
+
   async list(query: Record<string, unknown>) {
     const page = readInteger(query.page, 1, 1, 100000);
     const limit = readInteger(query.limit, 20, 1, 100);

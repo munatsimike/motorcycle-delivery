@@ -13,6 +13,7 @@ export class AdminDashboardService {
       activeDeliveries,
       completedDeliveries,
       cancelledDeliveries,
+      failedDeliveries,
       totalRiders,
       pendingRiders,
       approvedRiders,
@@ -40,6 +41,10 @@ export class AdminDashboardService {
             in: [
               'SEARCHING',
               'ASSIGNED',
+              'RIDER_ASSIGNED',
+              'COLLECTING',
+              'COLLECTED',
+              'OUT_FOR_DELIVERY',
               'ARRIVED_AT_PICKUP',
               'PICKED_UP',
               'IN_TRANSIT',
@@ -53,6 +58,9 @@ export class AdminDashboardService {
       }),
       this.prisma.delivery.count({
         where: { status: 'CANCELLED' },
+      }),
+      this.prisma.delivery.count({
+        where: { status: 'FAILED' },
       }),
       this.prisma.riderProfile.count(),
       this.prisma.riderProfile.count({
@@ -113,6 +121,10 @@ export class AdminDashboardService {
       SEARCHING: 0,
       NO_RIDER_FOUND: 0,
       ASSIGNED: 0,
+      RIDER_ASSIGNED: 0,
+      COLLECTING: 0,
+      COLLECTED: 0,
+      OUT_FOR_DELIVERY: 0,
       ARRIVED_AT_PICKUP: 0,
       PICKED_UP: 0,
       IN_TRANSIT: 0,
@@ -132,6 +144,7 @@ export class AdminDashboardService {
         active: activeDeliveries,
         completed: completedDeliveries,
         cancelled: cancelledDeliveries,
+        failed: failedDeliveries,
         byStatus: statusCounts,
         last24Hours: deliveriesLast24Hours,
       },

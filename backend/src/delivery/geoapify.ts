@@ -3,9 +3,23 @@ import { loadBackendEnv } from '../load-env.js';
 
 const logger = new Logger('Geoapify');
 
+export type RouteManeuver = {
+  text: string;
+  type: string;
+  streets: string[];
+  metres: number;
+  seconds: number;
+  fromIndex: number;
+  toIndex: number;
+  latitude: number;
+  longitude: number;
+};
+
 export type RoadRoute = {
   metres: number;
+  seconds: number | null;
   line: Array<[number, number]>;
+  steps: RouteManeuver[];
 };
 
 const HIDDEN_STREET_LABELS = [
@@ -25,24 +39,20 @@ export function readRoadRoute(body: unknown): RoadRoute | null {
   }
   const properties = isRecord(feature.properties) ? feature.properties : null;
   const metres = properties ? finite(properties.distance) : null;
+  const seconds = properties ? finite(properties.time) : null;
   const geometry = isRecord(feature.geometry) ? feature.geometry : null;
   const coordinates = geometry && Array.isArray(geometry.coordinates) ? geometry.coordinates : [];
   const line: Array<[number, number]> = [];
-  for (const pair of coordinates) {
-    if (!Array.isArray(pair) || pair.length < 2) {
-      continue;
-    }
-    const longitude = finite(pair[0]);
-    const latitude = finite(pair[1]);
-    if (longitude === null || latitude === null) {
-      continue;
-    }
-    line.push([longitude, latitude]);
-  }
+  collectPositions(coordinates, line);
   if (metres === null || metres < 0 || !Number.isFinite(metres)) {
     return null;
   }
-  return { metres, line };
+  return {
+    metres,
+    seconds: seconds !== null && seconds >= 0 ? seconds : null,
+    line,
+    steps: readManeuvers(properties, line),
+  };
 }
 
 export function encodePolyline(line: Array<[number, number]>): string {
@@ -75,6 +85,7 @@ export class GeoapifyClient {
     const url = new URL('https://api.geoapify.com/v1/routing');
     url.searchParams.set('waypoints', `${pickupLatitude},${pickupLongitude}|${dropoffLatitude},${dropoffLongitude}`);
     url.searchParams.set('mode', 'drive');
+    url.searchParams.set('details', 'instruction_details');
     url.searchParams.set('apiKey', this.key());
     const route = readRoadRoute(await this.getJson(url));
     if (!route) {
@@ -98,7 +109,7 @@ export class GeoapifyClient {
     url.searchParams.append('marker', `lonlat:${pickupLongitude},${pickupLatitude};color:#169b62;size:medium`);
     url.searchParams.append('marker', `lonlat:${dropoffLongitude},${dropoffLatitude};color:#087a4a;size:medium`);
     url.searchParams.set('apiKey', this.key());
-    const sampled = sampleLine(line, 25);
+    const sampled = sampleRoadLine(line, 25);
     const geometry = sampled.length > 1 ? `polyline:${encodePolyline(sampled)}` : '';
     if (geometry && geometry.length < 1800) {
       const withRoute = new URL(url);
@@ -206,7 +217,7 @@ export function geoapifyRoadDistance(): RoadDistance {
   };
 }
 
-function sampleLine(line: Array<[number, number]>, maximum: number): Array<[number, number]> {
+export function sampleRoadLine(line: Array<[number, number]>, maximum: number): Array<[number, number]> {
   if (line.length <= maximum) {
     return line;
   }
@@ -227,6 +238,89 @@ function encodeSigned(value: number): string {
   }
   encoded += String.fromCharCode(shifted + 63);
   return encoded;
+}
+
+function collectPositions(value: unknown, line: Array<[number, number]>) {
+  if (!Array.isArray(value)) {
+    return;
+  }
+  const longitude = finite(value[0]);
+  const latitude = finite(value[1]);
+  if (longitude !== null && latitude !== null) {
+    line.push([longitude, latitude]);
+    return;
+  }
+  for (const child of value) {
+    collectPositions(child, line);
+  }
+}
+
+function readManeuvers(properties: Record<string, unknown> | null, line: Array<[number, number]>): RouteManeuver[] {
+  if (!properties || !Array.isArray(properties.legs)) {
+    return [];
+  }
+  const steps: RouteManeuver[] = [];
+  for (const leg of properties.legs) {
+    if (!isRecord(leg) || !Array.isArray(leg.steps)) {
+      continue;
+    }
+    for (const step of leg.steps) {
+      const maneuver = readManeuver(step, line);
+      if (maneuver) {
+        steps.push(maneuver);
+      }
+    }
+  }
+  return steps;
+}
+
+function readManeuver(step: unknown, line: Array<[number, number]>): RouteManeuver | null {
+  if (!isRecord(step) || !isRecord(step.instruction)) {
+    return null;
+  }
+  const text = typeof step.instruction.text === 'string' ? step.instruction.text.trim() : '';
+  if (!text) {
+    return null;
+  }
+  const type = typeof step.instruction.type === 'string' && step.instruction.type.trim()
+    ? step.instruction.type.trim()
+    : 'None';
+  const streets = Array.isArray(step.instruction.streets)
+    ? step.instruction.streets.flatMap((street) => (
+      typeof street === 'string' && street.trim() ? [street.trim()] : []
+    ))
+    : [];
+  const fromIndex = coordinateIndex(step.from_index, line.length);
+  if (fromIndex === null) {
+    return null;
+  }
+  const point = line[fromIndex];
+  const toIndex = coordinateIndex(step.to_index, line.length);
+  const metres = finite(step.distance);
+  const seconds = finite(step.time);
+  if (!point || metres === null || metres < 0) {
+    return null;
+  }
+  return {
+    text,
+    type,
+    streets,
+    metres,
+    seconds: seconds !== null && seconds >= 0 ? seconds : 0,
+    fromIndex,
+    toIndex: toIndex !== null && toIndex >= fromIndex ? toIndex : fromIndex,
+    longitude: point[0],
+    latitude: point[1],
+  };
+}
+
+function coordinateIndex(value: unknown, length: number): number | null {
+  const numeric = finite(value);
+  if (numeric === null) {
+    return null;
+  }
+  const index = Math.round(numeric);
+  return index >= 0 && index < length ? index : null;
 }
 
 function finite(value: unknown): number | null {

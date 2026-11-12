@@ -2,7 +2,7 @@ import {
   generateAdminOtp,
   hashAdminOtp,
   verifyAdminOtp,
-} from './admin-otp-code';
+} from './admin-otp-code.js';
 
 describe('Admin OTP security', () => {
   const originalSecret = process.env.ADMIN_OTP_HMAC_SECRET;

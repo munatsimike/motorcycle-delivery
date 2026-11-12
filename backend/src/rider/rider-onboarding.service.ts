@@ -1,23 +1,28 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { readAddress } from '../customer/customer-profile.js';
 import {
   AccountStatus,
-  AuthChallengeStatus,
   AuthPurpose,
   AuthSubjectRole,
   LicenceReviewDecision,
   MotorcycleVerificationStatus,
   RiderApprovalStatus,
   RiderAvailability,
+  ProfilePhotoStatus,
   RiderVerificationStatus,
   UserRole,
 } from '../generated/prisma/client.js';
+import { v2MarketplaceEnabled } from '../auth/v2-flags.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { RiderContext } from '../auth/rider-access.service.js';
+import { ensureDefaultMotorcycle } from './motorcycle-default.js';
+import { lockRiderMotorcycles } from './motorcycle-lock.js';
 
 export type RiderProfileResponse = {
   fullName: string;
   phone: string;
   address: string | null;
+  hasProfilePhoto: boolean;
 };
 
 export type RiderOnboardingResponse = {
@@ -29,6 +34,7 @@ export type RiderOnboardingResponse = {
   rejectionReason: string | null;
   verifiedMotorcycleCount: number;
   activeVerifiedMotorcycle: boolean;
+  receiving?: boolean;
 };
 
 @Injectable()
@@ -47,21 +53,51 @@ export class RiderOnboardingService {
     ) {
       throw new ForbiddenException('Rider access is required');
     }
-    const customer = await this.prisma.customerAccount.findUnique({
-      where: { userId: user.id },
-      select: { address: true },
+    const [riderProfile, customer, registration] = await Promise.all([
+      this.prisma.riderProfile.findUnique({
+        where: { userId: user.id },
+        select: { id: true, address: true },
+      }),
+      this.prisma.customerAccount.findUnique({
+        where: { userId: user.id },
+        select: { address: true },
+      }),
+      this.prisma.authChallenge.findFirst({
+        where: {
+          phone: user.phone,
+          subjectRole: AuthSubjectRole.RIDER,
+          address: { not: null },
+          purpose: { in: [AuthPurpose.REGISTRATION, AuthPurpose.WHATSAPP_REGISTRATION] },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { address: true },
+      }),
+    ]);
+    const photo = riderProfile
+      ? await this.prisma.riderProfilePhoto.findFirst({
+        where: { riderProfileId: riderProfile.id, status: ProfilePhotoStatus.STORED },
+        select: { id: true },
+      })
+      : null;
+    return {
+      fullName: user.fullName,
+      phone: user.phone,
+      address: storedAddress(riderProfile?.address) ?? storedAddress(customer?.address) ?? storedAddress(registration?.address),
+      hasProfilePhoto: photo !== null,
+    };
+  }
+
+  async updateAddress(rider: RiderContext, body: unknown): Promise<RiderProfileResponse> {
+    const address = readProfileAddress(body);
+    const profile = await this.prisma.riderProfile.findUnique({ where: { id: rider.riderProfileId } });
+    if (!profile || profile.userId !== rider.userId) {
+      throw new ForbiddenException('Rider access is required');
+    }
+    await this.prisma.riderProfile.update({
+      where: { id: profile.id },
+      data: { address },
     });
-    const registration = await this.prisma.authChallenge.findFirst({
-      where: {
-        phone: user.phone,
-        subjectRole: AuthSubjectRole.RIDER,
-        purpose: AuthPurpose.REGISTRATION,
-        status: AuthChallengeStatus.SUPERSEDED,
-      },
-      orderBy: { createdAt: 'desc' },
-      select: { address: true },
-    });
-    return { fullName: user.fullName, phone: user.phone, address: customer?.address ?? registration?.address ?? null };
+    return this.profile(rider);
   }
 
   async current(rider: RiderContext): Promise<RiderOnboardingResponse> {
@@ -74,7 +110,7 @@ export class RiderOnboardingService {
     }
 
     const verified = profile.verificationStatus === RiderVerificationStatus.VERIFIED;
-    const [reviews, verifiedMotorcycleCount, activeVerifiedMotorcycle] = await Promise.all([
+    const [reviews, verifiedMotorcycleCount, activeCount] = await Promise.all([
       this.prisma.riderLicenceReview.findMany({
         where: { riderProfileId: profile.id },
         orderBy: { createdAt: 'desc' },
@@ -91,6 +127,24 @@ export class RiderOnboardingService {
         },
       }),
     ]);
+    let activeVerifiedMotorcycle = activeCount;
+    if (
+      profile.approvalStatus === RiderApprovalStatus.APPROVED
+      && verifiedMotorcycleCount > 0
+      && activeVerifiedMotorcycle !== 1
+    ) {
+      await this.prisma.$transaction(async (tx) => {
+        await lockRiderMotorcycles(tx, profile.id);
+        await ensureDefaultMotorcycle(tx, profile.id, new Date());
+      });
+      activeVerifiedMotorcycle = await this.prisma.motorcycle.count({
+        where: {
+          riderProfileId: profile.id,
+          verificationStatus: MotorcycleVerificationStatus.VERIFIED,
+          isActive: true,
+        },
+      });
+    }
     const latest = reviews[0];
     return {
       licenceVerificationStatus: profile.verificationStatus,
@@ -101,6 +155,19 @@ export class RiderOnboardingService {
       rejectionReason: latest?.decision === LicenceReviewDecision.REJECT ? latest.rejectionReason : null,
       verifiedMotorcycleCount,
       activeVerifiedMotorcycle: activeVerifiedMotorcycle === 1,
+      ...(v2MarketplaceEnabled() ? { receiving: profile.receivingRequests === true } : {}),
     };
   }
+}
+
+function readProfileAddress(body: unknown): string {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    return readAddress(undefined);
+  }
+  return readAddress((body as { address?: unknown }).address);
+}
+
+function storedAddress(value: string | null | undefined): string | null {
+  const address = value?.trim() ?? '';
+  return address.length > 0 ? address : null;
 }

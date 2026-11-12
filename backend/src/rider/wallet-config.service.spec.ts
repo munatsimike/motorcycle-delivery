@@ -90,6 +90,23 @@ describe('WalletConfigService', () => {
     ]);
     expect(ctx.audits).toHaveLength(1);
   });
+
+  it('lists configuration audits without changing them', async () => {
+    const ctx = context();
+    await ctx.service.replace(ADMIN, config('1.00', '1.00', '0.30'), NOW);
+    await expect(ctx.service.audits({ page: '1', limit: '20' })).resolves.toEqual({
+      data: [expect.objectContaining({
+        configVersion: 1,
+        actorId: 'admin-1',
+        previousWelcomeBonus: null,
+        newWelcomeBonus: '1.00',
+        newDefaultBorrowingLimit: '1.00',
+        newPlatformFee: '0.30',
+      })],
+      pagination: { page: 1, limit: 20, total: 1, totalPages: 1 },
+    });
+    expect(ctx.audits).toHaveLength(1);
+  });
 });
 
 function config(welcomeBonus: string, defaultBorrowingLimit: string, platformFee: string) {
@@ -123,8 +140,15 @@ function context() {
     },
     walletConfigAudit: {
       async create({ data }: { data: Record<string, unknown> }) {
-        audits.push(data);
-        return data;
+        const row = { id: `audit-${audits.length + 1}`, ...data };
+        audits.push(row);
+        return row;
+      },
+      async count() {
+        return audits.length;
+      },
+      async findMany({ skip = 0, take = 20 }: { skip?: number; take?: number }) {
+        return [...audits].reverse().slice(skip, skip + take);
       },
       async update() {
         throw new Error('wallet configuration audit was changed');
@@ -133,7 +157,7 @@ function context() {
     async $queryRaw() {
       return [];
     },
-    async $transaction<T>(callback: (tx: typeof db) => Promise<T>) {
+    async $transaction<T>(callback: (tx: object) => Promise<T>) {
       return callback(db);
     },
   };

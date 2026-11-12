@@ -15,6 +15,7 @@ import { MotorcycleReviewService } from './motorcycle-review.service.js';
 import { MotorcycleService } from './motorcycle.service.js';
 
 const NOW = new Date('2026-10-13T12:00:00.000Z');
+const LATER = new Date('2026-10-14T12:00:00.000Z');
 const RIDER = { userId: 'user-1', riderProfileId: 'profile-1' };
 const OTHER = { userId: 'user-2', riderProfileId: 'profile-2' };
 const ADMIN = { userId: 'admin-1' };
@@ -60,6 +61,17 @@ describe('MotorcycleService', () => {
     }, NOW);
     expect(created.verificationStatus).toBe(MotorcycleVerificationStatus.PENDING);
     expect(created.isActive).toBe(false);
+  });
+
+  it('makes a verified motorcycle active when the rider has not selected one', async () => {
+    const ctx = context();
+    const later = await ctx.service.register(RIDER, details('ab 2'), LATER);
+    const first = await ctx.service.register(RIDER, details('ab 1'), NOW);
+    await ctx.review.review(ADMIN, later.id, 'VERIFY', LATER);
+    expect(ctx.motorcycles.find((row) => row.id === later.id)?.isActive).toBe(true);
+
+    await ctx.review.review(ADMIN, first.id, 'VERIFY', NOW);
+    expect(ctx.motorcycles.filter((row) => row.isActive).map((row) => row.id)).toEqual([later.id]);
   });
 
   it('selects only one verified motorcycle and serializes concurrent selections', async () => {
@@ -326,7 +338,16 @@ function stored(id: string, riderProfileId: string): MotorcycleRow {
 }
 
 function context() {
-  const profile = {
+  const profile: {
+    id: string;
+    approvalStatus: RiderApprovalStatus;
+    availability: RiderAvailability;
+    verificationStatus: RiderVerificationStatus;
+    licenceNumber: string | null;
+    licenceClass: string | null;
+    verifiedAt: Date | null;
+    reviewerId: string | null;
+  } = {
     id: RIDER.riderProfileId,
     approvalStatus: RiderApprovalStatus.PENDING,
     availability: RiderAvailability.OFFLINE,
@@ -383,13 +404,13 @@ function context() {
             throw { code: 'P2002' };
           }
           const row: MotorcycleRow = {
-            verifiedAt: null,
-            verifiedById: null,
-            rejectedAt: null,
-            rejectedById: null,
-            revokedAt: null,
-            revokedById: null,
             ...data,
+            verifiedAt: data.verifiedAt ?? null,
+            verifiedById: data.verifiedById ?? null,
+            rejectedAt: data.rejectedAt ?? null,
+            rejectedById: data.rejectedById ?? null,
+            revokedAt: data.revokedAt ?? null,
+            revokedById: data.revokedById ?? null,
           };
           motorcycles.push(row);
           return { ...row };

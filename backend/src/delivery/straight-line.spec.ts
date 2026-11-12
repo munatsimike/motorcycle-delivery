@@ -14,7 +14,7 @@ describe('straight-line pricing', () => {
 
   it('keeps production pricing free of a hardcoded tariff', () => {
     const source = [
-      'src/delivery/delivery-pricing.service.ts',
+      'src/delivery/class-pricing.service.ts',
       'src/delivery/delivery.service.ts',
       'src/delivery/straight-line.ts',
     ].map((path) => readFileSync(path, 'utf8')).join('\n');

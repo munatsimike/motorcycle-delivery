@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AccountStatus, UserRole } from '../generated/prisma/client.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import { AccessTokenService } from '../auth/access-token.service.js';
-import { RiderAccessGuard } from '../auth/rider-access.guard.js';
+import { RiderAccessGuard, type RiderRequest } from '../auth/rider-access.guard.js';
 import { RiderAccessService } from '../auth/rider-access.service.js';
 import { RiderWalletController } from './rider-wallet.controller.js';
 
@@ -63,7 +63,7 @@ describe('rider wallet read authorization', () => {
         return { transactions: [], nextCursor: null };
       },
     } as never);
-    const request: { headers: { authorization: string }; rider?: unknown } = {
+    const request: RiderRequest = {
       headers: { authorization: ctx.token(UserRole.RIDER) },
     };
     await new RiderAccessGuard(ctx.service).canActivate(http(request));

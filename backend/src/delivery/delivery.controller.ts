@@ -1,11 +1,11 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   ForbiddenException,
   Get,
   Header,
   HttpCode,
-  Logger,
   NotFoundException,
   Param,
   Post,
@@ -14,12 +14,16 @@ import {
   StreamableFile,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiBody, ApiConflictResponse, ApiCreatedResponse, ApiForbiddenResponse, ApiNotFoundResponse, ApiOkResponse, ApiOperation, ApiParam, ApiQuery, ApiTags, ApiUnauthorizedResponse } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiBody, ApiConflictResponse, ApiCreatedResponse, ApiForbiddenResponse, ApiHeader, ApiNotFoundResponse, ApiOkResponse, ApiOperation, ApiParam, ApiQuery, ApiTags, ApiUnauthorizedResponse } from '@nestjs/swagger';
 import { CustomerAccessGuard, type CustomerRequest } from '../auth/customer-access.guard.js';
 import { CreateDeliveryBody, QuoteBody, QuoteResponse } from '../openapi/schemas.js';
 import { DeliveryService } from './delivery.service.js';
 import { DispatchService } from './dispatch.service.js';
 import { PlacesService } from './places.service.js';
+
+type DeliveryRequest = CustomerRequest & {
+  headers?: CustomerRequest['headers'] & { 'idempotency-key'?: string | string[] };
+};
 
 @ApiTags('Customer deliveries')
 @ApiBearerAuth('bearer')
@@ -28,8 +32,6 @@ import { PlacesService } from './places.service.js';
 @Controller('customers/me/deliveries')
 @UseGuards(CustomerAccessGuard)
 export class DeliveryController {
-  private readonly logger = new Logger(DeliveryController.name);
-
   constructor(
     private readonly deliveries: DeliveryService,
     private readonly dispatch: DispatchService,
@@ -48,32 +50,13 @@ export class DeliveryController {
   }
 
   @Post()
-  @ApiOperation({ summary: 'Create a parcel delivery and start rider search' })
+  @ApiOperation({ summary: 'Create an Express or Flexible parcel delivery' })
   @ApiBody({ type: CreateDeliveryBody })
-  @ApiCreatedResponse({ description: 'The created delivery. Search starts automatically when dispatch accepts it.' })
-  @ApiConflictResponse({ description: 'Delivery pricing is not configured' })
-  async create(@Req() request: CustomerRequest, @Body() body: unknown) {
-    const customer = requiredCustomer(request);
-    const created = await this.deliveries.create(customer, body);
-    let started: { status: string; searchGeneration: number };
-    try {
-      started = await this.dispatch.search(customer, created.id);
-    } catch (error) {
-      this.logger.error(`Automatic search failed deliveryId=${created.id} error=${errorName(error)}`);
-      return created;
-    }
-    try {
-      return await this.deliveries.getById(customer, created.id);
-    } catch (error) {
-      this.logger.error(`Automatic search reload failed deliveryId=${created.id} error=${errorName(error)}`);
-      return {
-        ...created,
-        status: started.status,
-        searchGeneration: started.searchGeneration,
-        autoRetryCount: 0,
-        nextRetryAt: null,
-      };
-    }
+  @ApiHeader({ name: 'Idempotency-Key', required: true, description: 'Stable key for this booking. Reuse it if the response is lost.' })
+  @ApiCreatedResponse({ description: 'The created Express or Flexible delivery. A repeated key with the same details returns that delivery.' })
+  @ApiConflictResponse({ description: 'Delivery pricing is not configured, or this idempotency key was already used for a different delivery.' })
+  async create(@Req() request: DeliveryRequest, @Body() body: unknown) {
+    return this.deliveries.create(requiredCustomer(request), body, headerIdempotencyKey(request));
   }
 
   @Get()
@@ -84,6 +67,23 @@ export class DeliveryController {
   @ApiOkResponse({ description: 'A page of delivery summaries.' })
   list(@Req() request: CustomerRequest, @Query() query: Record<string, unknown>) {
     return this.deliveries.list(requiredCustomer(request), query);
+  }
+
+  @Get(':deliveryId/route')
+  @ApiOperation({ summary: 'Read the driving route between this delivery pickup and drop-off' })
+  @ApiParam({ name: 'deliveryId', format: 'uuid' })
+  @ApiOkResponse({ description: 'Road geometry between the stored pickup and drop-off. An empty line means no route is available.' })
+  @ApiNotFoundResponse({ description: 'Delivery not found' })
+  async route(@Req() request: CustomerRequest, @Param('deliveryId') deliveryId: string) {
+    const delivery = await this.deliveries.getById(requiredCustomer(request), deliveryId);
+    const pickupLatitude = finiteCoordinate(delivery.pickup.latitude);
+    const pickupLongitude = finiteCoordinate(delivery.pickup.longitude);
+    const dropoffLatitude = finiteCoordinate(delivery.dropoff.latitude);
+    const dropoffLongitude = finiteCoordinate(delivery.dropoff.longitude);
+    if (pickupLatitude === null || pickupLongitude === null || dropoffLatitude === null || dropoffLongitude === null) {
+      return { line: [] };
+    }
+    return this.places.deliveryRoute(pickupLatitude, pickupLongitude, dropoffLatitude, dropoffLongitude);
   }
 
   @Get(':deliveryId/map')
@@ -113,18 +113,28 @@ export class DeliveryController {
   @Get(':deliveryId')
   @ApiOperation({ summary: 'Read one customer delivery' })
   @ApiParam({ name: 'deliveryId', format: 'uuid' })
-  @ApiOkResponse({ description: 'The delivery, including pickup, drop-off, and current status.' })
+  @ApiOkResponse({ description: 'The delivery, including pickup, drop-off, and current status. riderLocation and pickupApproach are included while this delivery is RIDER_ASSIGNED, COLLECTING, COLLECTED, or OUT_FOR_DELIVERY and the accepted rider point is fresh.' })
   @ApiNotFoundResponse({ description: 'Delivery not found' })
   getById(@Req() request: CustomerRequest, @Param('deliveryId') deliveryId: string) {
     return this.deliveries.getById(requiredCustomer(request), deliveryId);
   }
   @Post(':deliveryId/search')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Start or restart rider search for a delivery' })
+  @ApiOperation({ summary: 'Restart search for an Express or Flexible delivery' })
   @ApiParam({ name: 'deliveryId', format: 'uuid' })
   @ApiOkResponse({ description: 'Search was accepted for this delivery.' })
   search(@Req() request: CustomerRequest, @Param('deliveryId') deliveryId: string) {
     return this.dispatch.search(requiredCustomer(request), deliveryId);
+  }
+
+  @Post(':deliveryId/offer')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Change the customer offer after no rider was found' })
+  @ApiParam({ name: 'deliveryId', format: 'uuid' })
+  @ApiOkResponse({ description: 'The updated customer offer. Search is not restarted.' })
+  @ApiConflictResponse({ description: 'The delivery is no longer waiting for a new search.' })
+  adjustOffer(@Req() request: CustomerRequest, @Param('deliveryId') deliveryId: string, @Body() body: unknown) {
+    return this.dispatch.adjustOffer(requiredCustomer(request), deliveryId, body);
   }
 
   @Post(':deliveryId/cancellation')
@@ -135,6 +145,15 @@ export class DeliveryController {
   cancel(@Req() request: CustomerRequest, @Param('deliveryId') deliveryId: string) {
     return this.dispatch.cancel(requiredCustomer(request), deliveryId);
   }
+}
+
+function headerIdempotencyKey(request: DeliveryRequest): string {
+  const header = request.headers?.['idempotency-key'];
+  const value = Array.isArray(header) ? header[0] : header;
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new BadRequestException('Enter an idempotency key');
+  }
+  return value.trim();
 }
 
 function requiredCustomer(request: CustomerRequest) {
@@ -150,10 +169,6 @@ function finiteCoordinate(value: string | null): number | null {
   }
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : null;
-}
-
-function errorName(error: unknown): string {
-  return error instanceof Error ? error.name : 'Error';
 }
 
 

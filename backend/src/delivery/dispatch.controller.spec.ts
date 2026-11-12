@@ -10,7 +10,6 @@ import { RiderAccessGuard } from '../auth/rider-access.guard.js';
 import { RiderAccessService } from '../auth/rider-access.service.js';
 import { DeliveryController } from './delivery.controller.js';
 import { RiderDeliveryController } from './rider-delivery.controller.js';
-import { RiderOfferController } from './rider-offer.controller.js';
 import { RiderLocationController } from '../rider/rider-location.controller.js';
 
 const SECRET = '0123456789abcdef0123456789abcdef';
@@ -32,26 +31,21 @@ describe('dispatch route guards', () => {
     expect(Reflect.getMetadata(PATH_METADATA, DeliveryController.prototype.cancel)).toBe(':deliveryId/cancellation');
   });
 
-  it('keeps location, offers, acceptance, and release on the rider guard', () => {
+  it('keeps location and delivery status on the rider guard', () => {
     expect(Reflect.getMetadata(PATH_METADATA, RiderLocationController)).toBe('riders/me/location');
     expect(Reflect.getMetadata(GUARDS_METADATA, RiderLocationController)).toEqual([RiderAccessGuard]);
     expect(Reflect.getMetadata(METHOD_METADATA, RiderLocationController.prototype.update)).toBe(RequestMethod.PUT);
-    expect(Reflect.getMetadata(PATH_METADATA, RiderOfferController)).toBe('riders/me/offers');
-    expect(Reflect.getMetadata(GUARDS_METADATA, RiderOfferController)).toEqual([RiderAccessGuard]);
-    expect(Reflect.getMetadata(METHOD_METADATA, RiderOfferController.prototype.list)).toBe(RequestMethod.GET);
-    expect(Reflect.getMetadata(PATH_METADATA, RiderOfferController.prototype.accept)).toBe(':assignmentId/acceptance');
-    expect(Reflect.getMetadata(PATH_METADATA, RiderOfferController.prototype.release)).toBe(':assignmentId/release');
     expect(Reflect.getMetadata(PATH_METADATA, RiderDeliveryController)).toBe('riders/me/deliveries');
     expect(Reflect.getMetadata(GUARDS_METADATA, RiderDeliveryController)).toEqual([RiderAccessGuard]);
     expect(Reflect.getMetadata(METHOD_METADATA, RiderDeliveryController.prototype.updateStatus)).toBe(RequestMethod.POST);
     expect(Reflect.getMetadata(PATH_METADATA, RiderDeliveryController.prototype.updateStatus)).toBe(':deliveryId/status');
   });
 
-  it('rejects a rider token on customer search and a customer token on rider offers', async () => {
+  it('rejects a rider token on customer search and a customer token on rider location', async () => {
     const rider = riderAccess();
     const customer = customerAccess();
     const searches: string[] = [];
-    const offers: string[] = [];
+    const locations: string[] = [];
     const delivery = new DeliveryController({} as never, {
       async search(account: { customerAccountId: string }) {
         searches.push(account.customerAccountId);
@@ -61,21 +55,9 @@ describe('dispatch route guards', () => {
         return { status: 'CANCELLED' };
       },
     } as never, {} as never);
-    const offerController = new RiderOfferController({
-      async listOffers(actor: { riderProfileId: string }) {
-        offers.push(actor.riderProfileId);
-        return { offers: [] };
-      },
-      async accept() {
-        return {};
-      },
-      async release() {
-        return {};
-      },
-    } as never);
     const location = new RiderLocationController({
       async update(actor: { riderProfileId: string }) {
-        offers.push(actor.riderProfileId);
+        locations.push(actor.riderProfileId);
         return { updatedAt: '2026-10-14T00:00:00.000Z' };
       },
     } as never);
@@ -87,15 +69,13 @@ describe('dispatch route guards', () => {
       headers: { authorization: customer.token(UserRole.CUSTOMER) },
     }))).rejects.toBeInstanceOf(ForbiddenException);
     expect(() => delivery.search({}, 'delivery-1')).toThrow(ForbiddenException);
-    expect(() => offerController.list({})).toThrow(ForbiddenException);
     expect(() => location.update({}, { latitude: 0, longitude: 0 })).toThrow(ForbiddenException);
 
-    const customerRequest = { headers: { authorization: customer.token(UserRole.CUSTOMER) }, customer: undefined as unknown };
+    const customerRequest = { headers: { authorization: customer.token(UserRole.CUSTOMER) }, customer: undefined };
     await new CustomerAccessGuard(customer.service).canActivate(http(customerRequest));
     await delivery.search(customerRequest, 'delivery-1');
-    const riderRequest = { headers: { authorization: rider.token(UserRole.RIDER) }, rider: undefined as unknown };
+    const riderRequest = { headers: { authorization: rider.token(UserRole.RIDER) }, rider: undefined };
     await new RiderAccessGuard(rider.service).canActivate(http(riderRequest));
-    await offerController.list(riderRequest);
     await location.update(riderRequest, { riderProfileId: 'other-profile', latitude: 0, longitude: 0 });
     const progress: string[] = [];
     const progressController = new RiderDeliveryController({
@@ -110,7 +90,7 @@ describe('dispatch route guards', () => {
       riderProfileId: 'other-profile',
     });
     expect(searches).toEqual(['account-1']);
-    expect(offers).toEqual(['profile-1', 'profile-1']);
+    expect(locations).toEqual(['profile-1']);
     expect(progress).toEqual(['profile-1:delivery-1']);
   });
 });

@@ -261,7 +261,7 @@ function context() {
   const reviews: ReviewRow[] = [];
   const locks: string[] = [];
   const state = { pauseFirstLock: false, paused: false, held: false, waiting: 0, generation: 0 };
-  let releasePause = () => undefined;
+  let releasePause: () => void = () => undefined;
   const pause = new Promise<void>((resolve) => {
     releasePause = resolve;
   });
@@ -309,14 +309,14 @@ function context() {
         throw new Prisma.PrismaClientKnownRequestError('Unique constraint failed', { code: 'P2002', clientVersion: '7.1.0' });
       }
       images.push({
-        contentType: null,
-        byteSize: null,
-        sha256: null,
-        uploadedAt: null,
-        supersededAt: null,
-        purgeAfter: null,
-        purgedAt: null,
         ...data,
+        contentType: data.contentType ?? null,
+        byteSize: data.byteSize ?? null,
+        sha256: data.sha256 ?? null,
+        uploadedAt: data.uploadedAt ?? null,
+        supersededAt: data.supersededAt ?? null,
+        purgeAfter: data.purgeAfter ?? null,
+        purgedAt: data.purgedAt ?? null,
       });
       return images[images.length - 1];
     },
@@ -404,7 +404,7 @@ function context() {
       }
       return undefined;
     },
-    async $transaction<T>(callback: (tx: typeof db) => Promise<T>) {
+    async $transaction<T>(callback: (tx: object) => Promise<T>) {
       const started = state.generation;
       const profileSnapshot = structuredClone(profiles);
       const imageSnapshot = structuredClone(images);

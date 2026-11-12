@@ -18,9 +18,9 @@ const LATER = new Date('2026-10-14T12:00:00.000Z');
 const ADMIN = { userId: 'admin-1' };
 
 describe('rider approval', () => {
-  it('approves a verified rider without an active motorcycle and stays offline', async () => {
+  it('approves a verified rider, selects the registered motorcycle, and stays offline', async () => {
     const ctx = context();
-    ctx.motorcycles.push({ id: 'bike-1', riderProfileId: 'profile-1', verificationStatus: MotorcycleVerificationStatus.VERIFIED, isActive: false });
+    ctx.motorcycles.push({ id: 'bike-1', riderProfileId: 'profile-1', verificationStatus: MotorcycleVerificationStatus.VERIFIED, isActive: false, createdAt: NOW });
     ctx.profile.verificationStatus = RiderVerificationStatus.VERIFIED;
 
     await expect(ctx.service.decide(ADMIN, 'profile-1', 'APPROVE', NOW)).resolves.toEqual({
@@ -30,6 +30,47 @@ describe('rider approval', () => {
       verificationStatus: RiderVerificationStatus.VERIFIED,
     });
     expect(ctx.profile.availability).toBe(RiderAvailability.OFFLINE);
+    expect(ctx.motorcycles.find((row) => row.id === 'bike-1')?.isActive).toBe(true);
+    expect(ctx.approvalAudits).toEqual([
+      expect.objectContaining({
+        riderProfileId: 'profile-1',
+        actorId: 'admin-1',
+        action: 'APPROVE',
+        previousApprovalStatus: RiderApprovalStatus.PENDING,
+        newApprovalStatus: RiderApprovalStatus.APPROVED,
+      }),
+    ]);
+  });
+
+  it('keeps the earliest verified motorcycle when several are registered', async () => {
+    const ctx = context();
+    ctx.profile.verificationStatus = RiderVerificationStatus.VERIFIED;
+    ctx.motorcycles.push(
+      { id: 'bike-later', riderProfileId: 'profile-1', verificationStatus: MotorcycleVerificationStatus.VERIFIED, isActive: false, createdAt: LATER },
+      { id: 'bike-first', riderProfileId: 'profile-1', verificationStatus: MotorcycleVerificationStatus.VERIFIED, isActive: false, createdAt: NOW },
+      { id: 'bike-pending', riderProfileId: 'profile-1', verificationStatus: MotorcycleVerificationStatus.PENDING, isActive: false, createdAt: NOW },
+    );
+
+    await ctx.service.decide(ADMIN, 'profile-1', 'APPROVE', NOW);
+
+    expect(ctx.motorcycles.map((row) => [row.id, row.isActive])).toEqual([
+      ['bike-later', false],
+      ['bike-first', true],
+      ['bike-pending', false],
+    ]);
+  });
+
+  it('does not replace a motorcycle the rider already selected', async () => {
+    const ctx = context();
+    ctx.profile.verificationStatus = RiderVerificationStatus.VERIFIED;
+    ctx.motorcycles.push(
+      { id: 'bike-first', riderProfileId: 'profile-1', verificationStatus: MotorcycleVerificationStatus.VERIFIED, isActive: false, createdAt: NOW },
+      { id: 'bike-chosen', riderProfileId: 'profile-1', verificationStatus: MotorcycleVerificationStatus.VERIFIED, isActive: true, createdAt: LATER },
+    );
+
+    await ctx.service.decide(ADMIN, 'profile-1', 'APPROVE', NOW);
+
+    expect(ctx.motorcycles.find((row) => row.isActive)?.id).toBe('bike-chosen');
   });
 
   it('refuses approval without a verified licence or a verified motorcycle', async () => {
@@ -61,6 +102,14 @@ describe('rider approval', () => {
       approvalStatus: RiderApprovalStatus.SUSPENDED,
       availability: RiderAvailability.OFFLINE,
     });
+    expect(ctx.approvalAudits).toEqual([
+      expect.objectContaining({
+        actorId: 'admin-1',
+        action: 'SUSPEND',
+        previousApprovalStatus: RiderApprovalStatus.APPROVED,
+        newApprovalStatus: RiderApprovalStatus.SUSPENDED,
+      }),
+    ]);
   });
 
   it('awards the active welcome bonus once on first approval', async () => {
@@ -73,25 +122,27 @@ describe('rider approval', () => {
     });
     expect(ctx.locks[0]).toBe('profile');
     expect(ctx.locks.indexOf('wallet')).toBeGreaterThan(0);
-    expect(ctx.entries).toEqual([
+    expect(ctx.entries).toHaveLength(0);
+    expect(ctx.promotionalEntries).toEqual([
       expect.objectContaining({
-        entryType: WalletEntryType.WELCOME_BONUS,
+        entryType: 'ISSUED',
         amount: '2.50',
         balanceAfter: '2.50',
         configVersion: 7,
         actorType: WalletActorType.ADMIN,
         actorId: 'admin-1',
         idempotencyKey: 'welcome-bonus:profile-1',
-        walletPaymentId: null,
+        reservationId: null,
       }),
     ]);
-    expect(ctx.wallets[0]).toMatchObject({ balance: '2.50', welcomeBonusAwardedAt: NOW });
+    expect(ctx.wallets[0]).toMatchObject({ balance: '0.00', promotionalBalance: '2.50', welcomeBonusAwardedAt: NOW });
     expect(ledgerCents(ctx)).toBe(signedCentsFromDecimal('2.50'));
 
     await expect(ctx.service.decide(ADMIN, 'profile-1', 'APPROVE', LATER)).rejects.toBeInstanceOf(ConflictException);
-    expect(ctx.entries).toHaveLength(1);
+    expect(ctx.promotionalEntries).toHaveLength(1);
     expect(ctx.wallets[0].welcomeBonusAwardedAt).toBe(NOW);
-    expect(ctx.wallets[0].balance).toBe('2.50');
+    expect(ctx.wallets[0].balance).toBe('0.00');
+    expect(ctx.wallets[0].promotionalBalance).toBe('2.50');
   });
 
   it('marks a zero welcome bonus as used without posting a credit', async () => {
@@ -115,8 +166,9 @@ describe('rider approval', () => {
       approvalStatus: RiderApprovalStatus.APPROVED,
       availability: RiderAvailability.OFFLINE,
     });
-    expect(ctx.entries).toHaveLength(1);
-    expect(ctx.wallets[0]).toMatchObject({ balance: '1.00', welcomeBonusAwardedAt: NOW });
+    expect(ctx.promotionalEntries).toHaveLength(1);
+    expect(ctx.entries).toHaveLength(0);
+    expect(ctx.wallets[0]).toMatchObject({ balance: '0.00', promotionalBalance: '1.00', welcomeBonusAwardedAt: NOW });
   });
 
   it('keeps a backfilled entitlement and does not post a retroactive bonus', async () => {
@@ -168,8 +220,9 @@ describe('rider approval', () => {
     expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
     expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
     expect(ctx.profile.approvalStatus).toBe(RiderApprovalStatus.APPROVED);
-    expect(ctx.entries).toHaveLength(1);
-    expect(ctx.wallets[0]).toMatchObject({ balance: '1.00', welcomeBonusAwardedAt: NOW });
+    expect(ctx.promotionalEntries).toHaveLength(1);
+    expect(ctx.entries).toHaveLength(0);
+    expect(ctx.wallets[0]).toMatchObject({ balance: '0.00', promotionalBalance: '1.00', welcomeBonusAwardedAt: NOW });
     expect(ledgerCents(ctx)).toBe(100);
   });
 });
@@ -194,7 +247,7 @@ function ready() {
 }
 
 function ledgerCents(ctx: ReturnType<typeof context>): number {
-  return ctx.entries.reduce((sum, entry) => sum + signedCentsFromDecimal(String(entry.amount)), 0);
+  return ctx.promotionalEntries.reduce((sum, entry) => sum + signedCentsFromDecimal(String(entry.amount)), 0);
 }
 
 function context() {
@@ -204,7 +257,7 @@ function context() {
     approvalStatus: RiderApprovalStatus.PENDING,
     availability: RiderAvailability.OFFLINE,
   }];
-  const motorcycles: Array<{ id: string; riderProfileId: string; verificationStatus: MotorcycleVerificationStatus; isActive: boolean }> = [];
+  const motorcycles: Array<{ id: string; riderProfileId: string; verificationStatus: MotorcycleVerificationStatus; isActive: boolean; createdAt?: Date }> = [];
   const assignments: Array<{ id: string; riderProfileId: string; status: AssignmentStatus }> = [];
   const configs: Array<Record<string, unknown>> = [{
     id: 'config-1',
@@ -223,9 +276,11 @@ function context() {
     welcomeBonusAwardedAt: null,
   }];
   const entries: Array<Record<string, unknown>> = [];
+  const promotionalEntries: Array<Record<string, unknown>> = [];
+  const approvalAudits: Array<Record<string, unknown>> = [];
   const locks: string[] = [];
   const state = { pauseFirstLock: false, paused: false, waiting: 0 };
-  let releasePause = () => undefined;
+  let releasePause: () => void = () => undefined;
   const pause = new Promise<void>((resolve) => {
     releasePause = resolve;
   });
@@ -249,7 +304,7 @@ function context() {
       await gate?.wait;
       state.waiting -= 1;
     }
-    let resolve = () => undefined;
+    let resolve: () => void = () => undefined;
     const wait = new Promise<void>((done) => {
       resolve = done;
     });
@@ -263,7 +318,7 @@ function context() {
       }
     };
   };
-  const db = {
+  const models = {
     riderProfile: {
       async findUnique({ where }: { where: { id: string } }) {
         return profiles.find((profile) => profile.id === where.id) ?? null;
@@ -278,6 +333,26 @@ function context() {
     motorcycle: {
       async count({ where }: { where: { riderProfileId: string; verificationStatus: MotorcycleVerificationStatus } }) {
         return motorcycles.filter((row) => row.riderProfileId === where.riderProfileId && row.verificationStatus === where.verificationStatus).length;
+      },
+      async findFirst({ where }: { where: { riderProfileId?: string; verificationStatus?: MotorcycleVerificationStatus; isActive?: boolean } }) {
+        const rows = motorcycles.filter((row) => (
+          (where.riderProfileId === undefined || row.riderProfileId === where.riderProfileId)
+          && (where.verificationStatus === undefined || row.verificationStatus === where.verificationStatus)
+          && (where.isActive === undefined || row.isActive === where.isActive)
+        ));
+        rows.sort((left, right) => {
+          const leftTime = left.createdAt?.getTime() ?? 0;
+          const rightTime = right.createdAt?.getTime() ?? 0;
+          if (leftTime !== rightTime) return leftTime - rightTime;
+          return left.id.localeCompare(right.id);
+        });
+        return rows[0] ?? null;
+      },
+      async update({ where, data }: { where: { id: string }; data: { isActive?: boolean; updatedAt?: Date } }) {
+        const row = motorcycles.find((candidate) => candidate.id === where.id);
+        if (!row) throw new Error('missing motorcycle');
+        Object.assign(row, data);
+        return row;
       },
     },
     deliveryAssignment: {
@@ -337,6 +412,35 @@ function context() {
         throw new Error('ledger entry was changed');
       },
     },
+    riderApprovalAudit: {
+      async create({ data }: { data: Record<string, unknown> }) {
+        const row = { id: `approval-audit-${approvalAudits.length + 1}`, ...data };
+        approvalAudits.push(row);
+        return row;
+      },
+      async update() {
+        throw new Error('approval audit was changed');
+      },
+      async delete() {
+        throw new Error('approval audit was changed');
+      },
+    },
+    riderPromotionalEntry: {
+      async findUnique({ where }: { where: { idempotencyKey?: string } }) {
+        return promotionalEntries.find((entry) => entry.idempotencyKey === where.idempotencyKey) ?? null;
+      },
+      async aggregate({ where }: { where: { riderWalletId: string } }) {
+        const rows = promotionalEntries.filter((entry) => entry.riderWalletId === where.riderWalletId);
+        if (rows.length === 0) return { _sum: { amount: null } };
+        const cents = rows.reduce((sum, entry) => sum + signedCentsFromDecimal(String(entry.amount)), 0);
+        return { _sum: { amount: formatSignedCents(cents) } };
+      },
+      async create({ data }: { data: Record<string, unknown> }) {
+        const row = { id: `promo-${promotionalEntries.length + 1}`, ...data };
+        promotionalEntries.push(row);
+        return row;
+      },
+    },
     async $queryRaw(strings: TemplateStringsArray, values: unknown[] = [], txId = 0) {
       const sql = strings.join(' ');
       if (sql.includes('rider_profiles') && sql.includes('FOR UPDATE')) {
@@ -351,59 +455,79 @@ function context() {
       if (sql.includes('rider_wallets') && sql.includes('FOR UPDATE')) locks.push('wallet');
       return undefined;
     },
-    async $transaction<T>(callback: (tx: typeof db) => Promise<T>) {
+  };
+  const db = {
+    ...models,
+    async $transaction<T>(callback: (tx: object) => Promise<T>) {
       const txId = ++txSerial;
       const releases: Array<() => void> = [];
-      let snapshot: { profiles: ProfileRow[]; wallets: Array<Record<string, unknown>>; entries: Array<Record<string, unknown>> } | null = null;
+      const captured: {
+        snapshot: {
+          profiles: ProfileRow[];
+          motorcycles: Array<{ id: string; riderProfileId: string; verificationStatus: MotorcycleVerificationStatus; isActive: boolean; createdAt?: Date }>;
+          wallets: Array<Record<string, unknown>>;
+          entries: Array<Record<string, unknown>>;
+          promotionalEntries: Array<Record<string, unknown>>;
+          approvalAudits: Array<Record<string, unknown>>;
+        } | null;
+      } = { snapshot: null };
       const capture = () => {
-        if (!snapshot) {
-          snapshot = {
+        if (!captured.snapshot) {
+          captured.snapshot = {
             profiles: structuredClone(profiles),
+            motorcycles: structuredClone(motorcycles),
             wallets: structuredClone(wallets),
             entries: structuredClone(entries),
+            promotionalEntries: structuredClone(promotionalEntries),
+            approvalAudits: structuredClone(approvalAudits),
           };
         }
       };
       const tx = {
-        ...db,
+        ...models,
         riderProfile: {
-          ...db.riderProfile,
+          ...models.riderProfile,
           async update(args: { where: { id: string }; data: Partial<ProfileRow> }) {
             capture();
-            return db.riderProfile.update(args);
+            return models.riderProfile.update(args);
           },
         },
         riderWallet: {
-          ...db.riderWallet,
+          ...models.riderWallet,
           async create(args: { data: Record<string, unknown> }) {
             capture();
-            return db.riderWallet.create(args);
+            return models.riderWallet.create(args);
           },
           async update(args: { where: { id: string }; data: Record<string, unknown> }) {
             capture();
-            return db.riderWallet.update(args);
+            return models.riderWallet.update(args);
           },
         },
         riderWalletEntry: {
-          ...db.riderWalletEntry,
+          ...models.riderWalletEntry,
           async create(args: { data: Record<string, unknown> }) {
             capture();
-            return db.riderWalletEntry.create(args);
+            return models.riderWalletEntry.create(args);
           },
         },
         async $queryRaw(strings: TemplateStringsArray, ...values: unknown[]) {
-          const release = await db.$queryRaw(strings, values, txId);
+          const release = await models.$queryRaw(strings, values, txId);
           if (typeof release === 'function') releases.push(release);
           return [];
         },
+        $transaction: (inner: (client: object) => Promise<unknown>) => db.$transaction(inner),
       };
       try {
         return await callback(tx);
       } catch (error) {
+        const snapshot = captured.snapshot;
         if (snapshot) {
           profiles.splice(0, profiles.length, ...snapshot.profiles);
+          motorcycles.splice(0, motorcycles.length, ...snapshot.motorcycles);
           wallets.splice(0, wallets.length, ...snapshot.wallets);
           entries.splice(0, entries.length, ...snapshot.entries);
+          promotionalEntries.splice(0, promotionalEntries.length, ...snapshot.promotionalEntries);
+          approvalAudits.splice(0, approvalAudits.length, ...snapshot.approvalAudits);
         }
         throw error;
       } finally {
@@ -418,6 +542,8 @@ function context() {
     configs,
     wallets,
     entries,
+    promotionalEntries,
+    approvalAudits,
     locks,
     get profile() {
       return profiles[0];
