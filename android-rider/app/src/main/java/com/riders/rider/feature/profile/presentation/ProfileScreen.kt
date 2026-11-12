@@ -1,6 +1,9 @@
 package com.riders.rider.feature.profile.presentation
 
+import android.content.Context
+import android.content.ContextWrapper
 import android.graphics.Bitmap
+import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
@@ -31,7 +34,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -51,8 +53,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
@@ -65,7 +65,7 @@ import com.riders.rider.R
 import com.riders.rider.core.design.RidersButtonTone
 import com.riders.rider.core.design.RidersErrorState
 import com.riders.rider.core.design.AppearanceMode
-import com.riders.rider.core.design.AppearanceState
+import com.riders.rider.core.design.AppearanceViewModel
 import com.riders.rider.core.design.LocalAppDark
 import com.riders.rider.core.design.RidersBottomSheet
 import com.riders.rider.core.design.RidersColors
@@ -105,54 +105,12 @@ private val PendingReview = Color(0xFFB86E00)
 private val PendingReviewFill = Color(0xFFFFF4E5)
 
 @Composable
-private fun PasswordCard(
-    saving: Boolean,
-    error: String?,
-    saved: Boolean,
-    onSave: (String, String) -> Unit,
-) {
-    var password by rememberSaveable { mutableStateOf("") }
-    var currentPassword by rememberSaveable { mutableStateOf("") }
-    Column(verticalArrangement = Arrangement.spacedBy(RidersSpacing.md)) {
-        RidersTextField(
-            label = "New password",
-            value = password,
-            onValueChange = { password = it },
-            placeholder = "12 or more characters",
-            enabled = !saving,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Next),
-            visualTransformation = PasswordVisualTransformation(),
-        )
-        RidersTextField(
-            label = "Current password",
-            value = currentPassword,
-            onValueChange = { currentPassword = it },
-            placeholder = "Only if you already have one",
-            enabled = !saving,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
-            visualTransformation = PasswordVisualTransformation(),
-        )
-        if (error != null) {
-            RidersFailureNotice(message = error)
-        }
-        if (saved) {
-            Text("Password saved. This phone stays signed in.", style = RidersType.caption, color = RidersColors.primaryDark)
-        }
-        RidersPrimaryButton(
-            label = "Save password",
-            onClick = { onSave(password, currentPassword) },
-            loading = saving,
-            enabled = !saving,
-            modifier = Modifier.fillMaxWidth(),
-        )
-    }
-}
-
-@Composable
 fun ProfileScreen(
     onMotorcycles: () -> Unit,
     model: ProfileViewModel = hiltViewModel(),
 ) {
+    val appearance: AppearanceViewModel = hiltViewModel(viewModelStoreOwner = LocalContext.current.findActivity())
+    val appearanceMode by appearance.mode.collectAsStateWithLifecycle()
     val ui by model.ui.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -252,6 +210,8 @@ fun ProfileScreen(
                     onboarding = board.onboarding,
                     hasLicence = board.hasLicence,
                     motorcycles = board.motorcycles,
+                    appearance = appearanceMode,
+                    onAppearance = appearance::select,
                     onMotorcycles = onMotorcycles,
                     onEditAddress = { editingAddress = true },
                     modifier = Modifier.padding(horizontal = RidersSpacing.lg),
@@ -516,6 +476,8 @@ private fun DetailsCard(
     onboarding: RiderOnboarding?,
     hasLicence: Boolean,
     motorcycles: List<MotorcycleDetails>,
+    appearance: AppearanceMode,
+    onAppearance: (AppearanceMode) -> Unit,
     onMotorcycles: () -> Unit,
     onEditAddress: () -> Unit,
     modifier: Modifier = Modifier,
@@ -572,17 +534,26 @@ private fun DetailsCard(
         InfoRow(
             icon = R.drawable.ic_theme_light_dark,
             label = "Appearance",
-            value = appearanceLabel(AppearanceState.mode.value),
+            value = appearanceLabel(appearance),
             onClick = { appearanceOpen = true },
             sheet = true,
         )
     }
-    AppearanceSheet(visible = appearanceOpen, onDismiss = { appearanceOpen = false })
+    AppearanceSheet(
+        visible = appearanceOpen,
+        selected = appearance,
+        onSelect = onAppearance,
+        onDismiss = { appearanceOpen = false },
+    )
 }
 
 @Composable
-private fun AppearanceSheet(visible: Boolean, onDismiss: () -> Unit) {
-    val selected = AppearanceState.mode.value
+private fun AppearanceSheet(
+    visible: Boolean,
+    selected: AppearanceMode,
+    onSelect: (AppearanceMode) -> Unit,
+    onDismiss: () -> Unit,
+) {
     val dark = LocalAppDark.current
     val accent = if (dark) RidersColors.primary else RidersColors.primaryDark
     val highlight = if (dark) RidersColors.primaryLight else RidersColors.surface
@@ -602,7 +573,7 @@ private fun AppearanceSheet(visible: Boolean, onDismiss: () -> Unit) {
                         .fillMaxWidth()
                         .background(if (chosen) highlight else Color.Transparent)
                         .clickable(role = Role.RadioButton) {
-                            AppearanceState.select(mode)
+                            onSelect(mode)
                             onDismiss()
                         }
                         .semantics { this.selected = chosen }
@@ -742,6 +713,12 @@ private fun profileInitials(name: String): String {
         letters.size == 1 -> letters.first()
         else -> "${letters.first()}${letters.last()}"
     }
+}
+
+private tailrec fun Context.findActivity(): ComponentActivity = when (this) {
+    is ComponentActivity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> error("Appearance is only available inside the rider activity")
 }
 
 private fun licenceSummary(onboarding: RiderOnboarding?, hasLicence: Boolean): String {

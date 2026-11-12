@@ -26,7 +26,6 @@ import com.riders.rider.feature.delivery.domain.parcelActionsAllowed
 import com.riders.rider.feature.delivery.domain.recoverAssignments
 import com.riders.rider.feature.delivery.domain.selectedParcel
 import com.riders.rider.feature.delivery.domain.showsMarketplaceAssignment
-import com.riders.rider.feature.delivery.domain.serviceClassLabel
 import com.riders.rider.feature.delivery.domain.trackingStatusLabel
 import com.riders.rider.feature.delivery.domain.v2RiderAction
 import com.riders.rider.feature.delivery.domain.v2CancellationVisible
@@ -34,7 +33,6 @@ import com.riders.rider.feature.delivery.domain.v2StatusReached
 import com.riders.rider.feature.delivery.domain.v2TapTarget
 import com.riders.rider.feature.onboarding.data.OnboardingRepository
 import com.riders.rider.feature.offers.domain.leavesAcceptUnresolved
-import com.riders.rider.feature.delivery.domain.MAPS_UNAVAILABLE
 import com.riders.rider.feature.delivery.domain.deliveryStatusLabel
 import com.riders.rider.feature.delivery.domain.deliveryStepTitle
 import com.riders.rider.feature.delivery.domain.syncOpenDelivery
@@ -77,8 +75,6 @@ data class DeliveryUi(
     val busy: DeliveryBusy = DeliveryBusy.None,
     val error: String? = null,
     val finished: Boolean = false,
-    val serviceClass: String? = null,
-    val serviceClassLabel: String? = null,
     val agreedPrice: String? = null,
     val distanceMeters: Int? = null,
     val createdAt: String? = null,
@@ -224,8 +220,6 @@ class DeliveryViewModel @Inject constructor(
             dropoffLandmark = parcel.dropoffLandmark,
             dropoffInstructions = parcel.dropoffInstructions,
             contacts = parcel.contacts,
-            serviceClass = parcel.serviceClass,
-            serviceClassLabel = serviceClassLabel(parcel.serviceClass),
             agreedPrice = parcel.agreedPrice,
             distanceMeters = parcel.distanceMeters,
             createdAt = parcel.createdAt,
@@ -359,10 +353,6 @@ class DeliveryViewModel @Inject constructor(
         }
     }
 
-    fun reportNavigationFailure() {
-        state.update { it.copy(error = MAPS_UNAVAILABLE) }
-    }
-
     private fun advanceCommitted() {
         val current = state.value
         if (!assignments.hasConfirmedAssignments() || current.syncing || current.busy != DeliveryBusy.None || current.completionMessage != null) {
@@ -484,8 +474,6 @@ class DeliveryViewModel @Inject constructor(
             dropoffLandmark = parcel.dropoffLandmark,
             dropoffInstructions = parcel.dropoffInstructions,
             contacts = parcel.contacts,
-            serviceClass = parcel.serviceClass,
-            serviceClassLabel = serviceClassLabel(parcel.serviceClass),
             agreedPrice = parcel.agreedPrice,
             distanceMeters = parcel.distanceMeters,
             createdAt = parcel.createdAt,
@@ -525,7 +513,6 @@ class DeliveryViewModel @Inject constructor(
             dropoffLandmark = delivery.dropoffLandmark,
             dropoffInstructions = delivery.dropoffInstructions,
             contacts = contacts,
-            serviceClass = delivery.serviceClass,
             agreedPrice = delivery.agreedPrice,
             distanceMeters = delivery.distanceMeters,
             createdAt = delivery.createdAt,
@@ -537,24 +524,4 @@ class DeliveryViewModel @Inject constructor(
         )
     }
 
-    private fun snapshotFrom(ui: DeliveryUi): ActiveDelivery {
-        return ActiveDelivery(
-            deliveryId = ui.deliveryId,
-            assignmentId = ui.assignmentId,
-            status = ui.status,
-            parcelDescription = ui.parcelDescription,
-            parcelSize = ui.parcelSize,
-            parcelInstructions = ui.parcelInstructions,
-            pickupAddress = ui.pickupAddress,
-            pickupLandmark = ui.pickupLandmark,
-            pickupInstructions = ui.pickupInstructions,
-            dropoffAddress = ui.dropoffAddress,
-            dropoffLandmark = ui.dropoffLandmark,
-            dropoffInstructions = ui.dropoffInstructions,
-            serviceClass = ui.serviceClass,
-            distanceMeters = ui.distanceMeters,
-            createdAt = ui.createdAt,
-            agreedPrice = ui.agreedPrice,
-        )
-    }
 }

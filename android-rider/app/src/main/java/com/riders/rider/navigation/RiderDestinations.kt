@@ -13,17 +13,11 @@ const val RIDER_SHELL = "main"
 
 fun showsRiderBottomBar(route: String?): Boolean = route == RIDER_SHELL
 
-fun selectRiderTab(current: RiderDestination, next: RiderDestination): RiderDestination = next
-
 fun tabAfterBack(selected: RiderDestination): RiderDestination? {
     return if (selected == RiderDestination.Home) null else RiderDestination.Home
 }
 
 fun openedRootTabs(visits: List<RiderDestination>): Set<RiderDestination> = visits.toSet()
-
-fun deliveriesShowsOffers(@Suppress("UNUSED_PARAMETER") availability: String?): Boolean = false
-
-fun deliveriesShowsActiveDelivery(@Suppress("UNUSED_PARAMETER") availability: String?): Boolean = false
 
 fun deliveriesShowsAssignmentList(receiving: Boolean?, committedV2: Boolean = false): Boolean {
     return receiving != null || committedV2
@@ -54,14 +48,6 @@ fun deliveryBoardTabs(@Suppress("UNUSED_PARAMETER") showsOffers: Boolean = true)
         DeliveryBoardTab.Pending,
         DeliveryBoardTab.Completed,
     )
-}
-
-fun offersPollOnDeliveriesTab(
-    tab: RiderDestination,
-    resumed: Boolean,
-    availability: String?,
-): Boolean {
-    return tab == RiderDestination.Deliveries && resumed && deliveriesShowsOffers(availability)
 }
 
 fun onboardingFocus(step: String?): OnboardingStep? = when (step) {

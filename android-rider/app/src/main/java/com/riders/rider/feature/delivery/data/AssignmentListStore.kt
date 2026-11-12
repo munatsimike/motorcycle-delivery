@@ -6,8 +6,6 @@ import com.riders.rider.feature.delivery.domain.updateParcelStatus
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 
 @Singleton
 class AssignmentListStore @Inject constructor() {
@@ -19,8 +17,6 @@ class AssignmentListStore @Inject constructor() {
     private var shiftConfirmed = false
     private var rememberedAvailability: String? = null
     private var rememberedReceiving: Boolean? = null
-
-    fun observe(): StateFlow<List<CommittedParcel>> = parcels.asStateFlow()
 
     fun current(): List<CommittedParcel> = parcels.value
 

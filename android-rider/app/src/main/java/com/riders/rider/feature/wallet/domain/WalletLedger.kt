@@ -61,10 +61,6 @@ fun walletLimitCaption(summary: WalletSummary): String {
     return "${walletBorrowingSourceLabel(summary.borrowingLimitSource)}. $WALLET_BORROWING_EXPLANATION"
 }
 
-fun walletWhenLabel(createdAt: String): String = formatWalletInstant(createdAt, WHEN)
-
-fun walletDateLabel(createdAt: String): String = formatWalletInstant(createdAt, DATE)
-
 fun walletActivityLabel(createdAt: String): String = formatWalletInstant(createdAt, ACTIVITY)
 
 private fun formatWalletInstant(createdAt: String, formatter: DateTimeFormatter): String {
@@ -193,6 +189,4 @@ class WalletLoadGate {
     }
 }
 
-private val WHEN: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm", Locale.US)
-private val DATE: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM yyyy", Locale.US)
 private val ACTIVITY: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM yyyy '·' HH:mm", Locale.US)

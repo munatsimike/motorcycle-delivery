@@ -180,7 +180,6 @@ fun AssignmentListPane(
 private fun AssignmentCard(parcel: CommittedParcel, onOpen: (String) -> Unit) {
     DeliverySummaryCard(
         description = parcel.parcelDescription,
-        serviceClass = parcel.serviceClass,
         status = parcel.status,
         pickup = parcel.pickupAddress,
         dropoff = parcel.dropoffAddress,

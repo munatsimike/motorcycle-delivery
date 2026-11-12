@@ -132,7 +132,7 @@ fun RiderShell(
                             if (destination == RiderDestination.Deliveries) {
                                 deliveriesBoard = DeliveryBoardTab.Active.name
                             }
-                            tabName = selectRiderTab(tab, destination).name
+                            tabName = destination.name
                         },
                         icon = {
                             Icon(

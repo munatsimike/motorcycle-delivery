@@ -26,8 +26,7 @@ private val Type = Typography(
 )
 
 @Composable
-fun RiderTheme(content: @Composable () -> Unit) {
-    val mode = AppearanceState.mode.value
+fun RiderTheme(mode: AppearanceMode = AppearanceMode.SYSTEM, content: @Composable () -> Unit) {
     val dark = when (mode) {
         AppearanceMode.DARK -> true
         AppearanceMode.LIGHT -> false

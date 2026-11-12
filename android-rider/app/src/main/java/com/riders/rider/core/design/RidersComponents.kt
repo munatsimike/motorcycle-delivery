@@ -79,26 +79,6 @@ enum class RidersAvailability {
     Busy,
 }
 
-fun ridersAvailability(status: String?): RidersAvailability = when (status) {
-    "AVAILABLE" -> RidersAvailability.Available
-    "BUSY" -> RidersAvailability.Busy
-    else -> RidersAvailability.Offline
-}
-
-@Composable
-fun RidersWordmark(modifier: Modifier = Modifier) {
-    Row(
-        modifier = modifier.semantics { contentDescription = "Riders Delivery" },
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text("R", style = RidersType.brandLetter, color = RidersColors.primary)
-        Column {
-            Text("iders", style = RidersType.brandName, color = RidersColors.text)
-            Text("DELIVERY", style = RidersType.brandCaption, color = RidersColors.textSecondary)
-        }
-    }
-}
-
 @Composable
 fun RidersBrandLogo(modifier: Modifier = Modifier) {
     Row(
@@ -227,24 +207,6 @@ fun RidersPrimaryButton(
 }
 
 @Composable
-fun RidersBackButton(
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    enabled: Boolean = true,
-) {
-    Icon(
-        painter = painterResource(R.drawable.ic_chevron_left),
-        contentDescription = "Back",
-        modifier = modifier
-            .size(48.dp)
-            .alpha(if (enabled) 1f else 0.6f)
-            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
-            .padding(10.dp),
-        tint = RidersColors.text,
-    )
-}
-
-@Composable
 fun RidersSecondaryButton(
     label: String,
     onClick: () -> Unit,
@@ -300,43 +262,6 @@ fun RidersSecondaryButton(
         } else {
             ButtonLabel(label, accent, icon, regular)
         }
-    }
-}
-
-@Composable
-fun RidersViewDetailsButton(
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Row(
-        modifier
-            .fillMaxWidth()
-            .defaultMinSize(minHeight = 44.dp)
-            .clip(RoundedCornerShape(RidersRadius.pill))
-            .border(1.dp, RidersColors.border, RoundedCornerShape(RidersRadius.pill))
-            .clickable(role = Role.Button, onClick = onClick)
-            .padding(horizontal = RidersSpacing.md, vertical = RidersSpacing.sm),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center,
-    ) {
-        Icon(
-            painter = painterResource(R.drawable.ic_info),
-            contentDescription = null,
-            modifier = Modifier.size(16.dp),
-            tint = RidersColors.textSecondary,
-        )
-        Text(
-            "View details",
-            style = RidersType.body,
-            color = RidersColors.textSecondary,
-            modifier = Modifier.padding(horizontal = RidersSpacing.xs),
-        )
-        Icon(
-            painter = painterResource(R.drawable.ic_chevron_right),
-            contentDescription = null,
-            modifier = Modifier.size(18.dp),
-            tint = RidersColors.textSecondary,
-        )
     }
 }
 

@@ -770,7 +770,6 @@ private fun DeliveryActionBlock(
         if (ui.status == "DELIVERED") {
             DeliveryDetailsSummary(
                 description = ui.parcelDescription,
-                serviceClass = ui.serviceClass,
                 deliveryId = ui.deliveryId,
                 createdAt = ui.createdAt,
                 dateCaption = if (ui.completedAt != null) "Completed" else "Date",
@@ -899,7 +898,6 @@ private fun ParcelDetailsSheet(
         ) {
             DeliveryDetailsSummary(
                 description = ui.parcelDescription,
-                serviceClass = ui.serviceClass,
                 deliveryId = ui.deliveryId,
                 createdAt = ui.createdAt,
                 pickup = ui.pickupAddress,
@@ -1289,7 +1287,6 @@ private fun DeliveredPage(
             ) {
                 DeliveryDetailsSummary(
                     description = ui.parcelDescription,
-                    serviceClass = ui.serviceClass,
                     deliveryId = ui.deliveryId,
                     createdAt = ui.createdAt,
                     dateCaption = "Requested",

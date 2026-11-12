@@ -14,7 +14,6 @@ import com.riders.rider.feature.delivery.domain.navigationTarget
 import com.riders.rider.feature.delivery.domain.parcelRoute
 import com.riders.rider.feature.delivery.domain.selectedParcel
 import com.riders.rider.feature.delivery.domain.serviceClassLabel
-import com.riders.rider.navigation.deliveriesShowsActiveDelivery
 import com.riders.rider.navigation.deliveriesShowsAssignmentList
 import com.riders.rider.core.network.ApiError
 import com.riders.rider.feature.delivery.domain.AssignmentCertainty
@@ -29,7 +28,6 @@ import com.riders.rider.feature.delivery.domain.retryWhenConnectivityReturns
 import com.riders.rider.feature.home.showsReceivingControl
 import com.riders.rider.feature.home.receivingAfterRefresh
 import com.riders.rider.navigation.deliveriesShowsBidBoard
-import com.riders.rider.navigation.deliveriesShowsOffers
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -133,8 +131,6 @@ class RiderAssignmentListTest {
         assertEquals(assignments, committedAssignmentsForDisplay(assignments, "OFFLINE", false))
         assertEquals(assignments, committedAssignmentsForDisplay(assignments, "OFFLINE", true))
         assertEquals(assignments, committedAssignmentsForDisplay(assignments, "AVAILABLE", false))
-        assertFalse(deliveriesShowsOffers("OFFLINE"))
-        assertFalse(deliveriesShowsActiveDelivery("OFFLINE"))
         assertTrue(deliveriesShowsAssignmentList(false))
     }
 
@@ -190,7 +186,6 @@ class RiderAssignmentListTest {
         assertTrue(recovered.parcels.isEmpty())
         assertEquals(DeliveriesPane.Recover, deliveriesPane(receiving = null, recovered))
         assertFalse(parcelActionsAllowed(recovered.certainty))
-        assertFalse(deliveriesShowsOffers("AVAILABLE") && recovered.certainty == AssignmentCertainty.Confirmed)
         assertTrue(retryWhenConnectivityReturns(refreshPending = true, networkAvailable = true))
         assertFalse(retryWhenConnectivityReturns(refreshPending = false, networkAvailable = true))
         assertTrue(automaticAssignmentRetry(0))
@@ -242,8 +237,6 @@ class RiderAssignmentListTest {
             failureUncertain = false,
         )
         assertEquals(DeliveriesPane.V1, deliveriesPane(receiving = null, recovered))
-        assertFalse(deliveriesShowsOffers("AVAILABLE"))
-        assertFalse(deliveriesShowsActiveDelivery("BUSY"))
     }
 
     @Test
@@ -279,8 +272,6 @@ class RiderAssignmentListTest {
     @Test
     fun theMarketplaceFlagOffKeepsTheSingularDeliveryNavigation() {
         assertFalse(deliveriesShowsAssignmentList(null))
-        assertFalse(deliveriesShowsOffers("AVAILABLE"))
-        assertFalse(deliveriesShowsActiveDelivery("BUSY"))
         assertEquals("delivery/delivery-1", parcelRoute("delivery-1"))
     }
 

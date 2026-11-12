@@ -18,24 +18,28 @@ enum class AppearanceMode {
     DARK,
 }
 
+internal fun appearanceModeFromStored(value: String?): AppearanceMode = when (value) {
+    "light" -> AppearanceMode.LIGHT
+    "dark" -> AppearanceMode.DARK
+    else -> AppearanceMode.SYSTEM
+}
+
+internal fun appearanceModeToStored(mode: AppearanceMode): String = when (mode) {
+    AppearanceMode.LIGHT -> "light"
+    AppearanceMode.DARK -> "dark"
+    AppearanceMode.SYSTEM -> "system"
+}
+
 @Singleton
 class AppearanceStore @Inject constructor(
     @param:ApplicationContext private val context: Context,
 ) {
     val mode: Flow<AppearanceMode> = context.appearance.data.map { prefs ->
-        when (prefs[Key]) {
-            "light" -> AppearanceMode.LIGHT
-            "dark" -> AppearanceMode.DARK
-            else -> AppearanceMode.SYSTEM
-        }
+        appearanceModeFromStored(prefs[Key])
     }
 
     suspend fun setMode(mode: AppearanceMode) {
-        val stored = when (mode) {
-            AppearanceMode.LIGHT -> "light"
-            AppearanceMode.DARK -> "dark"
-            AppearanceMode.SYSTEM -> "system"
-        }
+        val stored = appearanceModeToStored(mode)
         context.appearance.edit { prefs -> prefs[Key] = stored }
     }
 

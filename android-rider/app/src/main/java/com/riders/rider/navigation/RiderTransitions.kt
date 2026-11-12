@@ -42,20 +42,6 @@ fun deliveryBackExit(durationMillis: Int): ExitTransition {
     return slideOutHorizontally(tween(durationMillis)) { fullWidth -> fullWidth } + fadeOut(tween(durationMillis))
 }
 
-fun bidRiseEnter(durationMillis: Int): EnterTransition {
-    if (durationMillis <= 0) {
-        return EnterTransition.None
-    }
-    return slideInVertically(tween(durationMillis)) { fullHeight -> fullHeight / 8 } + fadeIn(tween(durationMillis))
-}
-
-fun bidRiseExit(durationMillis: Int): ExitTransition {
-    if (durationMillis <= 0) {
-        return ExitTransition.None
-    }
-    return slideOutVertically(tween(durationMillis)) { fullHeight -> fullHeight / 8 } + fadeOut(tween(durationMillis))
-}
-
 fun bidOptionsEnter(durationMillis: Int): EnterTransition {
     if (durationMillis <= 0) {
         return EnterTransition.None

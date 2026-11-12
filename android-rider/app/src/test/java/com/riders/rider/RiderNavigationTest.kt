@@ -16,14 +16,10 @@ import com.riders.rider.feature.profile.domain.showsAccountDeactivation
 import com.riders.rider.feature.profile.domain.signOutLeavesRiderOnDuty
 import com.riders.rider.navigation.RiderDestination
 import com.riders.rider.navigation.RIDER_SHELL
-import com.riders.rider.navigation.deliveriesShowsActiveDelivery
 import com.riders.rider.navigation.deliveriesShowsAssignmentList
-import com.riders.rider.navigation.deliveriesShowsOffers
-import com.riders.rider.navigation.offersPollOnDeliveriesTab
 import com.riders.rider.navigation.onboardingFocus
 import com.riders.rider.navigation.openedRootTabs
 import com.riders.rider.navigation.profileOnboardingRoute
-import com.riders.rider.navigation.selectRiderTab
 import com.riders.rider.navigation.showsRiderBottomBar
 import com.riders.rider.navigation.showsWizardChrome
 import com.riders.rider.navigation.tabAfterBack
@@ -47,7 +43,7 @@ class RiderNavigationTest {
             RiderDestination.Home,
             RiderDestination.Wallet,
         ).forEach { next ->
-            selected = selectRiderTab(selected, next)
+            selected = next
             visits += selected
             assertEquals(next, selected)
         }
@@ -71,16 +67,7 @@ class RiderNavigationTest {
     }
 
     @Test
-    fun deliveriesShowsOffersOnlyWhileAvailableAndPollsOnlyInTheForeground() {
-        assertFalse(deliveriesShowsOffers("AVAILABLE"))
-        assertFalse(deliveriesShowsOffers("BUSY"))
-        assertFalse(deliveriesShowsOffers("OFFLINE"))
-        assertFalse(deliveriesShowsActiveDelivery("BUSY"))
-        assertFalse(deliveriesShowsActiveDelivery("AVAILABLE"))
-        assertFalse(offersPollOnDeliveriesTab(RiderDestination.Deliveries, resumed = true, availability = "AVAILABLE"))
-        assertFalse(offersPollOnDeliveriesTab(RiderDestination.Deliveries, resumed = false, availability = "AVAILABLE"))
-        assertFalse(offersPollOnDeliveriesTab(RiderDestination.Home, resumed = true, availability = "AVAILABLE"))
-        assertFalse(offersPollOnDeliveriesTab(RiderDestination.Deliveries, resumed = true, availability = "BUSY"))
+    fun deliveriesKeepsAssignmentsAndTheBidBoard() {
         assertFalse(deliveriesShowsAssignmentList(null))
         assertTrue(deliveriesShowsAssignmentList(true))
         assertTrue(deliveriesShowsAssignmentList(false))

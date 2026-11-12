@@ -1,6 +1,5 @@
 package com.riders.rider.feature.bids.domain
 
-import com.riders.rider.core.money.moneyLabel
 import com.riders.rider.core.network.ApiError
 import java.time.Instant
 import com.riders.rider.core.network.OfferResponse
@@ -285,10 +284,6 @@ fun displayedBidProblem(hasMarketplaceRequest: Boolean, listProblem: String?, su
     return if (hasMarketplaceRequest) listProblem else null
 }
 
-fun bidAmountLabel(currency: String, amount: String): String {
-    return moneyLabel(currency, amount)
-}
-
 fun requestDistanceLabel(meters: Int?): String? {
     if (meters == null || meters < 0) {
         return null
@@ -307,10 +302,6 @@ fun suggestedPriceLabel(amount: String?): String? {
         return null
     }
     return "Suggested price \$$value"
-}
-
-fun parcelSummary(description: String, size: String): String {
-    return listOf(description.trim(), size.trim()).filter { it.isNotEmpty() }.joinToString(" · ")
 }
 
 fun openBidFor(bids: List<OwnBid>, deliveryId: String): OwnBid? {

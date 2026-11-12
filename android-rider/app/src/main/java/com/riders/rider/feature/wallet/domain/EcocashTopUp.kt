@@ -85,23 +85,6 @@ class SimulatedEcocashProvider : EcocashTopUpProvider {
     override fun onDemoConfirmed() {
         demoConfirmations += 1
     }
-
-    fun initiateTopUp(): Nothing {
-        initiateCalls += 1
-        requested += ECOCASH_INITIATE_PATH
-        throw IllegalStateException("EcoCash payment initiation is not connected")
-    }
-
-    fun lookupTopUp(): Nothing {
-        lookupCalls += 1
-        requested += ECOCASH_LOOKUP_PATH
-        throw IllegalStateException("EcoCash payment lookup is not connected")
-    }
-
-    fun creditWallet(): Nothing {
-        creditCalls += 1
-        throw IllegalStateException("Wallet crediting is not part of the EcoCash demo")
-    }
 }
 
 fun ecocashDemoControlsEnabled(debugBuild: Boolean): Boolean = debugBuild

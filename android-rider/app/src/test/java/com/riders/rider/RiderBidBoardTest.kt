@@ -72,7 +72,6 @@ import com.riders.rider.feature.offers.domain.riderNoticeAction
 import com.riders.rider.feature.offers.domain.parseRiderOffer
 import com.riders.rider.feature.offers.domain.riderOfferOpensV1Offers
 import com.riders.rider.navigation.deliveriesShowsBidBoard
-import com.riders.rider.navigation.deliveriesShowsOffers
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.encodeToString
 import okhttp3.mockwebserver.MockResponse
@@ -254,7 +253,6 @@ class RiderBidBoardTest {
         assertFalse(riderOfferOpensV1Offers(offer!!))
         assertNull(acceptedBidDeliveryId(offer))
         assertFalse(deliveriesShowsBidBoard(null))
-        assertFalse(deliveriesShowsOffers("AVAILABLE"))
         val action = riderNoticeAction(offer)
         assertEquals("delivery-1", (action as RiderNoticeAction.ShowOffer).deliveryId)
         val openEnded = parseRiderNotice(mapOf("type" to "rider_offer", "deliveryId" to "delivery-2"))

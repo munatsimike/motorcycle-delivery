@@ -152,7 +152,6 @@ private fun statusTone(status: String): StatusTone = when (status) {
 @Composable
 fun DeliverySummaryCard(
     description: String,
-    serviceClass: String?,
     status: String,
     pickup: String,
     dropoff: String,
@@ -251,7 +250,6 @@ private val detailPinColumn = locationPinWidth
 @Composable
 fun DeliveryDetailsSummary(
     description: String,
-    serviceClass: String?,
     deliveryId: String,
     createdAt: String?,
     pickup: String,

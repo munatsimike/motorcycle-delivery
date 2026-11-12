@@ -115,7 +115,4 @@ object RidersType {
     val captionStrong = TextStyle(fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Bold)
     val small = TextStyle(fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Normal)
     val button = TextStyle(fontSize = 17.sp, lineHeight = 22.sp, fontWeight = FontWeight.Bold)
-    val brandLetter = TextStyle(fontSize = 28.sp, lineHeight = 32.sp, fontWeight = FontWeight.Black)
-    val brandName = TextStyle(fontSize = 18.sp, lineHeight = 22.sp, fontWeight = FontWeight.ExtraBold)
-    val brandCaption = TextStyle(fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Normal, letterSpacing = 4.sp)
 }

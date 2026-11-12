@@ -106,7 +106,6 @@ import com.riders.rider.core.design.RidersSpacing
 import com.riders.rider.core.design.RidersStatusIndicator
 import com.riders.rider.core.design.RidersType
 import com.riders.rider.feature.delivery.domain.ActiveDelivery
-import com.riders.rider.feature.delivery.presentation.DeliverySummaryCard
 import com.riders.rider.feature.delivery.presentation.MapBackground
 import com.riders.rider.core.network.OfferResponse
 import com.riders.rider.feature.offers.domain.RequestOverlay
@@ -929,52 +928,6 @@ private fun AvailabilityCard(
             }
         }
     }
-}
-
-@Composable
-internal fun ActiveDeliverySection(
-    ui: HomeUi,
-    onDelivery: (String) -> Unit,
-    suppressConnection: Boolean = false,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(RidersSpacing.md)) {
-        Text("Active delivery", style = RidersType.heading, color = RidersColors.text)
-        val recoveryMessage = ui.shift.recoveryMessage ?: "Your current delivery could not be loaded. Check your connection and try again."
-        val hideRecovery = suppressConnection && isConnectionFailure(recoveryMessage)
-        when {
-            ui.shift.recovering -> RidersLoadingState("Checking your active delivery")
-            ui.shift.recoveryFailed && !hideRecovery -> RidersFailureNotice(
-                message = recoveryMessage,
-                title = "Connection unavailable",
-            )
-            ui.shift.recoveryRequired -> RidersCard(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    ui.shift.recoveryMessage ?: "You are marked as busy, but there is no active delivery to resume. You cannot go online.",
-                    style = RidersType.body,
-                    color = RidersColors.text,
-                )
-            }
-            ui.shift.showActiveDelivery && ui.active != null -> ActiveDeliveryCard(ui.active, onDelivery)
-            ui.shift.recoveryFailed -> Unit
-            else -> RidersEmptyState(
-                title = "No active delivery",
-                body = "There is no delivery to resume.",
-            )
-        }
-    }
-}
-
-@Composable
-private fun ActiveDeliveryCard(active: ActiveDelivery, onDelivery: (String) -> Unit) {
-    DeliverySummaryCard(
-        description = active.parcelDescription,
-        serviceClass = active.serviceClass,
-        status = active.status,
-        pickup = active.pickupAddress,
-        dropoff = active.dropoffAddress,
-        onClick = { onDelivery(active.deliveryId) },
-        modifier = Modifier.fillMaxWidth(),
-    )
 }
 
 @Composable
