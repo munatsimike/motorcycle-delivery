@@ -506,7 +506,7 @@ private fun CollectionMapPage(
                 else -> {
                     Column(Modifier.fillMaxWidth()) {
                         CollectionSheetHeader(ui)
-                        Spacer(Modifier.height(20.dp))
+                        Spacer(Modifier.height(16.dp))
                         DeliveryActionBlock(
                             ui = ui,
                             riderArrived = riderArrived,
@@ -588,7 +588,7 @@ private fun DeliveryActionBlock(
                         .padding(
                             top = when {
                                 ui.status == "DELIVERED" -> 0.dp
-                                collected -> 20.dp
+                                collected -> 16.dp
                                 else -> RidersSpacing.lg
                             },
                         )
@@ -621,6 +621,7 @@ private fun DeliveryActionBlock(
                 address = if (recipient) ui.dropoffAddress else ui.pickupAddress,
                 compact = compact,
                 tinted = collected && recipient,
+                plain = compact || readyForCollection(ui.status) || collected || ui.status == "PICKED_UP",
             )
         }
         Column(
@@ -1184,7 +1185,9 @@ private fun DeliveredPage(
         if (dropoff != null) {
             DeliveredDestinationMap(
                 point = dropoff,
+                recipient = ui.contacts?.dropoffName.orEmpty(),
                 address = deliveryCardAddress(ui.dropoffAddress),
+                completedAt = ui.completedAt ?: ui.createdAt,
                 sheetOverlap = if (sheetHeight > 0.dp) sheetHeight else 240.dp,
                 modifier = Modifier.fillMaxSize(),
             )
@@ -1229,19 +1232,22 @@ private fun DeliveredPage(
                     description = ui.parcelDescription,
                     serviceClass = ui.serviceClass,
                     deliveryId = ui.deliveryId,
-                    createdAt = ui.createdAt,
-                    dateCaption = if (ui.completedAt != null) "Completed" else "Date",
+                    createdAt = ui.completedAt ?: ui.createdAt,
+                    dateCaption = "Completed",
                     flat = true,
                     spacious = true,
                     pickup = ui.pickupAddress,
-                    dropoff = ui.dropoffAddress,
+                    dropoff = "",
                     distanceMeters = ui.distanceMeters,
                     price = ui.agreedPrice,
                     modifier = Modifier.fillMaxWidth(),
-                    pickupContact = { StopContactLine(ui, sender = true) },
-                    dropoffContact = { StopContactLine(ui, sender = false) },
+                    pickupContact = {
+                        StopContactName(
+                            name = ui.contacts?.pickupName.orEmpty(),
+                            actions = false,
+                        )
+                    },
                     pickupDetail = { StopNotes(ui.pickupAddress, ui.pickupLandmark, ui.pickupInstructions) },
-                    dropoffDetail = { StopNotes(ui.dropoffAddress, ui.dropoffLandmark, ui.dropoffInstructions) },
                 )
             }
         }

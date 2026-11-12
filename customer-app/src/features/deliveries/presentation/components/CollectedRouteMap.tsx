@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE, type Details } from 'react-native-maps';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
 
 import { apiGet } from '../../../../services/api/apiClient';
+import { mapBelowStatusBar } from '../../../../components/maps/mapBelowStatusBar';
 import { deliveryIcon } from '../deliveryIcons';
 import { fittedRouteRegion, type CameraPoint, type CameraRegion } from '../../domain/trackingCamera';
 
@@ -24,6 +26,7 @@ const MIN_MAP_HEIGHT = 280;
 const ROUTE_BLUE = deliveryIcon.dropoff;
 
 export default function CollectedRouteMap({ deliveryId, accessToken, pickup, dropoff }: CollectedRouteMapProps) {
+  const insets = useSafeAreaInsets();
   const mapRef = useRef<MapView | null>(null);
   const gestured = useRef(false);
   const applied = useRef<string | null>(null);
@@ -95,7 +98,7 @@ export default function CollectedRouteMap({ deliveryId, accessToken, pickup, dro
     <View style={styles.frame}>
       <MapView
         ref={mapRef}
-        style={StyleSheet.absoluteFill}
+        style={mapBelowStatusBar(insets.top)}
         provider={PROVIDER_GOOGLE}
         initialRegion={region}
         scrollEnabled

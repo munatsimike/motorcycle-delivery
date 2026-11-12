@@ -172,6 +172,7 @@ fun PartyContact(
     address: String,
     compact: Boolean = false,
     tinted: Boolean = false,
+    plain: Boolean = false,
 ) {
     if (!partyContactVisible(name, phone, address)) {
         return
@@ -183,9 +184,10 @@ fun PartyContact(
     PartyContactRow(
         role = role,
         name = shown,
-        address = if (compact) "" else address.trim(),
+        address = if (compact || plain) "" else address.trim(),
         compact = compact,
         tinted = tinted,
+        plain = plain,
         onCall = dialUri?.let { uri ->
             {
                 context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse(uri)))
@@ -208,6 +210,7 @@ private fun PartyContactRow(
     address: String,
     compact: Boolean,
     tinted: Boolean,
+    plain: Boolean,
     onCall: (() -> Unit)?,
     onWhatsApp: (() -> Unit)?,
 ) {
@@ -217,26 +220,28 @@ private fun PartyContactRow(
         horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            if (compact) {
-                Modifier
-                    .size(40.dp)
-                    .clip(RoundedCornerShape(RidersRadius.md))
-                    .background(tone?.background ?: RidersColors.primaryLight)
-            } else {
-                Modifier
-                    .width(48.dp)
-                    .height(56.dp)
-                    .clip(RoundedCornerShape(RidersRadius.md))
-                    .background(tone?.background ?: RidersColors.primaryLight)
-            },
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                senderInitials(name),
-                style = RidersType.body.copy(fontWeight = if (tinted) FontWeight.SemiBold else FontWeight.Bold),
-                color = tone?.foreground ?: RidersColors.primaryDark,
-            )
+        if (!plain) {
+            Box(
+                if (compact) {
+                    Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(RidersRadius.md))
+                        .background(tone?.background ?: RidersColors.primaryLight)
+                } else {
+                    Modifier
+                        .width(48.dp)
+                        .height(56.dp)
+                        .clip(RoundedCornerShape(RidersRadius.md))
+                        .background(tone?.background ?: RidersColors.primaryLight)
+                },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    senderInitials(name),
+                    style = RidersType.body.copy(fontWeight = if (tinted) FontWeight.SemiBold else FontWeight.Bold),
+                    color = tone?.foreground ?: RidersColors.primaryDark,
+                )
+            }
         }
         Column(
             Modifier.weight(1f),
@@ -247,8 +252,8 @@ private fun PartyContactRow(
                 name,
                 style = RidersType.body.copy(fontWeight = FontWeight.Bold),
                 color = RidersColors.text,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                maxLines = if (plain) Int.MAX_VALUE else 1,
+                overflow = if (plain) TextOverflow.Clip else TextOverflow.Ellipsis,
             )
             if (address.isNotEmpty()) {
                 Text(

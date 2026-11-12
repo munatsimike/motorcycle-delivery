@@ -16,7 +16,14 @@ export type NearbyPoint = {
   longitude: number;
 };
 
-export function useNearbyRiders(accessToken: string | null) {
+type NearbyRiderQuery = {
+  /** Ask for riders around this point instead of waiting for a device GPS fix. */
+  origin?: { latitude: number; longitude: number } | null;
+  /** Do not fall back to device GPS when origin is missing. */
+  requireOrigin?: boolean;
+};
+
+export function useNearbyRiders(accessToken: string | null, query?: NearbyRiderQuery) {
   const [state, setState] = useState<NearbyAvailability>({ status: 'loading' });
   const [point, setPoint] = useState<NearbyPoint | null>(null);
   const [points, setPoints] = useState<readonly NearbyMarker[]>([]);
@@ -88,17 +95,27 @@ export function useNearbyRiders(accessToken: string | null) {
     return () => clearInterval(timer);
   }, [points]);
 
+  const originLatitude = query?.origin?.latitude;
+  const originLongitude = query?.origin?.longitude;
+  const requireOrigin = query?.requireOrigin === true;
+
   const refresh = useCallback(async () => {
+    const origin = Number.isFinite(originLatitude) && Number.isFinite(originLongitude)
+      ? { latitude: originLatitude as number, longitude: originLongitude as number }
+      : null;
+    if (requireOrigin && !origin) return;
     if (refreshInFlight.current) return;
     refreshInFlight.current = true;
     const current = ++request.current;
     try {
-      const location = await expoCustomerLocation.read();
+      const location = origin
+        ? { status: 'ready' as const, latitude: origin.latitude, longitude: origin.longitude }
+        : await expoCustomerLocation.read();
       if (request.current === current) await apply(location);
     } finally {
       refreshInFlight.current = false;
     }
-  }, [apply]);
+  }, [apply, originLatitude, originLongitude, requireOrigin]);
 
   useFocusEffect(useCallback(() => {
     focused.current = true;

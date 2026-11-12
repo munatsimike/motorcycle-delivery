@@ -5,6 +5,9 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.Typeface
+import android.text.Layout
+import android.text.StaticLayout
+import android.text.TextPaint
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -281,7 +284,9 @@ private fun loosened(points: List<GeoPoint>): LatLngBounds {
 @Composable
 fun DeliveredDestinationMap(
     point: GeoPoint,
+    recipient: String,
     address: String,
+    completedAt: String?,
     sheetOverlap: Dp,
     modifier: Modifier = Modifier,
 ) {
@@ -295,12 +300,12 @@ fun DeliveredDestinationMap(
     }
     var mapLoaded by remember { mutableStateOf(false) }
     var userMoved by remember { mutableStateOf(false) }
-    var icon by remember(address) { mutableStateOf<BitmapDescriptor?>(null) }
-    var anchorY by remember(address) { mutableStateOf(1f) }
+    var icon by remember(recipient, address, completedAt) { mutableStateOf<BitmapDescriptor?>(null) }
+    var anchorY by remember(recipient, address, completedAt) { mutableStateOf(1f) }
     val statusTop = with(density) { WindowInsets.statusBars.getTop(this).toDp() }
     val boundsPadding = collectionMarkerPaddingPx(12f, density.density)
-    LaunchedEffect(context, address) {
-        val marker = deliveredConfirmationIcon(context, address)
+    LaunchedEffect(context, recipient, address, completedAt) {
+        val marker = deliveredConfirmationIcon(context, recipient, address, completedAt)
         icon = marker?.icon
         anchorY = marker?.anchorY ?: 1f
     }
@@ -358,30 +363,44 @@ fun DeliveredDestinationMap(
 
 private data class DeliveredMarker(val icon: BitmapDescriptor, val anchorY: Float)
 
-private fun deliveredConfirmationIcon(context: android.content.Context, address: String): DeliveredMarker? {
+private fun deliveredConfirmationIcon(
+    context: android.content.Context,
+    recipient: String,
+    address: String,
+    completedAt: String?,
+): DeliveredMarker? {
     val density = context.resources.displayMetrics.density
-    val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = android.graphics.Color.WHITE
-        textSize = 14f * density
-        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-    }
-    val placePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = android.graphics.Color.WHITE
-        textSize = 13f * density
-    }
-    val place = fitMarkerText(address.trim(), placePaint, 200f * density)
+    val maxText = (220f * density).toInt().coerceAtLeast(1)
+    val titlePaint = markerTextPaint(14f * density, Typeface.create(Typeface.DEFAULT, Typeface.BOLD))
+    val namePaint = markerTextPaint(14f * density, Typeface.create("sans-serif-medium", Typeface.NORMAL))
+    val placePaint = markerTextPaint(13f * density, Typeface.create(Typeface.DEFAULT, Typeface.NORMAL))
+    val timePaint = markerTextPaint(13f * density, Typeface.create(Typeface.DEFAULT, Typeface.NORMAL))
+    val name = recipient.trim()
+    val place = address.trim()
+    val time = deliveryClockLabel(completedAt)
+    val nameLayout = if (name.isEmpty()) null else wrappedMarkerText(name, namePaint, maxText)
+    val placeLayout = if (place.isEmpty()) null else wrappedMarkerText(place, placePaint, maxText)
     val padH = 12f * density
     val padV = 8f * density
     val gap = 3f * density
     val check = 14f * density
     val title = "Delivered"
     val titleWidth = titlePaint.measureText(title)
-    val placeWidth = if (place.isEmpty()) 0f else placePaint.measureText(place)
-    val boxWidth = (padH * 2 + maxOf(check + 6f * density + titleWidth, placeWidth)).toInt().coerceAtLeast(1)
+    val titleRow = check + 6f * density + titleWidth
+    val clockSize = if (time.isEmpty()) 0f else 12f * density
+    val clockGap = if (time.isEmpty()) 0f else 4f * density
+    val timeWidth = if (time.isEmpty()) 0f else clockSize + clockGap + timePaint.measureText(time)
+    val contentWidth = maxOf(titleRow, nameLayout.widestLine(), placeLayout.widestLine(), timeWidth)
+    val boxWidth = (padH * 2 + contentWidth).toInt().coerceAtLeast(1)
     val titleHeight = titlePaint.fontMetrics.run { descent - ascent }
-    val placeHeight = if (place.isEmpty()) 0f else placePaint.fontMetrics.run { descent - ascent }
     val rowHeight = maxOf(check, titleHeight)
-    val boxHeight = (padV * 2 + rowHeight + if (place.isEmpty()) 0f else gap + placeHeight).toInt().coerceAtLeast(1)
+    val timeTextHeight = if (time.isEmpty()) 0f else timePaint.fontMetrics.run { descent - ascent }
+    val timeRow = if (time.isEmpty()) 0f else maxOf(clockSize, timeTextHeight)
+    var textHeight = rowHeight
+    if (nameLayout != null) textHeight += gap + nameLayout.height
+    if (placeLayout != null) textHeight += gap + placeLayout.height
+    if (time.isNotEmpty()) textHeight += gap + timeRow
+    val boxHeight = (padV * 2 + textHeight).toInt().coerceAtLeast(1)
     val pin = ContextCompat.getDrawable(context, R.drawable.ic_solid_dropoff_location)?.mutate()
     val pinWidth = (32f * density).toInt().coerceAtLeast(1)
     val pinHeight = (39f * density).toInt().coerceAtLeast(1)
@@ -422,12 +441,40 @@ private fun deliveredConfirmationIcon(context: android.content.Context, address:
         padV + (rowHeight - titleHeight) / 2f - titlePaint.fontMetrics.ascent,
         titlePaint,
     )
-    if (place.isNotEmpty()) {
+    var cursor = padV + rowHeight
+    if (nameLayout != null) {
+        cursor += gap
+        canvas.save()
+        canvas.translate(contentLeft, cursor)
+        nameLayout.draw(canvas)
+        canvas.restore()
+        cursor += nameLayout.height
+    }
+    if (placeLayout != null) {
+        cursor += gap
+        canvas.save()
+        canvas.translate(contentLeft, cursor)
+        placeLayout.draw(canvas)
+        canvas.restore()
+        cursor += placeLayout.height
+    }
+    if (time.isNotEmpty()) {
+        cursor += gap
+        val clock = ContextCompat.getDrawable(context, R.drawable.ic_clock)?.mutate()
+        clock?.setTint(android.graphics.Color.WHITE)
+        val clockTop = cursor + (timeRow - clockSize) / 2f
+        clock?.setBounds(
+            contentLeft.toInt(),
+            clockTop.toInt(),
+            (contentLeft + clockSize).toInt(),
+            (clockTop + clockSize).toInt(),
+        )
+        clock?.draw(canvas)
         canvas.drawText(
-            place,
-            contentLeft,
-            padV + rowHeight + gap - placePaint.fontMetrics.ascent,
-            placePaint,
+            time,
+            contentLeft + clockSize + clockGap,
+            cursor + (timeRow - timeTextHeight) / 2f - timePaint.fontMetrics.ascent,
+            timePaint,
         )
     }
     pin?.setBounds(
@@ -442,16 +489,40 @@ private fun deliveredConfirmationIcon(context: android.content.Context, address:
     return DeliveredMarker(descriptor, tip.coerceIn(0f, 1f))
 }
 
-private fun fitMarkerText(text: String, paint: Paint, maxWidth: Float): String {
-    if (text.isEmpty() || paint.measureText(text) <= maxWidth) {
-        return text
+private fun markerTextPaint(textSize: Float, typeface: Typeface): TextPaint {
+    return TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.WHITE
+        this.textSize = textSize
+        this.typeface = typeface
     }
-    val ellipsis = "…"
-    var end = text.length
-    while (end > 1 && paint.measureText(text.substring(0, end).trimEnd() + ellipsis) > maxWidth) {
-        end -= 1
+}
+
+private fun wrappedMarkerText(text: String, paint: TextPaint, width: Int): StaticLayout {
+    return StaticLayout.Builder.obtain(text, 0, text.length, paint, width)
+        .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+        .setIncludePad(false)
+        .build()
+}
+
+private fun StaticLayout?.widestLine(): Float {
+    if (this == null || lineCount == 0) {
+        return 0f
     }
-    return text.substring(0, end).trimEnd() + ellipsis
+    var widest = 0f
+    for (line in 0 until lineCount) {
+        widest = maxOf(widest, getLineWidth(line))
+    }
+    return widest
+}
+
+private fun deliveryClockLabel(raw: String?): String {
+    val value = raw?.trim().orEmpty()
+    if (value.isEmpty()) {
+        return ""
+    }
+    val instant = runCatching { java.time.Instant.parse(value) }.getOrNull() ?: return ""
+    val date = instant.atZone(java.time.ZoneId.systemDefault())
+    return date.hour.toString().padStart(2, '0') + ":" + date.minute.toString().padStart(2, '0')
 }
 
 private fun locationDrawableMarker(context: android.content.Context, drawableId: Int): BitmapDescriptor? {

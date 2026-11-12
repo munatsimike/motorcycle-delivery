@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { bottomContentInset, colors, contentAboveSafeArea, radius, spacing } from '../../../../theme';
 import { TRACKING_MAP_HEIGHT } from '../../domain/trackingCamera';
+import { mapBelowStatusBar } from '../../../../components/maps/mapBelowStatusBar';
 import MapView, { PROVIDER_GOOGLE } from 'react-native-maps';
 
 type DeliveryDetailFrameProps = {
@@ -69,7 +70,7 @@ export default function DeliveryDetailFrame({
           {header ?? <MapView
         pointerEvents="none"
         provider={PROVIDER_GOOGLE}
-        style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, width: '100%', height: '100%' }}
+        style={mapBelowStatusBar(insets.top)}
         initialRegion={{ latitude: -17.8292, longitude: 31.0522, latitudeDelta: 0.07, longitudeDelta: 0.07 }}
         scrollEnabled={false}
         zoomEnabled={false}
@@ -165,7 +166,7 @@ export default function DeliveryDetailFrame({
           {header ?? <MapView
         pointerEvents="none"
         provider={PROVIDER_GOOGLE}
-        style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, width: '100%', height: '100%' }}
+        style={mapBelowStatusBar(insets.top)}
         initialRegion={{ latitude: -17.8292, longitude: 31.0522, latitudeDelta: 0.07, longitudeDelta: 0.07 }}
         scrollEnabled={false}
         zoomEnabled={false}
@@ -181,7 +182,7 @@ export default function DeliveryDetailFrame({
               pointerEvents="none"
               colors={['rgba(201,239,217,0.72)', 'rgba(229,247,238,0.35)', 'rgba(247,252,249,0.55)']}
               locations={[0, 0.62, 1]}
-              style={styles.wash}
+              style={[styles.wash, { top: insets.top }]}
             />
           )}
           {back}

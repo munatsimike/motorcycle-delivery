@@ -243,7 +243,7 @@ private fun DynamicPreviewMap(
                     }
                     runCatching { styles.optionsFor(theme)?.let { map.setMapStyle(it) } }
                     map.clear()
-                    runCatching { placePreviewMarkers(map, context, pickup, dropoff, points) }
+                    runCatching { placePreviewMarkers(map, context, pickup, dropoff) }
                 }.onFailure {
                     onFailed()
                     return@getMapAsync
@@ -290,7 +290,6 @@ private fun placePreviewMarkers(
     context: android.content.Context,
     pickup: GeoPoint?,
     dropoff: GeoPoint?,
-    points: List<GeoPoint>,
 ) {
     pickup?.let { point ->
         map.addMarker(
@@ -307,16 +306,6 @@ private fun placePreviewMarkers(
                 .anchor(0.5f, 1f)
                 .icon(locationPin(context, R.drawable.ic_solid_dropoff_location)),
         )
-    }
-    if (pickup == null && dropoff == null) {
-        points.firstOrNull()?.let { point ->
-            map.addMarker(
-                MarkerOptions()
-                    .position(point.toLatLng())
-                    .anchor(0.5f, 1f)
-                    .icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_GREEN)),
-            )
-        }
     }
 }
 

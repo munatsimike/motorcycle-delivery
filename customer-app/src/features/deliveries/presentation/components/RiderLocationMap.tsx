@@ -1,9 +1,11 @@
 import { Component, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE, type Details } from 'react-native-maps';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
 
 import { colors, radius, spacing, typography } from '../../../../theme';
+import { mapBelowStatusBar } from '../../../../components/maps/mapBelowStatusBar';
 import { trackingCameraRegion } from '../../domain/trackingCamera';
 import { deliveryIcon } from '../deliveryIcons';
 
@@ -40,6 +42,7 @@ export default function RiderLocationMap({
   etaLabel,
 }: RiderLocationMapProps) {
   const summary = live ? riderSummary(distanceLabel, etaLabel) : null;
+  const insets = useSafeAreaInsets();
   const [labelAnchorY, setLabelAnchorY] = useState(LABEL_ANCHOR_Y);
   const mapRef = useRef<MapView | null>(null);
   const gestured = useRef(false);
@@ -118,7 +121,7 @@ export default function RiderLocationMap({
       >
       <MapView
         ref={mapRef}
-        style={styles.map}
+        style={mapBelowStatusBar(insets.top)}
         provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
         initialRegion={region}
         scrollEnabled
@@ -215,10 +218,6 @@ const styles = StyleSheet.create({
     flex: 1,
     height: '100%',
     width: '100%',
-  },
-  map: {
-    width: '100%',
-    height: '100%',
   },
   recenter: {
     position: 'absolute',

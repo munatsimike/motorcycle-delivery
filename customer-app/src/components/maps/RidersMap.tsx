@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE, type Details } from 'react-native-maps';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import RiderMotorcycleMarker from './RiderMotorcycleMarker';
 import { deliveryIcon } from '../../features/deliveries/presentation/deliveryIcons';
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
 
 import { HOME_NEIGHBORHOOD_DELTA, customerNeighborhoodFrame, frameContainsPoints, nearbyMapFrame, type NearbyMapFrame } from '../../features/riders/domain/nearbyMapFrame';
 import PickupSearchPulse from './PickupSearchPulse';
+import { mapBelowStatusBar } from './mapBelowStatusBar';
 
 export type RidersMapPoint = { latitude: number; longitude: number };
 
@@ -33,6 +35,7 @@ type Props = {
 const DEFAULT_REGION = { latitude: -17.8292, longitude: 31.0522, latitudeDelta: 0.07, longitudeDelta: 0.07 };
 
 export default function RidersMap({ customerLocation, riders = [], showCustomerMarker = true, pickupLocation = null, interactive = true, bottomPadding = 0, neighborhoodView = false, stableNeighborhood = false, searchPulse = false }: Props) {
+  const insets = useSafeAreaInsets();
   const mapRef = useRef<MapView>(null);
   const mounted = useRef(true);
   const mapReady = useRef(false);
@@ -137,7 +140,7 @@ export default function RidersMap({ customerLocation, riders = [], showCustomerM
       <MapView
         ref={mapRef}
         provider={PROVIDER_GOOGLE}
-        style={StyleSheet.absoluteFill}
+        style={mapBelowStatusBar(insets.top)}
         initialRegion={customerLocation ? { ...customerLocation, latitudeDelta: neighborhoodView ? HOME_NEIGHBORHOOD_DELTA : 0.025, longitudeDelta: neighborhoodView ? HOME_NEIGHBORHOOD_DELTA : 0.025 } : DEFAULT_REGION}
         scrollEnabled={interactive}
         zoomEnabled={interactive}

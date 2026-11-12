@@ -86,7 +86,7 @@ export default function CustomerHomeScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#FFFFFF' },
   bottomArea: { position: 'absolute', left: 0, right: 0, bottom: 0 },
-  actionsCard: { backgroundColor: '#FFFFFF', borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, padding: spacing.lg, paddingBottom: spacing.xxl + spacing.md, gap: spacing.md, elevation: 6, shadowColor: '#153D28', shadowOpacity: 0.12, shadowRadius: 18, shadowOffset: { width: 0, height: -3 } },
+  actionsCard: { backgroundColor: '#FFFFFF', borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, padding: spacing.lg, paddingBottom: 18, gap: 7, elevation: 6, shadowColor: '#153D28', shadowOpacity: 0.12, shadowRadius: 18, shadowOffset: { width: 0, height: -3 } },
   topOutline: { position: 'absolute', top: 0, left: 0, right: 0, height: radius.xl, flexDirection: 'row' },
   topOutlineLeftCorner: { width: radius.xl, height: radius.xl, borderTopWidth: 3, borderLeftWidth: 3, borderColor: '#BCEBD3', borderTopLeftRadius: radius.xl },
   topOutlineLine: { flex: 1, height: 3, backgroundColor: '#BCEBD3' },

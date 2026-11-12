@@ -11,6 +11,7 @@ import { deliveryCardAddress, deliveryContentKind, deliveryWhenLabel, shortDeliv
 import { moneyLabel } from '../../domain/moneyLabel';
 import type { CustomerDeliveryDetail } from '../../domain/customerDeliveryDetail';
 import { riderDialUrl, riderWhatsAppCallUrl } from '../../domain/trackingJourney';
+import { mapBelowStatusBar } from '../../../../components/maps/mapBelowStatusBar';
 import { CONTENT_ICONS, ContentIcon, LocationPin, deliveryIcon } from '../deliveryIcons';
 
 type MapPoint = { latitude: number; longitude: number };
@@ -51,11 +52,13 @@ export default function DeliveredDelivery({
       {destination ? (
         <DeliveredDestinationMap
           point={destination}
+          recipient={delivery.recipientName?.trim() ?? ''}
           address={deliveryCardAddress(delivery.dropoffAddress)}
+          completedAt={delivery.createdAt}
           sheetOverlap={sheetHeight > 0 ? sheetHeight : SHEET_FALLBACK}
         />
       ) : (
-        <View style={styles.mapFallback} />
+        <View style={[styles.mapFallback, mapBelowStatusBar(insets.top)]} />
       )}
       <Pressable
         accessibilityRole="button"
@@ -104,7 +107,7 @@ function DeliveredSummary({ delivery }: { delivery: CustomerDeliveryDetail }) {
   const showClass = delivery.serviceClass === 'EXPRESS' || delivery.serviceClass === 'FLEXIBLE';
   const when = delivery.createdAt ? deliveryWhenLabel(delivery.createdAt) : '';
   const pickup = deliveryCardAddress(delivery.pickupAddress);
-  const dropoff = deliveryCardAddress(delivery.dropoffAddress);
+  const sender = delivery.senderName?.trim() ?? '';
   const amount = (delivery.offeredPrice?.trim() || delivery.suggestedPrice).trim();
   return (
     <View style={styles.summary}>
@@ -135,8 +138,7 @@ function DeliveredSummary({ delivery }: { delivery: CustomerDeliveryDetail }) {
           </View>
         ) : null}
       </View>
-      {pickup ? <AddressStop line={pickup} /> : null}
-      {dropoff ? <AddressStop line={dropoff} dropoff /> : null}
+      {pickup || sender ? <AddressStop line={pickup} name={sender} /> : null}
       <SectionDivider />
       <View style={styles.priceRow}>
         <View style={styles.fact}>
@@ -227,24 +229,31 @@ function SectionDivider() {
   );
 }
 
-function AddressStop({ line, dropoff = false }: { line: string; dropoff?: boolean }) {
+function AddressStop({ line, name }: { line: string; name?: string }) {
   return (
     <View style={styles.stop}>
       <View style={styles.pin}>
-        <LocationPin dropoff={dropoff} />
+        <LocationPin />
       </View>
-      <Text style={styles.address}>{line}</Text>
+      <View style={styles.stopCopy}>
+        {name ? <Text style={styles.stopName}>{name}</Text> : null}
+        {line ? <Text style={styles.address}>{line}</Text> : null}
+      </View>
     </View>
   );
 }
 
 function DeliveredDestinationMap({
   point,
+  recipient,
   address,
+  completedAt,
   sheetOverlap,
 }: {
   point: MapPoint;
+  recipient: string;
   address: string;
+  completedAt: string | null;
   sheetOverlap: number;
 }) {
   const insets = useSafeAreaInsets();
@@ -252,7 +261,9 @@ function DeliveredDestinationMap({
   const mapRef = useRef<MapView>(null);
   const gestured = useRef(false);
   const [trackMarker, setTrackMarker] = useState(true);
-  const region = deliveredCameraRegion(point, window.width, window.height, insets.top, sheetOverlap);
+  const mapHeight = Math.max(1, window.height - insets.top);
+  const deliveredTime = deliveryClockLabel(completedAt);
+  const region = deliveredCameraRegion(point, window.width, mapHeight, 0, sheetOverlap);
   const regionKey = [region.latitude, region.longitude, region.latitudeDelta, region.longitudeDelta]
     .map((value) => value.toFixed(5))
     .join(':');
@@ -263,7 +274,7 @@ function DeliveredDestinationMap({
     setTrackMarker(true);
     const timer = setTimeout(() => setTrackMarker(false), 500);
     return () => clearTimeout(timer);
-  }, [address, point.latitude, point.longitude]);
+  }, [address, completedAt, point.latitude, point.longitude, recipient]);
 
   useEffect(() => {
     if (gestured.current || !mapRef.current) {
@@ -279,10 +290,10 @@ function DeliveredDestinationMap({
   }
 
   return (
-    <MapBoundary fallback={<View style={styles.mapFallback} />}>
+    <MapBoundary fallback={<View style={[styles.mapFallback, mapBelowStatusBar(insets.top)]} />}>
       <MapView
         ref={mapRef}
-        style={StyleSheet.absoluteFill}
+        style={mapBelowStatusBar(insets.top)}
         provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
         initialRegion={region}
         scrollEnabled
@@ -316,10 +327,13 @@ function DeliveredDestinationMap({
                 <MaterialDesignIcons name="check" size={14} color={colors.textInverse} />
                 <Text style={styles.deliveredTitle}>Delivered</Text>
               </View>
-              {address ? (
-                <Text style={styles.deliveredPlace} numberOfLines={1}>
-                  {address}
-                </Text>
+              {recipient ? <Text style={styles.deliveredName}>{recipient}</Text> : null}
+              {address ? <Text style={styles.deliveredPlace}>{address}</Text> : null}
+              {deliveredTime ? (
+                <View style={styles.deliveredTimeRow}>
+                  <MaterialDesignIcons name="clock-outline" size={12} color={colors.textInverse} />
+                  <Text style={styles.deliveredTime}>{deliveredTime}</Text>
+                </View>
               ) : null}
             </View>
             <MaterialDesignIcons name="map-marker" size={36} color={deliveryIcon.dropoff} />
@@ -360,6 +374,19 @@ function mapPoint(latitude: number | null, longitude: number | null): MapPoint |
     return null;
   }
   return { latitude, longitude };
+}
+
+function deliveryClockLabel(value: string | null): string {
+  if (!value) {
+    return '';
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  return `${hours}:${minutes}`;
 }
 
 function distanceLabel(meters: number): string {
@@ -494,8 +521,17 @@ const styles = StyleSheet.create({
     marginTop: 1,
     alignItems: 'center',
   },
-  address: {
+  stopCopy: {
     flex: 1,
+    gap: 2,
+  },
+  stopName: {
+    fontSize: typography.body,
+    lineHeight: 22,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  address: {
     fontSize: typography.body,
     lineHeight: 23,
     color: colors.text,
@@ -569,11 +605,32 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     includeFontPadding: false,
   },
+  deliveredName: {
+    maxWidth: 220,
+    color: colors.textInverse,
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '600',
+    includeFontPadding: false,
+  },
   deliveredPlace: {
-    maxWidth: 200,
+    maxWidth: 220,
     color: colors.textInverse,
     fontSize: 13,
     lineHeight: 17,
+    fontWeight: '400',
+    includeFontPadding: false,
+  },
+  deliveredTimeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  deliveredTime: {
+    color: colors.textInverse,
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: '500',
     includeFontPadding: false,
   },
 });

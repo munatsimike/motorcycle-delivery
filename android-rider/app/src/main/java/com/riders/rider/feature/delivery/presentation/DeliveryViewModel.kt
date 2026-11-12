@@ -489,6 +489,7 @@ class DeliveryViewModel @Inject constructor(
             agreedPrice = parcel.agreedPrice,
             distanceMeters = parcel.distanceMeters,
             createdAt = parcel.createdAt,
+            completedAt = parcel.completedAt,
             agreedPriceLabel = agreedPriceLabel(parcel.agreedPrice),
             readOnly = !marketplace,
             marketplaceParcel = marketplace,

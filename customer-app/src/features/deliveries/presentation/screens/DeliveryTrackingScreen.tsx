@@ -68,7 +68,6 @@ const OFFER_SORTS: { id: OfferSort; label: string; shortLabel: string; icon: 'so
 export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTrackingProps) {
   const { accessToken } = useSession();
   const insets = useSafeAreaInsets();
-  const nearby = useNearbyRiders(accessToken);
   const [offersSheetHeight, setOffersSheetHeight] = useState(0);
   const { delivery, isLoading, isRefreshing, error, reload, cancelling, cancelError, cancelSearch } = useDeliveryTracking(accessToken, route.params.deliveryId);
   const deliveryRef = useRef(delivery);
@@ -87,7 +86,7 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
     navigation.setParams(riderAcceptedTrackingTarget(current.id).params);
     reload();
   }, [navigation, reload]);
-  const incoming = useIncomingOffers(accessToken, delivery, onAccepted);
+  const incoming = useIncomingOffers(accessToken, delivery, onAccepted, route.params.deliveryId);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [offerSort, setOfferSort] = useState<OfferSort>('price');
   const [sortOpen, setSortOpen] = useState(false);
@@ -107,6 +106,10 @@ export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTr
     ? confirmed.delivery
     : delivery;
   const awaitingOffers = deliveryAwaitsRiderOffers(shown);
+  const pickupOrigin = shown && shown.pickupLatitude !== null && shown.pickupLongitude !== null
+    ? { latitude: shown.pickupLatitude, longitude: shown.pickupLongitude }
+    : null;
+  const nearby = useNearbyRiders(accessToken, { origin: pickupOrigin, requireOrigin: true });
   const offers = sortRiderOffers(incoming.offers, offerSort);
   const offerKey = offers.map((bid) => bid.id).join('\n');
   const seenOffers = useRef<{ deliveryId: string | null; ids: string[] }>({ deliveryId: null, ids: [] });

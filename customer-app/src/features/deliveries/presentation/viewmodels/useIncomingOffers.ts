@@ -18,10 +18,14 @@ import { TRACKING_POLL_MS } from '../../domain/deliveryTracking';
 import { deliveryAwaitsRiderOffers, mergeIncomingOffers, offersMissingSince } from '../../domain/riderOffers';
 import { acceptCustomerBid } from '../../domain/usecases/acceptCustomerBid';
 
+/** Follow-up while an open offer still has no stored rider fix. The first request is immediate. */
+const OFFER_MAP_POINT_POLL_MS = 2_000;
+
 export function useIncomingOffers(
   accessToken: string | null,
   delivery: CustomerDeliveryDetail | null,
   onAccepted: (acceptance: BidAcceptance, bid: CustomerBid) => void,
+  deliveryId: string,
 ) {
   const focused = useIsFocused();
   const [offers, setOffers] = useState<CustomerBid[]>([]);
@@ -41,8 +45,9 @@ export function useIncomingOffers(
   const offersRef = useRef(offers);
   const deliveryRef = useRef(delivery);
   const chosenRef = useRef(false);
-  const deliveryId = delivery?.id ?? null;
   const awaiting = deliveryAwaitsRiderOffers(delivery);
+  const listenForOffers = delivery === null || awaiting;
+  const waitingForRiderPoint = offers.some((bid) => bid.status === 'OPEN' && bid.mapPoint == null);
   offersRef.current = offers;
   deliveryRef.current = delivery;
   chosenRef.current = chosen;
@@ -75,7 +80,11 @@ export function useIncomingOffers(
   }, []);
 
   const load = useCallback(async () => {
-    if (!accessToken || !deliveryId || !awaiting || chosenRef.current) {
+    if (!accessToken || !deliveryId || chosenRef.current) {
+      return;
+    }
+    const currentDelivery = deliveryRef.current;
+    if (currentDelivery && !deliveryAwaitsRiderOffers(currentDelivery)) {
       return;
     }
     const current = request.current + 1;
@@ -116,18 +125,18 @@ export function useIncomingOffers(
       setError(message);
       setLoaded(true);
     }
-  }, [accessToken, awaiting, deliveryId]);
+  }, [accessToken, deliveryId]);
 
   useEffect(() => {
-    if (!focused || !appActive || !awaiting || !listen || chosen) {
+    if (!focused || !appActive || !listenForOffers || !listen || chosen) {
       return;
     }
     void load();
     const timer = setInterval(() => {
       void load();
-    }, TRACKING_POLL_MS);
+    }, waitingForRiderPoint ? OFFER_MAP_POINT_POLL_MS : TRACKING_POLL_MS);
     return () => clearInterval(timer);
-  }, [appActive, awaiting, chosen, focused, listen, load]);
+  }, [appActive, chosen, focused, listen, listenForOffers, load, waitingForRiderPoint]);
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
