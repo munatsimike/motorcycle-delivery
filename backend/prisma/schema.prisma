@@ -1071,6 +1071,10 @@ enum WalletPaymentStatus {
   PENDING
   FAILED
   VERIFIED
+  EXPIRED
+  UNRESOLVED
+  REFUNDED
+  REVERSED
 
   @@map("wallet_payment_status")
 }
@@ -1255,7 +1259,16 @@ model WalletPayment {
   payloadHash             String              @map("payload_hash") @db.Char(64)
   topUpRequestId          String?             @unique @map("top_up_request_id") @db.Uuid
   confirmedById           String?             @map("confirmed_by_id") @db.Uuid
+  payerMsisdn             String?             @map("payer_msisdn") @db.VarChar(16)
+  clientCorrelator        String?             @unique @map("client_correlator") @db.VarChar(40)
+  referenceCode           String?             @unique @map("reference_code") @db.VarChar(64)
+  nextLookupAt            DateTime?           @map("next_lookup_at") @db.Timestamptz(6)
+  expiresAt               DateTime?           @map("expires_at") @db.Timestamptz(6)
+  lastProviderResponseCode String?            @map("last_provider_response_code") @db.VarChar(32)
+  refundReference         String?             @unique @map("refund_reference") @db.VarChar(64)
+  chargeAttemptedAt       DateTime?           @map("charge_attempted_at") @db.Timestamptz(6)
   createdAt               DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime            @default(now()) @map("updated_at") @db.Timestamptz(6)
   verifiedAt              DateTime?           @map("verified_at") @db.Timestamptz(6)
 
   riderWallet RiderWallet         @relation(fields: [riderWalletId], references: [id], onDelete: Restrict, onUpdate: Cascade)
