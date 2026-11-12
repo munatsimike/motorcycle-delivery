@@ -1,7 +1,9 @@
+import { useMemo } from 'react';
 import type { ReactNode } from 'react';
 import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 
-import { colors, radius, spacing, typography } from '../theme';
+import type { Palette } from '../theme';
+import { useAppearance, radius, spacing, typography } from '../theme';
 
 type DialogModalProps = {
   visible: boolean;
@@ -18,6 +20,8 @@ export default function DialogModal({
   children,
   cardStyle,
 }: DialogModalProps) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <Modal
       visible={visible}
@@ -41,14 +45,20 @@ export default function DialogModal({
 }
 
 export function DialogTitle({ children }: { children: ReactNode }) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return <Text style={styles.title}>{children}</Text>;
 }
 
 export function DialogBody({ children }: { children: ReactNode }) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return <Text style={styles.body}>{children}</Text>;
 }
 
 export function DialogActions({ children }: { children: ReactNode }) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return <View style={styles.actions}>{children}</View>;
 }
 
@@ -67,6 +77,8 @@ export function DialogTextButton({
   loading?: boolean;
   weight?: 'bold' | 'regular';
 }) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const toneStyle = tone === 'danger' ? styles.textDanger : tone === 'neutral' ? styles.textNeutral : styles.textPrimary;
   const inactive = disabled || loading;
   return (
@@ -83,7 +95,8 @@ export function DialogTextButton({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   backdrop: {
     flex: 1,
     alignItems: 'center',
@@ -104,7 +117,7 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     padding: spacing.xl,
     borderRadius: radius.xl,
-    backgroundColor: colors.background,
+    backgroundColor: colors.sheet,
   },
   title: {
     textAlign: 'center',
@@ -158,3 +171,4 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
 });
+}

@@ -6,6 +6,7 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -53,6 +55,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -61,6 +64,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.riders.rider.R
 import com.riders.rider.core.design.RidersButtonTone
 import com.riders.rider.core.design.RidersErrorState
+import com.riders.rider.core.design.AppearanceMode
+import com.riders.rider.core.design.AppearanceState
+import com.riders.rider.core.design.LocalAppDark
+import com.riders.rider.core.design.RidersBottomSheet
 import com.riders.rider.core.design.RidersColors
 import com.riders.rider.core.design.RidersDialog
 import com.riders.rider.core.design.RidersDialogActions
@@ -351,7 +358,7 @@ private fun ProfileAvatarOverlap(
                     .size(32.dp)
                     .shadow(elevation = 3.dp, shape = CircleShape)
                     .clip(CircleShape)
-                    .background(Color.White)
+                    .background(RidersColors.sheet)
                     .clickable(role = Role.Button, onClick = onRemovePhoto)
                     .semantics { contentDescription = "Remove photo" },
                 contentAlignment = Alignment.Center,
@@ -513,13 +520,14 @@ private fun DetailsCard(
     onEditAddress: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var appearanceOpen by rememberSaveable { mutableStateOf(false) }
     val shape = RoundedCornerShape(RidersRadius.xl)
     Column(
         modifier
             .fillMaxWidth()
             .shadow(8.dp, shape, ambientColor = RidersColors.shadow, spotColor = RidersColors.shadow)
             .clip(shape)
-            .background(RidersColors.background)
+            .background(RidersColors.sheet)
             .padding(horizontal = RidersSpacing.lg, vertical = RidersSpacing.sm),
     ) {
         InfoRow(
@@ -561,6 +569,96 @@ private fun DetailsCard(
             onClick = onMotorcycles,
         )
         Hairline()
+        InfoRow(
+            icon = R.drawable.ic_theme_light_dark,
+            label = "Appearance",
+            value = appearanceLabel(AppearanceState.mode.value),
+            onClick = { appearanceOpen = true },
+            sheet = true,
+        )
+    }
+    AppearanceSheet(visible = appearanceOpen, onDismiss = { appearanceOpen = false })
+}
+
+@Composable
+private fun AppearanceSheet(visible: Boolean, onDismiss: () -> Unit) {
+    val selected = AppearanceState.mode.value
+    val dark = LocalAppDark.current
+    val accent = if (dark) RidersColors.primary else RidersColors.primaryDark
+    val highlight = if (dark) RidersColors.primaryLight else RidersColors.surface
+    val navBottom = WindowInsets.navigationBars.getBottom(LocalDensity.current)
+    RidersBottomSheet(visible = visible, onDismiss = onDismiss, handle = false, extendBehindNavigationBar = true) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(start = RidersSpacing.lg, top = RidersSpacing.lg, end = RidersSpacing.lg),
+        ) {
+            Text("Appearance", style = RidersType.heading, color = RidersColors.text)
+            Spacer(Modifier.height(RidersSpacing.sm))
+            AppearanceMode.entries.forEach { mode ->
+                val chosen = mode == selected
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(if (chosen) highlight else Color.Transparent)
+                        .clickable(role = Role.RadioButton) {
+                            AppearanceState.select(mode)
+                            onDismiss()
+                        }
+                        .semantics { this.selected = chosen }
+                        .padding(vertical = RidersSpacing.sm),
+                    horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        painter = painterResource(appearanceIcon(mode)),
+                        contentDescription = null,
+                        tint = if (chosen) accent else RidersColors.textSecondary,
+                        modifier = Modifier.size(20.dp),
+                    )
+                    Text(
+                        appearanceLabel(mode),
+                        style = if (chosen) RidersType.bodyStrong else RidersType.body,
+                        color = if (chosen) accent else RidersColors.text,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Box(
+                        Modifier
+                            .size(22.dp)
+                            .clip(CircleShape)
+                            .background(if (chosen) RidersColors.primary else Color.Transparent)
+                            .border(1.dp, if (chosen) RidersColors.primary else RidersColors.border, CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (chosen) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_check),
+                                contentDescription = null,
+                                tint = RidersColors.textInverse,
+                                modifier = Modifier.size(14.dp),
+                            )
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(RidersSpacing.lg + with(LocalDensity.current) { navBottom.toDp() }))
+        }
+    }
+}
+
+private fun appearanceIcon(mode: AppearanceMode): Int {
+    return when (mode) {
+        AppearanceMode.SYSTEM -> R.drawable.ic_cellphone
+        AppearanceMode.LIGHT -> R.drawable.ic_weather_sunny
+        AppearanceMode.DARK -> R.drawable.ic_weather_night
+    }
+}
+
+private fun appearanceLabel(mode: AppearanceMode): String {
+    return when (mode) {
+        AppearanceMode.SYSTEM -> "System default"
+        AppearanceMode.LIGHT -> "Light"
+        AppearanceMode.DARK -> "Dark"
     }
 }
 
@@ -587,6 +685,7 @@ private fun InfoRow(
     caption: String? = null,
     onClick: (() -> Unit)? = null,
     onEdit: (() -> Unit)? = null,
+    sheet: Boolean = false,
     valueContent: (@Composable () -> Unit)? = null,
 ) {
         Row(
@@ -625,7 +724,7 @@ private fun InfoRow(
             )
         } else if (onClick != null) {
             Icon(
-                painter = painterResource(R.drawable.ic_chevron_right_outline),
+                painter = painterResource(if (sheet) R.drawable.ic_chevron_up else R.drawable.ic_chevron_right_outline),
                 contentDescription = null,
                 modifier = Modifier.size(20.dp),
                 tint = RidersColors.text,

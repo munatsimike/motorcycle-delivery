@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
 
 import DialogModal, { DialogActions, DialogTextButton, DialogTitle } from '../../../../components/DialogModal';
 import FormInput from '../../../../components/FormInput';
-import { colors, spacing, typography } from '../../../../theme';
+import type { Palette } from '../../../../theme';
+import { spacing, typography, useAppearance } from '../../../../theme';
 import { expoPickupLocation } from '../../data/expoPickupLocation';
 import type { StopDraft } from '../../domain/bookingDraft';
 import {
@@ -26,6 +27,8 @@ type PickupLocationActionProps = {
 type PendingPickup = Extract<PickupDetection, { status: 'confirm' }>;
 
 export default function PickupLocationAction({ stop, onApply }: PickupLocationActionProps) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [detecting, setDetecting] = useState(false);
   const [flight] = useState(() => ({ inFlight: false }));
   const [message, setMessage] = useState<string | null>(null);
@@ -138,7 +141,8 @@ export default function PickupLocationAction({ stop, onApply }: PickupLocationAc
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   wrap: {
     marginTop: -spacing.md,
   },
@@ -162,3 +166,4 @@ const styles = StyleSheet.create({
     color: colors.error,
   },
 });
+}

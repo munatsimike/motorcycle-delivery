@@ -1,4 +1,4 @@
-import { Component, useEffect, useRef, useState, type ReactNode } from 'react';
+import { Component, useEffect, useRef, useState, type ReactNode, useMemo } from 'react';
 import { Linking, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import MapView, { Marker, PROVIDER_GOOGLE, type Details, type Region } from 'react-native-maps';
@@ -6,7 +6,8 @@ import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import ErrorMessage from '../../../../components/ErrorMessage';
-import { colors, radius, spacing, typography } from '../../../../theme';
+import type { Palette } from '../../../../theme';
+import { radius, spacing, typography, useAppearance, useGoogleMapStyle } from '../../../../theme';
 import { deliveryCardAddress, deliveryContentKind, deliveryWhenLabel, shortDeliveryReference } from '../../domain/deliveryCard';
 import { moneyLabel } from '../../domain/moneyLabel';
 import type { CustomerDeliveryDetail } from '../../domain/customerDeliveryDetail';
@@ -39,6 +40,8 @@ export default function DeliveredDelivery({
   onBack,
   children,
 }: DeliveredDeliveryProps) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
   const { height: screenHeight } = useWindowDimensions();
   const [sheetHeight, setSheetHeight] = useState(0);
@@ -54,7 +57,7 @@ export default function DeliveredDelivery({
           point={destination}
           recipient={delivery.recipientName?.trim() ?? ''}
           address={deliveryCardAddress(delivery.dropoffAddress)}
-          completedAt={delivery.createdAt}
+          completedAt={delivery.completedAt}
           sheetOverlap={sheetHeight > 0 ? sheetHeight : SHEET_FALLBACK}
         />
       ) : (
@@ -101,6 +104,8 @@ export default function DeliveredDelivery({
 }
 
 function DeliveredSummary({ delivery }: { delivery: CustomerDeliveryDetail }) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const kind = deliveryContentKind(delivery.parcelDescription);
   const content = CONTENT_ICONS[kind];
   const urgent = delivery.serviceClass === 'EXPRESS';
@@ -133,7 +138,7 @@ function DeliveredSummary({ delivery }: { delivery: CustomerDeliveryDetail }) {
         </View>
         {when ? (
           <View style={styles.fact}>
-            <Text style={styles.factLabel}>Completed</Text>
+            <Text style={styles.factLabel}>Requested</Text>
             <Text style={styles.factValue}>{when}</Text>
           </View>
         ) : null}
@@ -157,6 +162,8 @@ function DeliveredSummary({ delivery }: { delivery: CustomerDeliveryDetail }) {
 }
 
 function SupportRow({ deliveryId }: { deliveryId: string }) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const reference = shortDeliveryReference(deliveryId).replace(/^#/, '');
   const message = `Hello, I have a question or complaint about delivery #${reference}.`;
 
@@ -219,6 +226,8 @@ function SupportRow({ deliveryId }: { deliveryId: string }) {
 }
 
 function SectionDivider() {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <LinearGradient
       colors={['transparent', colors.border, 'transparent']}
@@ -230,6 +239,8 @@ function SectionDivider() {
 }
 
 function AddressStop({ line, name }: { line: string; name?: string }) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <View style={styles.stop}>
       <View style={styles.pin}>
@@ -256,13 +267,16 @@ function DeliveredDestinationMap({
   completedAt: string | null;
   sheetOverlap: number;
 }) {
+  const { colors } = useAppearance();
+  const mapStyle = useGoogleMapStyle();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
   const window = useWindowDimensions();
   const mapRef = useRef<MapView>(null);
   const gestured = useRef(false);
   const [trackMarker, setTrackMarker] = useState(true);
   const mapHeight = Math.max(1, window.height - insets.top);
-  const deliveredTime = deliveryClockLabel(completedAt);
+  const deliveredTime = completedAt ? deliveryWhenLabel(completedAt) : '';
   const region = deliveredCameraRegion(point, window.width, mapHeight, 0, sheetOverlap);
   const regionKey = [region.latitude, region.longitude, region.latitudeDelta, region.longitudeDelta]
     .map((value) => value.toFixed(5))
@@ -295,6 +309,8 @@ function DeliveredDestinationMap({
         ref={mapRef}
         style={mapBelowStatusBar(insets.top)}
         provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
+        customMapStyle={mapStyle}
+        userInterfaceStyle={mapStyle ? 'dark' : 'light'}
         initialRegion={region}
         scrollEnabled
         zoomEnabled
@@ -322,9 +338,13 @@ function DeliveredDestinationMap({
           accessibilityLabel="Delivered"
         >
           <View collapsable={false} style={styles.marker}>
+            <View style={styles.deliveredShadowWrap}>
+              <View style={styles.deliveredShadow} />
             <View style={styles.deliveredLabel}>
               <View style={styles.deliveredTitleRow}>
-                <MaterialDesignIcons name="check" size={14} color={colors.textInverse} />
+                <View style={styles.checkCircle}>
+                  <MaterialDesignIcons name="check" size={12} color="#16845B" />
+                </View>
                 <Text style={styles.deliveredTitle}>Delivered</Text>
               </View>
               {recipient ? <Text style={styles.deliveredName}>{recipient}</Text> : null}
@@ -335,6 +355,7 @@ function DeliveredDestinationMap({
                   <Text style={styles.deliveredTime}>{deliveredTime}</Text>
                 </View>
               ) : null}
+            </View>
             </View>
             <MaterialDesignIcons name="map-marker" size={36} color={deliveryIcon.dropoff} />
           </View>
@@ -376,19 +397,6 @@ function mapPoint(latitude: number | null, longitude: number | null): MapPoint |
   return { latitude, longitude };
 }
 
-function deliveryClockLabel(value: string | null): string {
-  if (!value) {
-    return '';
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return '';
-  }
-  const hours = String(date.getHours()).padStart(2, '0');
-  const minutes = String(date.getMinutes()).padStart(2, '0');
-  return `${hours}:${minutes}`;
-}
-
 function distanceLabel(meters: number): string {
   if (!Number.isFinite(meters) || meters < 0) {
     return 'Unavailable';
@@ -413,14 +421,15 @@ class MapBoundary extends Component<{ children: ReactNode; fallback: ReactNode }
   }
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#F7FCF9',
+    backgroundColor: colors.canvas,
   },
   mapFallback: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#F7FCF9',
+    ...StyleSheet.absoluteFill,
+    backgroundColor: colors.canvas,
   },
   back: {
     position: 'absolute',
@@ -584,14 +593,34 @@ const styles = StyleSheet.create({
   marker: {
     alignItems: 'center',
   },
+  deliveredShadowWrap: {
+    marginBottom: 5,
+    paddingBottom: 3,
+  },
+  deliveredShadow: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 3,
+    bottom: 0,
+    borderRadius: radius.lg,
+    backgroundColor: 'rgba(23, 33, 29, 0.2)',
+  },
   deliveredLabel: {
     alignItems: 'flex-start',
     backgroundColor: '#16845B',
     borderRadius: radius.lg,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    marginBottom: 5,
     gap: 3,
+  },
+  checkCircle: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.textInverse,
   },
   deliveredTitleRow: {
     flexDirection: 'row',
@@ -634,3 +663,4 @@ const styles = StyleSheet.create({
     includeFontPadding: false,
   },
 });
+}

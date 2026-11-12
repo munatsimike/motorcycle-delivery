@@ -1,8 +1,10 @@
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
+import { useMemo } from 'react';
 import type { ComponentProps } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { colors, radius, spacing } from '../theme';
+import type { Palette } from '../theme';
+import { radius, spacing, useAppearance } from '../theme';
 
 type SecondaryButtonProps = {
   label: string;
@@ -28,6 +30,8 @@ export default function SecondaryButton({
   compact = false,
   weight = 'bold',
 }: SecondaryButtonProps) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const inactive = disabled || loading;
   const accent = tone === 'danger' ? colors.error : colors.primary;
 
@@ -63,7 +67,8 @@ export default function SecondaryButton({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   button: {
     minHeight: 56,
     backgroundColor: colors.background,
@@ -102,3 +107,4 @@ const styles = StyleSheet.create({
     fontWeight: '400',
   },
 });
+}

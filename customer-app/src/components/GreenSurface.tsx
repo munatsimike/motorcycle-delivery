@@ -2,7 +2,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import type { ReactNode } from 'react';
 import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 
-import { colors, spacing } from '../theme';
+import { spacing, useAppearance } from '../theme';
 import GreenBackdrop from './GreenBackdrop';
 
 type GreenSurfaceProps = {
@@ -13,14 +13,15 @@ type GreenSurfaceProps = {
 };
 
 export default function GreenSurface({ children, style, fadeStyle, fadeColors }: GreenSurfaceProps) {
+  const { colors } = useAppearance();
   return (
     <View>
-      <View style={[styles.surface, style]}>
+      <View style={[styles.surface, { backgroundColor: colors.canvas }, style]}>
         <GreenBackdrop />
         {children}
       </View>
       <LinearGradient
-        colors={fadeColors ?? ['#F7FCF9', colors.background]}
+        colors={fadeColors ?? [colors.canvas, colors.background]}
         style={[styles.fade, fadeStyle]}
         pointerEvents="none"
       />

@@ -1,4 +1,8 @@
-export { colors } from './colors';
+export { colors, darkColors, lightColors } from './colors';
+export type { Palette } from './colors';
+export { AppearanceProvider, appearanceLabel, useAppearance } from './appearance';
+export type { AppearanceMode, ColorScheme } from './appearance';
+export { darkMapStyle, useGoogleMapStyle } from './mapStyle';
 export { inputErrorStyle, inputFocusStyle } from './inputFocus';
 export { bottomContentInset, contentAboveSafeArea } from './safeArea';
 export { spacing } from './spacing';

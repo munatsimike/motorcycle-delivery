@@ -34,9 +34,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -73,9 +73,6 @@ import com.riders.rider.feature.wallet.domain.signedWalletLabel
 import com.riders.rider.feature.wallet.domain.walletMoneyLabel
 import com.riders.rider.feature.wallet.domain.walletPaymentMethodLabel
 
-private val HeaderGreen = Color(0xFFC9EFD9)
-private val HeaderMid = Color(0xFFE5F7EE)
-private val HeaderFade = Color(0xFFF7FCF9)
 
 @Composable
 fun WalletScreen(
@@ -112,7 +109,7 @@ fun WalletScreen(
         onRefresh = { model.refresh(fromUser = true) },
         modifier = Modifier
             .fillMaxSize()
-            .background(HeaderFade)
+            .background(RidersColors.canvas)
             .then(if (inShell) Modifier else Modifier.navigationBarsPadding()),
     ) {
     val board = ui.board
@@ -229,9 +226,9 @@ private fun WalletBackdrop(modifier: Modifier = Modifier) {
                 .matchParentSize()
                 .background(
                     Brush.verticalGradient(
-                        0f to HeaderGreen.copy(alpha = 0.72f),
-                        0.62f to HeaderMid.copy(alpha = 0.35f),
-                        1f to HeaderFade.copy(alpha = 0.55f),
+                        0f to RidersColors.mintStart.copy(alpha = 0.72f),
+                        0.62f to RidersColors.mintMid.copy(alpha = 0.35f),
+                        1f to RidersColors.mintEnd.copy(alpha = 0.55f),
                     ),
                 ),
         )
@@ -241,7 +238,7 @@ private fun WalletBackdrop(modifier: Modifier = Modifier) {
                 .offset(x = 50.dp, y = (-90).dp)
                 .size(220.dp)
                 .clip(CircleShape)
-                .background(Color.White.copy(alpha = 0.45f)),
+                .background(RidersColors.sheet.copy(alpha = 0.45f)),
         )
         Box(
             Modifier
@@ -249,7 +246,7 @@ private fun WalletBackdrop(modifier: Modifier = Modifier) {
                 .offset(x = (-120).dp, y = 280.dp)
                 .size(720.dp)
                 .clip(CircleShape)
-                .background(Color.White.copy(alpha = 0.55f)),
+                .background(RidersColors.sheet.copy(alpha = 0.55f)),
         )
     }
 }

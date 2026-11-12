@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
@@ -8,7 +8,8 @@ import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import type { CustomerTabParamList, RootStackParamList } from '../../../../navigation/types';
-import { colors, radius, spacing, typography } from '../../../../theme';
+import type { Palette } from '../../../../theme';
+import { radius, spacing, typography, useAppearance } from '../../../../theme';
 import BottomSheetModal from '../../../../components/BottomSheetModal';
 import SecondaryButton from '../../../../components/SecondaryButton';
 import { useSession } from '../../../auth/presentation/viewmodels/useSession';
@@ -48,6 +49,8 @@ const CONTENT_FILTERS: { id: DeliveryContentKind | 'all'; label: string; icon: '
 ];
 
 export default function RequestsScreen() {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const navigation = useNavigation<DeliveriesNavigation>();
   const route = useRoute<RouteProp<CustomerTabParamList, 'Requests'>>();
   const { accessToken, customerId } = useSession();
@@ -257,7 +260,8 @@ export default function RequestsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.listBackground,
@@ -307,7 +311,12 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
     padding: spacing.xs,
     borderRadius: radius.pill,
-    backgroundColor: '#E2EEE7',
+    backgroundColor: colors.background === '#FFFFFF' ? '#E2EEE7' : colors.primaryLight,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: colors.background === '#FFFFFF' ? 0.08 : 0.32,
+    shadowRadius: 8,
+    elevation: 3,
   },
   filterRow: {
     flexDirection: 'row',
@@ -407,3 +416,4 @@ const styles = StyleSheet.create({
     opacity: 0.85,
   },
 });
+}

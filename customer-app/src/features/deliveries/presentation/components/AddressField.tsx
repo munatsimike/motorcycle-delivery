@@ -1,11 +1,12 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode, useMemo } from 'react';
 import { ActivityIndicator, Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import FormInput from '../../../../components/FormInput';
 import { useReduceMotion } from '../../../../components/useMotion';
 import { SERVICE_UNAVAILABLE_MESSAGE } from '../../../../services/api/apiClient';
 import { motionDuration, SUGGESTION_MS, suggestionListFades } from '../../../../navigation/screenMotion';
-import { colors, radius, spacing, typography } from '../../../../theme';
+import type { Palette } from '../../../../theme';
+import { radius, spacing, typography, useAppearance } from '../../../../theme';
 import { confirmMapPin, typedHouseNumber } from '../../domain/addressResolution';
 import { ADDRESS_SEARCH_LABEL, STREET_ADDRESS_PROMPT } from '../../domain/pickupLocation';
 import type { StopDraft } from '../../domain/bookingDraft';
@@ -56,6 +57,8 @@ export default function AddressField({
   lookup = null,
   onManualInput,
 }: AddressFieldProps) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
   const [searching, setSearching] = useState(false);
   const [searched, setSearched] = useState(false);
@@ -248,7 +251,8 @@ export default function AddressField({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   wrap: {
     gap: spacing.sm,
   },
@@ -291,3 +295,4 @@ const styles = StyleSheet.create({
     color: colors.text,
   },
 });
+}

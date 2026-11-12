@@ -77,10 +77,12 @@ import com.riders.rider.feature.delivery.domain.GeoPoint
 import com.riders.rider.feature.delivery.domain.withMinimumCameraSpan
 import com.riders.rider.feature.delivery.domain.collectionCameraFrame
 import com.riders.rider.feature.delivery.domain.collectionMarkerPaddingPx
+import com.riders.rider.feature.delivery.domain.deliveryWhenLabel
 import com.riders.rider.feature.delivery.domain.parseGeoPoint
 import com.riders.rider.feature.delivery.presentation.pickupPinColor
 import com.riders.rider.feature.delivery.presentation.dropoffPinColor
 import com.riders.rider.feature.delivery.presentation.RiderMapStyles
+import com.riders.rider.core.design.LocalAppDark
 import com.riders.rider.feature.delivery.presentation.RiderMapThemeStore
 import com.riders.rider.feature.delivery.presentation.riderMarkerIcon
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -190,7 +192,7 @@ fun RequestRouteMap(
                 end = 40.dp,
                 bottom = sheetOverlap + 28.dp,
             ),
-            properties = MapProperties(isMyLocationEnabled = false, mapStyleOptions = mapStyles.optionsFor(mapTheme)),
+            properties = MapProperties(isMyLocationEnabled = false, mapStyleOptions = mapStyles.optionsFor(mapTheme, LocalAppDark.current)),
             uiSettings = MapUiSettings(
                 zoomControlsEnabled = false,
                 compassEnabled = false,
@@ -254,7 +256,7 @@ fun RequestRouteMap(
                     .align(Alignment.TopCenter)
                     .padding(top = statusTop + 12.dp)
                     .shadow(4.dp, RoundedCornerShape(12.dp))
-                    .background(Color.White, RoundedCornerShape(12.dp))
+                    .background(RidersColors.sheet, RoundedCornerShape(12.dp))
                     .padding(horizontal = 12.dp, vertical = 6.dp),
                 style = RidersType.small,
                 color = RidersColors.textSecondary,
@@ -333,7 +335,7 @@ fun DeliveredDestinationMap(
                 end = 28.dp,
                 bottom = sheetOverlap + 24.dp,
             ),
-            properties = MapProperties(isMyLocationEnabled = false, mapStyleOptions = mapStyles.optionsFor(mapTheme)),
+            properties = MapProperties(isMyLocationEnabled = false, mapStyleOptions = mapStyles.optionsFor(mapTheme, LocalAppDark.current)),
             uiSettings = MapUiSettings(
                 zoomControlsEnabled = false,
                 compassEnabled = false,
@@ -377,23 +379,24 @@ private fun deliveredConfirmationIcon(
     val timePaint = markerTextPaint(13f * density, Typeface.create(Typeface.DEFAULT, Typeface.NORMAL))
     val name = recipient.trim()
     val place = address.trim()
-    val time = deliveryClockLabel(completedAt)
+    val time = deliveryWhenLabel(completedAt)
     val nameLayout = if (name.isEmpty()) null else wrappedMarkerText(name, namePaint, maxText)
     val placeLayout = if (place.isEmpty()) null else wrappedMarkerText(place, placePaint, maxText)
     val padH = 12f * density
     val padV = 8f * density
     val gap = 3f * density
-    val check = 14f * density
+    val circle = 16f * density
+    val check = 10f * density
     val title = "Delivered"
     val titleWidth = titlePaint.measureText(title)
-    val titleRow = check + 6f * density + titleWidth
+    val titleRow = circle + 6f * density + titleWidth
     val clockSize = if (time.isEmpty()) 0f else 12f * density
     val clockGap = if (time.isEmpty()) 0f else 4f * density
     val timeWidth = if (time.isEmpty()) 0f else clockSize + clockGap + timePaint.measureText(time)
     val contentWidth = maxOf(titleRow, nameLayout.widestLine(), placeLayout.widestLine(), timeWidth)
     val boxWidth = (padH * 2 + contentWidth).toInt().coerceAtLeast(1)
     val titleHeight = titlePaint.fontMetrics.run { descent - ascent }
-    val rowHeight = maxOf(check, titleHeight)
+    val rowHeight = maxOf(circle, titleHeight)
     val timeTextHeight = if (time.isEmpty()) 0f else timePaint.fontMetrics.run { descent - ascent }
     val timeRow = if (time.isEmpty()) 0f else maxOf(clockSize, timeTextHeight)
     var textHeight = rowHeight
@@ -410,6 +413,16 @@ private fun deliveredConfirmationIcon(
     val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
     val boxLeft = (width - boxWidth) / 2f
+    val shadow = 3f * density
+    canvas.drawRoundRect(
+        boxLeft,
+        shadow,
+        boxLeft + boxWidth,
+        shadow + boxHeight,
+        14f * density,
+        14f * density,
+        Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x3317211D },
+    )
     canvas.drawRoundRect(
         boxLeft,
         0f,
@@ -419,16 +432,24 @@ private fun deliveredConfirmationIcon(
         14f * density,
         Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF16845B.toInt() },
     )
-    val checkTop = padV + (rowHeight - check) / 2f
     val contentLeft = boxLeft + padH
+    val circleTop = padV + (rowHeight - circle) / 2f
+    canvas.drawCircle(
+        contentLeft + circle / 2f,
+        circleTop + circle / 2f,
+        circle / 2f,
+        Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE },
+    )
+    val checkLeft = contentLeft + (circle - check) / 2f
+    val checkTop = circleTop + (circle - check) / 2f
     canvas.drawPath(
         Path().apply {
-            moveTo(contentLeft + check * 0.15f, checkTop + check * 0.52f)
-            lineTo(contentLeft + check * 0.40f, checkTop + check * 0.78f)
-            lineTo(contentLeft + check * 0.86f, checkTop + check * 0.24f)
+            moveTo(checkLeft + check * 0.15f, checkTop + check * 0.52f)
+            lineTo(checkLeft + check * 0.40f, checkTop + check * 0.78f)
+            lineTo(checkLeft + check * 0.86f, checkTop + check * 0.24f)
         },
         Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = android.graphics.Color.WHITE
+            color = 0xFF16845B.toInt()
             style = Paint.Style.STROKE
             strokeWidth = 2f * density
             strokeCap = Paint.Cap.ROUND
@@ -437,7 +458,7 @@ private fun deliveredConfirmationIcon(
     )
     canvas.drawText(
         title,
-        contentLeft + check + 6f * density,
+        contentLeft + circle + 6f * density,
         padV + (rowHeight - titleHeight) / 2f - titlePaint.fontMetrics.ascent,
         titlePaint,
     )
@@ -513,16 +534,6 @@ private fun StaticLayout?.widestLine(): Float {
         widest = maxOf(widest, getLineWidth(line))
     }
     return widest
-}
-
-private fun deliveryClockLabel(raw: String?): String {
-    val value = raw?.trim().orEmpty()
-    if (value.isEmpty()) {
-        return ""
-    }
-    val instant = runCatching { java.time.Instant.parse(value) }.getOrNull() ?: return ""
-    val date = instant.atZone(java.time.ZoneId.systemDefault())
-    return date.hour.toString().padStart(2, '0') + ":" + date.minute.toString().padStart(2, '0')
 }
 
 internal fun locationDrawableMarker(context: android.content.Context, drawableId: Int): BitmapDescriptor? {

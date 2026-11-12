@@ -44,6 +44,7 @@ function delivery(patch: Partial<CustomerDeliveryDetail> = {}): CustomerDelivery
     dropoffLongitude: null,
     parcelDescription: 'Box',
     createdAt: null,
+    completedAt: null,
     riderLocation: null,
     pickupApproach: null,
     rider: null,

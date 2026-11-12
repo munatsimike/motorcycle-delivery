@@ -25,6 +25,7 @@ function delivery(
     dropoffLongitude: 31.033,
     parcelDescription: 'Documents',
     createdAt: null,
+    completedAt: null,
     riderLocation: null,
     pickupApproach: null,
     rider: null,

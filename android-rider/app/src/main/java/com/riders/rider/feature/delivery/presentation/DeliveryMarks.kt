@@ -54,7 +54,6 @@ import com.riders.rider.feature.offers.domain.offerDistanceLabel
 
 private val markColor = RidersColors.text
 private val markSize = 18.dp
-private val badgeIconSize = 16.dp
 private val noFontPadding = PlatformTextStyle(includeFontPadding = false)
 
 fun deliveryContentLabel(description: String): String {
@@ -134,38 +133,6 @@ fun LocationPin(
     )
 }
 
-@Composable
-fun ServiceClassBadge(serviceClass: String?, modifier: Modifier = Modifier, subtle: Boolean = false) {
-    val urgent = serviceClass == "EXPRESS"
-    Row(
-        modifier
-            .clip(RoundedCornerShape(RidersRadius.pill))
-            .background(Color.White)
-            .padding(horizontal = RidersSpacing.sm),
-        // The flash glyph leaves 3dp more empty space before the label than the message glyph.
-        horizontalArrangement = Arrangement.spacedBy(if (urgent) 1.dp else RidersSpacing.xs),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            painter = painterResource(if (urgent) R.drawable.ic_flash_outline else R.drawable.ic_message_text_outline),
-            contentDescription = null,
-            modifier = Modifier.size(if (subtle) 12.dp else badgeIconSize),
-            tint = if (subtle) RidersColors.textSecondary else markColor,
-        )
-        Text(
-            if (urgent) "Urgent" else "Flexible",
-            style = TextStyle(
-                fontSize = if (subtle) 12.sp else 14.sp,
-                lineHeight = 18.sp,
-                fontWeight = FontWeight.Medium,
-                platformStyle = noFontPadding,
-            ),
-            color = if (subtle) RidersColors.textSecondary else RidersColors.text,
-        )
-    }
-}
-
-private val cardSurface = Color(0xFFF8FAF9)
 private val placeText = TextStyle(
     fontSize = 14.sp,
     lineHeight = 18.sp,
@@ -205,7 +172,7 @@ fun DeliverySummaryCard(
         modifier
             .shadow(elevation = 2.dp, shape = shape, ambientColor = Color(0xFF17211D), spotColor = Color(0xFF17211D))
             .clip(shape)
-            .background(cardSurface)
+            .background(RidersColors.card)
             .border(1.dp, RidersColors.border, shape)
             .clickable(role = Role.Button, onClick = onClick),
     ) {
@@ -227,9 +194,6 @@ fun DeliverySummaryCard(
                 ) {
                     ContentIcon(description, size = 15.dp, muted = true)
                     ContentLabel(description, compact = true)
-                    if (serviceClass == "EXPRESS" || serviceClass == "FLEXIBLE") {
-                        ServiceClassBadge(serviceClass, subtle = true)
-                    }
                 }
                 DeliveryRoute(pickup, dropoff, constantSpacing = true, addressFontSize = 16.sp, addressLineHeight = 21.sp)
                 details.forEach { line ->
@@ -304,6 +268,8 @@ fun DeliveryDetailsSummary(
     pickupDetail: @Composable () -> Unit = {},
     dropoffDetail: @Composable () -> Unit = {},
     parcelSheet: Boolean = false,
+    senderName: String = "",
+    customerSender: Boolean = false,
 ) {
     val shape = RoundedCornerShape(RidersRadius.lg)
     val whenLabel = deliveryWhenLabel(createdAt)
@@ -335,9 +301,6 @@ fun DeliveryDetailsSummary(
         ) {
             ContentIcon(description, size = 15.dp, muted = true)
             ContentLabel(description, compact = true)
-            if (serviceClass == "EXPRESS" || serviceClass == "FLEXIBLE") {
-                ServiceClassBadge(serviceClass, subtle = true)
-            }
         }
         if (framed || whenLabel.isNotEmpty()) {
             Row(
@@ -363,6 +326,10 @@ fun DeliveryDetailsSummary(
                 if (dropoffLine.isNotBlank()) {
                     ParcelDetailStop(dropoff = true, contact = dropoffContact, detail = dropoffDetail)
                 }
+            }
+        } else if (customerSender) {
+            if (senderName.isNotBlank() || pickupLine.isNotBlank()) {
+                DeliveredSender(name = senderName, address = pickupLine)
             }
         } else {
             if (pickupLine.isNotBlank()) {
@@ -396,7 +363,7 @@ fun DeliveryDetailsSummary(
                 DistancePrice(distanceMeters, price)
             }
         } else {
-            if (!spacious) {
+            if (customerSender || !spacious) {
                 SheetDivider()
             }
             DistancePrice(distanceMeters, price)
@@ -468,6 +435,67 @@ private fun ParcelDetailStop(
         Column(Modifier.weight(1f)) {
             contact()
             detail()
+        }
+    }
+}
+
+@Composable
+private fun DeliveredSender(name: String, address: String) {
+    val shown = name.trim()
+    val place = address.trim()
+    val density = LocalDensity.current
+    val labelHeight = with(density) { 20.sp.toDp() }
+    val nameHeight = with(density) { 22.sp.toDp() }
+    val addressHeight = with(density) { 21.sp.toDp() }
+    val pinAnchor = if (shown.isNotEmpty()) {
+        labelHeight + 4.dp + nameHeight / 2
+    } else {
+        labelHeight + 4.dp + addressHeight / 2
+    }
+    val pinTop = (pinAnchor - locationPinHeight * locationPinHeadCenter).coerceAtLeast(0.dp)
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Box(
+            Modifier
+                .width(22.dp)
+                .padding(top = pinTop),
+            contentAlignment = Alignment.TopCenter,
+        ) {
+            LocationPin(dropoff = false)
+        }
+        Column(Modifier.weight(1f)) {
+            Text(
+                "Sender",
+                style = RidersType.caption.copy(platformStyle = noFontPadding),
+                color = RidersColors.textSecondary,
+            )
+            if (shown.isNotEmpty()) {
+                Text(
+                    shown,
+                    modifier = Modifier.padding(top = 4.dp),
+                    style = RidersType.bodyStrong.copy(
+                        fontWeight = FontWeight.Bold,
+                        platformStyle = noFontPadding,
+                    ),
+                    color = RidersColors.text,
+                )
+            }
+            if (place.isNotEmpty()) {
+                Text(
+                    place,
+                    modifier = Modifier.padding(top = 4.dp),
+                    style = TextStyle(
+                        fontSize = 16.sp,
+                        lineHeight = 21.sp,
+                        fontWeight = FontWeight.Normal,
+                        platformStyle = noFontPadding,
+                    ),
+                    color = RidersColors.text,
+                )
+            }
         }
     }
 }

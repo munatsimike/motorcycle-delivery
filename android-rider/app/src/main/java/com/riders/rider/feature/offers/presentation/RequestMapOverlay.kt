@@ -147,7 +147,7 @@ fun RequestMapOverlay(
                 .shadow(8.dp, CircleShape, ambientColor = RidersColors.shadow, spotColor = RidersColors.shadow)
                 .size(44.dp)
                 .clip(CircleShape)
-                .background(Color.White)
+                .background(RidersColors.sheet)
                 .clickable(role = Role.Button, onClick = onClose),
             contentAlignment = Alignment.Center,
         ) {
@@ -192,7 +192,7 @@ fun RequestMapOverlay(
                 .shadow(8.dp, CircleShape, ambientColor = RidersColors.shadow, spotColor = RidersColors.shadow)
                 .size(44.dp)
                 .clip(CircleShape)
-                .background(Color.White)
+                .background(RidersColors.sheet)
                 .clickable(role = Role.Button) { recenter += 1 },
             contentAlignment = Alignment.Center,
         ) {

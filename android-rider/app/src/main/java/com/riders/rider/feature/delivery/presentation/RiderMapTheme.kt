@@ -44,8 +44,12 @@ internal object RiderMapThemeStore {
 internal class RiderMapStyles(
     val classic: MapStyleOptions?,
     val minimal: MapStyleOptions?,
+    val dark: MapStyleOptions?,
 ) {
-    fun optionsFor(theme: RiderMapTheme): MapStyleOptions? {
+    fun optionsFor(theme: RiderMapTheme, darkMode: Boolean = false): MapStyleOptions? {
+        if (darkMode) {
+            return dark ?: classic
+        }
         return when (theme) {
             RiderMapTheme.ClassicLight -> classic
             RiderMapTheme.MinimalLight -> minimal ?: classic
@@ -60,7 +64,10 @@ internal class RiderMapStyles(
             val minimal = runCatching {
                 MapStyleOptions.loadRawResourceStyle(context, R.raw.rider_map_minimal_light)
             }.getOrNull()
-            return RiderMapStyles(classic, minimal)
+            val dark = runCatching {
+                MapStyleOptions.loadRawResourceStyle(context, R.raw.rider_map_dark)
+            }.getOrNull()
+            return RiderMapStyles(classic, minimal, dark)
         }
     }
 }

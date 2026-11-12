@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -30,6 +31,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -54,6 +56,7 @@ import com.google.maps.android.compose.MarkerState
 import com.google.maps.android.compose.Polyline
 import com.google.maps.android.compose.rememberCameraPositionState
 import com.riders.rider.R
+import com.riders.rider.core.design.LocalAppDark
 import com.riders.rider.core.design.RidersColors
 import com.riders.rider.core.design.RidersSpacing
 import com.riders.rider.core.design.RidersType
@@ -61,7 +64,9 @@ import com.riders.rider.feature.delivery.domain.GeoPoint
 import com.riders.rider.feature.delivery.domain.NAVIGATION_ZOOM
 import com.riders.rider.feature.delivery.domain.formatArrival
 import com.riders.rider.feature.delivery.domain.formatMetres
+import com.riders.rider.feature.delivery.domain.guidanceRouteKey
 import com.riders.rider.feature.delivery.domain.metresBetween
+import com.riders.rider.feature.delivery.domain.navigationVoiceCue
 import com.riders.rider.feature.delivery.domain.routeProgress
 import com.riders.rider.feature.offers.presentation.locationDrawableMarker
 
@@ -77,12 +82,15 @@ fun TurnByTurnScreen(
     val road by model.road.collectAsStateWithLifecycle()
     val routeFailed by model.routeFailed.collectAsStateWithLifecycle()
     val following by model.following.collectAsStateWithLifecycle()
+    val voiceEnabled by model.voiceEnabled.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val speaker = remember(context) { NavigationSpeaker(context) }
     val motorcycle = remember(context) { riderMotorcycleImage(context) }
     var motorcycleIcon by remember { mutableStateOf<BitmapDescriptor?>(null) }
     var destinationIcon by remember { mutableStateOf<BitmapDescriptor?>(null) }
     val mapStyles = remember(context) { RiderMapStyles.load(context) }
     val mapTheme = RiderMapThemeStore.read(context)
+    val darkMap = LocalAppDark.current
     val camera = rememberCameraPositionState {
         position = CameraPosition.fromLatLngZoom(
             LatLng(destination.latitude, destination.longitude),
@@ -107,6 +115,38 @@ fun TurnByTurnScreen(
     var lastCamera by remember { mutableStateOf<Pair<GeoPoint, Float>?>(null) }
     var wasFollowing by remember { mutableStateOf(false) }
     val stroke = with(LocalDensity.current) { 5.dp.toPx() }
+    val routeKey = guided?.let { guidanceRouteKey(it.path, it.steps) }.orEmpty()
+    var spokenRoute by remember { mutableStateOf("") }
+    var spoken by remember { mutableStateOf(emptySet<String>()) }
+    var lastSpoken by remember { mutableStateOf<String?>(null) }
+
+    DisposableEffect(speaker) {
+        speaker.start()
+        onDispose { speaker.release() }
+    }
+    LaunchedEffect(voiceEnabled, routeKey, cue?.stepIndex, cue?.remainingMetres, cue?.metresToManeuver) {
+        val enabled = voiceEnabled
+        if (enabled == null) {
+            return@LaunchedEffect
+        }
+        if (!enabled) {
+            speaker.stop()
+            return@LaunchedEffect
+        }
+        val current = cue ?: return@LaunchedEffect
+        val sameRoute = spokenRoute == routeKey
+        val activeSpoken = if (sameRoute) spoken else emptySet()
+        val next = navigationVoiceCue(current, activeSpoken, lastSpoken) ?: return@LaunchedEffect
+        val line = next.text
+        if (line != null) {
+            while (!speaker.speak(line)) {
+                kotlinx.coroutines.delay(400)
+            }
+            lastSpoken = line
+        }
+        spokenRoute = routeKey
+        spoken = activeSpoken + next.id
+    }
 
     LaunchedEffect(camera.isMoving) {
         if (camera.isMoving && camera.cameraMoveStartedReason == CameraMoveStartedReason.GESTURE) {
@@ -155,7 +195,7 @@ fun TurnByTurnScreen(
             contentPadding = PaddingValues(top = topPad, bottom = bottomPad),
             properties = MapProperties(
                 isMyLocationEnabled = false,
-                mapStyleOptions = mapStyles.optionsFor(mapTheme),
+                mapStyleOptions = mapStyles.optionsFor(mapTheme, darkMap),
             ),
             uiSettings = MapUiSettings(
                 zoomControlsEnabled = false,
@@ -218,25 +258,49 @@ fun TurnByTurnScreen(
         Column(
             Modifier
                 .fillMaxWidth()
+                .zIndex(1f)
                 .statusBarsPadding()
                 .padding(horizontal = RidersSpacing.lg, vertical = RidersSpacing.md),
             verticalArrangement = Arrangement.spacedBy(RidersSpacing.md),
         ) {
-            Box(
-                Modifier
-                    .shadow(8.dp, CircleShape, ambientColor = RidersColors.shadow, spotColor = RidersColors.shadow)
-                    .size(44.dp)
-                    .clip(CircleShape)
-                    .background(Color.White)
-                    .clickable(role = Role.Button, onClick = onExit),
-                contentAlignment = Alignment.Center,
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_chevron_left),
-                    contentDescription = "Back",
-                    tint = RidersColors.text,
-                    modifier = Modifier.size(22.dp),
-                )
+                Box(
+                    Modifier
+                        .shadow(8.dp, CircleShape, ambientColor = RidersColors.shadow, spotColor = RidersColors.shadow)
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(RidersColors.sheet)
+                        .clickable(role = Role.Button, onClick = onExit),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_chevron_left),
+                        contentDescription = "Back",
+                        tint = RidersColors.text,
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
+                val voiceOn = voiceEnabled == true
+                Box(
+                    Modifier
+                        .shadow(8.dp, CircleShape, ambientColor = RidersColors.shadow, spotColor = RidersColors.shadow)
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(RidersColors.sheet)
+                        .clickable(role = Role.Button, onClick = { model.setVoiceEnabled(!voiceOn) }),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        painter = painterResource(if (voiceOn) R.drawable.ic_volume_high else R.drawable.ic_volume_off),
+                        contentDescription = if (voiceOn) "Mute voice guidance" else "Turn on voice guidance",
+                        tint = RidersColors.text,
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
             }
             GuidanceCard(
                 instruction = cue?.instruction.orEmpty(),
@@ -262,7 +326,7 @@ fun TurnByTurnScreen(
                     .shadow(8.dp, CircleShape, ambientColor = RidersColors.shadow, spotColor = RidersColors.shadow)
                     .size(48.dp)
                     .clip(CircleShape)
-                    .background(Color.White)
+                    .background(RidersColors.sheet)
                     .clickable(role = Role.Button, onClick = model::follow),
                 contentAlignment = Alignment.Center,
             ) {
@@ -291,12 +355,20 @@ private fun GuidanceCard(
     failed: Boolean,
     hasRoute: Boolean,
 ) {
+    val cardShape = RoundedCornerShape(16.dp)
+    val dark = LocalAppDark.current
     Column(
         Modifier
             .fillMaxWidth()
-            .shadow(8.dp, RoundedCornerShape(16.dp), ambientColor = RidersColors.shadow, spotColor = RidersColors.shadow)
-            .clip(RoundedCornerShape(16.dp))
-            .background(Color.White)
+            .shadow(
+                elevation = if (dark) 10.dp else 6.dp,
+                shape = cardShape,
+                clip = false,
+                ambientColor = Color.Black,
+                spotColor = Color.Black,
+            )
+            .clip(cardShape)
+            .background(RidersColors.sheet)
             .padding(RidersSpacing.lg),
         verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
     ) {

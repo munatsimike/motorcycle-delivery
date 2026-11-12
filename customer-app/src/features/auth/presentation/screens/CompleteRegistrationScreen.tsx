@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import { Image, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
@@ -9,7 +9,8 @@ import FormInput from '../../../../components/FormInput';
 import PrimaryButton from '../../../../components/PrimaryButton';
 import { KeyboardFieldFocusContext, useKeyboardLift } from '../../../../components/useKeyboardLift';
 import type { RootStackParamList } from '../../../../navigation/types';
-import { colors, radius, spacing, typography } from '../../../../theme';
+import type { Palette } from '../../../../theme';
+import { radius, spacing, typography, useAppearance } from '../../../../theme';
 import { clearRegistrationProof, clearRegistrationRecovery, rememberRegistrationDraft } from '../../data/registrationRecoveryStore';
 import { registrationNameFieldError } from '../../domain/registrationName';
 import { verifiedRegistrationPhone } from '../../domain/registrationRecovery';
@@ -20,6 +21,8 @@ import { useCompleteRegistration } from '../viewmodels/useCompleteRegistration';
 type CompleteRegistrationProps = NativeStackScreenProps<RootStackParamList, 'CompleteRegistration'>;
 
 export default function CompleteRegistrationScreen({ route, navigation }: CompleteRegistrationProps) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { registrationToken, fullName: initialName } = route.params;
   const verifiedPhone = verifiedRegistrationPhone(registrationToken);
   const [fullName, setFullName] = useState(initialName ?? '');
@@ -128,7 +131,8 @@ export default function CompleteRegistrationScreen({ route, navigation }: Comple
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.background,
@@ -199,3 +203,4 @@ const styles = StyleSheet.create({
     color: colors.text,
   },
 });
+}

@@ -1,5 +1,5 @@
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import { Animated, Easing, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -13,7 +13,8 @@ import { useCustomerAccount } from '../../../account/presentation/viewmodels/use
 import { useSession } from '../../../auth/presentation/viewmodels/useSession';
 import type { RootStackParamList } from '../../../../navigation/types';
 import { bookingNavigationDelay, CONFIRM_MS } from '../../../../navigation/screenMotion';
-import { colors, radius, spacing, typography } from '../../../../theme';
+import type { Palette } from '../../../../theme';
+import { radius, spacing, typography, useAppearance } from '../../../../theme';
 import { customerDeliveryRepository } from '../../data/CustomerDeliveryApiRepository';
 import { selectedPlaceBias, usePlaceBias } from '../viewmodels/usePlaceBias';
 import { contactPhoneForField } from '../../domain/bookingDraft';
@@ -30,6 +31,8 @@ import { useReduceMotion } from '../../../../components/useMotion';
 type ParcelRequestProps = NativeStackScreenProps<RootStackParamList, 'ParcelRequest'>;
 
 export default function ParcelRequestScreen({ navigation }: ParcelRequestProps) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { accessToken } = useSession();
   const { account, isLoading, error: accountError } = useCustomerAccount(accessToken);
   const mode = bookingMode(account ? account.marketplaceEnabled : null);
@@ -266,6 +269,8 @@ export default function ParcelRequestScreen({ navigation }: ParcelRequestProps) 
 }
 
 function BookingConfirmed() {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const opacity = useRef(new Animated.Value(0)).current;
   const scale = useRef(new Animated.Value(0.86)).current;
 
@@ -317,7 +322,8 @@ function resolvePlace(accessToken: string | null, placeId: string, sessionToken:
   return customerDeliveryRepository.resolvePlace(accessToken, placeId, sessionToken);
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.background,
@@ -353,3 +359,4 @@ const styles = StyleSheet.create({
     color: colors.primaryDark,
   },
 });
+}

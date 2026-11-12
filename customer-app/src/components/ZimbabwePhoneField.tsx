@@ -1,6 +1,8 @@
+import { useMemo } from 'react';
 import { Image, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { colors, inputErrorStyle, radius, spacing, typography } from '../theme';
+import type { Palette } from '../theme';
+import { inputErrorStyle, radius, spacing, typography, useAppearance } from '../theme';
 import { useInputFocus } from './useInputFocus';
 
 type ZimbabwePhoneFieldProps = {
@@ -20,12 +22,14 @@ export default function ZimbabwePhoneField({
   invalid = false,
   countryCode = '+263',
 }: ZimbabwePhoneFieldProps) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const focus = useInputFocus();
 
   return (
     <View>
       <Text style={styles.label}>{label}</Text>
-      <View style={[styles.inputContainer, focus.style, invalid ? inputErrorStyle : null]}>
+      <View style={[styles.inputContainer, focus.style, invalid ? inputErrorStyle(colors.error) : null]}>
         <View style={styles.countryCode}>
           {countryCode === '+263' ? (
             <Image
@@ -56,7 +60,8 @@ export default function ZimbabwePhoneField({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   label: {
     fontSize: typography.caption,
     fontWeight: '700',
@@ -102,3 +107,4 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
   },
 });
+}

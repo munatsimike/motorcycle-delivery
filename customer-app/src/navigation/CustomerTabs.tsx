@@ -1,6 +1,6 @@
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useMemo } from 'react';
 import { Animated, Easing, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -8,7 +8,8 @@ import { useReduceMotion } from '../components/useMotion';
 import ProfileScreen from '../features/account/presentation/screens/ProfileScreen';
 import CustomerHomeScreen from '../features/auth/presentation/screens/CustomerHomeScreen';
 import RequestsScreen from '../features/requests/presentation/screens/RequestsScreen';
-import { colors, radius, typography } from '../theme';
+import type { Palette } from '../theme';
+import { radius, typography, useAppearance } from '../theme';
 import { motionDuration, TAB_ANIMATION, TAB_MS, tabSlideOffsets } from './screenMotion';
 import type { CustomerTabParamList } from './types';
 
@@ -45,6 +46,8 @@ function TabIcon({
   size: number;
   focused: boolean;
 }) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const reduce = useReduceMotion();
   const selected = useRef(new Animated.Value(focused ? 1 : 0)).current;
 
@@ -71,6 +74,7 @@ function TabIcon({
 }
 
 export default function CustomerTabs() {
+  const { colors } = useAppearance();
   const insets = useSafeAreaInsets();
   const reduce = useReduceMotion();
   const { width } = useWindowDimensions();
@@ -144,7 +148,8 @@ export default function CustomerTabs() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   iconSlot: {
     width: 58,
     height: 30,
@@ -161,3 +166,4 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primaryLight,
   },
 });
+}

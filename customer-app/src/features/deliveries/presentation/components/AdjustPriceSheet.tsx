@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { Keyboard, Platform, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -6,7 +6,8 @@ import BottomSheetModal from '../../../../components/BottomSheetModal';
 import ErrorMessage from '../../../../components/ErrorMessage';
 import PrimaryButton from '../../../../components/PrimaryButton';
 import SecondaryButton from '../../../../components/SecondaryButton';
-import { bottomContentInset, colors, contentAboveSafeArea, radius, spacing, typography } from '../../../../theme';
+import type { Palette } from '../../../../theme';
+import { bottomContentInset, contentAboveSafeArea, radius, spacing, typography, useAppearance } from '../../../../theme';
 import { customerOfferForBooking, offerFieldText } from '../../domain/deliveryQuote';
 import { currencyMark } from '../../domain/moneyLabel';
 
@@ -27,6 +28,8 @@ export default function AdjustPriceSheet({
   onClose,
   onSave,
 }: AdjustPriceSheetProps) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
   const [text, setText] = useState(amount);
   const [localError, setLocalError] = useState<string | null>(null);
@@ -102,7 +105,8 @@ export default function AdjustPriceSheet({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   sheet: {
     backgroundColor: colors.background,
     borderTopLeftRadius: radius.xl,
@@ -144,3 +148,4 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 });
+}

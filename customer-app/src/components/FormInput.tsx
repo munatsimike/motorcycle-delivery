@@ -1,6 +1,8 @@
+import { useMemo } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TextInput, View, type KeyboardTypeOptions } from 'react-native';
 
-import { colors, inputErrorStyle, radius, spacing, typography } from '../theme';
+import type { Palette } from '../theme';
+import { inputErrorStyle, radius, spacing, typography, useAppearance } from '../theme';
 import { useRevealFocusedField } from './useKeyboardLift';
 import { useInputFocus } from './useInputFocus';
 
@@ -40,6 +42,8 @@ export default function FormInput({
   onFocus,
   activity = null,
 }: FormInputProps) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const focus = useInputFocus();
   const revealFocusedField = useRevealFocusedField();
 
@@ -48,7 +52,7 @@ export default function FormInput({
       <Text style={styles.label}>{label}</Text>
       <View>
         <TextInput
-          style={[styles.input, focus.style, (error || invalid) ? inputErrorStyle : null, !editable && styles.locked]}
+          style={[styles.input, focus.style, (error || invalid) ? inputErrorStyle(colors.error) : null, !editable && styles.locked]}
           value={value}
           onChangeText={onChangeText}
           placeholder={activity && !value ? undefined : placeholder}
@@ -79,7 +83,8 @@ export default function FormInput({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   label: {
     fontSize: typography.caption,
     fontWeight: '700',
@@ -124,3 +129,4 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
   },
 });
+}

@@ -1,11 +1,12 @@
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import { Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { usePressScale } from '../../../../components/useMotion';
 
 import ErrorMessage from '../../../../components/ErrorMessage';
-import { colors, radius, spacing, typography } from '../../../../theme';
+import type { Palette } from '../../../../theme';
+import { radius, spacing, typography, useAppearance } from '../../../../theme';
 import { errorMessage } from '../../../auth/presentation/errorMessage';
 import { deliveryCardAddress, deliveryContentKind } from '../../domain/deliveryCard';
 import { ContentIcon, ContentLabel, LocationPin, ServiceClassBadge, deliveryIcon } from '../deliveryIcons';
@@ -34,11 +35,13 @@ export default function DeliveryCard({
   onOpenDetails,
   onSearchAgain,
 }: DeliveryCardProps) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const press = usePressScale();
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const bidsReceived = showsViewBids(delivery);
-  const tone = deliveryStatusTone(delivery.status, bidsReceived);
+  const tone = deliveryStatusTone(delivery.status, colors, bidsReceived);
   const contentKind = deliveryContentKind(delivery.parcelDescription);
   const canSearch = deliveryCanSearchAgain(delivery) && Boolean(onSearchAgain);
 
@@ -112,6 +115,8 @@ export default function DeliveryCard({
 }
 
 function StatusPill({ tone, label, pulse }: { tone: StatusTone; label: string; pulse: boolean }) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const presence = useRef(new Animated.Value(1)).current;
   const opacity = presence.interpolate({ inputRange: [0, 1], outputRange: [0.35, 1] });
   const scale = presence.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1.08] });
@@ -159,6 +164,8 @@ function RouteStops({
   dropoff: string;
   compact?: boolean;
 }) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <View style={[styles.route, compact && styles.routeCompact]}>
       <Stop address={pickup} />
@@ -174,6 +181,8 @@ function Stop({
   address: string;
   dropoff?: boolean;
 }) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <View style={styles.stop}>
       <View style={styles.markerColumn}>
@@ -188,16 +197,17 @@ function Stop({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   card: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.background,
     borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.listCardBorder,
     boxShadow: '0 2px 8px rgba(23, 33, 29, 0.08)',
   },
   cardTranslucent: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.background,
   },
   cardCompact: {
     marginHorizontal: spacing.sm,
@@ -305,3 +315,4 @@ const styles = StyleSheet.create({
     color: colors.primary,
   },
 });
+}

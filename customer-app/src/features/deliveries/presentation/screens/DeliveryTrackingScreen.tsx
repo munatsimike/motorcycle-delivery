@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { Pressable, RefreshControl, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -15,7 +15,8 @@ import SecondaryButton from '../../../../components/SecondaryButton';
 import { errorMessage } from '../../../auth/presentation/errorMessage';
 import { useSession } from '../../../auth/presentation/viewmodels/useSession';
 import type { RootStackParamList } from '../../../../navigation/types';
-import { bottomContentInset, colors, radius, spacing, typography } from '../../../../theme';
+import type { Palette } from '../../../../theme';
+import { bottomContentInset, radius, spacing, typography, useAppearance } from '../../../../theme';
 import { customerDeliveryRepository } from '../../data/CustomerDeliveryApiRepository';
 import { cancelCustomerDelivery } from '../../domain/usecases/cancelCustomerDelivery';
 import { displayedCustomerOffer, type CustomerDeliveryDetail } from '../../domain/customerDeliveryDetail';
@@ -66,6 +67,8 @@ const OFFER_SORTS: { id: OfferSort; label: string; shortLabel: string; icon: 'so
 ];
 
 export default function DeliveryTrackingScreen({ route, navigation }: DeliveryTrackingProps) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { accessToken } = useSession();
   const insets = useSafeAreaInsets();
   const [offersSheetHeight, setOffersSheetHeight] = useState(0);
@@ -655,6 +658,8 @@ function support(view: ReturnType<typeof riderSearchView>): string {
 }
 
 function StatusIcon({ name }: { name: 'motorbike' | 'package-variant-closed' }) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <View style={styles.statusIcon}>
       <MaterialDesignIcons name={name} size={28} color={colors.primaryDark} />
@@ -677,6 +682,8 @@ function OfferCard({
   onChoose: () => void;
   onDecline: () => void;
 }) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const eta = pickupEtaLabel(bid.pickupEtaSeconds);
   const etaReady = eta !== 'ETA unavailable';
   const summary = riderRatingLine(bid);
@@ -753,6 +760,8 @@ function ConfirmRiderSheet({
   onKeepComparing: () => void;
   onConfirm: () => void;
 }) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <DialogModal visible={bid !== null} onClose={onKeepComparing} closeLabel="Keep comparing">
       {bid ? (
@@ -785,6 +794,8 @@ function RateRiderSheet({
   onSkip: () => void;
   onSubmit: (stars: number) => void;
 }) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
   const [stars, setStars] = useState(0);
   useEffect(() => {
@@ -827,6 +838,8 @@ function RateRiderSheet({
 }
 
 function OfferSkeleton() {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <View style={styles.card}>
       <View style={styles.offerIdentity}>
@@ -842,14 +855,15 @@ function OfferSkeleton() {
 }
 
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   reference: {
     color: colors.textSecondary,
     fontSize: typography.caption,
   },
   screen: {
     flex: 1,
-    backgroundColor: '#F7FCF9',
+    backgroundColor: colors.canvas,
     overflow: 'hidden',
   },
   deliveryMap: {
@@ -931,7 +945,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 18,
     fontWeight: '500',
-    color: colors.text,
+    color: colors.offer,
   },
   offerSort: {
     flexDirection: 'row',
@@ -1250,3 +1264,4 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
   },
 });
+}

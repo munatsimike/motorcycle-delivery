@@ -2,13 +2,14 @@ import { CompositeNavigationProp, useNavigation } from '@react-navigation/native
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import PrimaryButton from '../../../../components/PrimaryButton';
 import RidersMap from '../../../../components/maps/RidersMap';
 import type { CustomerTabParamList, RootStackParamList } from '../../../../navigation/types';
-import { colors, radius, spacing, typography } from '../../../../theme';
+import type { Palette } from '../../../../theme';
+import { radius, spacing, typography, useAppearance } from '../../../../theme';
 import { nearbyHomeCountLabel } from '../../../riders/domain/nearbyCard';
 import { useNearbyRiders } from '../../../riders/presentation/viewmodels/useNearbyRiders';
 import { useSession } from '../viewmodels/useSession';
@@ -19,6 +20,8 @@ type HomeNavigation = CompositeNavigationProp<
 >;
 
 export default function CustomerHomeScreen() {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const navigation = useNavigation<HomeNavigation>();
   const { accessToken } = useSession();
   const nearby = useNearbyRiders(accessToken);
@@ -83,10 +86,11 @@ export default function CustomerHomeScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#FFFFFF' },
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
+  screen: { flex: 1, backgroundColor: colors.background },
   bottomArea: { position: 'absolute', left: 0, right: 0, bottom: 0 },
-  actionsCard: { backgroundColor: '#FFFFFF', borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, padding: spacing.lg, paddingBottom: 18, gap: 7, elevation: 6, shadowColor: '#153D28', shadowOpacity: 0.12, shadowRadius: 18, shadowOffset: { width: 0, height: -3 } },
+  actionsCard: { backgroundColor: colors.background, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, padding: spacing.lg, paddingBottom: 18, gap: 7, elevation: 6, shadowColor: '#153D28', shadowOpacity: 0.12, shadowRadius: 18, shadowOffset: { width: 0, height: -3 } },
   topOutline: { position: 'absolute', top: 0, left: 0, right: 0, height: radius.xl, flexDirection: 'row' },
   topOutlineLeftCorner: { width: radius.xl, height: radius.xl, borderTopWidth: 3, borderLeftWidth: 3, borderColor: '#BCEBD3', borderTopLeftRadius: radius.xl },
   topOutlineLine: { flex: 1, height: 3, backgroundColor: '#BCEBD3' },
@@ -100,3 +104,4 @@ const styles = StyleSheet.create({
   helperText: { fontSize: 11, color: colors.textSecondary, lineHeight: 15, marginTop: 3 },
   riderImage: { width: 100, height: 91 },
 });
+}

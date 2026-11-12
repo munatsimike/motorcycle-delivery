@@ -49,7 +49,6 @@ import com.riders.rider.feature.delivery.domain.sortDeliveries
 import com.riders.rider.feature.delivery.presentation.ContentIcon
 import com.riders.rider.feature.delivery.presentation.ContentLabel
 import com.riders.rider.feature.delivery.presentation.DeliveryRoute
-import com.riders.rider.feature.delivery.presentation.ServiceClassBadge
 import com.riders.rider.feature.offers.domain.OFFER_REFRESH_INTERVAL_MS
 import com.riders.rider.feature.delivery.presentation.deliveryContentMatches
 import com.riders.rider.feature.delivery.presentation.filteredContentTitle
@@ -181,9 +180,6 @@ private fun OwnBidRow(
                 horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
             ) {
                 ContentLabel(bid.parcelDescription)
-                if (bid.serviceClass == "EXPRESS" || bid.serviceClass == "FLEXIBLE") {
-                    ServiceClassBadge(bid.serviceClass)
-                }
             }
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text("Your offer", style = RidersType.caption, color = RidersColors.textSecondary, maxLines = 1)

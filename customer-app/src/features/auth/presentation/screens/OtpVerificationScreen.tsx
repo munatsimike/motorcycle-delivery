@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   ScrollView,
   StyleSheet,
@@ -14,7 +14,8 @@ import PrimaryButton from '../../../../components/PrimaryButton';
 import OtpCodeBoxes from '../components/OtpCodeBoxes';
 import SecondaryButton from '../../../../components/SecondaryButton';
 import type { RootStackParamList } from '../../../../navigation/types';
-import { colors, spacing, typography } from '../../../../theme';
+import type { Palette } from '../../../../theme';
+import { useAppearance, spacing, typography } from '../../../../theme';
 import { clearRegistrationRecovery, loadRegistrationDraft, rememberRegistrationDraft, rememberRegistrationProof } from '../../data/registrationRecoveryStore';
 import { formSeed } from '../../domain/registrationRecovery';
 import { useSession } from '../viewmodels/useSession';
@@ -23,6 +24,8 @@ import { useOtpVerification } from '../viewmodels/useOtpVerification';
 type OtpProps = NativeStackScreenProps<RootStackParamList, 'OtpVerification'>;
 
 export default function OtpVerificationScreen({ navigation, route }: OtpProps) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { phone, flow } = route.params;
   const { saveSession } = useSession();
   const {
@@ -132,7 +135,8 @@ export default function OtpVerificationScreen({ navigation, route }: OtpProps) {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
@@ -158,3 +162,4 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
   },
 });
+}

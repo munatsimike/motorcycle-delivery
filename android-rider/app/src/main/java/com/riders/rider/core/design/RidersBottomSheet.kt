@@ -51,6 +51,7 @@ fun RidersBottomSheet(
     visible: Boolean,
     onDismiss: () -> Unit,
     handle: Boolean = true,
+    extendBehindNavigationBar: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val progress = remember { Animatable(if (visible) 1f else 0f) }
@@ -100,10 +101,12 @@ fun RidersBottomSheet(
                 Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
+                    .windowInsetsPadding(
+                        if (extendBehindNavigationBar) WindowInsets.ime else WindowInsets.ime.union(WindowInsets.navigationBars),
+                    )
                     .graphicsLayer { translationY = (1f - progress.value) * travel }
                     .clip(shape)
-                    .background(RidersColors.background),
+                    .background(RidersColors.sheet),
             ) {
                 if (handle) {
                     Box(

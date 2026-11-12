@@ -3,18 +3,21 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { CompositeNavigationProp, useNavigation } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useMemo } from 'react';
 import type { ComponentProps } from 'react';
 import { useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import BottomSheetModal from '../../../../components/BottomSheetModal';
 import DialogModal, { DialogActions, DialogBody, DialogTextButton, DialogTitle } from '../../../../components/DialogModal';
 import CustomerAvatar from '../../../../components/CustomerAvatar';
 import ErrorMessage from '../../../../components/ErrorMessage';
 import LoadingIndicator from '../../../../components/LoadingIndicator';
 import SecondaryButton from '../../../../components/SecondaryButton';
 import type { CustomerTabParamList, RootStackParamList } from '../../../../navigation/types';
-import { colors, radius, spacing, typography } from '../../../../theme';
+import type { Palette } from '../../../../theme';
+import { appearanceLabel, radius, spacing, typography, useAppearance, type AppearanceMode } from '../../../../theme';
 import { useSession } from '../../../auth/presentation/viewmodels/useSession';
 import { useCustomerAccount } from '../viewmodels/useCustomerAccount';
 import { useCustomerProfilePhoto } from '../viewmodels/useCustomerProfilePhoto';
@@ -26,7 +29,15 @@ type ProfileNavigation = CompositeNavigationProp<
 
 type IconName = ComponentProps<typeof MaterialDesignIcons>['name'];
 
+const APPEARANCE_OPTIONS: { mode: AppearanceMode; icon: IconName }[] = [
+  { mode: 'system', icon: 'cellphone' },
+  { mode: 'light', icon: 'weather-sunny' },
+  { mode: 'dark', icon: 'weather-night' },
+];
+
 export default function ProfileScreen() {
+  const { colors, mode, scheme, setMode } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { accessToken, logout } = useSession();
   const { account, isLoading, error } = useCustomerAccount(accessToken);
   const photo = useCustomerProfilePhoto(accessToken, account);
@@ -34,6 +45,7 @@ export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const [signingOut, setSigningOut] = useState(false);
   const [removeOpen, setRemoveOpen] = useState(false);
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
   const kindLabel = account?.kind === 'BUSINESS' ? 'Business' : 'Individual';
 
   async function handleLogout() {
@@ -61,7 +73,9 @@ export default function ProfileScreen() {
       </View>
       <LinearGradient
         pointerEvents="none"
-        colors={['rgba(201,239,217,0.72)', 'rgba(229,247,238,0.35)', 'rgba(247,252,249,0.55)']}
+        colors={scheme === 'dark'
+          ? ['rgba(22,53,42,0.9)', 'rgba(16,22,20,0.72)', 'rgba(16,22,20,0.2)']
+          : ['rgba(201,239,217,0.72)', 'rgba(229,247,238,0.35)', 'rgba(247,252,249,0.55)']}
         locations={[0, 0.62, 1]}
         style={styles.profileMapWash}
       />
@@ -106,6 +120,14 @@ export default function ProfileScreen() {
                   <InfoRow icon="account-outline" label="Contact person" value={account.contactName} />
                 </>
               ) : null}
+              <ProfileDivider />
+              <InfoRow
+                icon="theme-light-dark"
+                label="Appearance"
+                value={appearanceLabel(mode)}
+                chevron="up"
+                onPress={() => setAppearanceOpen(true)}
+              />
             </View>
           ) : null}
 
@@ -176,11 +198,48 @@ export default function ProfileScreen() {
           />
         </DialogActions>
       </DialogModal>
+      <BottomSheetModal visible={appearanceOpen} onClose={() => setAppearanceOpen(false)} closeLabel="Close appearance">
+        <View style={[styles.appearanceSheet, { paddingBottom: spacing.lg + insets.bottom }]}>
+          <Text style={styles.appearanceTitle}>Appearance</Text>
+          <View accessibilityRole="radiogroup">
+            {APPEARANCE_OPTIONS.map((option) => {
+              const selected = option.mode === mode;
+              const selectedColor = colors.background === '#FFFFFF' ? colors.primaryDark : colors.primary;
+              return (
+                <Pressable
+                  key={option.mode}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected }}
+                  onPress={() => {
+                    setMode(option.mode);
+                    setAppearanceOpen(false);
+                  }}
+                  style={[styles.appearanceOption, selected && styles.appearanceOptionSelected]}
+                >
+                  <MaterialDesignIcons
+                    name={option.icon}
+                    size={20}
+                    color={selected ? selectedColor : colors.textSecondary}
+                  />
+                  <Text style={[styles.appearanceOptionLabel, selected && styles.appearanceOptionLabelSelected]}>
+                    {appearanceLabel(option.mode)}
+                  </Text>
+                  <View style={[styles.appearanceRadio, selected && styles.appearanceRadioSelected]}>
+                    {selected ? <MaterialDesignIcons name="check" size={14} color={colors.textInverse} /> : null}
+                  </View>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+      </BottomSheetModal>
     </View>
   );
 }
 
 function ProfileDivider() {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return <View style={styles.divider} />;
 }
 
@@ -189,14 +248,25 @@ function InfoRow({
   label,
   value,
   onEdit,
+  onPress,
+  chevron,
 }: {
   icon: IconName;
   label: string;
   value: string;
   onEdit?: () => void;
+  onPress?: () => void;
+  chevron?: 'up';
 }) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
-      <View style={styles.row}>
+      <Pressable
+        accessibilityRole={onPress ? 'button' : undefined}
+        disabled={!onPress}
+        onPress={onPress}
+        style={styles.row}
+      >
       <MaterialDesignIcons name={icon} size={18} color={colors.text} />
       <View style={styles.rowCopy}>
         <Text style={styles.rowLabel}>{label}</Text>
@@ -206,15 +276,18 @@ function InfoRow({
         <Pressable accessibilityRole="button" accessibilityLabel={`Edit ${label}`} hitSlop={8} onPress={onEdit}>
           <MaterialDesignIcons name="pencil-outline" size={20} color={colors.text} />
         </Pressable>
+      ) : chevron === 'up' ? (
+        <MaterialDesignIcons name="chevron-up" size={22} color={colors.textSecondary} />
       ) : null}
-    </View>
+    </Pressable>
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#F7FCF9',
+    backgroundColor: colors.canvas,
     overflow: 'hidden',
   },
   profileMap: {
@@ -338,4 +411,50 @@ const styles = StyleSheet.create({
     fontWeight: '400',
     color: colors.text,
   },
+  appearanceSheet: {
+    backgroundColor: colors.sheet,
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
+    padding: spacing.lg,
+    gap: spacing.sm,
+  },
+  appearanceTitle: {
+    fontSize: typography.heading,
+    lineHeight: 26,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  appearanceOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  appearanceOptionSelected: {
+    backgroundColor: colors.background === '#FFFFFF' ? colors.surface : colors.primaryLight,
+  },
+  appearanceOptionLabel: {
+    flex: 1,
+    fontSize: typography.body,
+    lineHeight: 22,
+    color: colors.text,
+  },
+  appearanceOptionLabelSelected: {
+    fontWeight: '600',
+    color: colors.background === '#FFFFFF' ? colors.primaryDark : colors.primary,
+  },
+  appearanceRadio: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  appearanceRadioSelected: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
 });
+}

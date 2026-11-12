@@ -420,9 +420,9 @@ fun HomeDashboard(
                             .matchParentSize()
                             .background(
                                 Brush.verticalGradient(
-                                    0f to Color(0xFFC9EFD9).copy(alpha = 0.72f),
-                                    0.62f to Color(0xFFE5F7EE).copy(alpha = 0.35f),
-                                    1f to Color(0xFFF7FCF9).copy(alpha = 0.55f),
+                                    0f to RidersColors.mintStart.copy(alpha = 0.72f),
+                                    0.62f to RidersColors.mintMid.copy(alpha = 0.35f),
+                                    1f to RidersColors.mintEnd.copy(alpha = 0.55f),
                                 ),
                             ),
                     )
@@ -1088,7 +1088,7 @@ private fun HomeEmptyBackdrop(contentBottom: Float, content: @Composable () -> U
                 val extra = target - top - size.height
                 if (extra > 0f) {
                     drawRect(
-                        color = Color.White,
+                        color = RidersColors.background,
                         topLeft = Offset(0f, size.height),
                         size = Size(size.width, extra),
                     )
@@ -1101,8 +1101,8 @@ private fun HomeEmptyBackdrop(contentBottom: Float, content: @Composable () -> U
                 .background(
                     Brush.verticalGradient(
                         0f to Color.Transparent,
-                        0.55f to Color.White,
-                        1f to Color.White,
+                        0.55f to RidersColors.background,
+                        1f to RidersColors.background,
                         startY = 0f,
                         endY = with(density) { fade.toPx() },
                     ),

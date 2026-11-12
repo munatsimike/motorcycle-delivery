@@ -1,10 +1,11 @@
-import { Component, useEffect, useRef, useState, type ReactNode } from 'react';
+import { Component, useEffect, useRef, useState, type ReactNode, useMemo } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE, type Details } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
 
-import { colors, radius, spacing, typography } from '../../../../theme';
+import type { Palette } from '../../../../theme';
+import { radius, spacing, typography, useAppearance, useGoogleMapStyle } from '../../../../theme';
 import { mapBelowStatusBar } from '../../../../components/maps/mapBelowStatusBar';
 import { trackingCameraRegion } from '../../domain/trackingCamera';
 import { deliveryIcon } from '../deliveryIcons';
@@ -41,6 +42,9 @@ export default function RiderLocationMap({
   distanceLabel,
   etaLabel,
 }: RiderLocationMapProps) {
+  const { colors } = useAppearance();
+  const mapStyle = useGoogleMapStyle();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const summary = live ? riderSummary(distanceLabel, etaLabel) : null;
   const insets = useSafeAreaInsets();
   const [labelAnchorY, setLabelAnchorY] = useState(LABEL_ANCHOR_Y);
@@ -123,6 +127,8 @@ export default function RiderLocationMap({
         ref={mapRef}
         style={mapBelowStatusBar(insets.top)}
         provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
+        customMapStyle={mapStyle}
+        userInterfaceStyle={mapStyle ? 'dark' : 'light'}
         initialRegion={region}
         scrollEnabled
         zoomEnabled
@@ -208,7 +214,8 @@ class MapBoundary extends Component<{ children: ReactNode; fallback: ReactNode }
   }
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   frame: {
     flex: 1,
     height: '100%',
@@ -266,6 +273,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
 });
+}
 
 function riderSummary(distance: string | null, eta: string | null): string | null {
   const parts = [distance, eta].filter((part): part is string => Boolean(part));

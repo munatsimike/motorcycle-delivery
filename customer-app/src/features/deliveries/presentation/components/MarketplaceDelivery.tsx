@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import { Linking, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
@@ -6,7 +6,8 @@ import { useIsFocused } from '@react-navigation/native';
 
 import DialogModal, { DialogActions, DialogBody, DialogTextButton, DialogTitle } from '../../../../components/DialogModal';
 import ErrorMessage from '../../../../components/ErrorMessage';
-import { colors, radius, spacing, typography } from '../../../../theme';
+import type { Palette } from '../../../../theme';
+import { radius, spacing, typography, useAppearance } from '../../../../theme';
 import { errorMessage } from '../../../auth/presentation/errorMessage';
 import { formatDeadline } from '../../domain/bookingDraft';
 import { customerDeliveryRepository } from '../../data/CustomerDeliveryApiRepository';
@@ -58,6 +59,8 @@ export default function MarketplaceDelivery({
   refreshing,
   onBack,
 }: MarketplaceDeliveryProps) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const focused = useIsFocused();
   const [cancelling, setCancelling] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
@@ -69,7 +72,7 @@ export default function MarketplaceDelivery({
   const live = mapView.kind === 'live';
   const approach = live ? delivery.pickupApproach : null;
   const headline = trackingHeadline(delivery.status, approach?.metres);
-  const statusTone = deliveryStatusTone(delivery.status);
+  const statusTone = deliveryStatusTone(delivery.status, colors);
   const bikeLine = delivery.rider ? riderBikeLine(delivery.rider.motorcycle, delivery.rider.registrationNumber) : null;
   const subtitle = trackingSubtitle(headline, delivery.dropoffAddress);
   const distanceText = approach ? roadDistanceLabel(approach.metres) : null;
@@ -299,7 +302,8 @@ function useTrackingClock(active: boolean): number {
   return now;
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.background,
@@ -480,3 +484,4 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
   },
 });
+}

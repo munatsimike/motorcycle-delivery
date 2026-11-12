@@ -1,12 +1,13 @@
+import { useMemo } from 'react';
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
 import { StyleSheet, Text, View } from 'react-native';
 
-import { colors, radius, spacing, typography } from '../../../theme';
+import type { Palette } from '../../../theme';
+import { radius, spacing, typography, useAppearance } from '../../../theme';
 import type { DeliveryContentKind } from '../domain/deliveryCard';
 
 export const deliveryIcon = {
   size: 22,
-  color: colors.textSecondary,
   pickup: '#169B62',
   dropoff: '#1A73E8',
 } as const;
@@ -21,8 +22,9 @@ export const CONTENT_ICONS: Record<DeliveryContentKind, {
 };
 
 export function ContentIcon({ kind }: { kind: DeliveryContentKind }) {
+  const { colors } = useAppearance();
   const content = CONTENT_ICONS[kind];
-  return <MaterialDesignIcons name={content.icon} color={deliveryIcon.color} size={15} />;
+  return <MaterialDesignIcons name={content.icon} color={colors.textSecondary} size={15} />;
 }
 
 /** Shared solid map-pin design, matching the Android rider delivery cards. */
@@ -39,6 +41,8 @@ export function LocationPin({ dropoff = false }: { dropoff?: boolean }) {
 }
 
 export function ContentLabel({ kind }: { kind: DeliveryContentKind }) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <Text style={[styles.contentLabel, kind === 'parcel' && styles.parcelLabel]}>
       {CONTENT_ICONS[kind].label}
@@ -47,10 +51,14 @@ export function ContentLabel({ kind }: { kind: DeliveryContentKind }) {
 }
 
 export function StopLabel({ children }: { children: string }) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return <Text style={styles.stopLabel}>{children}</Text>;
 }
 
 export function ServiceClassBadge({ serviceClass }: { serviceClass?: 'EXPRESS' | 'FLEXIBLE' | null }) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const urgent = serviceClass === 'EXPRESS';
   return (
     <View style={styles.classChip}>
@@ -65,7 +73,8 @@ export function ServiceClassBadge({ serviceClass }: { serviceClass?: 'EXPRESS' |
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   contentLabel: {
     fontSize: typography.caption,
     lineHeight: 18,
@@ -126,3 +135,4 @@ const styles = StyleSheet.create({
     includeFontPadding: false,
   },
 });
+}

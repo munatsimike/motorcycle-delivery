@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
@@ -8,7 +8,8 @@ import { useKeyboardLift } from '../../../../components/useKeyboardLift';
 import PrimaryButton from '../../../../components/PrimaryButton';
 import SecondaryButton from '../../../../components/SecondaryButton';
 import type { RootStackParamList } from '../../../../navigation/types';
-import { colors, spacing, typography } from '../../../../theme';
+import type { Palette } from '../../../../theme';
+import { useAppearance, spacing, typography } from '../../../../theme';
 import { customerDeliveryRepository } from '../../../deliveries/data/CustomerDeliveryApiRepository';
 import { emptyStop, type StopDraft } from '../../../deliveries/domain/bookingDraft';
 import AddressField from '../../../deliveries/presentation/components/AddressField';
@@ -19,6 +20,8 @@ import { useEditProfile } from '../viewmodels/useEditProfile';
 type EditProfileProps = NativeStackScreenProps<RootStackParamList, 'EditProfile'>;
 
 export default function EditProfileScreen({ route, navigation }: EditProfileProps) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { accessToken } = useSession();
   const form = useEditProfile(accessToken, route.params.account);
   const placeBias = usePlaceBias();
@@ -119,7 +122,8 @@ function resolvePlace(accessToken: string | null, placeId: string, sessionToken:
   return customerDeliveryRepository.resolvePlace(accessToken, placeId, sessionToken);
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.background,
@@ -139,3 +143,4 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
 });
+}

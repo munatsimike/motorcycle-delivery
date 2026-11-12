@@ -214,7 +214,7 @@ fun DeliveryScreen(
     Box(
         Modifier
             .fillMaxSize()
-            .background(Color(0xFFF7FCF9)),
+            .background(RidersColors.canvas),
     ) {
     if (collectionMap) {
         CollectionMapPage(
@@ -307,9 +307,9 @@ fun DeliveryScreen(
                                 .matchParentSize()
                                 .background(
                                     Brush.verticalGradient(
-                                        0f to Color(0xFFC9EFD9).copy(alpha = 0.72f),
-                                        0.62f to Color(0xFFE5F7EE).copy(alpha = 0.35f),
-                                        1f to Color(0xFFF7FCF9).copy(alpha = 0.55f),
+                                        0f to RidersColors.mintStart.copy(alpha = 0.72f),
+                                        0.62f to RidersColors.mintMid.copy(alpha = 0.35f),
+                                        1f to RidersColors.mintEnd.copy(alpha = 0.55f),
                                     ),
                                 ),
                         )
@@ -322,7 +322,7 @@ fun DeliveryScreen(
                             .shadow(8.dp, CircleShape, ambientColor = RidersColors.shadow, spotColor = RidersColors.shadow)
                             .size(44.dp)
                             .clip(CircleShape)
-                            .background(Color.White)
+                            .background(RidersColors.sheet)
                             .clickable(role = Role.Button, onClick = onBack),
                         contentAlignment = Alignment.Center,
                     ) {
@@ -495,7 +495,7 @@ private fun CollectionMapPage(
                 .shadow(8.dp, CircleShape, ambientColor = RidersColors.shadow, spotColor = RidersColors.shadow)
                 .size(44.dp)
                 .clip(CircleShape)
-                .background(Color.White)
+                .background(RidersColors.sheet)
                 .clickable(role = Role.Button, onClick = onBack),
             contentAlignment = Alignment.Center,
         ) {
@@ -1150,9 +1150,9 @@ private fun CollectedPage(
                     .matchParentSize()
                     .background(
                         Brush.verticalGradient(
-                            0f to Color(0xFFC9EFD9).copy(alpha = 0.72f),
-                            0.62f to Color(0xFFE5F7EE).copy(alpha = 0.35f),
-                            1f to Color(0xFFF7FCF9).copy(alpha = 0.55f),
+                            0f to RidersColors.mintStart.copy(alpha = 0.72f),
+                            0.62f to RidersColors.mintMid.copy(alpha = 0.35f),
+                            1f to RidersColors.mintEnd.copy(alpha = 0.55f),
                         ),
                     ),
             )
@@ -1164,7 +1164,7 @@ private fun CollectedPage(
                 .shadow(8.dp, CircleShape, ambientColor = RidersColors.shadow, spotColor = RidersColors.shadow)
                 .size(44.dp)
                 .clip(CircleShape)
-                .background(Color.White)
+                .background(RidersColors.sheet)
                 .clickable(role = Role.Button, onClick = onBack),
             contentAlignment = Alignment.Center,
         ) {
@@ -1246,7 +1246,7 @@ private fun DeliveredPage(
                 point = dropoff,
                 recipient = ui.contacts?.dropoffName.orEmpty(),
                 address = deliveryCardAddress(ui.dropoffAddress),
-                completedAt = ui.completedAt ?: ui.createdAt,
+                completedAt = ui.completedAt,
                 sheetOverlap = if (sheetHeight > 0.dp) sheetHeight else 240.dp,
                 modifier = Modifier.fillMaxSize(),
             )
@@ -1260,7 +1260,7 @@ private fun DeliveredPage(
                 .shadow(8.dp, CircleShape, ambientColor = RidersColors.shadow, spotColor = RidersColors.shadow)
                 .size(44.dp)
                 .clip(CircleShape)
-                .background(Color.White)
+                .background(RidersColors.sheet)
                 .clickable(role = Role.Button, onClick = onBack),
             contentAlignment = Alignment.Center,
         ) {
@@ -1291,8 +1291,8 @@ private fun DeliveredPage(
                     description = ui.parcelDescription,
                     serviceClass = ui.serviceClass,
                     deliveryId = ui.deliveryId,
-                    createdAt = ui.completedAt ?: ui.createdAt,
-                    dateCaption = "Completed",
+                    createdAt = ui.createdAt,
+                    dateCaption = "Requested",
                     flat = true,
                     spacious = true,
                     pickup = ui.pickupAddress,
@@ -1300,13 +1300,8 @@ private fun DeliveredPage(
                     distanceMeters = ui.distanceMeters,
                     price = ui.agreedPrice,
                     modifier = Modifier.fillMaxWidth(),
-                    pickupContact = {
-                        StopContactName(
-                            name = ui.contacts?.pickupName.orEmpty(),
-                            actions = false,
-                        )
-                    },
-                    pickupDetail = { StopNotes(ui.pickupAddress, ui.pickupLandmark, ui.pickupInstructions) },
+                    senderName = ui.contacts?.pickupName.orEmpty(),
+                    customerSender = true,
                 )
             }
         }

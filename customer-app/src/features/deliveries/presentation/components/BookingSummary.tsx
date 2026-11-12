@@ -1,10 +1,11 @@
-import { type ReactNode } from 'react';
+import { type ReactNode, useMemo } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
 
 import LoadingIndicator from '../../../../components/LoadingIndicator';
 import { useInputFocus } from '../../../../components/useInputFocus';
-import { colors, radius, spacing, typography } from '../../../../theme';
+import type { Palette } from '../../../../theme';
+import { radius, spacing, typography, useAppearance } from '../../../../theme';
 import { deliveryContactPhone, type BookingDraft, type StopDraft } from '../../domain/bookingDraft';
 import { deliveryCardAddress, deliveryContentKind } from '../../domain/deliveryCard';
 import { ContentIcon, LocationPin, deliveryIcon } from '../deliveryIcons';
@@ -33,6 +34,8 @@ export default function BookingSummary({
   onOfferFocus,
   marketplace = false,
 }: BookingSummaryProps) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const offerFocus = useInputFocus();
   return (
     <View style={styles.wrap}>
@@ -112,6 +115,8 @@ export default function BookingSummary({
 }
 
 function RouteStop({ stop, last }: { stop: StopDraft; last: boolean }) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const name = stop.contactName.trim();
   const phone = displayPhone(stop.contactPhone);
   return (
@@ -141,9 +146,11 @@ function Fact({
   label: string;
   value: string;
 }) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <View style={styles.fact}>
-      {mark ?? (icon ? <MaterialDesignIcons name={icon} size={deliveryIcon.size} color={deliveryIcon.color} /> : null)}
+      {mark ?? (icon ? <MaterialDesignIcons name={icon} size={deliveryIcon.size} color={colors.textSecondary} /> : null)}
       <Text style={styles.factLabel}>{label}</Text>
       <Text style={styles.factValue}>{value}</Text>
     </View>
@@ -184,7 +191,8 @@ function formatDistance(meters: number): string {
   return `${text} km`;
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   wrap: {
     gap: spacing.md,
     marginBottom: spacing.lg,
@@ -323,3 +331,4 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
   },
 });
+}

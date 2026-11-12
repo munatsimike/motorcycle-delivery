@@ -1,8 +1,10 @@
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
+import { useMemo } from 'react';
 import type { ComponentProps } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View, type StyleProp, type TextStyle } from 'react-native';
 
-import { colors, radius, spacing } from '../theme';
+import type { Palette } from '../theme';
+import { radius, spacing, useAppearance } from '../theme';
 
 type PrimaryButtonProps = {
   label: string;
@@ -31,6 +33,8 @@ export default function PrimaryButton({
   align = 'end',
   labelStyle,
 }: PrimaryButtonProps) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const inactive = disabled || loading;
 
   return (
@@ -79,7 +83,8 @@ export default function PrimaryButton({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   button: {
     minHeight: 56,
     backgroundColor: colors.primary,
@@ -123,3 +128,4 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 });
+}

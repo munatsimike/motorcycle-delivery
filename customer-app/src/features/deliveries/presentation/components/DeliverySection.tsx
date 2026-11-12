@@ -1,9 +1,11 @@
+import { useMemo } from 'react';
 import type { RefObject } from 'react';
 import { Image, StyleSheet, Text, View } from 'react-native';
 
 import ErrorMessage from '../../../../components/ErrorMessage';
 import LoadingIndicator from '../../../../components/LoadingIndicator';
-import { colors, radius, spacing, typography } from '../../../../theme';
+import type { Palette } from '../../../../theme';
+import { useAppearance, radius, spacing, typography } from '../../../../theme';
 import type { CustomerDelivery } from '../../domain/deliveryStatus';
 import DeliveryCard from './DeliveryCard';
 import OfflineDeliveriesNotice from './OfflineDeliveriesNotice';
@@ -45,6 +47,8 @@ export default function DeliverySection({
   onRetry,
   onSearchAgain,
 }: DeliverySectionProps) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   if (isLoading && !refreshing && deliveries.length === 0) {
     return <LoadingIndicator />;
   }
@@ -83,7 +87,8 @@ export default function DeliverySection({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   empty: {
     backgroundColor: 'transparent',
     borderRadius: radius.lg,
@@ -130,3 +135,4 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
 });
+}

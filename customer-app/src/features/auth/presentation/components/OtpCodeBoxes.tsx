@@ -1,7 +1,8 @@
-import { useRef } from 'react';
+import { useRef, useMemo } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { colors, radius, spacing, typography } from '../../../../theme';
+import type { Palette } from '../../../../theme';
+import { useAppearance, radius, spacing, typography } from '../../../../theme';
 import { fitOtpDigits, OTP_BOX_COUNT } from '../../domain/verificationCode';
 
 type OtpCodeBoxesProps = {
@@ -13,6 +14,8 @@ type OtpCodeBoxesProps = {
 };
 
 export default function OtpCodeBoxes({ value, onChangeText, editable = true, invalid = false, onFocus }: OtpCodeBoxesProps) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const inputRef = useRef<TextInput>(null);
   const digits = fitOtpDigits(value);
   const activeIndex = Math.min(digits.length, OTP_BOX_COUNT - 1);
@@ -66,7 +69,8 @@ export default function OtpCodeBoxes({ value, onChangeText, editable = true, inv
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   field: {
     position: 'relative',
     height: 48,
@@ -110,3 +114,4 @@ const styles = StyleSheet.create({
     color: 'transparent',
   },
 });
+}

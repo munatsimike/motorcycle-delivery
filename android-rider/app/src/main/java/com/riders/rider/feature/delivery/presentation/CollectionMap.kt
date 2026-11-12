@@ -59,6 +59,7 @@ import com.google.maps.android.compose.Polyline
 import com.google.maps.android.compose.rememberCameraPositionState
 import com.riders.rider.BuildConfig
 import com.riders.rider.R
+import com.riders.rider.core.design.LocalAppDark
 import com.riders.rider.core.design.RidersColors
 import com.riders.rider.core.design.RidersSpacing
 import com.riders.rider.core.design.RidersType
@@ -98,7 +99,7 @@ fun CollectionMap(
     LaunchedEffect(Unit) {
         RiderMapThemeStore.write(context, RiderMapTheme.ClassicLight)
     }
-    val mapStyle = mapStyles.optionsFor(mapTheme)
+    val mapStyle = mapStyles.optionsFor(mapTheme, LocalAppDark.current)
     var pickupIcon by remember { mutableStateOf<BitmapDescriptor?>(null) }
     val initial = pickup ?: rider?.let { GeoPoint(it.latitude, it.longitude) }
     val camera = rememberCameraPositionState {
@@ -235,7 +236,7 @@ fun CollectionMap(
                     .padding(top = RidersSpacing.lg)
                     .shadow(8.dp, CircleShape, ambientColor = RidersColors.shadow, spotColor = RidersColors.shadow)
                     .clip(CircleShape)
-                    .background(Color.White)
+                    .background(RidersColors.sheet)
                     .padding(horizontal = RidersSpacing.lg, vertical = RidersSpacing.sm),
             )
         }
@@ -246,7 +247,7 @@ fun CollectionMap(
                     .padding(start = RidersSpacing.md, bottom = sheetOverlap + RidersSpacing.md)
                     .shadow(8.dp, CircleShape, ambientColor = RidersColors.shadow, spotColor = RidersColors.shadow)
                     .clip(CircleShape)
-                    .background(Color.White)
+                    .background(RidersColors.sheet)
                     .padding(RidersSpacing.xs),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -278,7 +279,7 @@ fun CollectionMap(
                 .shadow(8.dp, CircleShape, ambientColor = RidersColors.shadow, spotColor = RidersColors.shadow)
                 .size(44.dp)
                 .clip(CircleShape)
-                .background(Color.White)
+                .background(RidersColors.sheet)
                 .clickable(role = Role.Button) {
                     userMoved = false
                     recenter += 1

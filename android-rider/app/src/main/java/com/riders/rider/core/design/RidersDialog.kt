@@ -95,7 +95,7 @@ fun RidersDialog(
                     .widthIn(max = 360.dp)
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(RidersRadius.xl))
-                    .background(RidersColors.background)
+                    .background(RidersColors.sheet)
                     .clickable(interactionSource = cardTouch, indication = null, onClick = {})
                     .padding(RidersSpacing.xl),
                 verticalArrangement = Arrangement.spacedBy(RidersSpacing.md),

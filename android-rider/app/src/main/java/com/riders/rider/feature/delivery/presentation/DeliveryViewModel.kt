@@ -228,7 +228,7 @@ class DeliveryViewModel @Inject constructor(
             serviceClassLabel = serviceClassLabel(parcel.serviceClass),
             agreedPrice = parcel.agreedPrice,
             distanceMeters = parcel.distanceMeters,
-            createdAt = parcel.completedAt ?: parcel.createdAt,
+            createdAt = parcel.createdAt,
             completedAt = parcel.completedAt,
             agreedPriceLabel = agreedPriceLabel(parcel.agreedPrice),
             readOnly = true,

@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import type { ReactNode } from 'react';
 import {
   Pressable,
@@ -18,7 +19,8 @@ import PrimaryButton from '../../../../components/PrimaryButton';
 import SecondaryButton from '../../../../components/SecondaryButton';
 import ZimbabwePhoneField from '../../../../components/ZimbabwePhoneField';
 import { looksLikeDutchPhoneEntry } from '../../domain/normalizePhone';
-import { colors, spacing, typography } from '../../../../theme';
+import type { Palette } from '../../../../theme';
+import { useAppearance, spacing, typography } from '../../../../theme';
 
 type PhoneEntryFormProps = {
   title: string;
@@ -57,6 +59,8 @@ export default function PhoneEntryForm({
   secondaryLabel,
   onSecondary,
 }: PhoneEntryFormProps) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const keyboard = useKeyboardLift();
 
   return (
@@ -112,7 +116,8 @@ export default function PhoneEntryForm({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
@@ -168,3 +173,4 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 });
+}

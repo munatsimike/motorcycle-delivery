@@ -36,6 +36,7 @@ function collecting(id: string, riderLocation: CustomerDeliveryDetail['riderLoca
     dropoffLongitude: null,
     parcelDescription: 'Box',
     createdAt: null,
+    completedAt: null,
     riderLocation,
     pickupApproach: null,
     rider: null,

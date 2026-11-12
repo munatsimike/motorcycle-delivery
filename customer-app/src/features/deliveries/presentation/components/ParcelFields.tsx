@@ -1,9 +1,10 @@
-import { type ComponentProps, useEffect } from 'react';
+import { type ComponentProps, useEffect, useMemo } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
 
 import { useInputFocus } from '../../../../components/useInputFocus';
-import { colors, radius, spacing, typography } from '../../../../theme';
+import type { Palette } from '../../../../theme';
+import { radius, spacing, typography, useAppearance } from '../../../../theme';
 import type {
   BookingDraft,
   DeliveryPayer,
@@ -62,6 +63,8 @@ const CLASSES: { value: ServiceClass; label: string; icon: IconName }[] = [
 ];
 
 export default function ParcelFields({ draft, onChange, marketplace = false }: ParcelFieldsProps) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const selectedDescription = CONTENTS.some((content) => content.description === draft.description)
     ? draft.description
     : 'Parcel';
@@ -166,7 +169,7 @@ export default function ParcelFields({ draft, onChange, marketplace = false }: P
                     name={option.icon}
                     size={16}
                     color={colors.text}
-                    style={optionIconStyle(option.icon)}
+                    style={optionIconStyle(styles, option.icon)}
                   />
                   <Text style={[styles.deliveryRadioLabel, styles.deliveryTypeLabel]}>{option.label}</Text>
                 </Pressable>
@@ -223,7 +226,7 @@ export default function ParcelFields({ draft, onChange, marketplace = false }: P
                   name={option.icon}
                   size={16}
                   color={selected ? colors.primary : colors.textSecondary}
-                  style={optionIconStyle(option.icon)}
+                  style={optionIconStyle(styles, option.icon)}
                 />
                 <Text style={styles.deliveryRadioLabel}>{option.label}</Text>
               </Pressable>
@@ -253,7 +256,7 @@ export function paymentMethodLabel(method: PaymentMethod): string {
   return PAYMENT_LABELS[method];
 }
 
-function optionIconStyle(icon: IconName) {
+function optionIconStyle(styles: ReturnType<typeof createStyles>, icon: IconName) {
   if (icon === 'flash-outline') {
     return [styles.optionIcon, styles.urgentIcon];
   }
@@ -263,7 +266,8 @@ function optionIconStyle(icon: IconName) {
   return styles.optionIcon;
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   fields: {
     gap: spacing.lg,
     marginBottom: spacing.lg,
@@ -452,3 +456,4 @@ const styles = StyleSheet.create({
     color: colors.text,
   },
 });
+}

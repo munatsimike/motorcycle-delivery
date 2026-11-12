@@ -1,11 +1,12 @@
 import { LinearGradient } from 'expo-linear-gradient';
-import { NavigationContainer } from '@react-navigation/native';
-import { colors, spacing, typography } from '../theme';
+import { DarkTheme, DefaultTheme, NavigationContainer } from '@react-navigation/native';
+import type { Palette } from '../theme';
+import { spacing, typography, useAppearance } from '../theme';
 import {
   createNativeStackNavigator,
   type NativeStackScreenProps,
 } from '@react-navigation/native-stack';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode, useMemo } from 'react';
 import {
   Animated,
   Easing,
@@ -48,6 +49,8 @@ type WelcomeProps = NativeStackScreenProps<
 >;
 
 function WelcomeScreen({ navigation }: WelcomeProps) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
 
   return (
@@ -105,6 +108,8 @@ function WelcomeScreen({ navigation }: WelcomeProps) {
 }
 
 export default function AppNavigator() {
+  const { colors, scheme } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { status, accessToken, customerId } = useSession();
   const signedIn = status === 'signedIn';
   useCustomerPush(signedIn, signedIn ? accessToken : null, signedIn ? customerId : null);
@@ -124,6 +129,18 @@ export default function AppNavigator() {
   return (
     <NavigationContainer
       ref={navigationRef}
+      theme={{
+        ...(scheme === 'dark' ? DarkTheme : DefaultTheme),
+        colors: {
+          ...(scheme === 'dark' ? DarkTheme : DefaultTheme).colors,
+          background: colors.background,
+          card: colors.sheet,
+          text: colors.text,
+          border: colors.border,
+          primary: colors.primary,
+          notification: colors.error,
+        },
+      }}
       onReady={() => {
         publishCustomerPush();
         if (status !== 'signedIn') {
@@ -206,6 +223,8 @@ function SessionSlide({
   signedIn: boolean;
   children: ReactNode;
 }) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const reduce = useReduceMotion();
   const { width } = useWindowDimensions();
   const progress = useRef(new Animated.Value(1)).current;
@@ -245,6 +264,8 @@ function SessionSlide({
 }
 
 function ConnectionScreen() {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { retryRestore } = useSession();
   const [working, setWorking] = useState(false);
 
@@ -267,7 +288,8 @@ function ConnectionScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   session: {
     flex: 1,
   },
@@ -366,3 +388,4 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
 });
+}

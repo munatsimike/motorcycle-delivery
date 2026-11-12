@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import RiderMotorcycleMarker from './RiderMotorcycleMarker';
 import { deliveryIcon } from '../../features/deliveries/presentation/deliveryIcons';
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
+import { useGoogleMapStyle } from '../../theme';
 
 import { HOME_NEIGHBORHOOD_DELTA, customerNeighborhoodFrame, frameContainsPoints, nearbyMapFrame, type NearbyMapFrame } from '../../features/riders/domain/nearbyMapFrame';
 import PickupSearchPulse from './PickupSearchPulse';
@@ -35,6 +36,7 @@ type Props = {
 const DEFAULT_REGION = { latitude: -17.8292, longitude: 31.0522, latitudeDelta: 0.07, longitudeDelta: 0.07 };
 
 export default function RidersMap({ customerLocation, riders = [], showCustomerMarker = true, pickupLocation = null, interactive = true, bottomPadding = 0, neighborhoodView = false, stableNeighborhood = false, searchPulse = false }: Props) {
+  const mapStyle = useGoogleMapStyle();
   const insets = useSafeAreaInsets();
   const mapRef = useRef<MapView>(null);
   const mounted = useRef(true);
@@ -140,6 +142,8 @@ export default function RidersMap({ customerLocation, riders = [], showCustomerM
       <MapView
         ref={mapRef}
         provider={PROVIDER_GOOGLE}
+        customMapStyle={mapStyle}
+        userInterfaceStyle={mapStyle ? 'dark' : 'light'}
         style={mapBelowStatusBar(insets.top)}
         initialRegion={customerLocation ? { ...customerLocation, latitudeDelta: neighborhoodView ? HOME_NEIGHBORHOOD_DELTA : 0.025, longitudeDelta: neighborhoodView ? HOME_NEIGHBORHOOD_DELTA : 0.025 } : DEFAULT_REGION}
         scrollEnabled={interactive}

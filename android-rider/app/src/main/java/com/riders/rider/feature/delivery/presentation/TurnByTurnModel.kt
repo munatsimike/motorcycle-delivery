@@ -7,6 +7,7 @@ import com.riders.rider.feature.availability.domain.GpsFix
 import com.riders.rider.feature.availability.domain.LOCATION_MAX_FIX_AGE_MS
 import com.riders.rider.feature.delivery.data.GuidedRoad
 import com.riders.rider.feature.delivery.data.NavigationLocationWatch
+import com.riders.rider.feature.delivery.data.NavigationVoiceStore
 import com.riders.rider.feature.delivery.data.PickupRouteRepository
 import com.riders.rider.feature.delivery.domain.GeoPoint
 import com.riders.rider.feature.delivery.domain.isOffRoute
@@ -16,8 +17,10 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -32,6 +35,7 @@ class TurnByTurnModel @Inject constructor(
     private val hub: RiderLocationHub,
     private val watch: NavigationLocationWatch,
     private val routes: PickupRouteRepository,
+    private val voice: NavigationVoiceStore,
 ) : ViewModel() {
     private val riderState = MutableStateFlow<GpsFix?>(null)
     private val bearingState = MutableStateFlow<Float?>(null)
@@ -44,6 +48,11 @@ class TurnByTurnModel @Inject constructor(
     val road: StateFlow<GuidedRoad?> = roadState.asStateFlow()
     val routeFailed: StateFlow<Boolean> = failedState.asStateFlow()
     val following: StateFlow<Boolean> = followingState.asStateFlow()
+    val voiceEnabled: StateFlow<Boolean?> = voice.enabled.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    fun setVoiceEnabled(enabled: Boolean) {
+        viewModelScope.launch { voice.setEnabled(enabled) }
+    }
 
     private var target: GuidanceTarget? = null
     private var listenJob: Job? = null

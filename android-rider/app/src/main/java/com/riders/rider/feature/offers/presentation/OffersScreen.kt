@@ -91,7 +91,6 @@ import com.riders.rider.feature.delivery.presentation.partyName
 import com.riders.rider.feature.delivery.presentation.partyPhone
 import com.riders.rider.feature.delivery.presentation.ContentLabel
 import com.riders.rider.feature.delivery.presentation.DeliveryStop
-import com.riders.rider.feature.delivery.presentation.ServiceClassBadge
 import com.riders.rider.feature.delivery.presentation.deliveryContentLabel
 import com.riders.rider.feature.delivery.domain.NEW_OFFER_BACKGROUND
 import com.riders.rider.feature.delivery.domain.NEW_OFFER_BADGE
@@ -164,7 +163,7 @@ fun OffersScreen(
         onRefresh = model::pullRefresh,
         modifier = modifier
             .fillMaxSize()
-            .background(Color.White)
+            .background(RidersColors.sheet)
             .then(if (inShell) Modifier else Modifier.statusBarsPadding())
             .then(if (inShell) Modifier else Modifier.navigationBarsPadding()),
     ) {
@@ -699,7 +698,6 @@ private fun OfferDetailsSheet(visible: Boolean, offer: OfferResponse, amount: St
             ) {
                 ContentIcon(offer.parcel.description, size = 15.dp, muted = true)
                 ContentLabel(offer.parcel.description, compact = true)
-                ServiceClassBadge(offer.serviceClass, subtle = true)
             }
             Column(Modifier.fillMaxWidth()) {
                 OfferStop(
@@ -904,7 +902,6 @@ private fun OfferSummary(offer: OfferResponse, nowMillis: Long, detailed: Boolea
         ) {
             ContentIcon(offer.parcel.description, size = 14.dp, muted = true)
             ContentLabel(offer.parcel.description, compact = true)
-            ServiceClassBadge(offer.serviceClass, subtle = true)
         }
         if (hasDeadline || statusLabel != null) {
             OfferExpiry(offer.expiresAt, nowMillis, expired, statusLabel, fresh)

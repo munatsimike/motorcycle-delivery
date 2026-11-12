@@ -24,6 +24,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
@@ -37,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.riders.rider.R
+import com.riders.rider.core.design.LocalAppDark
 import com.riders.rider.core.design.RidersBottomSheet
 import com.riders.rider.core.design.RidersColors
 import com.riders.rider.core.design.RidersRadius
@@ -383,9 +386,18 @@ private fun DeliveryTabs(
     onSelect: (DeliveryBoardTab) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val dark = LocalAppDark.current
     Row(
         modifier
             .fillMaxWidth()
+            .zIndex(1f)
+            .shadow(
+                elevation = if (dark) 6.dp else 3.dp,
+                shape = RoundedCornerShape(RidersRadius.pill),
+                clip = false,
+                ambientColor = Color.Black,
+                spotColor = Color.Black,
+            )
             .clip(RoundedCornerShape(RidersRadius.pill))
             .background(RidersColors.surface)
             .padding(RidersSpacing.xs),

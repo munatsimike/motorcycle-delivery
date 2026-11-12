@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useMemo } from 'react';
 import { Animated, PanResponder, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
@@ -6,7 +6,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import BottomSheetModal from '../../../../components/BottomSheetModal';
 import SecondaryButton from '../../../../components/SecondaryButton';
-import { bottomContentInset, colors, radius, spacing, typography } from '../../../../theme';
+import type { Palette } from '../../../../theme';
+import { bottomContentInset, radius, spacing, typography, useAppearance } from '../../../../theme';
 import { deliveryCardAddress, deliveryContentKind, deliveryWhenLabel, shortDeliveryReference } from '../../domain/deliveryCard';
 import { moneyLabel } from '../../domain/moneyLabel';
 import { displayedCustomerOffer, type CustomerDeliveryDetail } from '../../domain/customerDeliveryDetail';
@@ -27,6 +28,8 @@ export default function ParcelDetailsSheet({
   onCancel,
   cancelLabel = 'Cancel request',
 }: ParcelDetailsSheetProps) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
   const window = useWindowDimensions();
   const dragY = useRef(new Animated.Value(0)).current;
@@ -122,6 +125,8 @@ export function Summary({
   showDivider?: boolean;
   showContacts?: boolean;
 }) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const when = delivery.createdAt ? deliveryWhenLabel(delivery.createdAt) : '';
   const reference = shortDeliveryReference(delivery.id);
   const contentKind = deliveryContentKind(delivery.parcelDescription);
@@ -141,7 +146,7 @@ export function Summary({
       </View>
       {when ? (
         <View style={styles.dateRow}>
-          <MaterialDesignIcons name="calendar-outline" size={deliveryIcon.size} color={deliveryIcon.color} accessibilityLabel="Date" />
+          <MaterialDesignIcons name="calendar-outline" size={deliveryIcon.size} color={colors.textSecondary} accessibilityLabel="Date" />
           <Text style={styles.dateText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>{when}</Text>
         </View>
       ) : null}
@@ -204,6 +209,8 @@ function RouteStop({
   role?: string | null;
   dropoff?: boolean;
 }) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <View style={styles.stop}>
       <View style={styles.markerColumn}>
@@ -229,7 +236,8 @@ function formatDistance(meters: number): string {
   return `${text} km`;
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   sheet: {
     backgroundColor: colors.background,
     borderTopLeftRadius: radius.xl,
@@ -391,3 +399,4 @@ const styles = StyleSheet.create({
     color: colors.primary,
   },
 });
+}

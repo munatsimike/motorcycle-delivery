@@ -6,6 +6,7 @@ import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-
 
 import { apiGet } from '../../../../services/api/apiClient';
 import { mapBelowStatusBar } from '../../../../components/maps/mapBelowStatusBar';
+import { useGoogleMapStyle } from '../../../../theme';
 import { deliveryIcon } from '../deliveryIcons';
 import { fittedRouteRegion, type CameraPoint, type CameraRegion } from '../../domain/trackingCamera';
 
@@ -26,6 +27,7 @@ const MIN_MAP_HEIGHT = 280;
 const ROUTE_BLUE = deliveryIcon.dropoff;
 
 export default function CollectedRouteMap({ deliveryId, accessToken, pickup, dropoff }: CollectedRouteMapProps) {
+  const mapStyle = useGoogleMapStyle();
   const insets = useSafeAreaInsets();
   const mapRef = useRef<MapView | null>(null);
   const gestured = useRef(false);
@@ -100,6 +102,8 @@ export default function CollectedRouteMap({ deliveryId, accessToken, pickup, dro
         ref={mapRef}
         style={mapBelowStatusBar(insets.top)}
         provider={PROVIDER_GOOGLE}
+        customMapStyle={mapStyle}
+        userInterfaceStyle={mapStyle ? 'dark' : 'light'}
         initialRegion={region}
         scrollEnabled
         zoomEnabled

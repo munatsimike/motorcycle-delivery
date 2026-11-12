@@ -52,6 +52,7 @@ export type CustomerDeliveryDetail = {
   dropoffLongitude: number | null;
   parcelDescription: string;
   createdAt: string | null;
+  completedAt: string | null;
   riderLocation: RiderPoint | null;
   pickupApproach: PickupApproach | null;
   rider: AssignedRider | null;
@@ -112,6 +113,7 @@ export function readCustomerDeliveryDetail(value: unknown): CustomerDeliveryDeta
     dropoffLongitude: dropoffPoint.longitude,
     parcelDescription,
     createdAt: typeof value.createdAt === 'string' && value.createdAt.trim() ? value.createdAt : null,
+    completedAt: readInstant(value.completedAt),
     riderLocation: keepsRiderLocation(value.status) ? readRiderPoint(value.riderLocation) : null,
     pickupApproach: keepsRiderLocation(value.status) ? readPickupApproach(value.pickupApproach) : null,
     rider: readAssignedRider(value.rider),

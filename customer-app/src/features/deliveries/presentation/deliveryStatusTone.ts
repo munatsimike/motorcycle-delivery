@@ -1,3 +1,4 @@
+import type { Palette } from '../../../theme';
 import type { DeliveryStatus } from '../domain/deliveryStatus';
 
 export type StatusTone = {
@@ -5,12 +6,9 @@ export type StatusTone = {
   color: string;
 };
 
-const OFFER_TONE: StatusTone = { background: '#FFF3D6', color: '#A66300' };
-
-const STATUS_TONES: Record<DeliveryStatus, StatusTone> = {
+const STATUS_TONES: Record<Exclude<DeliveryStatus, 'NO_RIDER_FOUND'>, StatusTone> = {
   CREATED: { background: '#EEF2F6', color: '#475569' },
   SEARCHING: { background: '#EEF2F6', color: '#475569' },
-  NO_RIDER_FOUND: { background: '#FDECEC', color: '#C0392B' },
   ASSIGNED: { background: '#E9F8EF', color: '#087A4A' },
   ARRIVED_AT_PICKUP: { background: '#E9F8EF', color: '#087A4A' },
   PICKED_UP: { background: '#E9F8EF', color: '#087A4A' },
@@ -25,6 +23,12 @@ const STATUS_TONES: Record<DeliveryStatus, StatusTone> = {
   FAILED: { background: '#FDECEC', color: '#D92D20' },
 };
 
-export function deliveryStatusTone(status: DeliveryStatus, offersReceived = false): StatusTone {
-  return offersReceived ? OFFER_TONE : STATUS_TONES[status];
+export function deliveryStatusTone(status: DeliveryStatus, colors: Palette, offersReceived = false): StatusTone {
+  if (offersReceived) {
+    return { background: colors.offerSurface, color: colors.offer };
+  }
+  if (status === 'NO_RIDER_FOUND') {
+    return { background: colors.noRiderSurface, color: colors.noRider };
+  }
+  return STATUS_TONES[status];
 }

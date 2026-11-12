@@ -7,6 +7,7 @@ import android.view.View
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
+import com.riders.rider.core.design.LocalAppDark
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -224,11 +225,12 @@ private fun DynamicPreviewMap(
     }
     val styles = remember(context) { RiderMapStyles.load(context) }
     val theme = remember(context) { RiderMapThemeStore.read(context) }
+    val darkMap = LocalAppDark.current
     AndroidView(
         modifier = modifier,
         factory = { mapView },
         update = { view ->
-            val key = points.joinToString(";") { "${it.latitude},${it.longitude}" }
+            val key = darkMap.toString() + ":" + points.joinToString(";") { "${it.latitude},${it.longitude}" }
             if (view.tag == key) {
                 return@AndroidView
             }
@@ -241,7 +243,7 @@ private fun DynamicPreviewMap(
                         isMyLocationButtonEnabled = false
                         isMapToolbarEnabled = false
                     }
-                    runCatching { styles.optionsFor(theme)?.let { map.setMapStyle(it) } }
+                    runCatching { styles.optionsFor(theme, darkMap)?.let { map.setMapStyle(it) } }
                     map.clear()
                     runCatching { placePreviewMarkers(map, context, pickup, dropoff) }
                 }.onFailure {

@@ -1,9 +1,10 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode, useMemo } from 'react';
 import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
 
 import ErrorMessage from '../../../../components/ErrorMessage';
-import { colors, radius, spacing, typography } from '../../../../theme';
+import type { Palette } from '../../../../theme';
+import { radius, spacing, typography, useAppearance } from '../../../../theme';
 import CollectedRouteMap from './CollectedRouteMap';
 import DeliveryDetailFrame from './DeliveryDetailFrame';
 import type { CustomerDeliveryDetail } from '../../domain/customerDeliveryDetail';
@@ -40,6 +41,8 @@ export default function DeliveryOutcome({
   accessToken = null,
   onBack,
 }: DeliveryOutcomeProps) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const rider = showsOutcomeRider(delivery.status) ? delivery.rider : null;
   const inTransit = deliveryOutcomeTitle(delivery.status) === 'In transit';
   const delivered = delivery.status === 'DELIVERED';
@@ -47,7 +50,7 @@ export default function DeliveryOutcome({
   const route = collectedRoute(delivery);
   const phone = rider?.phone ?? null;
   const cancelled = delivery.status === 'CANCELLED';
-  const statusTone = deliveryStatusTone(delivery.status);
+  const statusTone = deliveryStatusTone(delivery.status, colors);
   function callRider() {
     const url = riderDialUrl(phone);
     if (url) {
@@ -224,7 +227,8 @@ function outcomeIcon(status: DeliveryStatus): 'clock-outline' | 'check' | 'close
   return 'package-variant-closed';
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   sheet: {
     gap: spacing.md,
     paddingHorizontal: spacing.lg,
@@ -322,3 +326,4 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
 });
+}

@@ -1,10 +1,11 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode, useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, View, useWindowDimensions, type ScrollViewProps } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { bottomContentInset, colors, contentAboveSafeArea, radius, spacing } from '../../../../theme';
+import type { Palette } from '../../../../theme';
+import { bottomContentInset, contentAboveSafeArea, radius, spacing, useAppearance, useGoogleMapStyle } from '../../../../theme';
 import { TRACKING_MAP_HEIGHT } from '../../domain/trackingCamera';
 import { mapBelowStatusBar } from '../../../../components/maps/mapBelowStatusBar';
 import MapView, { PROVIDER_GOOGLE } from 'react-native-maps';
@@ -32,6 +33,9 @@ export default function DeliveryDetailFrame({
   hugSheet = false,
   onSheetHeight,
 }: DeliveryDetailFrameProps) {
+  const { colors } = useAppearance();
+  const mapStyle = useGoogleMapStyle();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
   const { height: screenHeight } = useWindowDimensions();
   const [offersContentHeight, setOffersContentHeight] = useState(0);
@@ -70,6 +74,8 @@ export default function DeliveryDetailFrame({
           {header ?? <MapView
         pointerEvents="none"
         provider={PROVIDER_GOOGLE}
+        customMapStyle={mapStyle}
+        userInterfaceStyle={mapStyle ? 'dark' : 'light'}
         style={mapBelowStatusBar(insets.top)}
         initialRegion={{ latitude: -17.8292, longitude: 31.0522, latitudeDelta: 0.07, longitudeDelta: 0.07 }}
         scrollEnabled={false}
@@ -166,6 +172,8 @@ export default function DeliveryDetailFrame({
           {header ?? <MapView
         pointerEvents="none"
         provider={PROVIDER_GOOGLE}
+        customMapStyle={mapStyle}
+        userInterfaceStyle={mapStyle ? 'dark' : 'light'}
         style={mapBelowStatusBar(insets.top)}
         initialRegion={{ latitude: -17.8292, longitude: 31.0522, latitudeDelta: 0.07, longitudeDelta: 0.07 }}
         scrollEnabled={false}
@@ -204,7 +212,8 @@ export default function DeliveryDetailFrame({
 
 const OFFERS_HANDLE_HEIGHT = 28;
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   topOutline: { position: 'absolute', top: 0, left: 0, right: 0, height: radius.xl, flexDirection: 'row', zIndex: 3 },
   topOutlineLeftCorner: { width: radius.xl, height: radius.xl, borderTopWidth: 3, borderLeftWidth: 3, borderColor: '#BCEBD3', borderTopLeftRadius: radius.xl },
   topOutlineLine: { flex: 1, height: 3, backgroundColor: '#BCEBD3' },
@@ -240,7 +249,7 @@ const styles = StyleSheet.create({
   offersInnerContent: { paddingTop: spacing.sm, paddingBottom: contentAboveSafeArea },
   screen: {
     flex: 1,
-    backgroundColor: '#F7FCF9',
+    backgroundColor: colors.canvas,
   },
   scroll: {
     flex: 1,
@@ -269,7 +278,7 @@ const styles = StyleSheet.create({
     width: 42,
     height: 42,
     borderRadius: 21,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.background,
     alignItems: 'center',
     justifyContent: 'center',
     elevation: 3,
@@ -290,3 +299,4 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
 });
+}

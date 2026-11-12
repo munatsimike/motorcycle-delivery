@@ -33,6 +33,7 @@ function delivery(status: CustomerDeliveryDetail['status'], id = 'delivery-1', p
     dropoffLongitude: 31.06,
     parcelDescription: 'Box',
     createdAt: null,
+    completedAt: null,
     riderLocation: null,
     pickupApproach: null,
     rider: null,
