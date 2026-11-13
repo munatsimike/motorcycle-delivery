@@ -26,11 +26,12 @@ type RequestOptions = {
   body?: unknown;
   headers?: HeadersInit;
   accessToken?: string;
+  timeoutMs?: number;
 };
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? REQUEST_TIMEOUT_MS);
   const headers = new Headers(options.headers);
   headers.set('Accept', headers.get('Accept') ?? 'application/json');
   if (options.accessToken) {
@@ -47,6 +48,8 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
       headers,
       body: hasBody ? JSON.stringify(options.body) : undefined,
       signal: controller.signal,
+      cache: 'no-store',
+      credentials: 'same-origin',
     });
     if (response.status === 204) {
       return undefined as T;

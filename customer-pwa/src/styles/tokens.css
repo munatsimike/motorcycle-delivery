@@ -11,6 +11,11 @@
   --border: #e1e8e3;
   --error: #d92d20;
   --error-surface: #fef2f2;
+  --sheet: #ffffff;
+  --list-background: #f3f8f5;
+  --list-card-border: #e1e9e4;
+  --map-canvas: #e7eeea;
+  --overlay: rgba(255, 255, 255, 0.92);
   --shadow: 0 8px 24px rgba(23, 33, 29, 0.08);
   --radius-md: 12px;
   --radius-lg: 14px;
@@ -28,5 +33,23 @@
   --body: 1rem;
   --caption: 0.875rem;
   --button: 1.0625rem;
-  --max-width: 40rem;
+  --max-width: 45rem;
+}
+
+[data-theme="dark"] {
+  --primary-light: #16352a;
+  --background: #101614;
+  --canvas: #101614;
+  --surface: #1a2420;
+  --sheet: #17211d;
+  --text: #f3f7f5;
+  --text-secondary: #9aaba3;
+  --border: #2c3a34;
+  --error: #f97066;
+  --error-surface: #3b1512;
+  --shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  --list-background: #141c19;
+  --list-card-border: #2c3a34;
+  --map-canvas: #101614;
+  --overlay: rgba(16, 22, 20, 0.92);
 }

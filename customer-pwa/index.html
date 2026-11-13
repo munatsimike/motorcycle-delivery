@@ -2,8 +2,21 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#169B62" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Riders Delivery" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <script>
+      try {
+        var saved = localStorage.getItem('riders.customer.appearance');
+        var systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        var scheme = saved === 'dark' || (saved !== 'light' && systemDark) ? 'dark' : 'light';
+        document.documentElement.dataset.theme = scheme;
+        document.documentElement.style.colorScheme = scheme;
+      } catch (error) {}
+    </script>
     <meta name="description" content="Book motorcycle deliveries with Riders." />
     <link rel="icon" type="image/png" href="/favicon.png" />
     <title>Riders Delivery</title>
