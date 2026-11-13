@@ -1,0 +1,16 @@
+{
+  "rewrites": [
+    {
+      "source": "/auth/:path*",
+      "destination": "https://motorcycle-delivery-production.up.railway.app/auth/:path*"
+    },
+    {
+      "source": "/customers/:path*",
+      "destination": "https://motorcycle-delivery-production.up.railway.app/customers/:path*"
+    },
+    {
+      "source": "/((?!auth(?:/|$)|customers(?:/|$)).*)",
+      "destination": "/index.html"
+    }
+  ]
+}
