@@ -78,6 +78,7 @@ function ServiceBadge({ serviceClass }: { serviceClass: 'EXPRESS' | 'FLEXIBLE' }
   const urgent = serviceClass === 'EXPRESS';
   return (
     <span className="delivery-class">
+      {urgent ? <FlashIcon /> : <MessageIcon />}
       {urgent ? 'Urgent' : 'Flexible'}
     </span>
   );
@@ -95,7 +96,19 @@ function ContentIcon({ kind }: { kind: 'parcel' | 'document' | 'food' }) {
     );
   }
   return (
-    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h16l-1.2 11.2A2 2 0 0 1 16.8 21H7.2a2 2 0 0 1-2-1.8L4 8Zm3.2-3h9.6l.8 3H6.4l.8-3Z" /></svg>
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 2 7v10l10 5 10-5V7L12 2Zm0 2.2 7.2 3.8L12 11.8 4.8 8 12 4.2ZM4 9.4l7 3.6v7.1l-7-3.6V9.4Zm9 10.7v-7.1l7-3.6v7.1l-7 3.6Z" /></svg>
+  );
+}
+
+function MessageIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 2H4a2 2 0 0 0-2 2v18l4-4h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2Zm0 14H6l-2 2V4h16v12ZM6 12h12v2H6v-2Zm0-3h12v2H6V9Zm0-3h12v2H6V6Z" /></svg>
+  );
+}
+
+function FlashIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11.5 20 16.4 10.3H13V4L8.5 13.7h3V20M15 2H9v2h2V2h4m2 0v2h-2V2h2M7 2v2H5V2h2M7 6V4H5v2h2M5 8V6H3v2h2M5 10V8H3v2h2M7 12v-2H5v2h2M9 14v-2H7v2h2M11 16v-2H9v2h2M13 18v-2h-2v2h2M15 20v-2h-2v2h2M17 22v-2h-2v2h2M19 10V8h-2v2h2M17 6V4h2v2h-2M17 8V6h2v2h-2Z" /></svg>
   );
 }
 

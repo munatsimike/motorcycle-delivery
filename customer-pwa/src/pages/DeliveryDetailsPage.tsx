@@ -224,6 +224,10 @@ export function DeliveryDetailsPage() {
   const actions = deliveryActions(delivery, now);
   const mapView = trackingMapView(delivery, now);
   const live = mapView.kind === 'live';
+  const showsMap = showsCompletedRoute(delivery)
+    || showsDeliveredDestination(delivery)
+    || (screen === 'offers' && delivery.pickupLatitude !== null && delivery.pickupLongitude !== null)
+    || (screen !== 'outcome' && mapView.kind !== 'hidden');
   const approach = live ? delivery.pickupApproach : null;
   const headline = trackingHeadline(delivery.status, approach?.metres);
   const subtitle = trackingSubtitle(headline, delivery.dropoffAddress);
@@ -253,7 +257,7 @@ export function DeliveryDetailsPage() {
   }
 
   return (
-    <div className={screen === 'tracking' ? 'track track-live' : 'track'}>
+    <div className={screen === 'tracking' ? 'track track-live' : showsMap ? 'track' : 'track track-plain'}>
       <Link className="fullscreen-back" to="/deliveries">Back to deliveries</Link>
       {showsCompletedRoute(delivery) ? (
         <TrackingMap

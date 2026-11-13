@@ -62,7 +62,7 @@ function PackageIcon({ filled }: { filled: boolean }) {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       {filled ? (
-        <path d="M12 2.5 3.5 7v10L12 21.5 20.5 17V7L12 2.5Zm0 2.2 6.2 3.3L12 11.3 5.8 8 12 4.7ZM5 9.6l6 3.2v6.5l-6-3.2V9.6Zm8 9.7v-6.5l6-3.2v6.5l-6 3.2Z" />
+        <path d="M12 2.2 3.4 7.05v9.9L12 21.8l8.6-4.85v-9.9L12 2.2Z" />
       ) : (
         <path d="M12 3.2 4.2 7.2v9.6L12 20.8l7.8-4V7.2L12 3.2Zm0 1.7 5.8 3-5.8 3-5.8-3 5.8-3ZM5.7 9.4l5.3 2.7v6.2l-5.3-2.7V9.4Zm7.3 8.9v-6.2l5.3-2.7v6.2l-5.3 2.7Z" />
       )}

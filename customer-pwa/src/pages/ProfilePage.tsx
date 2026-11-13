@@ -133,7 +133,14 @@ export function ProfilePage() {
     <main id="main" className="profile-screen">
       <div className={`profile-wash ${scheme === 'dark' ? 'is-dark' : ''}`} aria-hidden="true" />
       <div className="profile-sheet">
-        <TopSpinner active={isLoading} label="Loading your profile" />
+        {isLoading && !account ? (
+          <div className="profile-loading">
+            <TopSpinner active label="Loading profile" />
+            <p aria-hidden="true">Loading profile</p>
+          </div>
+        ) : (
+          <TopSpinner active={isLoading} label="Loading your profile" />
+        )}
         {account ? (
           <>
             <div className="profile-identity">
@@ -177,7 +184,7 @@ export function ProfilePage() {
               ))}
             </div>
           </>
-        ) : <h1>Profile</h1>}
+        ) : isLoading ? null : <h1>Profile</h1>}
         {error ? <ErrorMessage>{error}</ErrorMessage> : null}
         {photoError ? <ErrorMessage>{photoError}</ErrorMessage> : null}
         <button type="button" className="profile-logout" disabled={isSigningOut} onClick={() => { void handleSignOut(); }}>

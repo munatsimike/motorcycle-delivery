@@ -400,14 +400,12 @@ export function BookPage() {
     setStep(previousBookingStep(step));
   }
 
-  if (mode !== 'v2') {
+  if (mode === 'unavailable' || (mode === 'unknown' && !accountLoading)) {
     return (
       <section className="book">
         <div className="book-scroll">
           <div className="book-column">
-            {mode === 'unknown' && accountLoading ? <Loading label="Loading your profile" /> : (
-              <ErrorMessage>{accountError ?? 'Express and Flexible booking is unavailable right now.'}</ErrorMessage>
-            )}
+            <ErrorMessage>{accountError ?? 'Express and Flexible booking is unavailable right now.'}</ErrorMessage>
           </div>
         </div>
       </section>
@@ -418,7 +416,11 @@ export function BookPage() {
   return (
     <section className="book">
       <header className="book-header">
-        <button type="button" className="book-back" aria-label="Back" disabled={busy !== null} onClick={goBack}>Back</button>
+        <button type="button" className="book-back" aria-label="Back" disabled={busy !== null} onClick={goBack}>
+          <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" fill="currentColor" />
+          </svg>
+        </button>
         <h1>{bookingStepTitle(step)}</h1>
       </header>
       <div className="book-scroll" style={{ paddingBottom: `calc(2rem + env(safe-area-inset-bottom) + ${keyboardInset}px)` }}>

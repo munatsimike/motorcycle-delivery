@@ -2,7 +2,6 @@ import { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import parcelBox from '../assets/parcel-box.png';
 import { ErrorMessage } from '../components/ErrorMessage';
-import { TopSpinner } from '../components/TopSpinner';
 import { useSession } from '../auth/sessionContext';
 import { DeliveryCard } from '../deliveries/DeliveryCard';
 import { searchForRider } from '../deliveries/api';
@@ -92,7 +91,6 @@ export function DeliveriesPage() {
           </button>
         </div>
       </div>
-      <TopSpinner active={(selected.isLoading || selected.isRefreshing) && !selected.isLoadingMore} label="Loading deliveries" />
       <div
         className="deliveries-scroll"
         onTouchStart={(event) => {
