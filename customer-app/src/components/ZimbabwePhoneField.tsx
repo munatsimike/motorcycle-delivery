@@ -1,6 +1,8 @@
+import { useMemo } from 'react';
 import { Image, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { colors, radius, spacing, typography } from '../theme';
+import type { Palette } from '../theme';
+import { inputErrorStyle, radius, spacing, typography, useAppearance } from '../theme';
 import { useInputFocus } from './useInputFocus';
 
 type ZimbabwePhoneFieldProps = {
@@ -8,22 +10,26 @@ type ZimbabwePhoneFieldProps = {
   value: string;
   onChangeText: (value: string) => void;
   editable?: boolean;
+  invalid?: boolean;
   countryCode?: '+263' | '+31';
 };
 
 export default function ZimbabwePhoneField({
-  label = 'Mobile number',
+  label = 'WhatsApp number',
   value,
   onChangeText,
   editable = true,
+  invalid = false,
   countryCode = '+263',
 }: ZimbabwePhoneFieldProps) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const focus = useInputFocus();
 
   return (
-    <>
+    <View>
       <Text style={styles.label}>{label}</Text>
-      <View style={[styles.inputContainer, focus.style]}>
+      <View style={[styles.inputContainer, focus.style, invalid ? inputErrorStyle(colors.error) : null]}>
         <View style={styles.countryCode}>
           {countryCode === '+263' ? (
             <Image
@@ -50,16 +56,17 @@ export default function ZimbabwePhoneField({
           onBlur={focus.onBlur}
         />
       </View>
-    </>
+    </View>
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   label: {
     fontSize: typography.caption,
     fontWeight: '700',
     color: colors.text,
-    marginBottom: spacing.sm,
+    marginBottom: spacing.xs,
   },
   inputContainer: {
     flexDirection: 'row',
@@ -100,3 +107,4 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
   },
 });
+}

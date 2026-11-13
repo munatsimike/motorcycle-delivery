@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 
 import { customerAuthRepository } from '../../data/repositories/CustomerAuthApiRepository';
-import { requestRegistrationCode } from '../../domain/usecases/requestRegistrationCode';
+import { requestCreateAccountCode } from '../../domain/customerAuthJourney';
 import { errorMessage } from '../errorMessage';
 
 export function useSignUp() {
@@ -9,7 +9,7 @@ export function useSignUp() {
   const [error, setError] = useState<string | null>(null);
   const inFlight = useRef(false);
 
-  async function requestCode(phone: string): Promise<string | null> {
+  async function startWhatsAppRegistration(phone: string): Promise<string | null> {
     if (inFlight.current) {
       return null;
     }
@@ -17,7 +17,7 @@ export function useSignUp() {
     setIsLoading(true);
     setError(null);
     try {
-      return await requestRegistrationCode(customerAuthRepository, phone);
+      return await requestCreateAccountCode(customerAuthRepository, phone);
     } catch (caught) {
       setError(errorMessage(caught, 'Registration could not be started.'));
       return null;
@@ -27,5 +27,5 @@ export function useSignUp() {
     }
   }
 
-  return { isLoading, error, requestCode };
+  return { isLoading, error, startWhatsAppRegistration };
 }

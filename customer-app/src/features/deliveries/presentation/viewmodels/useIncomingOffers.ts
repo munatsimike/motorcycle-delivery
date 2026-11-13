@@ -1,0 +1,220 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { AppState } from 'react-native';
+import { useIsFocused } from '@react-navigation/native';
+
+import { errorMessage } from '../../../auth/presentation/errorMessage';
+import { acceptanceKeys, createAcceptanceKey } from '../../data/acceptanceKeyStore';
+import { customerDeliveryRepository } from '../../data/CustomerDeliveryApiRepository';
+import {
+  bidCanAccept,
+  bidsAfterFailure,
+  createAcceptanceGate,
+  duplicateAcceptanceNotice,
+  type BidAcceptance,
+  type CustomerBid,
+} from '../../domain/customerBids';
+import type { CustomerDeliveryDetail } from '../../domain/customerDeliveryDetail';
+import { TRACKING_POLL_MS } from '../../domain/deliveryTracking';
+import { deliveryAwaitsRiderOffers, mergeIncomingOffers, offersMissingSince } from '../../domain/riderOffers';
+import { acceptCustomerBid } from '../../domain/usecases/acceptCustomerBid';
+
+/** Follow-up while an open offer still has no stored rider fix. The first request is immediate. */
+const OFFER_MAP_POINT_POLL_MS = 2_000;
+
+export function useIncomingOffers(
+  accessToken: string | null,
+  delivery: CustomerDeliveryDetail | null,
+  onAccepted: (acceptance: BidAcceptance, bid: CustomerBid) => void,
+  deliveryId: string,
+) {
+  const focused = useIsFocused();
+  const [offers, setOffers] = useState<CustomerBid[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [unavailableNotice, setUnavailableNotice] = useState<string | null>(null);
+  const [acceptingId, setAcceptingId] = useState<string | null>(null);
+  const [chosen, setChosen] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [listen, setListen] = useState(true);
+  const [appActive, setAppActive] = useState(AppState.currentState === 'active');
+  const request = useRef(0);
+  const seen = useRef<string[]>([]);
+  const dismissedIds = useRef(new Set<string>());
+  const gate = useRef(createAcceptanceGate());
+  const heldError = useRef<string | null>(null);
+  const offersRef = useRef(offers);
+  const deliveryRef = useRef(delivery);
+  const chosenRef = useRef(false);
+  const awaiting = deliveryAwaitsRiderOffers(delivery);
+  const listenForOffers = delivery === null || awaiting;
+  const waitingForRiderPoint = offers.some((bid) => bid.status === 'OPEN' && bid.mapPoint == null);
+  offersRef.current = offers;
+  deliveryRef.current = delivery;
+  chosenRef.current = chosen;
+
+  useEffect(() => {
+    request.current += 1;
+    seen.current = [];
+    dismissedIds.current = new Set();
+    heldError.current = null;
+    setOffers([]);
+    setError(null);
+    setUnavailableNotice(null);
+    setChosen(false);
+    setLoaded(false);
+    setRefreshing(false);
+    setListen(true);
+  }, [deliveryId]);
+
+  useEffect(() => {
+    if (!awaiting) {
+      setChosen(false);
+    }
+  }, [awaiting]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      setAppActive(state === 'active');
+    });
+    return () => subscription.remove();
+  }, []);
+
+  const load = useCallback(async () => {
+    if (!accessToken || !deliveryId || chosenRef.current) {
+      return;
+    }
+    const currentDelivery = deliveryRef.current;
+    if (currentDelivery && !deliveryAwaitsRiderOffers(currentDelivery)) {
+      return;
+    }
+    const current = request.current + 1;
+    request.current = current;
+    try {
+      const next = await customerDeliveryRepository.listBids(accessToken, deliveryId);
+      if (request.current !== current) {
+        return;
+      }
+      const open = next.filter((bid) => bid.deliveryId === deliveryId && bid.status === 'OPEN');
+      for (const id of [...dismissedIds.current]) {
+        if (!open.some((bid) => bid.id === id)) {
+          dismissedIds.current.delete(id);
+        }
+      }
+      const visible = open.filter((bid) => !dismissedIds.current.has(bid.id));
+      const openIds = visible.map((bid) => bid.id);
+      if (offersMissingSince(seen.current, openIds)) {
+        setUnavailableNotice('An offer is no longer available.');
+      }
+      seen.current = openIds;
+      setOffers((currentOffers) => mergeIncomingOffers(currentOffers, visible, dismissedIds.current));
+      setError(heldError.current);
+      setLoaded(true);
+    } catch (caught: unknown) {
+      if (request.current !== current) {
+        return;
+      }
+      const message = errorMessage(caught, 'Offers are unavailable.');
+      if (/bidding is not available/i.test(message)) {
+        setListen(false);
+        heldError.current = null;
+        setError(null);
+        setLoaded(true);
+        return;
+      }
+      setOffers((currentOffers) => bidsAfterFailure(currentOffers));
+      setError(message);
+      setLoaded(true);
+    }
+  }, [accessToken, deliveryId]);
+
+  useEffect(() => {
+    if (!focused || !appActive || !listenForOffers || !listen || chosen) {
+      return;
+    }
+    void load();
+    const timer = setInterval(() => {
+      void load();
+    }, waitingForRiderPoint ? OFFER_MAP_POINT_POLL_MS : TRACKING_POLL_MS);
+    return () => clearInterval(timer);
+  }, [appActive, chosen, focused, listen, listenForOffers, load, waitingForRiderPoint]);
+
+  const refresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await load();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [load]);
+
+  const dismiss = useCallback(async (bid: CustomerBid) => {
+    if (!accessToken || !deliveryId) {
+      return;
+    }
+    dismissedIds.current.add(bid.id);
+    seen.current = seen.current.filter((id) => id !== bid.id);
+    setOffers((currentOffers) => currentOffers.filter((item) => item.id !== bid.id));
+    try {
+      await customerDeliveryRepository.dismissBid(accessToken, deliveryId, bid.id);
+    } catch (caught: unknown) {
+      dismissedIds.current.delete(bid.id);
+      const message = errorMessage(caught, 'This offer could not be declined.');
+      heldError.current = message;
+      setError(message);
+      void load();
+    }
+  }, [accessToken, deliveryId, load]);
+
+  const choose = useCallback(async (bid: CustomerBid) => {
+    const currentDelivery = deliveryRef.current;
+    const currentOffer = offersRef.current.find((item) => item.id === bid.id);
+    if (!currentDelivery || !currentOffer || !bidCanAccept(currentOffer) || !deliveryAwaitsRiderOffers(currentDelivery)) {
+      heldError.current = 'This offer is no longer available.';
+      setError(heldError.current);
+      return;
+    }
+    const busyNotice = duplicateAcceptanceNotice(gate.current.begin());
+    if (busyNotice) {
+      heldError.current = busyNotice;
+      setError(busyNotice);
+      return;
+    }
+    setAcceptingId(currentOffer.id);
+    heldError.current = null;
+    setError(null);
+    try {
+      const accepted = await acceptCustomerBid(
+        customerDeliveryRepository,
+        acceptanceKeys,
+        accessToken,
+        currentDelivery.id,
+        currentOffer.id,
+        createAcceptanceKey,
+        currentOffer.riderName,
+      );
+      setChosen(true);
+      onAccepted(accepted, currentOffer);
+    } catch (caught: unknown) {
+      const message = errorMessage(caught, 'This offer could not be accepted.');
+      heldError.current = message;
+      setError(message);
+      void load();
+    } finally {
+      gate.current.end();
+      setAcceptingId(null);
+    }
+  }, [accessToken, load, onAccepted]);
+
+  return {
+    offers,
+    error,
+    unavailableNotice,
+    acceptingId,
+    chosen,
+    loaded,
+    refreshing,
+    refresh,
+    choose,
+    dismiss,
+  };
+}

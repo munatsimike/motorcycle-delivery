@@ -1,5 +1,8 @@
-import { deliveryGroup, type DeliveryStatus } from './deliveryStatus';
 import type { CustomerDeliveryDetail } from './customerDeliveryDetail';
+import { shouldPollDelivery } from './marketplaceTracking';
+import { deliveryGroup, type DeliveryStatus } from './deliveryStatus';
+
+export const TRACKING_POLL_MS = 8_000;
 
 export type TrackingClock = {
   schedule(callback: () => void, delayMs: number): void;
@@ -10,6 +13,7 @@ export type TrackingSnapshot = {
   delivery: CustomerDeliveryDetail | null;
   error: string | null;
   isLoading: boolean;
+  isRefreshing: boolean;
 };
 
 type TrackerOptions = {
@@ -31,14 +35,16 @@ export function createDeliveryTracker(options: TrackerOptions) {
   let delivery: CustomerDeliveryDetail | null = null;
   let error: string | null = null;
   let isLoading = false;
+  let isRefreshing = false;
   let inFlight = false;
+  let manualPending = false;
   let authFailed = false;
   let disposed = false;
   let generation = 0;
   let published = '';
 
   function snapshot(): TrackingSnapshot {
-    return { delivery, error, isLoading };
+    return { delivery, error, isLoading, isRefreshing };
   }
 
   function publish() {
@@ -56,14 +62,30 @@ export function createDeliveryTracker(options: TrackerOptions) {
 
   function arm() {
     options.clock.clear();
+    if (!watching() || !shouldPollDelivery(delivery)) {
+      return;
+    }
+    options.clock.schedule(() => {
+      void refresh(false);
+    }, TRACKING_POLL_MS);
   }
 
   async function refresh(manual: boolean) {
-    if (disposed || inFlight) {
+    if (disposed) {
+      return;
+    }
+    if (inFlight) {
+      if (manual) {
+        manualPending = true;
+        isRefreshing = true;
+        publish();
+      }
       return;
     }
     if (manual) {
       authFailed = false;
+      manualPending = true;
+      isRefreshing = true;
     }
     inFlight = true;
     const current = generation + 1;
@@ -94,6 +116,10 @@ export function createDeliveryTracker(options: TrackerOptions) {
       if (current === generation) {
         inFlight = false;
         isLoading = false;
+        if (manualPending) {
+          isRefreshing = false;
+          manualPending = false;
+        }
         if (!disposed) {
           publish();
           arm();

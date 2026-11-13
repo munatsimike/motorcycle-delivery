@@ -1,38 +1,61 @@
-import { useEffect, useRef } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
+import { useEffect, useRef, useState, useMemo } from 'react';
+import { Animated, Easing, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import ErrorMessage from '../../../../components/ErrorMessage';
+import LoadingIndicator from '../../../../components/LoadingIndicator';
 import { useKeyboardLift } from '../../../../components/useKeyboardLift';
 import PrimaryButton from '../../../../components/PrimaryButton';
-import SecondaryButton from '../../../../components/SecondaryButton';
+import { bookingMode } from '../../../account/domain/customerAccount';
 import { useCustomerAccount } from '../../../account/presentation/viewmodels/useCustomerAccount';
 import { useSession } from '../../../auth/presentation/viewmodels/useSession';
 import type { RootStackParamList } from '../../../../navigation/types';
-import { colors, spacing } from '../../../../theme';
+import { bookingNavigationDelay, CONFIRM_MS } from '../../../../navigation/screenMotion';
+import type { Palette } from '../../../../theme';
+import { radius, spacing, typography, useAppearance } from '../../../../theme';
 import { customerDeliveryRepository } from '../../data/CustomerDeliveryApiRepository';
 import { selectedPlaceBias, usePlaceBias } from '../viewmodels/usePlaceBias';
 import { contactPhoneForField } from '../../domain/bookingDraft';
+import { clientAllowsCoordinate, decideAddressAutofill, MAX_PICKUP_ACCURACY_METRES, MAX_PICKUP_FIX_AGE_MS } from '../../domain/pickupLocation';
+import { expoPickupLocation } from '../../data/expoPickupLocation';
 import BookingProgress, { bookingStepTitle } from '../components/BookingProgress';
+import BookingStepMotion from '../components/BookingStepMotion';
 import BookingSummary from '../components/BookingSummary';
 import ParcelFields from '../components/ParcelFields';
 import StopFields from '../components/StopFields';
-import { useParcelBooking } from '../viewmodels/useParcelBooking';
+import { useParcelBooking, type BookingResult, type BookingStep } from '../viewmodels/useParcelBooking';
+import { useReduceMotion } from '../../../../components/useMotion';
 
 type ParcelRequestProps = NativeStackScreenProps<RootStackParamList, 'ParcelRequest'>;
 
 export default function ParcelRequestScreen({ navigation }: ParcelRequestProps) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { accessToken } = useSession();
-  const { account } = useCustomerAccount(accessToken);
-  const booking = useParcelBooking(accessToken);
+  const { account, isLoading, error: accountError } = useCustomerAccount(accessToken);
+  const mode = bookingMode(account ? account.marketplaceEnabled : null);
+  const marketplace = mode === 'v2';
+  const booking = useParcelBooking(accessToken, marketplace);
   const keyboard = useKeyboardLift();
   const deviceBias = usePlaceBias();
   const allowLeave = useRef(false);
+  const leaving = useRef(false);
   const pickupPrefilled = useRef(false);
+  const addressEdited = useRef(false);
+  const [addressLookup, setAddressLookup] = useState<'searching' | 'needs-street' | null>('searching');
+  const scrollOffsets = useRef<Partial<Record<BookingStep, number>>>({});
+  const stepRef = useRef(booking.step);
+  const [booked, setBooked] = useState(false);
+  const reduceMotion = useReduceMotion();
+  stepRef.current = booking.step;
 
   useEffect(() => {
-    navigation.setOptions({ title: bookingStepTitle(booking.step) });
+    const title = bookingStepTitle(booking.step);
+    navigation.setOptions({
+      title,
+    });
   }, [booking.step, navigation]);
 
   useEffect(() => {
@@ -40,7 +63,7 @@ export default function ParcelRequestScreen({ navigation }: ParcelRequestProps) 
       if (allowLeave.current) {
         return;
       }
-      if (booking.busy) {
+      if (leaving.current || booking.busy) {
         event.preventDefault();
         return;
       }
@@ -62,13 +85,89 @@ export default function ParcelRequestScreen({ navigation }: ParcelRequestProps) 
     booking.prefillPickup({
       contactName: name ?? '',
       contactPhone: contactPhoneForField(account.phone),
-      address: account.address,
+      address: '',
     });
   }, [account, booking]);
 
-  function finish(deliveryId: string) {
+  const prefillDetectedPickup = useRef(booking.prefillDetectedPickup);
+  prefillDetectedPickup.current = booking.prefillDetectedPickup;
+
+  useEffect(() => {
+    let cancelled = false;
+    async function autofillPickup() {
+      let lookup: 'needs-street' | null = null;
+      try {
+        if (!(await expoPickupLocation.servicesEnabled())) return;
+        if ((await expoPickupLocation.permission()) !== 'granted') return;
+        const fix = await expoPickupLocation.readFix();
+        if (fix === 'timeout' || fix === 'invalid') return;
+        if (fix.accuracyMetres == null || fix.accuracyMetres > MAX_PICKUP_ACCURACY_METRES) return;
+        if (Date.now() - fix.capturedAt > MAX_PICKUP_FIX_AGE_MS) return;
+        if (!clientAllowsCoordinate(fix.latitude, fix.longitude, typeof __DEV__ !== 'undefined' && __DEV__)) return;
+        const found = await expoPickupLocation.reverseGeocode(fix.latitude, fix.longitude);
+        const decision = decideAddressAutofill(addressEdited.current, found);
+        if (cancelled || decision.status === 'ignore') return;
+        if (decision.status === 'needs-street') {
+          lookup = 'needs-street';
+          return;
+        }
+        prefillDetectedPickup.current({
+          address: decision.display,
+          resolvedAddress: decision.fullAddress,
+          latitude: String(fix.latitude),
+          longitude: String(fix.longitude),
+        });
+      } catch {
+        // Location is optional; manual pickup search remains available.
+      } finally {
+        if (!cancelled) {
+          setAddressLookup(addressEdited.current ? null : lookup);
+        }
+      }
+    }
+    void autofillPickup();
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    const y = scrollOffsets.current[booking.step] ?? 0;
+    const frame = requestAnimationFrame(() => {
+      keyboard.scrollRef.current?.scrollTo({ y, animated: false });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [booking.step, keyboard.scrollRef]);
+
+  function openTracking(result: BookingResult) {
     allowLeave.current = true;
-    navigation.replace('DeliveryTracking', { deliveryId });
+    navigation.replace('DeliveryTracking', { deliveryId: result.request.id });
+  }
+
+  function finish(result: BookingResult) {
+    if (leaving.current) {
+      return;
+    }
+    leaving.current = true;
+    const delay = bookingNavigationDelay(true, reduceMotion);
+    if (delay === 0) {
+      openTracking(result);
+      return;
+    }
+    setBooked(true);
+    setTimeout(() => openTracking(result), delay);
+  }
+
+  if (mode !== 'v2') {
+    return (
+      <SafeAreaView style={styles.screen} edges={['bottom']}>
+        <View style={styles.content}>
+          {mode === 'unknown' && isLoading ? <LoadingIndicator /> : (
+            <ErrorMessage message={mode === 'unknown'
+              ? (accountError ?? 'Account details are unavailable.')
+              : 'Express and Flexible booking is unavailable right now.'} />
+          )}
+        </View>
+      </SafeAreaView>
+    );
   }
 
   return (
@@ -81,11 +180,14 @@ export default function ParcelRequestScreen({ navigation }: ParcelRequestProps) 
         ]}
         keyboardShouldPersistTaps="handled"
         onScroll={(event) => {
-          keyboard.onScroll(event.nativeEvent.contentOffset.y);
+          const y = event.nativeEvent.contentOffset.y;
+          scrollOffsets.current[stepRef.current] = y;
+          keyboard.onScroll(y);
         }}
         scrollEventThrottle={16}
       >
         <BookingProgress step={booking.step} />
+        <BookingStepMotion step={booking.step}>
         {booking.step === 'pickup' ? (
           <StopFields
             stop={booking.draft.pickup}
@@ -94,6 +196,11 @@ export default function ParcelRequestScreen({ navigation }: ParcelRequestProps) 
             resolvePlace={(placeId, sessionToken) => resolvePlace(accessToken, placeId, sessionToken)}
             areaChoices={booking.areaChoices}
             showLandmark={false}
+            lookup={addressLookup}
+            onManualInput={() => {
+              addressEdited.current = true;
+              setAddressLookup(null);
+            }}
           />
         ) : null}
         {booking.step === 'destination' ? (
@@ -109,11 +216,10 @@ export default function ParcelRequestScreen({ navigation }: ParcelRequestProps) 
             resolvePlace={(placeId, sessionToken) => resolvePlace(accessToken, placeId, sessionToken)}
             areaChoices={booking.areaChoices}
             showLandmark={false}
-            showInstructions={false}
           />
         ) : null}
         {booking.step === 'parcel' ? (
-          <ParcelFields draft={booking.draft} onChange={booking.updateDraft} />
+          <ParcelFields draft={booking.draft} onChange={booking.updateDraft} marketplace={marketplace} />
         ) : null}
         {booking.step === 'review' || booking.step === 'confirm' ? (
           <BookingSummary
@@ -124,8 +230,10 @@ export default function ParcelRequestScreen({ navigation }: ParcelRequestProps) 
             onOfferChange={booking.updateOffer}
             offerEditable={booking.busy === null}
             onOfferFocus={keyboard.revealFocusedField}
+            marketplace={marketplace}
           />
         ) : null}
+        </BookingStepMotion>
         <ErrorMessage message={booking.error} />
         <View style={styles.actions}>
           {booking.step === 'review' || booking.step === 'confirm' ? (
@@ -133,8 +241,11 @@ export default function ParcelRequestScreen({ navigation }: ParcelRequestProps) 
               label="Confirm"
               loading={booking.busy === 'create'}
               loadingLabel="Booking"
-              disabled={Boolean(booking.busy) || !booking.quote}
+              disabled={Boolean(booking.busy) || booked || !booking.quote}
               onPress={() => {
+                if (leaving.current) {
+                  return;
+                }
                 void booking.confirm(finish);
               }}
             />
@@ -150,12 +261,45 @@ export default function ParcelRequestScreen({ navigation }: ParcelRequestProps) 
               }}
             />
           )}
-          {booking.step === 'pickup' ? null : (
-            <SecondaryButton label="Back" soft onPress={booking.goBack} disabled={Boolean(booking.busy)} />
-          )}
         </View>
       </ScrollView>
+      {booked ? <BookingConfirmed /> : null}
     </SafeAreaView>
+  );
+}
+
+function BookingConfirmed() {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  const opacity = useRef(new Animated.Value(0)).current;
+  const scale = useRef(new Animated.Value(0.86)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(opacity, {
+        toValue: 1,
+        duration: CONFIRM_MS,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(scale, {
+        toValue: 1,
+        duration: CONFIRM_MS,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [opacity, scale]);
+
+  return (
+    <View pointerEvents="none" style={styles.confirmed}>
+      <Animated.View style={[styles.confirmedCard, { opacity, transform: [{ scale }] }]}>
+        <View style={styles.confirmedMark}>
+          <MaterialDesignIcons name="check" color={colors.primaryDark} size={28} />
+        </View>
+        <Text style={styles.confirmedText}>Delivery booked</Text>
+      </Animated.View>
+    </View>
   );
 }
 
@@ -178,17 +322,41 @@ function resolvePlace(accessToken: string | null, placeId: string, sessionToken:
   return customerDeliveryRepository.resolvePlace(accessToken, placeId, sessionToken);
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.background,
   },
   content: {
-    paddingHorizontal: spacing.xl,
+    paddingHorizontal: spacing.lg,
     paddingTop: spacing.lg,
     paddingBottom: spacing.xxl,
   },
   actions: {
     gap: spacing.md,
   },
+  confirmed: {
+    ...StyleSheet.absoluteFill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.92)',
+  },
+  confirmedCard: {
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  confirmedMark: {
+    width: 64,
+    height: 64,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primaryLight,
+  },
+  confirmedText: {
+    fontSize: typography.heading,
+    color: colors.primaryDark,
+  },
 });
+}

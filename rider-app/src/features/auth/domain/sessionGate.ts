@@ -5,10 +5,34 @@ import type { RiderSessionStore } from './repositories/RiderSessionStore';
 
 const REFRESH_WINDOW_MS = 30_000;
 
+export const RIDER_SIGNED_IN_ELSEWHERE =
+  'Your account was signed in on another device. Please sign in again to continue.';
+
+let replacementNotice: string | null = null;
+
+export function deviceReplacementNotice(): string | null {
+  return replacementNotice;
+}
+
+export function clearDeviceReplacementNotice(): void {
+  replacementNotice = null;
+}
+
+function rememberDeviceReplacement(): void {
+  replacementNotice = RIDER_SIGNED_IN_ELSEWHERE;
+}
+
 export class SessionExpiredError extends Error {
-  constructor() {
-    super('Your session has ended. Sign in again.');
+  constructor(message = 'Your session has ended. Sign in again.') {
+    super(message);
     this.name = 'SessionExpiredError';
+  }
+}
+
+export class SessionReplacedError extends SessionExpiredError {
+  constructor() {
+    super(RIDER_SIGNED_IN_ELSEWHERE);
+    this.name = 'SessionReplacedError';
   }
 }
 
@@ -46,6 +70,11 @@ export class RiderSessionGate {
     try {
       return await request(session.accessToken);
     } catch (error) {
+      if (isDeviceReplacement(error)) {
+        rememberDeviceReplacement();
+        await this.store.clear();
+        throw new SessionReplacedError();
+      }
       if (!isUnauthorized(error)) {
         throw error;
       }
@@ -88,12 +117,21 @@ export class RiderSessionGate {
       await this.store.save(next);
       return next;
     } catch (error) {
+      if (isDeviceReplacement(error)) {
+        rememberDeviceReplacement();
+        await this.store.clear();
+        throw new SessionReplacedError();
+      }
       if (isUnauthorized(error)) {
         await this.store.clear();
       }
       throw error;
     }
   }
+}
+
+function isDeviceReplacement(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 401 && error.message === RIDER_SIGNED_IN_ELSEWHERE;
 }
 
 function accessIsUsable(session: AuthSession, now: number): boolean {

@@ -17,6 +17,7 @@ describe('class tariff drafts', () => {
       pricingModel: '',
       baseFee: '',
       pricePerKilometre: '',
+      includedKilometres: '',
       minimumTripMetres: '',
       maximumTripMetres: '',
       tiers: [],
@@ -85,6 +86,73 @@ describe('class tariff drafts', () => {
     });
   });
 
+  it('serializes included distance from kilometres and reloads it', () => {
+    const reviewed = reviewClassTariff({
+      ...emptyDraft(),
+      pricingModel: 'INCLUDED_DISTANCE',
+      baseFee: '5.00',
+      pricePerKilometre: '0.80',
+      includedKilometres: '5',
+      minimumTripMetres: '100',
+      maximumTripMetres: '100000',
+    });
+    expect(reviewed).toEqual({
+      body: {
+        pricingModel: 'INCLUDED_DISTANCE',
+        currency: 'USD',
+        baseFee: '5.00',
+        pricePerKilometre: '0.80',
+        includedMetres: 5000,
+        minimumTripMetres: 100,
+        maximumTripMetres: 100000,
+        windows: [],
+      },
+    });
+    expect(reviewClassTariff({
+      ...emptyDraft(),
+      pricingModel: 'INCLUDED_DISTANCE',
+      baseFee: '5.00',
+      pricePerKilometre: '0.80',
+      includedKilometres: '5.001',
+      minimumTripMetres: '100',
+      maximumTripMetres: '100000',
+    })).toMatchObject({ body: { includedMetres: 5001 } });
+    const loaded = draftFromTariff(tariff({
+      pricingModel: 'INCLUDED_DISTANCE',
+      baseFee: '5.00',
+      pricePerKilometre: '0.80',
+      includedMetres: 5000,
+      minimumTripMetres: 100,
+      maximumTripMetres: 100000,
+    }));
+    expect(loaded.includedKilometres).toBe('5');
+    expect(loaded.baseFee).toBe('5.00');
+    expect(loaded.pricePerKilometre).toBe('0.80');
+    const older = draftFromTariff(tariff({ pricingModel: 'FIXED', baseFee: '3.50', includedMetres: null }));
+    expect(older.includedKilometres).toBe('');
+    expect(older.baseFee).toBe('3.50');
+  });
+
+  it('rejects an included distance that is blank, finer than a metre, or outside the trip', () => {
+    const draft = {
+      ...emptyDraft(),
+      pricingModel: 'INCLUDED_DISTANCE' as const,
+      baseFee: '5.00',
+      pricePerKilometre: '0.80',
+      minimumTripMetres: '100',
+      maximumTripMetres: '100000',
+    };
+    expect(reviewClassTariff({ ...draft, includedKilometres: '' })).toEqual({
+      error: 'Enter the included distance in kilometres. Use up to three decimal places.',
+    });
+    expect(reviewClassTariff({ ...draft, includedKilometres: '5.0001' })).toEqual({
+      error: 'Enter the included distance in kilometres. Use up to three decimal places.',
+    });
+    expect(reviewClassTariff({ ...draft, includedKilometres: '0.05' })).toEqual({
+      error: 'Included distance must be inside the minimum and maximum trip.',
+    });
+  });
+
   it('rejects a tier list that does not reach the maximum', () => {
     expect(reviewClassTariff({
       ...emptyDraft(),
@@ -143,6 +211,7 @@ function tariff(patch: Partial<ClassTariff>): ClassTariff {
     currency: 'USD',
     baseFee: '1.00',
     pricePerKilometre: '0.00',
+    includedMetres: null,
     minimumTripMetres: 0,
     maximumTripMetres: 10000,
     isActive: true,

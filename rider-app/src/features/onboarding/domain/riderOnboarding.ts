@@ -40,8 +40,8 @@ const APPROVAL_LABELS: Record<RiderApprovalStatus, string> = {
 
 const AVAILABILITY_LABELS: Record<RiderAvailability, string> = {
   OFFLINE: 'Offline',
-  AVAILABLE: 'Available',
-  BUSY: 'On a delivery',
+  AVAILABLE: 'Online',
+  BUSY: 'Online',
 };
 
 export function readRiderOnboarding(value: unknown): RiderOnboarding {
@@ -106,7 +106,7 @@ function readinessMessage(onboarding: RiderOnboarding, availability: RiderAvaila
     return 'You need an active verified motorcycle before you can accept deliveries.';
   }
   if (availability === 'BUSY') {
-    return 'You are on a delivery. You cannot change availability until it is finished.';
+    return 'You are online. Your location is shared so customers nearby can find you. Delivery requests are not open in this version yet.';
   }
   if (availability !== 'AVAILABLE') {
     return 'Your account is approved. You are offline, so you cannot accept deliveries yet.';

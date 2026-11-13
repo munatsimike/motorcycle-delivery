@@ -1,10 +1,9 @@
 import { loadCustomerIdentity, saveCustomerIdentity } from '../../../deliveries/data/recentDeliveryStore';
 import { rebindCustomerIdentity } from '../../../../services/session/customerIdentity';
+import { REFRESH_WINDOW_MS } from '../../../../services/session/sessionAccess';
 import type { AuthSession } from '../auth.types';
 import type { CustomerAuthRepository } from '../repositories/CustomerAuthRepository';
 import type { CustomerSessionStore } from '../repositories/CustomerSessionStore';
-
-const REFRESH_WINDOW_MS = 30_000;
 
 export type SessionRestore =
   | { status: 'ready'; session: AuthSession }
@@ -16,6 +15,7 @@ export async function restoreSession(
   store: CustomerSessionStore,
   now = Date.now(),
   preloaded: AuthSession | null = null,
+  options: { requireLiveSession?: boolean } = {},
 ): Promise<SessionRestore> {
   const stored = preloaded ?? await store.load();
   if (!stored) {
@@ -30,7 +30,7 @@ export async function restoreSession(
 
   const accessExpiresAt = Date.parse(stored.accessTokenExpiresAt);
   const accessStillValid = Number.isFinite(accessExpiresAt) && accessExpiresAt - now > REFRESH_WINDOW_MS;
-  if (accessStillValid) {
+  if (accessStillValid && !options.requireLiveSession) {
     return { status: 'ready', session: stored };
   }
 

@@ -55,6 +55,7 @@ export type DeliveryQuote = {
   pricingVersion: number;
   currency: 'USD';
   suggestedPrice: string;
+  serviceClass: 'EXPRESS' | 'FLEXIBLE' | null;
 };
 
 export function readDeliveryQuote(value: unknown): DeliveryQuote {
@@ -70,19 +71,29 @@ export function readDeliveryQuote(value: unknown): DeliveryQuote {
   if (!isWholeNumber(value.distanceMeters) || !isWholeNumber(value.pricingVersion)) {
     throw new Error('The quote could not be read.');
   }
+  const serviceClass = readServiceClass(value.serviceClass);
+  if (serviceClass === undefined) {
+    throw new Error('The quote could not be read.');
+  }
   return {
     distanceMeters: value.distanceMeters,
     pricingVersion: value.pricingVersion,
     currency: 'USD',
     suggestedPrice: value.suggestedPrice,
+    serviceClass,
   };
+}
+
+export function quoteResultForRequest<T>(started: number, current: number, quote: T): T | null {
+  return started === current ? quote : null;
 }
 
 export function quotesMatch(shown: DeliveryQuote, fresh: DeliveryQuote): boolean {
   return shown.currency === fresh.currency
     && shown.suggestedPrice === fresh.suggestedPrice
     && shown.pricingVersion === fresh.pricingVersion
-    && shown.distanceMeters === fresh.distanceMeters;
+    && shown.distanceMeters === fresh.distanceMeters
+    && (shown.serviceClass ?? null) === (fresh.serviceClass ?? null);
 }
 
 export function canOfferQuotedPrice(offeredPrice: string): boolean {
@@ -100,6 +111,16 @@ function decimalSeparatorText(value: string): string {
     return `${compact.slice(0, lastComma).replace(/[.,]/g, '')}.${compact.slice(lastComma + 1)}`;
   }
   return compact.replace(/,/g, '');
+}
+
+function readServiceClass(value: unknown): 'EXPRESS' | 'FLEXIBLE' | null | undefined {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+  if (value === 'EXPRESS' || value === 'FLEXIBLE') {
+    return value;
+  }
+  return undefined;
 }
 
 function isWholeNumber(value: unknown): value is number {

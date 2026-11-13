@@ -4,10 +4,11 @@ import {
   appendDeliveries,
   customerDeliveryListPath,
   deliveryTrackingTarget,
+  riderAcceptedTrackingTarget,
   readCustomerDeliveryPage,
   replaceDeliveries,
 } from './customerDeliveryList';
-import { deliveriesInGroup } from './deliveryStatus';
+import { deliveriesInGroup, deliveryListStatuses, showsViewBids } from './deliveryStatus';
 
 const payload = {
   data: [
@@ -53,6 +54,14 @@ describe('customer delivery list', () => {
           createdAt: '2026-10-16T12:00:00.000Z',
           pickupAddress: '12 Samora Machel Avenue',
           dropoffAddress: '4 Jason Moyo Avenue',
+          serviceClass: null,
+          deliverBy: null,
+          currency: null,
+          suggestedPrice: null,
+          offeredPrice: null,
+          distanceMeters: null,
+          parcelDescription: null,
+          openBidCount: 0,
         },
         {
           id: 'delivery-2',
@@ -60,6 +69,14 @@ describe('customer delivery list', () => {
           createdAt: '2026-10-01T00:00:00.000Z',
           pickupAddress: 'Old pickup',
           dropoffAddress: 'Old drop-off',
+          serviceClass: null,
+          deliverBy: null,
+          currency: null,
+          suggestedPrice: null,
+          offeredPrice: null,
+          distanceMeters: null,
+          parcelDescription: null,
+          openBidCount: 0,
         },
       ],
     });
@@ -86,6 +103,37 @@ describe('customer delivery list', () => {
     expect(appended.map((delivery) => delivery.id)).toEqual(['delivery-1', 'delivery-2', 'delivery-3']);
   });
 
+  it('loads history from the server when the first mixed page is only active', () => {
+    const activePage = Array.from({ length: 20 }, (_, index) => ({
+      id: `active-${index}`,
+      status: 'CREATED' as const,
+      createdAt: '2026-10-31T12:00:00.000Z',
+      pickupAddress: 'Pickup',
+      dropoffAddress: 'Drop-off',
+    }));
+    expect(deliveriesInGroup(activePage, 'history')).toEqual([]);
+    const historyPath = customerDeliveryListPath(1, deliveryListStatuses('history'));
+    expect(historyPath).toBe(
+      '/customers/me/deliveries?page=1&limit=20&status=DELIVERED&status=CANCELLED&status=FAILED',
+    );
+    expect(customerDeliveryListPath(2, deliveryListStatuses('active'))).toContain('status=CREATED');
+    expect(customerDeliveryListPath(2, deliveryListStatuses('active'))).not.toContain('status=DELIVERED');
+    const older = readCustomerDeliveryPage({
+      data: [
+        {
+          id: 'delivery-old',
+          reference: 'delivery-old',
+          status: 'DELIVERED',
+          createdAt: '2026-09-01T00:00:00.000Z',
+          pickup: { address: 'Old pickup' },
+          dropoff: { address: 'Old drop-off' },
+        },
+      ],
+      pagination: { page: 1, limit: 20, total: 1, totalPages: 1 },
+    });
+    expect(deliveriesInGroup(older.deliveries, 'history').map((delivery) => delivery.id)).toEqual(['delivery-old']);
+  });
+
   it('asks only for the signed-in customer list', () => {
     expect(customerDeliveryListPath(2, ['CREATED', 'SEARCHING'])).toBe(
       '/customers/me/deliveries?page=2&limit=20&status=CREATED&status=SEARCHING',
@@ -97,8 +145,94 @@ describe('customer delivery list', () => {
     const page = readCustomerDeliveryPage(payload);
     expect(deliveryTrackingTarget(page.deliveries[0]!.id)).toEqual({
       screen: 'DeliveryTracking',
-      params: { deliveryId: 'delivery-1' },
+      params: { deliveryId: 'delivery-1', riderConfirmed: false },
     });
+    expect(riderAcceptedTrackingTarget(page.deliveries[0]!.id)).toEqual({
+      screen: 'DeliveryTracking',
+      params: { deliveryId: 'delivery-1', riderConfirmed: true },
+    });
+  });
+
+  it('keeps each delivery bid count and opens DeliveryTracking for view bids', () => {
+    const page = readCustomerDeliveryPage({
+      data: [
+        {
+          id: 'quiet',
+          reference: 'quiet',
+          status: 'CREATED',
+          createdAt: '2026-10-29T08:00:00.000Z',
+          serviceClass: 'FLEXIBLE',
+          deliverBy: '2026-10-29T18:00:00.000Z',
+          openBidCount: 0,
+          pickup: { address: 'Quiet pickup' },
+          dropoff: { address: 'Quiet drop-off' },
+        },
+        {
+          id: 'one-bid',
+          reference: 'one-bid',
+          status: 'CREATED',
+          createdAt: '2026-10-29T08:01:00.000Z',
+          serviceClass: 'EXPRESS',
+          deliverBy: '2026-10-29T18:00:00.000Z',
+          openBidCount: 1,
+          pickup: { address: 'One pickup' },
+          dropoff: { address: 'One drop-off' },
+        },
+        {
+          id: 'several',
+          reference: 'several',
+          status: 'CREATED',
+          createdAt: '2026-10-29T08:02:00.000Z',
+          serviceClass: 'FLEXIBLE',
+          deliverBy: '2026-10-29T18:00:00.000Z',
+          openBidCount: 3,
+          pickup: { address: 'Several pickup' },
+          dropoff: { address: 'Several drop-off' },
+        },
+        {
+          id: 'assigned',
+          reference: 'assigned',
+          status: 'RIDER_ASSIGNED',
+          createdAt: '2026-10-29T08:03:00.000Z',
+          serviceClass: 'EXPRESS',
+          deliverBy: '2026-10-29T18:00:00.000Z',
+          openBidCount: 2,
+          pickup: { address: 'Assigned pickup' },
+          dropoff: { address: 'Assigned drop-off' },
+        },
+      ],
+      pagination: { page: 1, limit: 20, total: 4, totalPages: 1 },
+    });
+    expect(page.deliveries.map((delivery) => [delivery.id, delivery.openBidCount, showsViewBids(delivery)])).toEqual([
+      ['quiet', 0, false],
+      ['one-bid', 1, true],
+      ['several', 3, true],
+      ['assigned', 2, false],
+    ]);
+    expect(deliveryTrackingTarget('one-bid')).toEqual({
+      screen: 'DeliveryTracking',
+      params: { deliveryId: 'one-bid', riderConfirmed: false },
+    });
+    expect(deliveryTrackingTarget('assigned')).toEqual({
+      screen: 'DeliveryTracking',
+      params: { deliveryId: 'assigned', riderConfirmed: false },
+    });
+  });
+
+  it('rejects a bid count that is not a whole number', () => {
+    expect(() => readCustomerDeliveryPage({
+      data: [{
+        id: 'bad-count',
+        reference: 'bad-count',
+        status: 'CREATED',
+        createdAt: '2026-10-29T08:00:00.000Z',
+        serviceClass: 'FLEXIBLE',
+        openBidCount: 1.5,
+        pickup: { address: 'Pickup' },
+        dropoff: { address: 'Drop-off' },
+      }],
+      pagination: { page: 1, limit: 20, total: 1, totalPages: 1 },
+    })).toThrow('Deliveries are unavailable.');
   });
 
   it('rejects an empty page that is not a list', () => {
@@ -117,5 +251,34 @@ describe('customer delivery list', () => {
       }],
       pagination: { page: 1, limit: 20, total: 1, totalPages: 1 },
     })).toThrow('Deliveries are unavailable.');
+  });
+
+  it('reads a V2 request without requiring a V1 price', () => {
+    const page = readCustomerDeliveryPage({
+      data: [{
+        id: 'delivery-v2',
+        reference: 'delivery-v2',
+        status: 'RIDER_ASSIGNED',
+        createdAt: '2026-10-24T09:00:00.000Z',
+        serviceClass: 'EXPRESS',
+        deliverBy: '2026-10-24T16:30:00.000Z',
+        currency: 'USD',
+        suggestedPrice: '8.00',
+        offeredPrice: '9.00',
+        pickup: { address: 'Pickup', contactPhone: '+263771234567' },
+        dropoff: { address: 'Drop-off' },
+        parcel: { description: ' Food ' },
+      }],
+      pagination: { page: 1, limit: 20, total: 1, totalPages: 1 },
+    });
+    expect(page.deliveries[0]).toMatchObject({
+      status: 'RIDER_ASSIGNED',
+      serviceClass: 'EXPRESS',
+      suggestedPrice: '8.00',
+      offeredPrice: '9.00',
+      parcelDescription: 'Food',
+    });
+    expect(JSON.stringify(page)).not.toContain('+263');
+    expect(deliveriesInGroup(page.deliveries, 'active').map((item) => item.id)).toEqual(['delivery-v2']);
   });
 });

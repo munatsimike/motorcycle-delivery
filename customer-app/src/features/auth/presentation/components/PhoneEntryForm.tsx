@@ -1,23 +1,26 @@
+import { useMemo } from 'react';
+import type { ReactNode } from 'react';
 import {
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { useHeaderHeight } from '@react-navigation/elements';
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
 import type { ComponentProps } from 'react';
 
 import BrandMark from '../../../../components/BrandMark';
+import { KeyboardFieldFocusContext, useKeyboardLift } from '../../../../components/useKeyboardLift';
 import ErrorMessage from '../../../../components/ErrorMessage';
 import PrimaryButton from '../../../../components/PrimaryButton';
+import SecondaryButton from '../../../../components/SecondaryButton';
 import ZimbabwePhoneField from '../../../../components/ZimbabwePhoneField';
 import { looksLikeDutchPhoneEntry } from '../../domain/normalizePhone';
-import { colors, spacing, typography } from '../../../../theme';
+import type { Palette } from '../../../../theme';
+import { useAppearance, spacing, typography } from '../../../../theme';
 
 type PhoneEntryFormProps = {
   title: string;
@@ -33,6 +36,9 @@ type PhoneEntryFormProps = {
   footerAction: string;
   onFooterPress: () => void;
   helperText?: string | null;
+  extra?: ReactNode;
+  secondaryLabel?: string;
+  onSecondary?: () => void;
 };
 
 export default function PhoneEntryForm({
@@ -48,20 +54,30 @@ export default function PhoneEntryForm({
   footerText,
   footerAction,
   onFooterPress,
-  helperText = 'Enter a Zimbabwe mobile number. We\'ll send a one-time SMS code.',
+  helperText = null,
+  extra,
+  secondaryLabel,
+  onSecondary,
 }: PhoneEntryFormProps) {
-  const headerHeight = useHeaderHeight();
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  const keyboard = useKeyboardLift();
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? headerHeight : 0}
-    >
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
-      >
+    <KeyboardFieldFocusContext.Provider value={keyboard.revealFocusedField}>
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <ScrollView
+          ref={keyboard.scrollRef}
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingBottom: keyboard.keyboardInset },
+          ]}
+          keyboardShouldPersistTaps="handled"
+          onScroll={(event) => {
+            keyboard.onScroll(event.nativeEvent.contentOffset.y);
+          }}
+          scrollEventThrottle={16}
+        >
         <View style={styles.content}>
           <BrandMark style={styles.logo} />
           <Text style={styles.title}>{title}</Text>
@@ -73,6 +89,7 @@ export default function PhoneEntryForm({
             countryCode={typeof __DEV__ === 'boolean' && __DEV__ && looksLikeDutchPhoneEntry(phone) ? '+31' : '+263'}
           />
           {helperText ? <Text style={styles.helperText}>{helperText}</Text> : null}
+          {extra}
           <ErrorMessage message={error} />
           <PrimaryButton
             label={buttonLabel}
@@ -81,6 +98,11 @@ export default function PhoneEntryForm({
             loading={isLoading}
             loadingLabel="Processing"
           />
+          {secondaryLabel && onSecondary ? (
+            <View style={styles.secondary}>
+              <SecondaryButton label={secondaryLabel} onPress={onSecondary} disabled={isLoading} />
+            </View>
+          ) : null}
           <View style={styles.footer}>
             <Text style={styles.footerText}>{footerText}</Text>
             <Pressable onPress={onFooterPress} disabled={isLoading}>
@@ -88,12 +110,14 @@ export default function PhoneEntryForm({
             </Pressable>
           </View>
         </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+        </ScrollView>
+      </SafeAreaView>
+    </KeyboardFieldFocusContext.Provider>
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
@@ -102,7 +126,7 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
   content: {
-    paddingHorizontal: spacing.xl,
+    paddingHorizontal: spacing.lg,
     paddingTop: spacing.lg,
     paddingBottom: spacing.xxl,
   },
@@ -110,8 +134,8 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xxxl,
   },
   title: {
-    fontSize: 30,
-    fontWeight: '800',
+    fontSize: typography.title,
+    fontWeight: '700',
     color: colors.text,
     marginBottom: spacing.md,
   },
@@ -120,6 +144,9 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     lineHeight: 24,
     marginBottom: spacing.xxl,
+  },
+  secondary: {
+    marginTop: spacing.md,
   },
   helperText: {
     fontSize: typography.small,
@@ -146,3 +173,4 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 });
+}

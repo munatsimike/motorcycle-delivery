@@ -1,11 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { adminApi, recordTopUp, type TopUpResult } from '../lib/client';
 import { label, when } from '../lib/labels';
 import { moneyValue, newTopUpKey, type TopUpDraft, type TopUpMethod } from '../lib/money';
-import type { RiderDetail } from '../lib/types';
-import { Dialog, ErrorNote, Loading, Status, SuccessNote, textOf } from '../ui';
+import type {
+  Page,
+  RiderActivityRow,
+  RiderApprovalAudit,
+  RiderDetail,
+  RiderLicenceReview,
+  RiderWalletSummary,
+  WalletTransaction,
+  WalletTransactionPage,
+} from '../lib/types';
+import { Dialog, Empty, ErrorNote, Loading, Pager, Status, SuccessNote, textOf } from '../ui';
 
 type Confirm =
   | { kind: 'licence-verify'; licenceNumber: string; licenceClass: string }
@@ -35,6 +44,39 @@ export function RiderPage() {
   const [received, setReceived] = useState(false);
   const [topUp, setTopUp] = useState<TopUpDraft | null>(null);
   const [topUpResult, setTopUpResult] = useState<TopUpResult | null>(null);
+  const [limitAmount, setLimitAmount] = useState('');
+  const [limitDraft, setLimitDraft] = useState<{ borrowingLimit: string | null } | null>(null);
+  const [activityPage, setActivityPage] = useState(1);
+  const [reviewPage, setReviewPage] = useState(1);
+  const [approvalPage, setApprovalPage] = useState(1);
+  const [ledgerCursors, setLedgerCursors] = useState<Array<string | null>>([null]);
+  const ledgerCursor = ledgerCursors[ledgerCursors.length - 1] ?? null;
+  const wallet = useQuery({
+    queryKey: ['rider-wallet', riderProfileId],
+    queryFn: () => adminApi.request<RiderWalletSummary>(`/admin/riders/${riderProfileId}/wallet`),
+    enabled: riderProfileId.length > 0,
+  });
+  const ledgerQuery = ledgerCursor ? `?limit=20&cursor=${encodeURIComponent(ledgerCursor)}` : '?limit=20';
+  const ledger = useQuery({
+    queryKey: ['rider-wallet-ledger', riderProfileId, ledgerCursor],
+    queryFn: () => adminApi.request<WalletTransactionPage>(`/admin/riders/${riderProfileId}/wallet/transactions${ledgerQuery}`),
+    enabled: riderProfileId.length > 0 && wallet.isSuccess,
+  });
+  const activity = useQuery({
+    queryKey: ['rider-activity', riderProfileId, activityPage],
+    queryFn: () => adminApi.request<Page<RiderActivityRow>>(`/admin/riders/${riderProfileId}/activity?page=${activityPage}&limit=20`),
+    enabled: riderProfileId.length > 0,
+  });
+  const reviews = useQuery({
+    queryKey: ['rider-licence-reviews', riderProfileId, reviewPage],
+    queryFn: () => adminApi.request<Page<RiderLicenceReview>>(`/admin/riders/${riderProfileId}/licence-reviews?page=${reviewPage}&limit=20`),
+    enabled: riderProfileId.length > 0,
+  });
+  const approvalAudits = useQuery({
+    queryKey: ['rider-approval-audits', riderProfileId, approvalPage],
+    queryFn: () => adminApi.request<Page<RiderApprovalAudit>>(`/admin/riders/${riderProfileId}/approval-audits?page=${approvalPage}&limit=20`),
+    enabled: riderProfileId.length > 0,
+  });
 
   const action = useMutation({
     mutationFn: async (next: Exclude<Confirm, null>) => {
@@ -63,6 +105,19 @@ export function RiderPage() {
       setSuccess('Saved.');
       setConfirm(null);
       await queryClient.invalidateQueries({ queryKey: ['rider', riderProfileId] });
+    },
+  });
+
+  const limit = useMutation({
+    mutationFn: (body: { borrowingLimit: string | null }) => adminApi.request<RiderWalletSummary>(`/admin/riders/${riderProfileId}/wallet/negative-limit`, {
+      method: 'PUT',
+      body,
+    }),
+    onSuccess: async (result) => {
+      setLimitDraft(null);
+      setLimitAmount('');
+      setSuccess('Negative wallet limit saved.');
+      queryClient.setQueryData(['rider-wallet', riderProfileId], result);
     },
   });
 
@@ -151,6 +206,7 @@ export function RiderPage() {
       </section>
       <section className="panel">
         <h2>Motorcycles</h2>
+        <p className="muted">Motorcycle documents and photographs are not stored. Review uses the registration, make, model, and colour.</p>
         {person.motorcycles.length === 0 ? <p className="note">No motorcycles are registered.</p> : (
           <ul className="cards" style={{ display: 'grid' }}>
             {person.motorcycles.map((bike) => (
@@ -173,6 +229,181 @@ export function RiderPage() {
             ))}
           </ul>
         )}
+      </section>
+      <HistoryPanel
+        title="Delivery and assignment history"
+        note="Accepted offers and later assignment states from existing delivery records. This page does not change delivery status."
+        loading={activity.isLoading}
+        error={activity.error}
+        empty={activity.data?.data.length === 0}
+        emptyText="No deliveries or offers are recorded for this rider."
+        pagination={activity.data?.pagination}
+        onPage={setActivityPage}
+      >
+        {activity.data && activity.data.data.length > 0 ? (
+          <table>
+            <thead>
+              <tr><th>When</th><th>Delivery</th><th>Assignment</th><th>Route</th><th>Accepted bid</th></tr>
+            </thead>
+            <tbody>
+              {activity.data.data.map((row) => (
+                <tr key={row.assignmentId}>
+                  <td>{when(row.createdAt)}</td>
+                  <td><Link to={`/deliveries/${row.deliveryId}`}>{label(row.deliveryStatus)}</Link></td>
+                  <td><Status value={row.assignmentStatus} /></td>
+                  <td>{row.pickupAddress} → {row.dropoffAddress}</td>
+                  <td>{row.acceptedBidAmount ? `${row.currency} ${row.acceptedBidAmount}` : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : null}
+      </HistoryPanel>
+      <HistoryPanel
+        title="Licence verification history"
+        note="Decisions already recorded for this rider. Licence images stay on the review form above and are not duplicated here."
+        loading={reviews.isLoading}
+        error={reviews.error}
+        empty={reviews.data?.data.length === 0}
+        emptyText="No licence verification decisions are recorded."
+        pagination={reviews.data?.pagination}
+        onPage={setReviewPage}
+      >
+        {reviews.data && reviews.data.data.length > 0 ? (
+          <table>
+            <thead>
+              <tr><th>When</th><th>Decision</th><th>Administrator</th><th>Details</th></tr>
+            </thead>
+            <tbody>
+              {reviews.data.data.map((row) => (
+                <tr key={row.id}>
+                  <td>{when(row.createdAt)}</td>
+                  <td><Status value={row.decision} /></td>
+                  <td>{row.reviewerId}</td>
+                  <td>
+                    {row.decision === 'VERIFY'
+                      ? `Number ${row.licenceNumber} · class ${row.licenceClass}`
+                      : row.rejectionReason}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : null}
+      </HistoryPanel>
+      <HistoryPanel
+        title="Approval history"
+        note="Approve and suspend actions for this rider. Passwords and session tokens are not stored."
+        loading={approvalAudits.isLoading}
+        error={approvalAudits.error}
+        empty={approvalAudits.data?.data.length === 0}
+        emptyText="No approval or suspension decisions are recorded."
+        pagination={approvalAudits.data?.pagination}
+        onPage={setApprovalPage}
+      >
+        {approvalAudits.data && approvalAudits.data.data.length > 0 ? (
+          <table>
+            <thead>
+              <tr><th>When</th><th>Action</th><th>Administrator</th><th>From</th><th>To</th></tr>
+            </thead>
+            <tbody>
+              {approvalAudits.data.data.map((row) => (
+                <tr key={row.id}>
+                  <td>{when(row.createdAt)}</td>
+                  <td><Status value={row.action} /></td>
+                  <td>{row.actorId}</td>
+                  <td>{label(row.previousApprovalStatus)}</td>
+                  <td>{label(row.newApprovalStatus)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : null}
+      </HistoryPanel>
+      <section className="panel">
+        <h2>Negative wallet limit</h2>
+        <p className="muted">Platform fees can be deducted while the balance is below zero. Saving a limit does not change the wallet balance or open reservations.</p>
+        {wallet.isLoading ? <Loading label="Loading the negative wallet limit" /> : null}
+        {wallet.error ? <ErrorNote>{textOf(wallet.error)}</ErrorNote> : null}
+        {wallet.data ? (
+          <div className="stack">
+            <p className={wallet.data.newDeliveriesRestricted ? 'error' : 'note'} role="status">
+              {wallet.data.newDeliveriesRestricted
+                ? 'Restricted from accepting new deliveries. The server reports the restriction and does not store a separate reason.'
+                : 'Not restricted from accepting new deliveries.'}
+            </p>
+            <div className="facts">
+              <div><span>Balance</span><b>{wallet.data.currency} {wallet.data.balance}</b></div>
+              <div><span>Negative borrowing limit</span><b>{wallet.data.currency} {wallet.data.borrowingLimit}</b></div>
+              <div><span>Limit source</span><b>{limitSource(wallet.data.borrowingLimitSource)}</b></div>
+              <div><span>Reserved fees</span><b>{wallet.data.currency} {wallet.data.reservedFees}</b></div>
+              <div><span>Available capacity</span><b>{wallet.data.currency} {wallet.data.availableCapacity}</b></div>
+              <div><span>Promotional credit</span><b>{wallet.data.currency} {wallet.data.promotionalBalance}</b></div>
+              <div><span>Available promotional credit</span><b>{wallet.data.currency} {wallet.data.availablePromotionalCredit}</b></div>
+            </div>
+            <label>Custom limit (USD)
+              <input value={limitAmount} onChange={(event) => setLimitAmount(event.target.value)} placeholder="1.00" />
+            </label>
+            <div className="actions">
+              <button className="button" type="button" disabled={limit.isPending} onClick={() => {
+                setFormError(null);
+                const parsed = moneyValue(limitAmount, true);
+                if (!parsed) {
+                  setFormError('Enter the limit in dollars and cents. Zero is allowed.');
+                  return;
+                }
+                setLimitDraft({ borrowingLimit: parsed });
+              }}>Review custom limit</button>
+              <button className="button-secondary" type="button" disabled={limit.isPending || wallet.data.borrowingLimitSource !== 'OVERRIDE'} onClick={() => {
+                setFormError(null);
+                setLimitDraft({ borrowingLimit: null });
+              }}>Use the global default</button>
+            </div>
+          </div>
+        ) : null}
+      </section>
+      <section className="panel">
+        <h2>Wallet history</h2>
+        <p className="note">Ledger entries are read only. Amounts stay as the wallet recorded them.</p>
+        {ledger.isLoading ? <Loading label="Loading wallet history" /> : null}
+        {ledger.error ? <ErrorNote>{textOf(ledger.error)}</ErrorNote> : null}
+        {ledger.data && ledger.data.transactions.length === 0 ? <Empty>No wallet entries are recorded.</Empty> : null}
+        {ledger.data && ledger.data.transactions.length > 0 ? (
+          <>
+            <div className="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Type</th>
+                    <th>Amount</th>
+                    <th>Currency</th>
+                    <th>When</th>
+                    <th>Reference</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ledger.data.transactions.map((entry) => (
+                    <tr key={entry.id}>
+                      <td>{label(entry.type)}</td>
+                      <td>{entry.amount}</td>
+                      <td>{entry.currency}</td>
+                      <td>{when(entry.createdAt)}</td>
+                      <td>{ledgerReference(entry)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="pager">
+              <button className="button-secondary" type="button" disabled={ledgerCursors.length <= 1} onClick={() => setLedgerCursors((current) => current.slice(0, -1))}>Previous</button>
+              <span>Page {ledgerCursors.length}</span>
+              <button className="button-secondary" type="button" disabled={!ledger.data.nextCursor} onClick={() => {
+                const next = ledger.data?.nextCursor;
+                if (next) setLedgerCursors((current) => [...current, next]);
+              }}>Next</button>
+            </div>
+          </>
+        ) : null}
       </section>
       <section className="panel">
         <h2>Manual top-up</h2>
@@ -230,6 +461,22 @@ export function RiderPage() {
           {action.error ? <ErrorNote>{textOf(action.error)}</ErrorNote> : null}
         </Dialog>
       ) : null}
+      {limitDraft ? (
+        <Dialog
+          title="Save negative wallet limit"
+          busy={limit.isPending}
+          confirmLabel="Save limit"
+          onClose={() => { if (!limit.isPending) setLimitDraft(null); }}
+          onConfirm={() => limit.mutate(limitDraft)}
+        >
+          <p>
+            {limitDraft.borrowingLimit === null
+              ? `Use the global default for this rider. The balance stays ${wallet.data?.currency ?? 'USD'} ${wallet.data?.balance ?? ''}.`
+              : `Set this rider's negative wallet limit to USD ${limitDraft.borrowingLimit}. The balance stays ${wallet.data?.currency ?? 'USD'} ${wallet.data?.balance ?? ''}.`}
+          </p>
+          {limit.error ? <ErrorNote>{textOf(limit.error)}</ErrorNote> : null}
+        </Dialog>
+      ) : null}
       {topUp ? (
         <Dialog
           title="Confirm top-up"
@@ -261,6 +508,56 @@ export function RiderPage() {
       ) : null}
     </div>
   );
+}
+
+function HistoryPanel({
+  title,
+  note,
+  loading,
+  error,
+  empty,
+  emptyText,
+  pagination,
+  onPage,
+  children,
+}: {
+  title: string;
+  note: string;
+  loading: boolean;
+  error: unknown;
+  empty?: boolean;
+  emptyText: string;
+  pagination?: { page: number; totalPages: number };
+  onPage: (page: number) => void;
+  children: ReactNode;
+}) {
+  return (
+    <section className="panel">
+      <h2>{title}</h2>
+      <p className="muted">{note}</p>
+      {loading ? <Loading label={`Loading ${title.toLowerCase()}`} /> : null}
+      {error ? <ErrorNote>{textOf(error)}</ErrorNote> : null}
+      {empty ? <Empty>{emptyText}</Empty> : null}
+      {children ? <div className="table-scroll">{children}</div> : null}
+      {pagination && pagination.totalPages > 1 ? (
+        <Pager page={pagination.page} totalPages={pagination.totalPages} onPage={onPage} />
+      ) : null}
+    </section>
+  );
+}
+
+function ledgerReference(entry: WalletTransaction): string {
+  const parts: string[] = [];
+  if (entry.reason) parts.push(entry.reason);
+  if (entry.payment?.ecocashReference) parts.push(`EcoCash ${entry.payment.ecocashReference}`);
+  if (entry.payment?.externalReceiptNumber) parts.push(`Receipt ${entry.payment.externalReceiptNumber}`);
+  if (entry.payment?.internalReceiptId) parts.push(`Receipt ${entry.payment.internalReceiptId}`);
+  if (entry.payment && parts.length === 0) parts.push(label(entry.payment.method));
+  return parts.join(' · ') || '—';
+}
+
+function limitSource(source: string): string {
+  return source === 'OVERRIDE' ? 'Account-specific limit' : 'Standard limit';
 }
 
 function confirmText(confirm: Exclude<Confirm, null>, name: string): string {

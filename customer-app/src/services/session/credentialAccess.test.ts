@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 
-import { credentialFailure, rotationWrite, supportsBiometricCredentialProtection } from './credentialAccess';
 import { decideInstall } from './installState';
 
 describe('install marker', () => {
@@ -45,21 +44,3 @@ describe('install marker', () => {
   });
 });
 
-describe('protected credential writes', () => {
-  it('recreates the iOS item so rotation does not prompt again', () => {
-    expect(rotationWrite('ios')).toBe('recreate');
-    expect(rotationWrite('android')).toBe('update');
-  });
-
-  it('keeps biometric credential protection on iOS and defers new Android enrollment', () => {
-    expect(supportsBiometricCredentialProtection('ios')).toBe(true);
-    expect(supportsBiometricCredentialProtection('android')).toBe(false);
-  });
-
-  it('distinguishes cancellation from an enrollment change', () => {
-    expect(credentialFailure(new Error('User canceled the biometric prompt'))).toBe('cancelled');
-    expect(credentialFailure(new Error('Key permanently invalidated'))).toBe('invalidated');
-    expect(credentialFailure(new Error('No biometrics are currently enrolled'))).toBe('invalidated');
-    expect(credentialFailure(new Error('Network request failed'))).toBe('unavailable');
-  });
-});

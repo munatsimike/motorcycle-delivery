@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { deliveryCardAddress, deliveryDetailAddress, deliveryWhenLabel, shortDeliveryReference } from './deliveryCard';
+import {
+  deliveryCardAddress,
+  deliveryContentKind,
+  deliveryDetailAddress,
+  deliveryWhenLabel,
+  shortDeliveryReference,
+} from './deliveryCard';
 
 describe('delivery card text', () => {
   it('shows the last five characters of the delivery id', () => {
@@ -28,9 +34,23 @@ describe('delivery card text', () => {
     expect(deliveryCardAddress('12 Samora Machel Ave')).toBe('12 Samora Machel Ave');
   });
 
-  it('shows the date and clock time', () => {
-    const now = new Date(2026, 9, 15, 20, 0, 0);
+  it('maps parcel, document, and food badges', () => {
+    expect(deliveryContentKind('Parcel')).toBe('parcel');
+    expect(deliveryContentKind(' Document ')).toBe('document');
+    expect(deliveryContentKind('Documents')).toBe('document');
+    expect(deliveryContentKind('Food')).toBe('food');
+    expect(deliveryContentKind(null)).toBe('parcel');
+  });
+
+  it('shows the date and clock time on one line', () => {
     const createdAt = new Date(2026, 9, 15, 18, 25, 0).toISOString();
-    expect(deliveryWhenLabel(createdAt, now)).toBe('15 Oct 2026 • 18:25');
+    const label = deliveryWhenLabel(createdAt);
+    expect(label).toBe('15 Oct 2026 • 18:25');
+    expect(label).not.toMatch(/[\r\n]/);
+  });
+
+  it('keeps yesterday as a date', () => {
+    const createdAt = new Date(2026, 9, 14, 9, 5, 0).toISOString();
+    expect(deliveryWhenLabel(createdAt)).toBe('14 Oct 2026 • 09:05');
   });
 });

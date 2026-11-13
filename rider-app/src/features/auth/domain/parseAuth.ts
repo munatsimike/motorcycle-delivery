@@ -1,5 +1,12 @@
 import type { AuthSession, PendingOtp } from './auth.types';
 
+export function readLoginStart(value: unknown): PendingOtp {
+  if (isRecord(value) && value.status === 'unavailable') {
+    throw new Error('Account not found. Create an account to continue.');
+  }
+  return readPendingOtp(value);
+}
+
 export function readPendingOtp(value: unknown): PendingOtp {
   if (!isRecord(value) || value.status !== 'pending') {
     throw new Error('Verification could not be started.');

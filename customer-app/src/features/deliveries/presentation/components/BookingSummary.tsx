@@ -1,12 +1,16 @@
-import { useState } from 'react';
-import { Image, StyleSheet, Text, TextInput, View } from 'react-native';
+import { type ReactNode, useMemo } from 'react';
+import { StyleSheet, Text, TextInput, View } from 'react-native';
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
 
 import LoadingIndicator from '../../../../components/LoadingIndicator';
-import { colors, radius, spacing, typography } from '../../../../theme';
+import { useInputFocus } from '../../../../components/useInputFocus';
+import type { Palette } from '../../../../theme';
+import { radius, spacing, typography, useAppearance } from '../../../../theme';
 import { deliveryContactPhone, type BookingDraft, type StopDraft } from '../../domain/bookingDraft';
-import { deliveryCardAddress } from '../../domain/deliveryCard';
+import { deliveryCardAddress, deliveryContentKind } from '../../domain/deliveryCard';
+import { ContentIcon, LocationPin, deliveryIcon } from '../deliveryIcons';
 import type { DeliveryQuote } from '../../domain/deliveryQuote';
+import { currencyMark, moneyLabel } from '../../domain/moneyLabel';
 import { parcelSizeLabel, payerLabel, paymentMethodLabel } from './ParcelFields';
 
 type BookingSummaryProps = {
@@ -17,6 +21,7 @@ type BookingSummaryProps = {
   onOfferChange: (value: string) => void;
   offerEditable?: boolean;
   onOfferFocus?: () => void;
+  marketplace?: boolean;
 };
 
 export default function BookingSummary({
@@ -27,36 +32,45 @@ export default function BookingSummary({
   onOfferChange,
   offerEditable = true,
   onOfferFocus,
+  marketplace = false,
 }: BookingSummaryProps) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  const offerFocus = useInputFocus();
   return (
     <View style={styles.wrap}>
       <View style={styles.route}>
-        <RouteStop label="Pickup" stop={draft.pickup} last={false} />
-        <RouteStop label="Destination" stop={draft.dropoff} last />
+        <RouteStop stop={draft.pickup} last={false} />
+        <RouteStop stop={draft.dropoff} last />
       </View>
 
       <View style={styles.facts}>
         <Fact
-          icon="package-variant"
           label="Sending"
           value={describeParcel(draft)}
-          iconColor={colors.primary}
-          backgroundColor={colors.primaryLight}
+          mark={<ContentIcon kind={deliveryContentKind(draft.description)} />}
         />
-        <Fact
-          icon="account-group"
-          label="Pays"
-          value={draft.payer ? payerLabel(draft.payer) : ''}
-          iconColor="#3B6FE8"
-          backgroundColor="#E8F1FF"
-        />
-        <Fact
-          icon="wallet"
-          label="Method"
-          value={draft.paymentMethod ? paymentMethodLabel(draft.paymentMethod) : ''}
-          iconColor="#E07A2F"
-          backgroundColor="#FFF1E0"
-        />
+        {marketplace ? (
+          <Fact
+            icon={draft.serviceClass === 'EXPRESS' ? 'flash-outline' : 'message-text-outline'}
+            label="Delivery type"
+            value={draft.serviceClass === 'EXPRESS' ? 'Urgent' : 'Flexible'}
+          />
+        ) : null}
+        {marketplace ? null : (
+          <Fact
+            icon="account-group-outline"
+            label="Pays"
+            value={draft.payer ? payerLabel(draft.payer) : ''}
+          />
+        )}
+        {draft.paymentMethod ? (
+          <Fact
+            icon={draft.paymentMethod === 'ECOCASH' ? 'cellphone' : 'cash'}
+            label="Method"
+            value={paymentMethodLabel(draft.paymentMethod)}
+          />
+        ) : null}
       </View>
 
       <View style={styles.priceCard}>
@@ -66,16 +80,16 @@ export default function BookingSummary({
             <View style={styles.priceRow}>
               <View style={styles.priceCopy}>
                 <Text style={styles.priceLabel}>Suggested price</Text>
-                <Text style={styles.price}>{quote.currency} {quote.suggestedPrice}</Text>
+                <Text style={styles.price}>{moneyLabel(quote.currency, quote.suggestedPrice)}</Text>
               </View>
               <View style={styles.distanceCopy}>
                 <Text style={styles.priceLabel}>Distance</Text>
                 <Text style={styles.distance}>{formatDistance(quote.distanceMeters)}</Text>
               </View>
             </View>
-            <Text style={styles.offerLabel}>Your offer</Text>
-            <View style={styles.offerField}>
-              <Text style={styles.offerCurrency}>{quote.currency}</Text>
+            <Text style={styles.offerLabel}>Your offer ($)</Text>
+            <View style={[styles.offerField, offerFocus.style]}>
+              <Text style={styles.offerCurrency}>{currencyMark(quote.currency)}</Text>
               <TextInput
                 style={styles.offerInput}
                 value={offerText}
@@ -86,7 +100,11 @@ export default function BookingSummary({
                 placeholderTextColor={colors.textSecondary}
                 maxLength={7}
                 editable={offerEditable}
-                onFocus={onOfferFocus}
+                onFocus={() => {
+                  offerFocus.onFocus();
+                  onOfferFocus?.();
+                }}
+                onBlur={offerFocus.onBlur}
               />
             </View>
           </View>
@@ -96,82 +114,43 @@ export default function BookingSummary({
   );
 }
 
-function RouteStop({ label, stop, last }: { label: string; stop: StopDraft; last: boolean }) {
+function RouteStop({ stop, last }: { stop: StopDraft; last: boolean }) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const name = stop.contactName.trim();
   const phone = displayPhone(stop.contactPhone);
-  const pin = last ? colors.error : colors.primary;
-  const badge = last ? '#FDECEC' : colors.primaryLight;
   return (
     <View style={styles.stop}>
       <View style={styles.rail}>
-        <View style={[styles.pinCircle, { backgroundColor: badge }]}>
-          <MaterialDesignIcons name="map-marker" color={pin} size={18} />
+        <View style={styles.pinCircle}>
+          <LocationPin dropoff={last} />
         </View>
-        {last ? null : <DottedConnector />}
       </View>
       <View style={styles.stopCopy}>
-        <Text style={styles.stopLabel}>{label}</Text>
         <Text style={styles.stopAddress}>{deliveryCardAddress(stop.address.trim())}</Text>
-        {name ? (
-          <View style={styles.meta}>
-            <MaterialDesignIcons name="account" size={16} color={colors.primary} />
-            <Text style={styles.stopName}>{name}</Text>
-          </View>
-        ) : null}
-        {phone ? (
-          <View style={styles.meta}>
-            <MaterialDesignIcons name="phone" size={16} color={colors.primary} />
-            {phone.startsWith('+263') ? (
-              <Image
-                source={require('../../../../../assets/zimbabwe-flag.png')}
-                style={styles.flag}
-                resizeMode="cover"
-              />
-            ) : null}
-            <Text style={styles.stopPhone}>{phone}</Text>
-          </View>
-        ) : null}
+        {name ? <Text style={styles.stopName}>{name}</Text> : null}
+        {phone ? <Text style={styles.stopPhone}>{phone}</Text> : null}
       </View>
     </View>
   );
 }
 
-function DottedConnector() {
-  const [count, setCount] = useState(0);
-
-  return (
-    <View
-      pointerEvents="none"
-      style={styles.connector}
-      onLayout={(event) => {
-        const next = Math.max(1, Math.floor(event.nativeEvent.layout.height / 7));
-        setCount((current) => (current === next ? current : next));
-      }}
-    >
-      {Array.from({ length: count }, (_, index) => (
-        <View key={index} style={styles.dot} />
-      ))}
-    </View>
-  );
-}
 function Fact({
   icon,
+  mark,
   label,
   value,
-  iconColor,
-  backgroundColor,
 }: {
-  icon: 'package-variant' | 'account-group' | 'wallet';
+  icon?: 'flash-outline' | 'message-text-outline' | 'account-group-outline' | 'cash' | 'cellphone';
+  mark?: ReactNode;
   label: string;
   value: string;
-  iconColor: string;
-  backgroundColor: string;
 }) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <View style={styles.fact}>
-      <View style={[styles.factIcon, { backgroundColor }]}>
-        <MaterialDesignIcons name={icon} size={18} color={iconColor} />
-      </View>
+      {mark ?? (icon ? <MaterialDesignIcons name={icon} size={deliveryIcon.size} color={colors.textSecondary} /> : null)}
       <Text style={styles.factLabel}>{label}</Text>
       <Text style={styles.factValue}>{value}</Text>
     </View>
@@ -212,7 +191,8 @@ function formatDistance(meters: number): string {
   return `${text} km`;
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   wrap: {
     gap: spacing.md,
     marginBottom: spacing.lg,
@@ -223,11 +203,12 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: radius.lg,
     padding: spacing.lg,
-    gap: spacing.lg,
+    paddingLeft: spacing.xs,
+    gap: spacing.sm,
   },
   stop: {
     flexDirection: 'row',
-    gap: spacing.md,
+    gap: spacing.xs,
   },
   rail: {
     width: 32,
@@ -235,39 +216,18 @@ const styles = StyleSheet.create({
   },
   pinCircle: {
     width: 32,
-    height: 32,
-    borderRadius: 16,
+    height: 18,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  connector: {
-    position: 'absolute',
-    top: 32,
-    bottom: -spacing.lg,
-    width: 32,
-    alignItems: 'center',
-    justifyContent: 'space-evenly',
-  },
-  dot: {
-    width: 3,
-    height: 3,
-    borderRadius: 1.5,
-    backgroundColor: '#B7C2BC',
   },
   stopCopy: {
     flex: 1,
     gap: spacing.xs,
-    paddingBottom: spacing.md,
-  },
-  stopLabel: {
-    fontSize: typography.small,
-    fontWeight: '700',
-    color: colors.textSecondary,
   },
   stopAddress: {
-    fontSize: typography.body,
-    lineHeight: 22,
-    fontWeight: '700',
+    fontSize: typography.caption,
+    lineHeight: 20,
+    fontWeight: '500',
     color: colors.text,
   },
   stopName: {
@@ -275,21 +235,10 @@ const styles = StyleSheet.create({
     fontSize: typography.caption,
     color: colors.textSecondary,
   },
-  flag: {
-    width: 22,
-    height: 16,
-    borderRadius: 2,
-  },
   stopPhone: {
     flex: 1,
     fontSize: typography.caption,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  meta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
+    color: colors.textSecondary,
   },
   facts: {
     flexDirection: 'row',
@@ -304,13 +253,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.md,
     gap: spacing.xs,
-  },
-  factIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   factLabel: {
     fontSize: typography.small,
@@ -389,3 +331,4 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
   },
 });
+}

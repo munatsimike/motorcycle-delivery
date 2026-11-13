@@ -7,8 +7,13 @@ export type DeliveryPayer = (typeof DELIVERY_PAYERS)[number];
 export const PAYMENT_METHODS = ['CASH', 'ECOCASH', 'ONEMONEY', 'INNBUCKS', 'ZIPIT'] as const;
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 
+export const SERVICE_CLASSES = ['EXPRESS', 'FLEXIBLE'] as const;
+export type ServiceClass = (typeof SERVICE_CLASSES)[number];
+
 export type StopDraft = {
   address: string;
+  /** Full lookup text kept when the field shows only the street and suburb. */
+  resolvedAddress?: string;
   landmark: string;
   instructions: string;
   contactName: string;
@@ -29,6 +34,8 @@ export type BookingDraft = {
   instructions: string;
   payer: DeliveryPayer | null;
   paymentMethod: PaymentMethod | null;
+  serviceClass: ServiceClass | null;
+  deliverBy: string | null;
 };
 
 export type PreparedStop = {
@@ -51,8 +58,10 @@ export type PreparedBooking = {
     size: ParcelSize;
     instructions: string | null;
   };
-  payer: DeliveryPayer;
-  paymentMethod: PaymentMethod;
+  payer: DeliveryPayer | null;
+  paymentMethod: PaymentMethod | null;
+  serviceClass: ServiceClass | null;
+  deliverBy: string | null;
   pinKey: string;
 };
 
@@ -61,6 +70,7 @@ const ZIMBABWE_MOBILE = /^\+2637\d{8}$/;
 export function emptyStop(): StopDraft {
   return {
     address: '',
+    resolvedAddress: '',
     landmark: '',
     instructions: '',
     contactName: '',
@@ -83,10 +93,15 @@ export function emptyBookingDraft(): BookingDraft {
     instructions: '',
     payer: 'SENDER',
     paymentMethod: 'CASH',
+    serviceClass: null,
+    deliverBy: null,
   };
 }
 
-export function prepareBooking(draft: BookingDraft): { ok: true; booking: PreparedBooking } | { ok: false; error: string } {
+export function prepareBooking(
+  draft: BookingDraft,
+  options?: { marketplace?: boolean },
+): { ok: true; booking: PreparedBooking } | { ok: false; error: string } {
   const pickup = prepareStop(draft.pickup, 'pickup');
   if (!pickup.ok) {
     return pickup;
@@ -106,11 +121,18 @@ export function prepareBooking(draft: BookingDraft): { ok: true; booking: Prepar
   if (instructions === undefined) {
     return { ok: false, error: 'Enter parcel instructions' };
   }
-  if (!draft.payer) {
-    return { ok: false, error: 'Choose who pays the rider' };
-  }
-  if (!draft.paymentMethod) {
-    return { ok: false, error: 'Choose how the rider will be paid' };
+  const marketplace = options?.marketplace === true;
+  if (marketplace) {
+    if (draft.serviceClass !== 'EXPRESS' && draft.serviceClass !== 'FLEXIBLE') {
+      return { ok: false, error: 'Choose Urgent or Flexible' };
+    }
+  } else {
+    if (!draft.payer) {
+      return { ok: false, error: 'Choose who pays the rider' };
+    }
+    if (!draft.paymentMethod) {
+      return { ok: false, error: 'Choose how the rider will be paid' };
+    }
   }
   return {
     ok: true,
@@ -122,15 +144,21 @@ export function prepareBooking(draft: BookingDraft): { ok: true; booking: Prepar
         size: draft.size,
         instructions,
       },
-      payer: draft.payer,
+      payer: marketplace ? null : draft.payer,
       paymentMethod: draft.paymentMethod,
+      serviceClass: marketplace ? (draft.serviceClass === 'EXPRESS' ? 'EXPRESS' : 'FLEXIBLE') : null,
+      deliverBy: null,
       pinKey: pinKey(pickup.stop, dropoff.stop),
     },
   };
 }
 
+export function quoteIdentity(pinKey: string, serviceClass: ServiceClass | null): string {
+  return serviceClass ? `${pinKey}|${serviceClass}` : pinKey;
+}
+
 export function quoteBody(booking: PreparedBooking) {
-  return {
+  const pins = {
     pickup: {
       latitude: booking.pickup.latitude,
       longitude: booking.pickup.longitude,
@@ -140,9 +168,16 @@ export function quoteBody(booking: PreparedBooking) {
       longitude: booking.dropoff.longitude,
     },
   };
+  if (!booking.serviceClass) {
+    return pins;
+  }
+  return { ...pins, serviceClass: booking.serviceClass };
 }
 
 export function createBody(booking: PreparedBooking, offeredPrice: string) {
+  if (booking.serviceClass) {
+    return v2CreateBody(booking, offeredPrice);
+  }
   return {
     pickup: stopBody(booking.pickup),
     dropoff: stopBody(booking.dropoff),
@@ -152,6 +187,24 @@ export function createBody(booking: PreparedBooking, offeredPrice: string) {
     paymentMethod: booking.paymentMethod,
     currency: 'USD' as const,
   };
+}
+
+export function v2CreateBody(booking: PreparedBooking, offeredPrice: string) {
+  if (booking.serviceClass !== 'EXPRESS' && booking.serviceClass !== 'FLEXIBLE') {
+    throw new Error('Choose Urgent or Flexible');
+  }
+  const body = {
+    pickup: stopBody(booking.pickup),
+    dropoff: stopBody(booking.dropoff),
+    parcel: booking.parcel,
+    serviceClass: booking.serviceClass,
+    offeredPrice,
+    currency: 'USD' as const,
+  };
+  if (!booking.paymentMethod) {
+    return body;
+  }
+  return { ...body, paymentMethod: booking.paymentMethod };
 }
 
 export function stopError(stop: StopDraft, label: 'pickup' | 'drop-off'): string | null {
@@ -175,7 +228,7 @@ export function stopDetailsError(stop: StopDraft, label: 'pickup' | 'drop-off'):
   return null;
 }
 
-export function parcelError(draft: BookingDraft): string | null {
+export function parcelError(draft: BookingDraft, marketplace = false): string | null {
   const description = requiredText(draft.description, 500);
   if (!description) {
     return 'Choose parcel, document, or food';
@@ -186,6 +239,12 @@ export function parcelError(draft: BookingDraft): string | null {
   const instructions = optionalText(draft.instructions, 500);
   if (instructions === undefined) {
     return 'Enter parcel instructions';
+  }
+  if (marketplace) {
+    if (draft.serviceClass !== 'EXPRESS' && draft.serviceClass !== 'FLEXIBLE') {
+      return 'Choose Urgent or Flexible';
+    }
+    return null;
   }
   if (!draft.payer) {
     return 'Choose who pays the rider';
@@ -223,10 +282,12 @@ function readStopText(
   stop: StopDraft,
   label: 'pickup' | 'drop-off',
 ): { ok: true; stop: Pick<PreparedStop, 'address' | 'landmark' | 'instructions' | 'contactName' | 'contactPhone'> } | { ok: false; error: string } {
-  const address = requiredText(stop.address, 500);
-  if (!address) {
+  const visible = requiredText(stop.address, 500);
+  if (!visible) {
     return { ok: false, error: `Enter the ${label} address` };
   }
+  const stored = optionalText(stop.resolvedAddress ?? '', 500);
+  const address = typeof stored === 'string' ? stored : visible;
   const landmark = optionalText(stop.landmark, 200);
   if (landmark === undefined) {
     return { ok: false, error: `Enter the ${label} landmark` };
@@ -287,6 +348,48 @@ function stopBody(stop: PreparedStop) {
     instructions: stop.instructions,
     contactName: stop.contactName,
     contactPhone: stop.contactPhone,
+  };
+}
+
+const DEADLINE_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
+
+export function deadlineTimestamp(local: {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+}): string {
+  return new Date(local.year, local.month - 1, local.day, local.hour, local.minute, 0, 0).toISOString();
+}
+
+export function deadlineError(value: string | null, now = new Date()): string | null {
+  if (!value || !value.trim()) {
+    return 'Enter the delivery deadline';
+  }
+  const deadline = new Date(value);
+  if (Number.isNaN(deadline.getTime()) || deadline.getTime() <= now.getTime()) {
+    return 'Enter a deadline in the future';
+  }
+  return null;
+}
+
+export function formatDeadline(value: string): string | null {
+  const deadline = new Date(value);
+  if (Number.isNaN(deadline.getTime())) {
+    return null;
+  }
+  const hours = String(deadline.getHours()).padStart(2, '0');
+  const minutes = String(deadline.getMinutes()).padStart(2, '0');
+  return `${deadline.getDate()} ${DEADLINE_MONTHS[deadline.getMonth()]} ${deadline.getFullYear()}, ${hours}:${minutes}`;
+}
+
+export function withBookingPatch(draft: BookingDraft, patch: Partial<BookingDraft>): BookingDraft {
+  return {
+    ...draft,
+    ...patch,
+    pickup: patch.pickup ? { ...draft.pickup, ...patch.pickup } : draft.pickup,
+    dropoff: patch.dropoff ? { ...draft.dropoff, ...patch.dropoff } : draft.dropoff,
   };
 }
 

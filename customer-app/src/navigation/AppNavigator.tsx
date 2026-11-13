@@ -1,18 +1,24 @@
 import { LinearGradient } from 'expo-linear-gradient';
-import { NavigationContainer } from '@react-navigation/native';
-import { colors, spacing, typography } from '../theme';
+import { DarkTheme, DefaultTheme, NavigationContainer } from '@react-navigation/native';
+import type { Palette } from '../theme';
+import { spacing, typography, useAppearance } from '../theme';
 import {
   createNativeStackNavigator,
   type NativeStackScreenProps,
 } from '@react-navigation/native-stack';
+import { useEffect, useRef, useState, type ReactNode, useMemo } from 'react';
 import {
+  Animated,
+  Easing,
   Image,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { useReduceMotion } from '../components/useMotion';
 import BrandLogo from '../components/BrandLogo';
 import LoadingIndicator from '../components/LoadingIndicator';
 import PrimaryButton from '../components/PrimaryButton';
@@ -22,12 +28,14 @@ import CustomerTabs from './CustomerTabs';
 import EditProfileScreen from '../features/account/presentation/screens/EditProfileScreen';
 import ParcelRequestScreen from '../features/deliveries/presentation/screens/ParcelRequestScreen';
 import DeliveryTrackingScreen from '../features/deliveries/presentation/screens/DeliveryTrackingScreen';
+import CompleteRegistrationScreen from '../features/auth/presentation/screens/CompleteRegistrationScreen';
 import OtpVerificationScreen from '../features/auth/presentation/screens/OtpVerificationScreen';
-import RegistrationFormScreen from '../features/auth/presentation/screens/RegistrationFormScreen';
 import SignInScreen from '../features/auth/presentation/screens/SignInScreen';
-import UnlockScreen from '../features/auth/presentation/screens/UnlockScreen';
-import BiometricOfferScreen from '../features/auth/presentation/screens/BiometricOfferScreen';
 import { useSession } from '../features/auth/presentation/viewmodels/useSession';
+import { publishCustomerPush, useCustomerPush } from '../features/notifications/presentation/useCustomerPush';
+import { navigationRef } from './navigationRef';
+import { FORWARD_MS, motionDuration, STACK_ANIMATION } from './screenMotion';
+import { openRestoredRegistration } from './registrationRecoveryNavigation';
 import type { RootStackParamList } from './types';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -41,6 +49,8 @@ type WelcomeProps = NativeStackScreenProps<
 >;
 
 function WelcomeScreen({ navigation }: WelcomeProps) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
 
   return (
@@ -82,7 +92,7 @@ function WelcomeScreen({ navigation }: WelcomeProps) {
         </Text>
         <View style={styles.bottom}>
           <PrimaryButton
-            label="Sign In"
+            label="Sign in"
             trailingIcon="chevron-right"
             onPress={() => navigation.navigate('SignIn')}
           />
@@ -98,7 +108,11 @@ function WelcomeScreen({ navigation }: WelcomeProps) {
 }
 
 export default function AppNavigator() {
-  const { status } = useSession();
+  const { colors, scheme } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  const { status, accessToken, customerId } = useSession();
+  const signedIn = status === 'signedIn';
+  useCustomerPush(signedIn, signedIn ? accessToken : null, signedIn ? customerId : null);
 
   if (status === 'loading') {
     return (
@@ -108,9 +122,42 @@ export default function AppNavigator() {
     );
   }
 
+  if (status === 'needsConnection') {
+    return <ConnectionScreen />;
+  }
+
   return (
-    <NavigationContainer>
-      <Stack.Navigator>
+    <NavigationContainer
+      ref={navigationRef}
+      theme={{
+        ...(scheme === 'dark' ? DarkTheme : DefaultTheme),
+        colors: {
+          ...(scheme === 'dark' ? DarkTheme : DefaultTheme).colors,
+          background: colors.background,
+          card: colors.sheet,
+          text: colors.text,
+          border: colors.border,
+          primary: colors.primary,
+          notification: colors.error,
+        },
+      }}
+      onReady={() => {
+        publishCustomerPush();
+        if (status !== 'signedIn') {
+          void openRestoredRegistration();
+        }
+      }}
+    >
+      <SessionSlide signedIn={signedIn}>
+      <Stack.Navigator
+        screenOptions={{
+          animation: STACK_ANIMATION,
+          animationDuration: FORWARD_MS,
+          gestureEnabled: true,
+          headerTintColor: colors.text,
+          headerBackButtonDisplayMode: 'minimal',
+        }}
+      >
         {status === 'signedIn' ? (
           <>
             <Stack.Screen
@@ -126,26 +173,14 @@ export default function AppNavigator() {
             <Stack.Screen
               name="DeliveryTracking"
               component={DeliveryTrackingScreen}
-              options={{ title: 'Track Delivery' }}
+              options={{ headerShown: false }}
             />
             <Stack.Screen
               name="EditProfile"
               component={EditProfileScreen}
-              options={{ title: 'Edit Profile' }}
+              options={{ title: 'Address' }}
             />
           </>
-        ) : status === 'offerBiometric' ? (
-          <Stack.Screen
-            name="Unlock"
-            component={BiometricOfferScreen}
-            options={{ headerShown: false }}
-          />
-        ) : status === 'locked' || status === 'needsConnection' ? (
-          <Stack.Screen
-            name="Unlock"
-            component={UnlockScreen}
-            options={{ headerShown: false }}
-          />
         ) : (
           <>
             <Stack.Screen
@@ -156,36 +191,130 @@ export default function AppNavigator() {
             <Stack.Screen
               name="SignIn"
               component={SignInScreen}
-              options={{ title: 'Sign In' }}
+              options={{ headerShown: false }}
             />
             <Stack.Screen
               name="SignUp"
               component={SignUpScreen}
-              options={{ title: 'Create account' }}
+              options={{ headerShown: false }}
             />
             <Stack.Screen
               name="OtpVerification"
               component={OtpVerificationScreen}
-              options={{ title: 'Verify' }}
+              options={{ headerShown: false }}
             />
             <Stack.Screen
-              name="RegistrationForm"
-              component={RegistrationFormScreen}
-              options={{ title: 'Create account' }}
+              name="CompleteRegistration"
+              component={CompleteRegistrationScreen}
+              options={{ title: 'Your details' }}
             />
           </>
         )}
       </Stack.Navigator>
+      </SessionSlide>
     </NavigationContainer>
   );
 }
 
-const styles = StyleSheet.create({
+function SessionSlide({
+  signedIn,
+  children,
+}: {
+  signedIn: boolean;
+  children: ReactNode;
+}) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  const reduce = useReduceMotion();
+  const { width } = useWindowDimensions();
+  const progress = useRef(new Animated.Value(1)).current;
+  const direction = useRef(1);
+  const previous = useRef(signedIn);
+
+  if (previous.current !== signedIn) {
+    direction.current = signedIn ? 1 : -1;
+    previous.current = signedIn;
+    progress.setValue(motionDuration(FORWARD_MS, reduce) === 0 ? 1 : 0);
+  }
+
+  useEffect(() => {
+    const duration = motionDuration(FORWARD_MS, reduce);
+    if (duration === 0) {
+      progress.setValue(1);
+      return;
+    }
+    Animated.timing(progress, {
+      toValue: 1,
+      duration,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [progress, reduce, signedIn]);
+
+  const translateX = progress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [direction.current * width, 0],
+  });
+
+  return (
+    <Animated.View style={[styles.session, { opacity: progress, transform: [{ translateX }] }]}>
+      {children}
+    </Animated.View>
+  );
+}
+
+function ConnectionScreen() {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  const { retryRestore } = useSession();
+  const [working, setWorking] = useState(false);
+
+  return (
+    <SafeAreaView style={styles.connection} edges={['top', 'bottom']}>
+      <Text style={styles.connectionTitle}>You are offline</Text>
+      <Text style={styles.connectionBody}>
+        This phone is offline, so Riders cannot confirm the saved session yet.
+      </Text>
+      <PrimaryButton
+        label="Try again"
+        icon="refresh"
+        loading={working}
+        onPress={() => {
+          setWorking(true);
+          void retryRestore().finally(() => setWorking(false));
+        }}
+      />
+    </SafeAreaView>
+  );
+}
+
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
+  session: {
+    flex: 1,
+  },
   loading: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.background,
+  },
+  connection: {
+    flex: 1,
+    backgroundColor: colors.background,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.xxl,
+    gap: spacing.lg,
+  },
+  connectionTitle: {
+    fontSize: typography.title,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  connectionBody: {
+    fontSize: typography.body,
+    lineHeight: 24,
+    color: colors.textSecondary,
   },
 
   screen: {
@@ -230,14 +359,14 @@ const styles = StyleSheet.create({
   },
 
   panelBlend: {
-    paddingHorizontal: spacing.xl,
+    paddingHorizontal: spacing.lg,
     paddingTop: spacing.xl,
     paddingBottom: spacing.md,
   },
 
   heading: {
     fontSize: typography.title,
-    fontWeight: '800',
+    fontWeight: '700',
     color: colors.text,
     textAlign: 'center',
     lineHeight: 32,
@@ -245,7 +374,7 @@ const styles = StyleSheet.create({
 
   description: {
     marginTop: spacing.sm,
-    paddingHorizontal: spacing.xl,
+    paddingHorizontal: spacing.lg,
     fontSize: typography.caption,
     lineHeight: 22,
     color: colors.textSecondary,
@@ -255,7 +384,8 @@ const styles = StyleSheet.create({
   bottom: {
     width: '100%',
     marginTop: spacing.xl,
-    paddingHorizontal: spacing.xl,
+    paddingHorizontal: spacing.lg,
     gap: spacing.md,
   },
 });
+}

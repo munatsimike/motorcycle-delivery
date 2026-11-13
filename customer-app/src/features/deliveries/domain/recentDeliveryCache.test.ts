@@ -10,9 +10,11 @@ import type { CustomerDelivery } from './deliveryStatus';
 import {
   applyDeliveryRefresh,
   commitSyncGeneration,
+  deliveryListFailure,
   issueSyncGeneration,
   readRecentDeliverySnapshot,
   savedDeliveryMessage,
+  shouldRefreshDeliveriesOnForeground,
   shouldRefreshSavedDeliveries,
   snapshotFromDeliveries,
   type SyncClock,
@@ -63,6 +65,13 @@ describe('recent delivery cache', () => {
       createdAt: '2026-10-18T11:00:00.000Z',
       pickupAddress: '1 pickup',
       dropoffAddress: '1 dropoff',
+      serviceClass: null,
+      deliverBy: null,
+      currency: null,
+      suggestedPrice: null,
+      offeredPrice: null,
+      distanceMeters: null,
+      parcelDescription: null,
     });
   });
 
@@ -175,6 +184,9 @@ describe('recent delivery cache', () => {
     expect(shouldRefreshSavedDeliveries('active', true)).toBe(true);
     expect(shouldRefreshSavedDeliveries('background', true)).toBe(false);
     expect(shouldRefreshSavedDeliveries('active', false)).toBe(false);
+    expect(shouldRefreshDeliveriesOnForeground('active', true)).toBe(true);
+    expect(shouldRefreshDeliveriesOnForeground('background', true)).toBe(false);
+    expect(shouldRefreshDeliveriesOnForeground('active', false)).toBe(false);
   });
 
   it('does not let an older response overwrite a newer snapshot', () => {
@@ -201,6 +213,8 @@ describe('recent delivery cache', () => {
     expect(message).toContain('Statuses may have changed');
     expect(message).toContain(String(date.getDate()));
     expect(savedDeliveryMessage('not-a-date')).toBeNull();
+    expect(deliveryListFailure({ status: 401 })).toBe('authentication');
+    expect(deliveryListFailure(new Error('Network request failed. Check your connection and try again.'))).toBe('unavailable');
     expect(sessionKeyForRefreshToken('refresh-a')).not.toContain('refresh-a');
     expect(rebindCustomerIdentity(
       confirmCustomerIdentity(null, 'customer-a', 'refresh-a')!.identity,

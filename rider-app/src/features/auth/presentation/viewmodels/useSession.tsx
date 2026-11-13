@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 
 import { riderLocationSharing } from '../../../availability/riderLocationSharing';
 import type { AuthSession, LogoutScope } from '../../domain/auth.types';
-import type { RiderSessionGate } from '../../domain/sessionGate';
+import { clearDeviceReplacementNotice, type RiderSessionGate } from '../../domain/sessionGate';
 import { secureIdentityStore, secureSessionStore } from '../../../../services/session/secureSessionStore';
 import { riderSessionGate } from '../../riderSessionGate';
 
@@ -56,6 +56,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     displayName,
     gate: riderSessionGate,
     async saveSession(session, fullName) {
+      clearDeviceReplacementNotice();
       await secureSessionStore.save(session);
       if (fullName) {
         await secureIdentityStore.save(fullName);

@@ -1,6 +1,9 @@
-import { StyleSheet, Text, TextInput, type KeyboardTypeOptions } from 'react-native';
+import { useMemo } from 'react';
+import { ActivityIndicator, StyleSheet, Text, TextInput, View, type KeyboardTypeOptions } from 'react-native';
 
-import { colors, radius, spacing, typography } from '../theme';
+import type { Palette } from '../theme';
+import { inputErrorStyle, radius, spacing, typography, useAppearance } from '../theme';
+import { useRevealFocusedField } from './useKeyboardLift';
 import { useInputFocus } from './useInputFocus';
 
 type FormInputProps = {
@@ -9,13 +12,17 @@ type FormInputProps = {
   onChangeText: (value: string) => void;
   placeholder?: string;
   keyboardType?: KeyboardTypeOptions;
-  autoComplete?: 'tel' | 'sms-otp' | 'name' | 'email' | 'off';
-  textContentType?: 'telephoneNumber' | 'oneTimeCode' | 'name' | 'emailAddress' | 'fullStreetAddress' | 'none';
+  autoComplete?: 'tel' | 'sms-otp' | 'name' | 'email' | 'off' | 'password';
+  textContentType?: 'telephoneNumber' | 'oneTimeCode' | 'name' | 'emailAddress' | 'fullStreetAddress' | 'none' | 'password';
   autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
+  secureTextEntry?: boolean;
   maxLength?: number;
   editable?: boolean;
   error?: string | null;
+  invalid?: boolean;
   onFocus?: () => void;
+  /** Shown inside an empty field. The field stays editable. */
+  activity?: string | null;
 };
 
 export default function FormInput({
@@ -27,45 +34,62 @@ export default function FormInput({
   autoComplete,
   textContentType,
   autoCapitalize,
+  secureTextEntry,
   maxLength,
   editable = true,
   error,
+  invalid = false,
   onFocus,
+  activity = null,
 }: FormInputProps) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const focus = useInputFocus();
+  const revealFocusedField = useRevealFocusedField();
 
   return (
-    <>
+    <View>
       <Text style={styles.label}>{label}</Text>
-      <TextInput
-        style={[styles.input, focus.style, !editable && styles.locked]}
-        value={value}
-        onChangeText={onChangeText}
-        placeholder={placeholder}
-        placeholderTextColor={colors.textSecondary}
-        keyboardType={keyboardType}
-        autoCapitalize={autoCapitalize}
-        autoComplete={autoComplete}
-        textContentType={textContentType}
-        maxLength={maxLength}
-        editable={editable}
-        onFocus={() => {
-          focus.onFocus();
-          onFocus?.();
-        }}
-        onBlur={focus.onBlur}
-      />
+      <View>
+        <TextInput
+          style={[styles.input, focus.style, (error || invalid) ? inputErrorStyle(colors.error) : null, !editable && styles.locked]}
+          value={value}
+          onChangeText={onChangeText}
+          placeholder={activity && !value ? undefined : placeholder}
+          placeholderTextColor={colors.textSecondary}
+          keyboardType={keyboardType}
+          autoCapitalize={autoCapitalize}
+          autoComplete={secureTextEntry ? 'password' : autoComplete}
+          textContentType={secureTextEntry ? 'password' : textContentType}
+          secureTextEntry={secureTextEntry}
+          maxLength={maxLength}
+          editable={editable}
+          onFocus={() => {
+            focus.onFocus();
+            revealFocusedField();
+            onFocus?.();
+          }}
+          onBlur={focus.onBlur}
+        />
+        {activity && !value ? (
+          <View pointerEvents="none" style={styles.activity}>
+            <ActivityIndicator color={colors.primary} size="small" />
+            <Text style={styles.activityText}>{activity}</Text>
+          </View>
+        ) : null}
+      </View>
       {error ? <Text style={styles.error}>{error}</Text> : null}
-    </>
+    </View>
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   label: {
     fontSize: typography.caption,
     fontWeight: '700',
     color: colors.text,
-    marginBottom: spacing.sm,
+    marginBottom: spacing.xs,
   },
   input: {
     minHeight: 58,
@@ -89,4 +113,20 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: colors.error,
   },
+  activity: {
+    position: 'absolute',
+    left: spacing.lg,
+    right: spacing.lg,
+    top: 0,
+    height: 58,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  activityText: {
+    flex: 1,
+    fontSize: typography.button,
+    color: colors.textSecondary,
+  },
 });
+}

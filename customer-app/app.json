@@ -5,15 +5,12 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "scheme": "riders",
     "owner": "munatsimike",
     "ios": {
       "bundleIdentifier": "com.riders.customer",
-      "supportsTablet": false,
-      "infoPlist": {
-        "NSFaceIDUsageDescription": "Unlock your Riders session with Face ID."
-      }
+      "supportsTablet": false
     },
     "android": {
       "package": "com.riders.customer",
@@ -26,13 +23,19 @@
       "predictiveBackGestureEnabled": false,
       "permissions": [
         "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION"
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.POST_NOTIFICATIONS"
+      ],
+      "blockedPermissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      "./plugins/withOwnerInstall",
       "expo-secure-store",
       [
         "expo-location",
@@ -48,10 +51,19 @@
       [
         "expo-notifications",
         {
-          "color": "#169B62"
+          "color": "#169B62",
+          "defaultChannel": "default"
         }
       ],
-      "expo-font"
+      "expo-font",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": false,
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
+      ]
     ],
     "extra": {
       "eas": {

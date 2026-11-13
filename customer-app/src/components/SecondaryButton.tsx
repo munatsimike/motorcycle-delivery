@@ -1,8 +1,10 @@
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
+import { useMemo } from 'react';
 import type { ComponentProps } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { colors, radius, spacing, typography } from '../theme';
+import type { Palette } from '../theme';
+import { radius, spacing, useAppearance } from '../theme';
 
 type SecondaryButtonProps = {
   label: string;
@@ -12,9 +14,10 @@ type SecondaryButtonProps = {
   tone?: 'primary' | 'danger';
   icon?: ComponentProps<typeof MaterialDesignIcons>['name'];
   soft?: boolean;
+  bordered?: boolean;
+  compact?: boolean;
+  weight?: 'bold' | 'regular';
 };
-
-const dangerFill = '#FEF2F2';
 
 export default function SecondaryButton({
   label,
@@ -23,8 +26,12 @@ export default function SecondaryButton({
   loading,
   tone = 'primary',
   icon,
-  soft = true,
+  bordered = true,
+  compact = false,
+  weight = 'bold',
 }: SecondaryButtonProps) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const inactive = disabled || loading;
   const accent = tone === 'danger' ? colors.error : colors.primary;
 
@@ -34,6 +41,7 @@ export default function SecondaryButton({
       disabled={inactive}
       onPress={onPress}
       style={({ pressed }) => [
+        compact && styles.compact,
         inactive && styles.inactive,
         pressed && !inactive && styles.pressed,
       ]}
@@ -41,7 +49,9 @@ export default function SecondaryButton({
       <View
         style={[
           styles.button,
-          { borderColor: accent, backgroundColor: tone === 'danger' ? dangerFill : soft ? colors.primaryLight : colors.background },
+          compact && styles.compactButton,
+          bordered ? { borderColor: accent, borderWidth: 1 } : styles.borderless,
+          { backgroundColor: colors.background },
         ]}
       >
         {loading ? (
@@ -49,7 +59,7 @@ export default function SecondaryButton({
         ) : (
           <View style={styles.content}>
             {icon ? <MaterialDesignIcons name={icon} color={accent} size={20} /> : null}
-            <Text style={[styles.label, { color: accent }]}>{label}</Text>
+            <Text style={[styles.label, weight === 'regular' && styles.labelRegular, { color: accent }]}>{label}</Text>
           </View>
         )}
       </View>
@@ -57,16 +67,25 @@ export default function SecondaryButton({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   button: {
     minHeight: 56,
-    backgroundColor: colors.primaryLight,
-    borderWidth: 1,
-    borderColor: colors.primary,
-    borderRadius: radius.lg,
+    backgroundColor: colors.background,
+    borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: spacing.lg,
+  },
+  compact: {
+    alignSelf: 'flex-end',
+  },
+  compactButton: {
+    minHeight: 44,
+    paddingHorizontal: spacing.lg,
+  },
+  borderless: {
+    borderWidth: 0,
   },
   inactive: {
     opacity: 0.6,
@@ -81,7 +100,11 @@ const styles = StyleSheet.create({
   },
   label: {
     color: colors.primary,
-    fontSize: typography.button,
-    fontWeight: '700',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  labelRegular: {
+    fontWeight: '400',
   },
 });
+}

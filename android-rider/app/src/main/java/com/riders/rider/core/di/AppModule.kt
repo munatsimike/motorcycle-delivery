@@ -1,6 +1,7 @@
 package com.riders.rider.core.di
 
 import android.content.Context
+import android.os.Build
 import androidx.room.Room
 import com.riders.rider.BuildConfig
 import com.riders.rider.core.database.RiderDatabase
@@ -10,17 +11,13 @@ import com.riders.rider.core.network.RefreshRequest
 import com.riders.rider.core.network.RiderService
 import com.riders.rider.core.network.SessionResponse
 import com.riders.rider.core.network.httpClient
+import com.riders.rider.core.network.looksLikeEmulator
 import com.riders.rider.core.network.performRefresh
+import com.riders.rider.core.network.resolveDebugApiBaseUrl
 import com.riders.rider.core.network.retrofit
 import com.riders.rider.core.session.AuthSession
 import com.riders.rider.core.session.EncryptedSessionStore
 import com.riders.rider.core.session.SessionStore
-import com.riders.rider.feature.auth.data.AndroidBiometricCapability
-import com.riders.rider.feature.auth.data.AndroidBiometricPrompt
-import com.riders.rider.feature.auth.data.BiometricAuthenticator
-import com.riders.rider.feature.auth.data.BiometricCapability
-import com.riders.rider.feature.auth.data.SharedBiometricPreference
-import com.riders.rider.feature.auth.domain.BiometricPreference
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -43,18 +40,6 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun biometricPreference(store: SharedBiometricPreference): BiometricPreference = store
-
-    @Provides
-    @Singleton
-    fun biometricCapability(capability: AndroidBiometricCapability): BiometricCapability = capability
-
-    @Provides
-    @Singleton
-    fun biometricAuthenticator(prompt: AndroidBiometricPrompt): BiometricAuthenticator = prompt
-
-    @Provides
-    @Singleton
     fun database(@ApplicationContext context: Context): RiderDatabase {
         return Room.databaseBuilder(context, RiderDatabase::class.java, "rider.db").build()
     }
@@ -62,14 +47,29 @@ object AppModule {
     @Provides
     @Singleton
     fun apiGraph(store: SessionStore): ApiGraph {
-        val baseUrl = BuildConfig.API_BASE_URL
+        val baseUrl = if (BuildConfig.DEBUG) {
+            resolveDebugApiBaseUrl(
+                BuildConfig.API_BASE_URL,
+                looksLikeEmulator(
+                    fingerprint = Build.FINGERPRINT,
+                    model = Build.MODEL,
+                    hardware = Build.HARDWARE,
+                    product = Build.PRODUCT,
+                    manufacturer = Build.MANUFACTURER,
+                ),
+            )
+        } else {
+            BuildConfig.API_BASE_URL
+        }
         val refreshApi = retrofit(baseUrl, httpClient()).create(AuthService::class.java)
         val authed = httpClient {
             addInterceptor(Interceptor { chain ->
                 val request = chain.request()
                 val path = request.url.encodedPath
                 val token = store.read()?.accessToken
-                val open = path.contains("/auth/rider/") || path.endsWith("/auth/session/refresh")
+                val open = path.contains("/auth/rider/")
+                    || path.contains("/auth/places")
+                    || path.endsWith("/auth/session/refresh")
                 if (open || token.isNullOrEmpty()) {
                     chain.proceed(request)
                 } else {

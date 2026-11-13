@@ -1,11 +1,13 @@
+import { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
-import { colors, radius, spacing, typography } from '../../../../theme';
+import type { Palette } from '../../../../theme';
+import { useAppearance, radius, spacing, typography } from '../../../../theme';
 import { BOOKING_STEPS, type BookingStep } from '../viewmodels/useParcelBooking';
 
 const STEP_LABELS: Record<BookingStep, string> = {
   pickup: 'Pickup',
-  destination: 'Destination',
+  destination: 'Drop-off',
   parcel: 'Parcel details',
   review: 'Review',
   confirm: 'Confirm',
@@ -16,6 +18,8 @@ type BookingProgressProps = {
 };
 
 export default function BookingProgress({ step }: BookingProgressProps) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const index = BOOKING_STEPS.indexOf(step);
 
   return (
@@ -39,7 +43,8 @@ export function bookingStepTitle(step: BookingStep): string {
   return STEP_LABELS[step];
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   wrap: {
     gap: spacing.sm,
     marginBottom: spacing.lg,
@@ -62,3 +67,4 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
   },
 });
+}

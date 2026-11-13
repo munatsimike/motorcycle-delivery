@@ -1,27 +1,31 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
-  KeyboardAvoidingView,
-  Platform,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
-import { useHeaderHeight } from '@react-navigation/elements';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import ErrorMessage from '../../../../components/ErrorMessage';
-import FormInput from '../../../../components/FormInput';
+import { useKeyboardLift } from '../../../../components/useKeyboardLift';
 import PrimaryButton from '../../../../components/PrimaryButton';
+import OtpCodeBoxes from '../components/OtpCodeBoxes';
 import SecondaryButton from '../../../../components/SecondaryButton';
 import type { RootStackParamList } from '../../../../navigation/types';
-import { colors, spacing, typography } from '../../../../theme';
+import type { Palette } from '../../../../theme';
+import { useAppearance, spacing, typography } from '../../../../theme';
+import { clearRegistrationRecovery, loadRegistrationDraft, rememberRegistrationDraft, rememberRegistrationProof } from '../../data/registrationRecoveryStore';
+import { formSeed } from '../../domain/registrationRecovery';
 import { useSession } from '../viewmodels/useSession';
 import { useOtpVerification } from '../viewmodels/useOtpVerification';
 
 type OtpProps = NativeStackScreenProps<RootStackParamList, 'OtpVerification'>;
 
 export default function OtpVerificationScreen({ navigation, route }: OtpProps) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { phone, flow } = route.params;
   const { saveSession } = useSession();
   const {
@@ -46,22 +50,32 @@ export default function OtpVerificationScreen({ navigation, route }: OtpProps) {
       setSubmitted(false);
       return;
     }
-    if (result.flow === 'registration') {
-      navigation.navigate('RegistrationForm', {
-        registrationToken: result.proof.registrationToken,
-        phone,
-        existing: result.proof.existing,
+    if (result.destination === 'registration') {
+      const draft = formSeed(await loadRegistrationDraft().catch(() => ({ fullName: '', address: '' })), {
+        fullName: result.fullName,
+        address: result.address,
+      });
+      try {
+        await rememberRegistrationProof(result.registrationToken);
+        await rememberRegistrationDraft(draft);
+      } catch {
+        // This visit can still finish. A restart asks for a new code.
+      }
+      navigation.navigate('CompleteRegistration', {
+        registrationToken: result.registrationToken,
+        fullName: draft.fullName || undefined,
+        address: draft.address || undefined,
       });
       setSubmitted(false);
       return;
     }
-    if (result.flow === 'sign_in') {
-      navigation.navigate('SignIn', { notice: 'Sign in to your existing account.' });
-      setSubmitted(false);
+    if (result.destination === 'sign_in') {
+      navigation.navigate('SignIn', { notice: 'This number already has an account. Sign in to continue.' });
       return;
     }
     try {
       await saveSession(result.session);
+      await clearRegistrationRecovery();
     } catch {
       setSaveError('The session could not be saved on this phone.');
       setSubmitted(false);
@@ -71,32 +85,29 @@ export default function OtpVerificationScreen({ navigation, route }: OtpProps) {
   const resendLabel = secondsRemaining > 0
     ? `Send another code in ${secondsRemaining}s`
     : 'Send another code';
-  const headerHeight = useHeaderHeight();
+  const keyboard = useKeyboardLift();
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? headerHeight : 0}
-    >
+    <SafeAreaView style={styles.container} edges={['top']}>
       <ScrollView
-        contentContainerStyle={styles.content}
+        ref={keyboard.scrollRef}
+        contentContainerStyle={[styles.content, { paddingBottom: spacing.xxl + keyboard.keyboardInset }]}
         keyboardShouldPersistTaps="handled"
+        onScroll={(event) => {
+          keyboard.onScroll(event.nativeEvent.contentOffset.y);
+        }}
+        scrollEventThrottle={16}
       >
         <Text style={styles.title}>Verify your number</Text>
         <Text style={styles.subtitle}>
-          Enter the verification code sent to {phone}.
+          {`Enter the WhatsApp code sent to ${phone}.`}
         </Text>
-        <FormInput
-          label="Verification code"
+        <OtpCodeBoxes
           value={code}
           onChangeText={setCode}
-          placeholder="Enter code"
-          keyboardType="number-pad"
-          autoComplete="sms-otp"
-          textContentType="oneTimeCode"
-          maxLength={10}
           editable={!isLoading}
+          invalid={Boolean(saveError ?? error)}
+          onFocus={keyboard.revealFocusedField}
         />
         <ErrorMessage message={saveError ?? error} />
         <PrimaryButton
@@ -112,6 +123,7 @@ export default function OtpVerificationScreen({ navigation, route }: OtpProps) {
           <SecondaryButton
             label={resendLabel}
             icon="refresh"
+            bordered={false}
             onPress={() => {
               void resend();
             }}
@@ -119,24 +131,24 @@ export default function OtpVerificationScreen({ navigation, route }: OtpProps) {
           />
         </View>
       </ScrollView>
-    </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
   },
   content: {
     flexGrow: 1,
-    paddingHorizontal: spacing.xl,
+    paddingHorizontal: spacing.lg,
     paddingTop: spacing.lg,
-    paddingBottom: spacing.xxl,
   },
   title: {
-    fontSize: 30,
-    fontWeight: '800',
+    fontSize: typography.title,
+    fontWeight: '700',
     color: colors.text,
     marginBottom: spacing.md,
   },
@@ -150,3 +162,4 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
   },
 });
+}

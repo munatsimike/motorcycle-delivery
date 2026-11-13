@@ -4,9 +4,11 @@ import { useAuth } from './auth';
 
 const LINKS = [
   ['/', 'Overview'],
+  ['/customers', 'Customers'],
   ['/riders', 'Riders'],
   ['/motorcycles', 'Motorcycles'],
   ['/deliveries', 'Deliveries'],
+  ['/notifications', 'Notifications'],
   ['/settings', 'Settings'],
 ] as const;
 

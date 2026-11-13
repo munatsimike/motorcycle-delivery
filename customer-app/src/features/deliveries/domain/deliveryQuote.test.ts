@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import { readCustomerDeliveryDetail } from './customerDeliveryDetail';
+import { displayedCustomerOffer, readCustomerDeliveryDetail } from './customerDeliveryDetail';
 import {
   canOfferQuotedPrice,
   customerOfferForBooking,
   nextCustomerOffer,
   normalizeCustomerOffer,
   offerFieldText,
+  quoteResultForRequest,
   quotesMatch,
   readDeliveryQuote,
 } from './deliveryQuote';
@@ -26,6 +27,7 @@ describe('readDeliveryQuote', () => {
       pricingVersion: 3,
       currency: 'USD',
       suggestedPrice: '4.50',
+      serviceClass: null,
     });
   });
 
@@ -42,6 +44,7 @@ describe('quotesMatch', () => {
     pricingVersion: 1,
     currency: 'USD' as const,
     suggestedPrice: '2.00',
+    serviceClass: null,
   };
 
   it('treats a different suggested price as a new quote', () => {
@@ -144,8 +147,14 @@ describe('createDelivery', () => {
       },
       getById: () => Promise.reject(new Error('unused')),
       list: () => Promise.reject(new Error('unused')),
+      listBids: () => Promise.reject(new Error('unused')),
+      acceptBid: () => Promise.reject(new Error('unused')),
       search: () => Promise.reject(new Error('unused')),
+      adjustOffer: () => Promise.reject(new Error('unused')),
       cancel: () => Promise.reject(new Error('unused')),
+      dismissBid: () => Promise.reject(new Error('unused')),
+      rateDelivery: () => Promise.reject(new Error('unused')),
+      createOpenRequest: () => Promise.reject(new Error('unused')),
     };
     await expect(createDelivery(repository, 'token', {} as PreparedBooking, '0.00')).rejects.toThrow(
       'Enter an offer from $0.01 to $1,000.00.',
@@ -171,9 +180,76 @@ describe('readCustomerDeliveryDetail', () => {
       id: 'delivery-1',
       status: 'CREATED',
       offeredPrice: '4.50',
+      customerOffer: null,
       pickupAddress: '12 Samora Machel Avenue',
+      senderName: null,
       dropoffAddress: '4 Jason Moyo Avenue',
+      recipientName: null,
     });
+  });
+
+  it('reads sender and recipient names and omits a blank name', () => {
+    const named = readCustomerDeliveryDetail({
+      id: 'delivery-1',
+      status: 'CREATED',
+      currency: 'USD',
+      offeredPrice: '4.50',
+      suggestedPrice: '4.50',
+      distanceMeters: 800,
+      pickup: { address: '12 Samora Machel Avenue', contactName: ' Tendai Moyo ' },
+      dropoff: { address: '4 Jason Moyo Avenue', contactName: 'Rudo Ncube' },
+      parcel: { description: 'Documents' },
+    });
+    expect(named.senderName).toBe('Tendai Moyo');
+    expect(named.recipientName).toBe('Rudo Ncube');
+
+    const senderOnly = readCustomerDeliveryDetail({
+      id: 'delivery-1',
+      status: 'CREATED',
+      currency: 'USD',
+      offeredPrice: '4.50',
+      suggestedPrice: '4.50',
+      distanceMeters: 800,
+      pickup: { address: '12 Samora Machel Avenue', contactName: 'Tendai Moyo' },
+      dropoff: { address: '4 Jason Moyo Avenue', contactName: '   ' },
+      parcel: { description: 'Documents' },
+    });
+    expect(senderOnly.senderName).toBe('Tendai Moyo');
+    expect(senderOnly.recipientName).toBeNull();
+
+    const recipientOnly = readCustomerDeliveryDetail({
+      id: 'delivery-1',
+      status: 'CREATED',
+      currency: 'USD',
+      offeredPrice: '4.50',
+      suggestedPrice: '4.50',
+      distanceMeters: 800,
+      pickup: { address: '12 Samora Machel Avenue' },
+      dropoff: { address: '4 Jason Moyo Avenue', contactName: 'Rudo Ncube' },
+      parcel: { description: 'Documents' },
+    });
+    expect(recipientOnly.senderName).toBeNull();
+    expect(recipientOnly.recipientName).toBe('Rudo Ncube');
+  });
+
+  it('reads the customer offer and falls back to the suggested price', () => {
+    const saved = readCustomerDeliveryDetail({
+      id: 'delivery-1',
+      status: 'NO_RIDER_FOUND',
+      currency: 'USD',
+      offeredPrice: null,
+      customerOffer: '4.00',
+      suggestedPrice: '8.88',
+      distanceMeters: 800,
+      pickup: { address: '12 Samora Machel Avenue', latitude: '-17.8292000', longitude: '31.0522000' },
+      dropoff: { address: '4 Jason Moyo Avenue' },
+      parcel: { description: 'Documents' },
+    });
+    expect(saved.customerOffer).toBe('4.00');
+    expect(saved.offeredPrice).toBeNull();
+    expect(displayedCustomerOffer(saved)).toBe('4.00');
+    expect(displayedCustomerOffer({ customerOffer: null, suggestedPrice: '8.88' })).toBe('8.88');
+    expect(displayedCustomerOffer({ suggestedPrice: '8.88' })).toBe('8.88');
   });
 
   it('keeps the address, status, and price when coordinates are missing', () => {
@@ -214,5 +290,81 @@ describe('readCustomerDeliveryDetail', () => {
       dropoff: { address: 'Drop-off' },
       parcel: { description: 'Box' },
     })).toThrow('Delivery details are unavailable.');
+  });
+
+  it('reads a V2 delivery with no agreed price and keeps a fresh rider point after assignment', () => {
+    const detail = readCustomerDeliveryDetail({
+      id: 'delivery-1',
+      status: 'RIDER_ASSIGNED',
+      currency: 'USD',
+      offeredPrice: null,
+      suggestedPrice: '8.00',
+      serviceClass: 'EXPRESS',
+      deliverBy: '2026-10-24T16:30:00.000Z',
+      distanceMeters: 800,
+      pickup: { address: 'Pickup', latitude: '-17.8000000', longitude: '31.1000000' },
+      dropoff: { address: 'Drop-off', latitude: '-17.8100000', longitude: '31.1100000' },
+      parcel: { description: 'Box' },
+      riderLocation: { latitude: '-17.8010000', longitude: '31.1090000' },
+    });
+    expect(detail.offeredPrice).toBeNull();
+    expect(detail.serviceClass).toBe('EXPRESS');
+    expect(detail.riderLocation).toEqual({ latitude: -17.801, longitude: 31.109, updatedAt: null });
+    expect(detail.pickupApproach).toBeNull();
+  });
+
+  it('keeps the rider point from collecting through drop-off and drops it once delivered', () => {
+    const point = { latitude: '-17.8010000', longitude: '31.1090000' };
+    const collecting = readCustomerDeliveryDetail({
+      id: 'delivery-1',
+      status: 'COLLECTING',
+      currency: 'USD',
+      offeredPrice: '9.00',
+      suggestedPrice: '8.00',
+      serviceClass: 'FLEXIBLE',
+      deliverBy: '2026-10-24T16:30:00.000Z',
+      distanceMeters: 800,
+      pickup: { address: 'Pickup' },
+      dropoff: { address: 'Drop-off' },
+      parcel: { description: 'Box' },
+      riderLocation: { ...point, updatedAt: '2026-10-28T16:40:00.000Z' },
+      pickupApproach: {
+        metres: 2400,
+        seconds: 420,
+        line: [{ latitude: -17.801, longitude: 31.109 }, { latitude: -17.82, longitude: 31.05 }],
+      },
+    });
+    expect(collecting.riderLocation).toEqual({ latitude: -17.801, longitude: 31.109, updatedAt: '2026-10-28T16:40:00.000Z' });
+    expect(collecting.pickupApproach).toEqual({
+      metres: 2400,
+      seconds: 420,
+      line: [{ latitude: -17.801, longitude: 31.109 }, { latitude: -17.82, longitude: 31.05 }],
+    });
+    const collected = readCustomerDeliveryDetail({
+      id: 'delivery-1',
+      status: 'COLLECTED',
+      currency: 'USD',
+      offeredPrice: '9.00',
+      suggestedPrice: '8.00',
+      serviceClass: 'FLEXIBLE',
+      deliverBy: '2026-10-24T16:30:00.000Z',
+      distanceMeters: 800,
+      pickup: { address: 'Pickup' },
+      dropoff: { address: 'Drop-off' },
+      parcel: { description: 'Box' },
+      riderLocation: point,
+      pickupApproach: { metres: 2400, seconds: 420, line: [] },
+    });
+    expect(collected.riderLocation).toBeNull();
+    expect(collected.pickupApproach).toBeNull();
+  });
+});
+
+describe('quote freshness', () => {
+  it('drops a quote that belongs to an earlier route or class request', () => {
+    const first = { suggestedPrice: '8.00', serviceClass: 'EXPRESS' as const };
+    const second = { suggestedPrice: '11.00', serviceClass: 'FLEXIBLE' as const };
+    expect(quoteResultForRequest(1, 2, first)).toBeNull();
+    expect(quoteResultForRequest(2, 2, second)).toEqual(second);
   });
 });

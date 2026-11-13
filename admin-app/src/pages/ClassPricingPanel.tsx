@@ -28,6 +28,7 @@ const MODELS: Array<[PricingModel, string]> = [
   ['PER_KILOMETRE', 'Per kilometre'],
   ['BASE_PLUS_PER_KILOMETRE', 'Base fee plus per kilometre'],
   ['DISTANCE_TIERS', 'Distance tiers'],
+  ['INCLUDED_DISTANCE', 'Included distance'],
 ];
 
 export function ClassPricingPanel({ serviceClass }: { serviceClass: ServiceClassName }) {
@@ -148,12 +149,22 @@ export function ClassPricingPanel({ serviceClass }: { serviceClass: ServiceClass
         </label>
         {draft.pricingModel ? (
           <>
-            {usesBaseFee(draft.pricingModel) ? (
-              <label>Base fee<input value={draft.baseFee} onChange={(event) => change({ ...draft, baseFee: event.target.value })} /></label>
-            ) : null}
-            {usesPerKilometre(draft.pricingModel) ? (
-              <label>Price per kilometre<input value={draft.pricePerKilometre} onChange={(event) => change({ ...draft, pricePerKilometre: event.target.value })} /></label>
-            ) : null}
+            {draft.pricingModel === 'INCLUDED_DISTANCE' ? (
+              <>
+                <label>Base price (USD)<input value={draft.baseFee} onChange={(event) => change({ ...draft, baseFee: event.target.value })} /></label>
+                <label>Included distance (km)<input inputMode="decimal" value={draft.includedKilometres} onChange={(event) => change({ ...draft, includedKilometres: event.target.value })} /></label>
+                <label>Additional price per kilometre (USD)<input value={draft.pricePerKilometre} onChange={(event) => change({ ...draft, pricePerKilometre: event.target.value })} /></label>
+              </>
+            ) : (
+              <>
+                {usesBaseFee(draft.pricingModel) ? (
+                  <label>Base fee<input value={draft.baseFee} onChange={(event) => change({ ...draft, baseFee: event.target.value })} /></label>
+                ) : null}
+                {usesPerKilometre(draft.pricingModel) ? (
+                  <label>Price per kilometre<input value={draft.pricePerKilometre} onChange={(event) => change({ ...draft, pricePerKilometre: event.target.value })} /></label>
+                ) : null}
+              </>
+            )}
             <label>Minimum trip metres<input inputMode="numeric" value={draft.minimumTripMetres} onChange={(event) => change({ ...draft, minimumTripMetres: event.target.value })} /></label>
             <label>Maximum trip metres<input inputMode="numeric" value={draft.maximumTripMetres} onChange={(event) => change({ ...draft, maximumTripMetres: event.target.value })} /></label>
             {draft.pricingModel === 'DISTANCE_TIERS' ? (
@@ -283,8 +294,14 @@ function PublishSummary({ serviceClass, body }: { serviceClass: ServiceClassName
   return (
     <div className="stack">
       <p>{serviceName(serviceClass)} tariff. Model: {label(body.pricingModel)}. Currency USD. {body.minimumTripMetres} to {body.maximumTripMetres} metres.</p>
-      {body.baseFee !== undefined ? <p>Base fee USD {body.baseFee}.</p> : null}
-      {body.pricePerKilometre !== undefined ? <p>USD {body.pricePerKilometre} per kilometre.</p> : null}
+      {body.includedMetres !== undefined ? (
+        <p>Base price USD {body.baseFee} includes {body.includedMetres} metres. Additional distance is USD {body.pricePerKilometre} per kilometre.</p>
+      ) : (
+        <>
+          {body.baseFee !== undefined ? <p>Base fee USD {body.baseFee}.</p> : null}
+          {body.pricePerKilometre !== undefined ? <p>USD {body.pricePerKilometre} per kilometre.</p> : null}
+        </>
+      )}
       {body.tiers ? (
         <ul>
           {body.tiers.map((tier) => <li key={tier.position}>Tier {tier.position}: up to {tier.upToMetres} metres at USD {tier.amount} per kilometre.</li>)}
@@ -316,7 +333,7 @@ function once<T>(slot: { current: Promise<T> | null }, run: () => Promise<T>): P
 }
 
 function readModel(value: string): ClassDraft['pricingModel'] {
-  if (value === 'FIXED' || value === 'PER_KILOMETRE' || value === 'BASE_PLUS_PER_KILOMETRE' || value === 'DISTANCE_TIERS') {
+  if (value === 'FIXED' || value === 'PER_KILOMETRE' || value === 'BASE_PLUS_PER_KILOMETRE' || value === 'DISTANCE_TIERS' || value === 'INCLUDED_DISTANCE') {
     return value;
   }
   return '';

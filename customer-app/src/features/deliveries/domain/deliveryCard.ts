@@ -1,5 +1,4 @@
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 const CARD_CITIES = new Set([
   'harare',
@@ -52,6 +51,19 @@ const STREET_TYPES: Record<string, string> = {
 
 const STREET_TYPE_PATTERN = new RegExp(`\\b(${Object.keys(STREET_TYPES).join('|')})\\b`, 'gi');
 
+export type DeliveryContentKind = 'parcel' | 'document' | 'food';
+
+export function deliveryContentKind(description: string | null | undefined): DeliveryContentKind {
+  const value = description?.trim().toLowerCase() ?? '';
+  if (value === 'food') {
+    return 'food';
+  }
+  if (value === 'document' || value === 'documents' || value === 'doc') {
+    return 'document';
+  }
+  return 'parcel';
+}
+
 export function deliveryCardAddress(address: string): string {
   const parts = addressParts(address);
   dropCountry(parts);
@@ -81,7 +93,7 @@ export function shortDeliveryReference(id: string): string {
   return tail.length > 0 ? `#${tail}` : id;
 }
 
-export function deliveryWhenLabel(createdAt: string, now = new Date()): string {
+export function deliveryWhenLabel(createdAt: string): string {
   const date = new Date(createdAt);
   if (Number.isNaN(date.getTime())) {
     return '';
@@ -89,12 +101,5 @@ export function deliveryWhenLabel(createdAt: string, now = new Date()): string {
   const hours = String(date.getHours()).padStart(2, '0');
   const minutes = String(date.getMinutes()).padStart(2, '0');
   const dateText = `${date.getDate()} ${MONTHS[date.getMonth()]} ${date.getFullYear()}`;
-  const time = `${hours}:${minutes}`;
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const startOfDate = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-  const dayDiff = Math.round((startOfToday - startOfDate) / DAY_MS);
-  if (dayDiff === 1) {
-    return `Yesterday, ${dateText} • ${time}`;
-  }
-  return `${dateText} • ${time}`;
+  return `${dateText} • ${hours}:${minutes}`;
 }

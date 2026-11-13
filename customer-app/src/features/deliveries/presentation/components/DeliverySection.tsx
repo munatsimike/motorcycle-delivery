@@ -1,8 +1,11 @@
+import { useMemo } from 'react';
+import type { RefObject } from 'react';
 import { Image, StyleSheet, Text, View } from 'react-native';
 
 import ErrorMessage from '../../../../components/ErrorMessage';
 import LoadingIndicator from '../../../../components/LoadingIndicator';
-import { colors, radius, spacing, typography } from '../../../../theme';
+import type { Palette } from '../../../../theme';
+import { useAppearance, radius, spacing, typography } from '../../../../theme';
 import type { CustomerDelivery } from '../../domain/deliveryStatus';
 import DeliveryCard from './DeliveryCard';
 import OfflineDeliveriesNotice from './OfflineDeliveriesNotice';
@@ -14,6 +17,10 @@ type DeliverySectionProps = {
   emptyTitle: string;
   emptyBody: string;
   compact?: boolean;
+  translucentCards?: boolean;
+  bleedEmpty?: boolean;
+  emptyAnchor?: RefObject<View | null>;
+  onEmptyLayout?: () => void;
   refreshing?: boolean;
   offlineNote?: string | null;
   cached?: boolean;
@@ -29,6 +36,10 @@ export default function DeliverySection({
   emptyTitle,
   emptyBody,
   compact = false,
+  translucentCards = false,
+  bleedEmpty = false,
+  emptyAnchor,
+  onEmptyLayout,
   refreshing = false,
   offlineNote = null,
   cached = false,
@@ -36,6 +47,8 @@ export default function DeliverySection({
   onRetry,
   onSearchAgain,
 }: DeliverySectionProps) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   if (isLoading && !refreshing && deliveries.length === 0) {
     return <LoadingIndicator />;
   }
@@ -45,7 +58,11 @@ export default function DeliverySection({
       {offlineNote ? <OfflineDeliveriesNotice message={offlineNote} onRetry={onRetry} /> : null}
       {error ? <ErrorMessage message={error} /> : null}
       {!error && deliveries.length === 0 ? (
-        <View style={[styles.empty, compact && styles.emptyCompact]}>
+        <View
+          ref={bleedEmpty ? emptyAnchor : undefined}
+          onLayout={bleedEmpty ? onEmptyLayout : undefined}
+          style={bleedEmpty ? styles.homeEmpty : [styles.empty, compact && styles.emptyCompact]}
+        >
           <Image
             source={require('../../../../../assets/parcel-box.png')}
             style={[styles.emptyImage, compact && styles.emptyImageCompact]}
@@ -61,6 +78,7 @@ export default function DeliverySection({
           key={delivery.id}
           delivery={delivery}
           cached={cached}
+          translucent={translucentCards}
           onOpenDetails={onOpenDetails}
           onSearchAgain={onSearchAgain}
         />
@@ -69,9 +87,10 @@ export default function DeliverySection({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   empty: {
-    backgroundColor: colors.background,
+    backgroundColor: 'transparent',
     borderRadius: radius.lg,
     padding: spacing.xl,
     alignItems: 'center',
@@ -79,6 +98,12 @@ const styles = StyleSheet.create({
   emptyCompact: {
     paddingVertical: spacing.xs,
     paddingHorizontal: 0,
+  },
+  homeEmpty: {
+    alignItems: 'center',
+    paddingTop: spacing.lg + spacing.md,
+    paddingBottom: spacing.xl,
+    backgroundColor: 'transparent',
   },
   emptyImage: {
     width: 40,
@@ -110,3 +135,4 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
 });
+}

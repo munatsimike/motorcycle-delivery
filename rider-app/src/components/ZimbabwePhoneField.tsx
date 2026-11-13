@@ -1,40 +1,46 @@
 import { Image, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { colors, radius, spacing, typography } from '../theme';
+import { colors, inputErrorStyle, radius, spacing, typography } from '../theme';
 import { useInputFocus } from './useInputFocus';
 
 type ZimbabwePhoneFieldProps = {
   value: string;
   onChangeText: (value: string) => void;
   editable?: boolean;
+  invalid?: boolean;
+  countryCode?: '+263' | '+31';
 };
 
 export default function ZimbabwePhoneField({
   value,
   onChangeText,
   editable = true,
+  invalid = false,
+  countryCode = '+263',
 }: ZimbabwePhoneFieldProps) {
   const focus = useInputFocus();
 
   return (
     <>
-      <Text style={styles.label}>Mobile number</Text>
-      <View style={[styles.inputContainer, focus.style]}>
+      <Text style={styles.label}>WhatsApp number</Text>
+      <View style={[styles.inputContainer, focus.style, invalid ? inputErrorStyle : null]}>
         <View style={styles.countryCode}>
-          <Image
-            source={require('../../assets/zimbabwe-flag.png')}
-            style={styles.flag}
-            resizeMode="cover"
-          />
-          <Text style={styles.countryCodeText}>+263</Text>
+          {countryCode === '+263' ? (
+            <Image
+              source={require('../../assets/zimbabwe-flag.png')}
+              style={styles.flag}
+              resizeMode="cover"
+            />
+          ) : null}
+          <Text style={styles.countryCodeText}>{countryCode}</Text>
         </View>
         <View style={styles.inputDivider} />
         <TextInput
-          accessibilityLabel="Mobile number"
+          accessibilityLabel="WhatsApp number"
           style={styles.input}
           value={value}
           onChangeText={onChangeText}
-          placeholder="771234567"
+          placeholder={countryCode === '+31' ? '612345678' : '771234567'}
           placeholderTextColor={colors.textSecondary}
           keyboardType="phone-pad"
           autoComplete="tel"

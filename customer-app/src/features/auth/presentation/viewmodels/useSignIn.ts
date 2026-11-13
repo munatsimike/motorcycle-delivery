@@ -1,7 +1,8 @@
 import { useRef, useState } from 'react';
 
 import { customerAuthRepository } from '../../data/repositories/CustomerAuthApiRepository';
-import { requestLoginCode, type LoginCodeResult } from '../../domain/usecases/requestLoginCode';
+import type { SignInCodeRequest } from '../../domain/customerAuthJourney';
+import { requestSignInCode } from '../../domain/customerAuthJourney';
 import { errorMessage } from '../errorMessage';
 
 export function useSignIn() {
@@ -9,7 +10,7 @@ export function useSignIn() {
   const [error, setError] = useState<string | null>(null);
   const inFlight = useRef(false);
 
-  async function requestCode(phone: string): Promise<LoginCodeResult | null> {
+  async function startWhatsAppLogin(phone: string): Promise<SignInCodeRequest | null> {
     if (inFlight.current) {
       return null;
     }
@@ -17,9 +18,14 @@ export function useSignIn() {
     setIsLoading(true);
     setError(null);
     try {
-      return await requestLoginCode(customerAuthRepository, phone);
+      const started = await requestSignInCode(customerAuthRepository, phone);
+      if (started.status === 'unavailable') {
+        setError('Account not found. Create an account to continue.');
+        return started;
+      }
+      return started;
     } catch (caught) {
-      setError(errorMessage(caught, 'Sign in could not be started.'));
+      setError(errorMessage(caught, 'WhatsApp verification is unavailable'));
       return null;
     } finally {
       inFlight.current = false;
@@ -27,5 +33,5 @@ export function useSignIn() {
     }
   }
 
-  return { isLoading, error, requestCode };
+  return { isLoading, error, startWhatsAppLogin };
 }

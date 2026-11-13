@@ -1,8 +1,10 @@
+import { useMemo } from 'react';
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import LoadingIndicator from '../../../../components/LoadingIndicator';
-import { colors, radius, spacing, typography } from '../../../../theme';
+import type { Palette } from '../../../../theme';
+import { radius, spacing, typography, useAppearance } from '../../../../theme';
 import { nearbyActionLabel, nearbyCardContent, type NearbyCardContent, type RiderAlertPhase } from '../../domain/nearbyCard';
 import type { NearbyAvailability } from '../../domain/nearbyAvailability';
 
@@ -22,12 +24,14 @@ type NearbyRidersCardProps = {
   };
 };
 
-const TONES = {
-  amber: { background: '#FFF4E5', color: '#C56A12' },
-  neutral: { background: '#EEF2F6', color: '#475569' },
-  green: { background: colors.primaryLight, color: colors.primaryDark },
-  danger: { background: '#FDECEC', color: colors.error },
-} as const;
+function tones(colors: Palette) {
+  return {
+    amber: { background: '#FFF4E5', color: '#C56A12' },
+    neutral: { background: '#EEF2F6', color: '#475569' },
+    green: { background: colors.primaryLight, color: colors.primaryDark },
+    danger: { background: '#FDECEC', color: colors.error },
+  };
+}
 
 export default function NearbyRidersCard({
   state,
@@ -37,6 +41,8 @@ export default function NearbyRidersCard({
   embedded = false,
   alert,
 }: NearbyRidersCardProps) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   if (state.status === 'loading') {
     return (
       <View style={[styles.card, embedded && styles.embedded]}>
@@ -49,7 +55,7 @@ export default function NearbyRidersCard({
   if (!content) {
     return null;
   }
-  const tone = TONES[content.tone];
+  const tone = tones(colors)[content.tone];
   const action = nearbyActionLabel(content.action);
   const showBell = content.action === 'notify' || content.action === 'cancel-alert';
 
@@ -87,7 +93,7 @@ export default function NearbyRidersCard({
               style={[styles.button, alert?.busy && styles.buttonBusy]}
             >
               {showBell ? <MaterialDesignIcons name="bell-outline" color={colors.primary} size={16} /> : null}
-              <Text style={styles.buttonLabel}>{action}</Text>
+              <Text style={[styles.buttonLabel, content.action === 'cancel-alert' && styles.buttonLabelRegular]}>{action}</Text>
             </Pressable>
           ) : null}
           {alert?.error ? <Text style={styles.error}>{alert.error}</Text> : null}
@@ -133,9 +139,10 @@ function pressAction(
   }
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   card: {
-    backgroundColor: '#F8FAF9',
+    backgroundColor: colors.background === '#FFFFFF' ? '#F8FAF9' : colors.surface,
     borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,
@@ -159,7 +166,7 @@ const styles = StyleSheet.create({
   badge: {
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -204,9 +211,13 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.primary,
   },
+  buttonLabelRegular: {
+    fontWeight: '400',
+  },
   error: {
     fontSize: typography.caption,
     lineHeight: 20,
     color: colors.error,
   },
 });
+}

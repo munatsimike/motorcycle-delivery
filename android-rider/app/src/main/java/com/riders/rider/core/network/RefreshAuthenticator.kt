@@ -2,6 +2,7 @@ package com.riders.rider.core.network
 
 import com.riders.rider.core.session.AuthSession
 import com.riders.rider.core.session.SessionStore
+import com.riders.rider.feature.auth.domain.DeviceReplacementNotice
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
@@ -32,6 +33,7 @@ import java.io.InterruptedIOException
 sealed interface RefreshAttempt {
     data class Success(val session: AuthSession) : RefreshAttempt
     data object Rejected : RefreshAttempt
+    data object Replaced : RefreshAttempt
     data object Unavailable : RefreshAttempt
     data object TimedOut : RefreshAttempt
     data object Unreachable : RefreshAttempt
@@ -49,7 +51,16 @@ suspend fun performRefresh(call: suspend () -> AuthSession): RefreshAttempt {
     return try {
         RefreshAttempt.Success(call())
     } catch (error: HttpException) {
-        if (error.code() == 401) RefreshAttempt.Rejected else RefreshAttempt.Unavailable
+        if (error.code() == 401) {
+            val message = runCatching { error.response()?.errorBody()?.string() }.getOrNull()
+            if (apiMessage(message) == DeviceReplacementNotice.MESSAGE) {
+                RefreshAttempt.Replaced
+            } else {
+                RefreshAttempt.Rejected
+            }
+        } else {
+            RefreshAttempt.Unavailable
+        }
     } catch (error: IOException) {
         if (error.isTransportTimeout()) RefreshAttempt.TimedOut else RefreshAttempt.Unreachable
     }
@@ -86,6 +97,11 @@ class RefreshAuthenticator(
                     attempt.session
                 }
                 RefreshAttempt.Rejected -> {
+                    store.clear()
+                    null
+                }
+                RefreshAttempt.Replaced -> {
+                    DeviceReplacementNotice.remember()
                     store.clear()
                     null
                 }

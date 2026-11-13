@@ -14,6 +14,7 @@ export type DashboardSummary = {
     active: number;
     completed: number;
     cancelled: number;
+    failed: number;
     byStatus: Record<string, number>;
     last24Hours: number;
   };
@@ -38,6 +39,19 @@ export type DashboardSummary = {
     rejected: number;
     revoked: number;
   };
+};
+
+export type CustomerRow = {
+  customerAccountId: string;
+  name: string;
+  fullName: string;
+  contactName: string | null;
+  phone: string;
+  accountStatus: string;
+  kind: string;
+  address: string;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type RiderRow = {
@@ -88,24 +102,67 @@ export type DeliveryRow = {
   status: string;
   pickupAddress: string;
   dropoffAddress: string;
-  price: string;
+  price: string | null;
   currency: string;
-  paymentMethod: string;
+  paymentMethod: string | null;
   activeAssignment: { id: string; riderProfileId: string; motorcycleId: string; status: string } | null;
   createdAt: string;
   updatedAt: string;
 };
 
-export type DeliveryDetail = DeliveryRow & {
+export type AdminBid = {
+  id: string;
+  riderProfileId: string;
+  riderName: string;
+  amount: string;
+  currency: string;
+  status: string;
+  closedAt: string | null;
+  createdAt: string;
+  accepted: boolean;
+};
+
+export type AdminReservation = {
+  id: string;
+  assignmentId: string | null;
+  amount: string;
+  currency: string;
+  status: string;
+  createdAt: string;
+  releasedAt: string | null;
+  capturedAt: string | null;
+};
+
+export type AdminAcceptance = {
+  assignmentId: string;
+  assignmentStatus: string;
+  riderProfileId: string;
+  riderName: string;
+  acceptedBidId: string | null;
+  acceptedAt: string | null;
+  bidAmount: string | null;
+  currency: string;
+  basisPoints: number | null;
+  rateVersion: number | null;
+  commissionAmount: string | null;
+  reservation: AdminReservation | null;
+  commissionState: 'RESERVED' | 'CAPTURED' | 'RELEASED' | 'NOT_RESERVED' | 'UNRECORDED';
+};
+
+export type DeliveryDetail = Omit<DeliveryRow, 'price'> & {
+  price: string | null;
   parcelSize: string | null;
   suggestedPrice: string | null;
   distanceMeters: number | null;
   pricingVersion: number | null;
   payer: string | null;
+  serviceClass: string | null;
+  deliverBy: string | null;
   assignments: Array<{
     id: string;
     riderProfileId: string;
-    motorcycleId: string;
+    riderName: string;
+    motorcycleId: string | null;
     status: string;
     offerExpiresAt: string | null;
     respondedAt: string | null;
@@ -120,6 +177,117 @@ export type DeliveryDetail = DeliveryRow & {
     actorType: string;
     occurredAt: string;
   }>;
+  bids: AdminBid[];
+  acceptances: AdminAcceptance[];
+  unmatchedReservations: AdminReservation[];
+};
+
+export type RiderWalletSummary = {
+  riderProfileId: string;
+  balance: string;
+  borrowingLimit: string;
+  borrowingLimitSource: 'DEFAULT' | 'OVERRIDE';
+  reservedFees: string;
+  availableCapacity: string;
+  promotionalBalance: string;
+  availablePromotionalCredit: string;
+  newDeliveriesRestricted: boolean;
+  currency: string;
+};
+
+export type WalletTransaction = {
+  id: string;
+  type: string;
+  amount: string;
+  balanceAfter: string;
+  currency: string;
+  createdAt: string;
+  reason: string | null;
+  payment: {
+    method: string;
+    internalReceiptId: string | null;
+    externalReceiptNumber: string | null;
+    ecocashReference: string | null;
+  } | null;
+};
+
+export type WalletTransactionPage = {
+  transactions: WalletTransaction[];
+  nextCursor: string | null;
+};
+
+export type NoticeRow = {
+  id: string;
+  eventType: string;
+  status: string;
+  attemptCount: number;
+  lastFailure: string | null;
+  deliveryId: string | null;
+  createdAt: string;
+  lastAttemptAt: string | null;
+  sentAt: string | null;
+  failedAt: string | null;
+  nextAttemptAt: string | null;
+};
+
+export type RiderLicenceReview = {
+  id: string;
+  decision: string;
+  licenceNumber: string | null;
+  licenceClass: string | null;
+  rejectionReason: string | null;
+  reviewerId: string;
+  licenceImageId: string;
+  createdAt: string;
+};
+
+export type RiderApprovalAudit = {
+  id: string;
+  actorId: string;
+  action: string;
+  previousApprovalStatus: string;
+  newApprovalStatus: string;
+  createdAt: string;
+};
+
+export type RiderActivityRow = {
+  assignmentId: string;
+  assignmentStatus: string;
+  respondedAt: string | null;
+  releaseReason: string | null;
+  releasedAt: string | null;
+  acceptedBidAmount: string | null;
+  createdAt: string;
+  deliveryId: string;
+  deliveryStatus: string;
+  pickupAddress: string;
+  dropoffAddress: string;
+  currency: string;
+  deliveryCreatedAt: string;
+};
+
+export type WalletConfigAudit = {
+  id: string;
+  configVersion: number;
+  actorType: string;
+  actorId: string | null;
+  previousWelcomeBonus: string | null;
+  previousDefaultBorrowingLimit: string | null;
+  previousPlatformFee: string | null;
+  newWelcomeBonus: string;
+  newDefaultBorrowingLimit: string;
+  newPlatformFee: string;
+  createdAt: string;
+};
+
+export type BorrowingLimitAudit = {
+  id: string;
+  riderWalletId: string;
+  riderProfileId: string;
+  actorId: string;
+  previousOverride: string | null;
+  newOverride: string | null;
+  createdAt: string;
 };
 
 export type WalletConfig = {
@@ -130,16 +298,7 @@ export type WalletConfig = {
   platformFee: string;
 };
 
-export type DeliveryPricing = {
-  pricingVersion: number;
-  currency: string;
-  baseFee: string;
-  pricePerKilometre: string;
-  minimumTripMetres: number;
-  maximumTripMetres: number;
-};
-
-export type PricingModel = 'FIXED' | 'PER_KILOMETRE' | 'BASE_PLUS_PER_KILOMETRE' | 'DISTANCE_TIERS';
+export type PricingModel = 'FIXED' | 'PER_KILOMETRE' | 'BASE_PLUS_PER_KILOMETRE' | 'DISTANCE_TIERS' | 'INCLUDED_DISTANCE';
 
 export type ServiceClassName = 'EXPRESS' | 'FLEXIBLE';
 
@@ -172,6 +331,7 @@ export type ClassTariff = {
   pricePerKilometre: string;
   minimumTripMetres: number;
   maximumTripMetres: number;
+  includedMetres: number | null;
   isActive: boolean;
   tiers: DistanceTier[];
   windows: PricingWindow[];
@@ -185,7 +345,26 @@ export type PricingAudit = {
   createdAt: string;
 };
 
-export type CommissionPolicy = {
-  model: 'ON_COMPLETION' | 'ON_ACCEPTANCE';
-  policyVersion: number;
+export type V2CommissionRate =
+  | { configured: false }
+  | {
+      configured: true;
+      basisPoints: number;
+      percentage: string;
+      rateVersion: number;
+      createdById: string;
+      createdAt: string;
+    };
+
+export type V2CommissionAudit = {
+  id: string;
+  actorId: string;
+  actorName: string;
+  previousVersion: number | null;
+  nextVersion: number;
+  previousBasisPoints: number | null;
+  nextBasisPoints: number;
+  previousPercentage: string | null;
+  nextPercentage: string;
+  createdAt: string;
 };

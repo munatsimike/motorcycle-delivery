@@ -1,6 +1,6 @@
 export type AccountKind = 'INDIVIDUAL' | 'BUSINESS';
 
-export type AuthFlow = 'registration' | 'login';
+export type AuthFlow = 'whatsapp_registration' | 'whatsapp_login';
 
 export type PendingOtp = {
   status: 'pending';
@@ -20,6 +20,8 @@ export type AuthSession = {
 export type RegistrationProof = {
   status: 'verified';
   registrationToken: string;
+  fullName?: string;
+  address?: string | null;
   existing?: ExistingAccountDetails;
 };
 

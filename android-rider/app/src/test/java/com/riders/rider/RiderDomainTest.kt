@@ -8,22 +8,23 @@ import com.riders.rider.core.network.text
 import com.riders.rider.feature.availability.domain.GpsFix
 import com.riders.rider.feature.availability.domain.LocationRelay
 import com.riders.rider.feature.auth.domain.AppEntry
-import com.riders.rider.feature.auth.domain.SessionGate
-import com.riders.rider.feature.auth.domain.biometricHomeAction
-import com.riders.rider.feature.auth.domain.initialBiometricState
 import com.riders.rider.feature.auth.domain.DEBUG_REGISTRATION_FULL_NAME
+import com.riders.rider.feature.auth.domain.DeviceReplacementNotice
+import com.riders.rider.feature.auth.domain.appEntry
+import com.riders.rider.feature.auth.domain.resumedAssignmentId
+import com.riders.rider.feature.auth.domain.signedOutStart
+import com.riders.rider.feature.availability.domain.LocationCommand
+import com.riders.rider.feature.availability.domain.commandAfterUploadFailure
+import com.riders.rider.feature.home.DashboardFailure
+import com.riders.rider.feature.home.dashboardFailure
+import com.riders.rider.feature.offers.domain.shouldPollOffers
 import com.riders.rider.feature.auth.domain.normalizeRiderAddress
 import com.riders.rider.feature.auth.domain.normalizeRiderName
 import com.riders.rider.feature.auth.domain.registrationFullName
 import com.riders.rider.feature.auth.domain.normalizeRiderPhone
-import com.riders.rider.feature.auth.domain.reduceSession
-import com.riders.rider.feature.auth.domain.resolveAppEntry
 import com.riders.rider.feature.auth.domain.riderPhoneEntry
-import com.riders.rider.feature.auth.domain.sessionGate
-import com.riders.rider.feature.auth.domain.shouldOfferBiometric
-import com.riders.rider.feature.delivery.domain.canRelease
-import com.riders.rider.feature.delivery.domain.nextDeliveryStatus
 import com.riders.rider.feature.offers.domain.AcceptKeys
+import com.riders.rider.feature.offers.domain.leavesAcceptUnresolved
 import com.riders.rider.feature.onboarding.domain.RiderOnboarding
 import com.riders.rider.feature.onboarding.domain.riderReadiness
 import kotlinx.coroutines.test.runTest
@@ -49,8 +50,18 @@ class RiderDomainTest {
     @Test
     fun riderAccountUsesAnIndividualNameAndAddress() {
         assertEquals("Tendai Moyo", normalizeRiderName("  Tendai   Moyo  "))
+        assertEquals("Tendai Joe Moyo", normalizeRiderName("Tendai Joe Moyo"))
+        assertEquals("Ann Moyo", normalizeRiderName("Ann Moyo"))
         assertEquals("12 Samora Machel Avenue", normalizeRiderAddress("  12   Samora Machel Avenue  "))
         assertThrows(IllegalArgumentException::class.java) { normalizeRiderName(" ") }
+        assertEquals(
+            "Enter your name and surname.",
+            assertThrows(IllegalArgumentException::class.java) { normalizeRiderName("Tendai") }.message,
+        )
+        assertEquals(
+            "Each name must be at least 3 letters.",
+            assertThrows(IllegalArgumentException::class.java) { normalizeRiderName("Tendai M") }.message,
+        )
         assertThrows(IllegalArgumentException::class.java) { normalizeRiderAddress(" ") }
     }
 
@@ -104,7 +115,7 @@ class RiderDomainTest {
         val ready = readiness("""{"licenceVerificationStatus":"VERIFIED","approvalStatus":"APPROVED","availability":"AVAILABLE","licenceNumber":"12345","licenceClass":"B","verifiedMotorcycleCount":1,"activeVerifiedMotorcycle":true}""")
         assertTrue(ready.canAcceptDeliveries)
         assertFalse(ready.canGoOnline)
-        assertEquals("Available", ready.availabilityLabel)
+        assertEquals("Online", ready.availabilityLabel)
 
         val offline = readiness("""{"licenceVerificationStatus":"VERIFIED","approvalStatus":"APPROVED","availability":"OFFLINE","verifiedMotorcycleCount":1,"activeVerifiedMotorcycle":true}""")
         assertTrue(offline.canGoOnline)
@@ -126,6 +137,19 @@ class RiderDomainTest {
     fun signInRejectionKeepsTheServerMessage() {
         val error = mapHttpFailure(401, """{"message":"Verification code is invalid"}""", establishedSession = false)
         assertEquals("Verification code is invalid", error.text())
+    }
+
+    @Test
+    fun replacedSessionStopsTrackingAndReturnsToSignIn() {
+        val error = mapHttpFailure(401, """{"message":"${DeviceReplacementNotice.MESSAGE}"}""")
+        assertTrue(error is ApiError.SignedInElsewhere)
+        assertEquals(DeviceReplacementNotice.MESSAGE, error.text())
+        assertEquals(LocationCommand.Stop, commandAfterUploadFailure(error))
+        assertEquals(DashboardFailure.Authentication, dashboardFailure(error))
+        assertEquals("sign-in", signedOutStart(error.text()))
+        assertFalse(shouldPollOffers(false))
+        assertFalse(error.leavesAcceptUnresolved())
+        assertEquals("delivery-1", resumedAssignmentId(listOf("delivery-1")))
     }
 
     @Test
@@ -152,20 +176,6 @@ class RiderDomainTest {
     }
 
     @Test
-    fun deliveryOffersOnlyTheNextStatus() {
-        assertEquals("ARRIVED_AT_PICKUP", nextDeliveryStatus("ASSIGNED"))
-        assertEquals("PICKED_UP", nextDeliveryStatus("ARRIVED_AT_PICKUP"))
-        assertEquals("IN_TRANSIT", nextDeliveryStatus("PICKED_UP"))
-        assertEquals("ARRIVED_AT_DROPOFF", nextDeliveryStatus("IN_TRANSIT"))
-        assertEquals("DELIVERED", nextDeliveryStatus("ARRIVED_AT_DROPOFF"))
-        assertNull(nextDeliveryStatus("DELIVERED"))
-        assertTrue(canRelease("ASSIGNED"))
-        assertTrue(canRelease("ARRIVED_AT_PICKUP"))
-        assertFalse(canRelease("PICKED_UP"))
-        assertFalse(canRelease("DELIVERED"))
-    }
-
-    @Test
     fun locationUploadsStayInMemory() = runTest {
         var now = 0L
         val relay = LocationRelay(persist = { error("coordinates were stored") }, clock = { now })
@@ -180,55 +190,9 @@ class RiderDomainTest {
     }
 
     @Test
-    fun biometricGateUsesTheStoredSession() {
-        assertEquals(SessionGate.SignedOut, sessionGate(false, true, true))
-        assertEquals(SessionGate.Restore, sessionGate(true, false, true))
-        assertEquals(SessionGate.Restore, sessionGate(true, false, false))
-        assertEquals(SessionGate.Biometric, sessionGate(true, true, true))
-        assertEquals(SessionGate.BiometricUnavailable, sessionGate(true, true, false))
-    }
-
-    @Test
-    fun freshSignInSkipsUnlockAndCanOfferBiometrics() {
-        val cold = reduceSession(initialBiometricState(hasStoredSession = true), hasSession = true)
-        val refreshed = reduceSession(cold, hasSession = true)
-        assertFalse(refreshed.unlocked)
-        assertFalse(refreshed.freshSignIn)
-        assertEquals(
-            AppEntry.Unlock,
-            resolveAppEntry(true, biometricEnabled = true, biometricAvailable = true, cold.unlocked, cold.freshSignIn, declined = false),
-        )
-        assertEquals(
-            AppEntry.Home,
-            resolveAppEntry(true, biometricEnabled = false, biometricAvailable = false, cold.unlocked, cold.freshSignIn, declined = false),
-        )
-
-        val signedIn = reduceSession(initialBiometricState(hasStoredSession = false), hasSession = true)
-        assertTrue(signedIn.unlocked)
-        assertTrue(signedIn.freshSignIn)
-        assertEquals(
-            AppEntry.Home,
-            resolveAppEntry(true, biometricEnabled = true, biometricAvailable = true, signedIn.unlocked, signedIn.freshSignIn, declined = false),
-        )
-        assertEquals(
-            AppEntry.Offer,
-            resolveAppEntry(true, biometricEnabled = false, biometricAvailable = true, signedIn.unlocked, signedIn.freshSignIn, declined = false),
-        )
-        assertEquals(AppEntry.Home, resolveAppEntry(true, false, true, signedIn.unlocked, signedIn.freshSignIn, declined = true))
-        assertEquals(AppEntry.Unlock, resolveAppEntry(true, true, false, unlocked = false, freshSignIn = false, declined = false))
-        assertEquals(AppEntry.SignedOut, resolveAppEntry(false, true, true, unlocked = true, freshSignIn = true, declined = false))
-    }
-
-    @Test
-    fun biometricOfferRequiresACapableDevice() {
-        assertTrue(shouldOfferBiometric(freshSignIn = true, biometricAvailable = true, biometricEnabled = false, declined = false))
-        assertFalse(shouldOfferBiometric(freshSignIn = false, biometricAvailable = true, biometricEnabled = false, declined = false))
-        assertFalse(shouldOfferBiometric(freshSignIn = true, biometricAvailable = false, biometricEnabled = false, declined = false))
-        assertFalse(shouldOfferBiometric(freshSignIn = true, biometricAvailable = true, biometricEnabled = true, declined = false))
-        assertFalse(shouldOfferBiometric(freshSignIn = true, biometricAvailable = true, biometricEnabled = false, declined = true))
-        assertEquals("Unlock with biometrics", biometricHomeAction(enabled = false, available = true))
-        assertEquals("Turn off biometric unlock", biometricHomeAction(enabled = true, available = false))
-        assertNull(biometricHomeAction(enabled = false, available = false))
+    fun storedSessionOpensHomeWithoutABiometricPrompt() {
+        assertEquals(AppEntry.SignedOut, appEntry(false))
+        assertEquals(AppEntry.Home, appEntry(true))
     }
 
     private fun readiness(json: String) = riderReadiness(ApiJson.decodeFromString(OnboardingResponse.serializer(), json).toOnboarding())

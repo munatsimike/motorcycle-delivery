@@ -47,6 +47,7 @@ export type StoredDelivery = {
   parcelSize: ParcelSize;
   parcelInstructions: string | null;
   createdAt?: Date | string;
+  statusEvents?: Array<{ newStatus: DeliveryStatus; occurredAt: Date | string }>;
 };
 
 export function toCustomerDeliverySummary(delivery: {
@@ -189,6 +190,7 @@ export function toCustomerDelivery(delivery: StoredDelivery) {
       instructions: delivery.parcelInstructions,
     },
     createdAt: createdAtText(delivery.createdAt),
+    completedAt: completedAtText(delivery),
   };
 }
 
@@ -279,6 +281,11 @@ function withheldCoordinate(
 
 function coordinateMarker(value: string | { toFixed(digits: number): string } | null): string | null {
   return value == null ? null : 'present';
+}
+
+function completedAtText(delivery: StoredDelivery): string | null {
+  const delivered = delivery.statusEvents?.find((event) => event.newStatus === DeliveryStatus.DELIVERED);
+  return delivered ? createdAtText(delivered.occurredAt) : null;
 }
 
 function createdAtText(value: Date | string | undefined): string | null {

@@ -7,33 +7,34 @@ import { useSignUp } from './presentation/viewmodels/useSignUp';
 
 type SignUpProps = NativeStackScreenProps<RootStackParamList, 'SignUp'>;
 
-export default function SignUpScreen({ navigation }: SignUpProps) {
+export default function SignUpScreen({ navigation, route }: SignUpProps) {
   const [phone, setPhone] = useState('');
-  const { isLoading, error, requestCode } = useSignUp();
+  const { isLoading, error, startWhatsAppRegistration } = useSignUp();
 
-  async function handleContinue() {
-    const normalized = await requestCode(phone);
-    if (!normalized) {
+  async function handleSubmit() {
+    const verifiedPhone = await startWhatsAppRegistration(phone);
+    if (!verifiedPhone) {
       return;
     }
-    navigation.navigate('OtpVerification', { phone: normalized, flow: 'registration' });
+    navigation.navigate('OtpVerification', { phone: verifiedPhone, flow: 'whatsapp_registration' });
   }
 
   return (
     <PhoneEntryForm
       title="Create your account"
-      subtitle="Join Riders and enjoy fast, safe, and reliable motorcycle deliveries."
-      buttonLabel="Verify"
+      subtitle="Enter your Zimbabwe WhatsApp number. We'll send a code before asking for your details."
+      buttonLabel="Send code"
       trailingIcon="chevron-right"
       isLoading={isLoading}
-      error={error}
+      error={error ?? route.params?.notice ?? null}
       phone={phone}
       onChangePhone={setPhone}
       onSubmit={() => {
-        void handleContinue();
+        void handleSubmit();
       }}
+      helperText="Enter a Zimbabwe mobile number. We'll send a one-time WhatsApp code."
       footerText="Already have an account?"
-      footerAction="Sign In"
+      footerAction="Sign in"
       onFooterPress={() => navigation.navigate('SignIn')}
     />
   );

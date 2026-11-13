@@ -22,12 +22,10 @@ import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
 import com.riders.rider.R
-import com.riders.rider.core.network.ApiResult
-import com.riders.rider.core.network.RiderService
-import com.riders.rider.core.network.apiCall
 import com.riders.rider.core.session.SessionStore
 import com.riders.rider.feature.availability.data.AvailabilityRepository
-import com.riders.rider.feature.availability.domain.GpsFix
+import com.riders.rider.feature.availability.domain.gpsFix
+import com.riders.rider.feature.availability.domain.isDispatchUsable
 import com.riders.rider.feature.availability.domain.LocationFreshness
 import com.riders.rider.feature.availability.domain.LocationRelay
 import com.riders.rider.feature.availability.domain.locationUpdatePolicy
@@ -43,15 +41,15 @@ import kotlinx.coroutines.withContext
 @AndroidEntryPoint
 class RiderLocationService : Service() {
     @Inject lateinit var availability: AvailabilityRepository
-    @Inject lateinit var riders: RiderService
     @Inject lateinit var sessions: SessionStore
     @Inject lateinit var freshness: LocationFreshness
+    @Inject lateinit var locations: RiderLocationHub
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val relay = LocationRelay()
     private val client by lazy { LocationServices.getFusedLocationProviderClient(this) }
     private var prompt: CancellationTokenSource? = null
-    private var updatesRequested = false
+    @Volatile private var updatesRequested = false
     @Volatile private var running = false
 
     private val callback = object : LocationCallback() {
@@ -65,32 +63,35 @@ class RiderLocationService : Service() {
 
     override fun onStartCommand(intent: android.content.Intent?, flags: Int, startId: Int): Int {
         if (!fineLocationGranted()) {
+            LocationServiceGate.markRunning(false)
             stopSelf()
             return START_NOT_STICKY
         }
         try {
             startAsForeground()
         } catch (_: SecurityException) {
+            LocationServiceGate.markRunning(false)
             stopSelf()
             return START_NOT_STICKY
         }
         running = true
+        LocationServiceGate.markRunning(true)
+        // The service is started only after sharing was already approved. Register
+        // before the network re-check so a slow or hung status call cannot leave
+        // the foreground service with no Fused Location request.
+        val listening = beginUpdates()
+        requestPromptFix()
         scope.launch {
-            if (!authorized(intent?.action == ACTION_SHARE)) {
+            if (!authorized() || (!listening && !beginUpdates())) {
                 stopSharing()
-                return@launch
             }
-            if (!beginUpdates()) {
-                stopSharing()
-                return@launch
-            }
-            requestPromptFix()
         }
         return START_NOT_STICKY
     }
 
     override fun onDestroy() {
         running = false
+        LocationServiceGate.markRunning(false)
         prompt?.cancel()
         if (fineLocationGranted()) {
             client.removeLocationUpdates(callback)
@@ -100,17 +101,11 @@ class RiderLocationService : Service() {
         super.onDestroy()
     }
 
-    private suspend fun authorized(justConfirmedAvailable: Boolean): Boolean {
+    private suspend fun authorized(): Boolean {
         if (sessions.read() == null || !fineLocationGranted()) {
             return false
         }
-        if (justConfirmedAvailable) {
-            return true
-        }
-        return when (val result = apiCall { riders.onboarding() }) {
-            is ApiResult.Ok -> result.value.availability == "AVAILABLE" && sessions.read() != null
-            is ApiResult.Err -> false
-        }
+        return availability.sharingStillAllowed()
     }
 
     private fun beginUpdates(): Boolean {
@@ -128,10 +123,14 @@ class RiderLocationService : Service() {
             .setWaitForAccurateLocation(false)
             .build()
         return try {
-            client.requestLocationUpdates(request, callback, Looper.getMainLooper())
             updatesRequested = true
+            client.requestLocationUpdates(request, callback, Looper.getMainLooper())
+                .addOnFailureListener {
+                    updatesRequested = false
+                }
             true
         } catch (_: SecurityException) {
+            updatesRequested = false
             false
         }
     }
@@ -144,7 +143,7 @@ class RiderLocationService : Service() {
         prompt?.cancel()
         prompt = token
         try {
-            client.getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, token.token)
+            client.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, token.token)
                 .addOnSuccessListener { point ->
                     if (point != null) {
                         scope.launch { deliver(point) }
@@ -165,9 +164,13 @@ class RiderLocationService : Service() {
             return
         }
         val age = (System.currentTimeMillis() - point.time).coerceAtLeast(0L)
+        val accuracy = if (point.hasAccuracy()) point.accuracy else null
+        if (isDispatchUsable(age, accuracy)) {
+            locations.publish(gpsFix(point))
+        }
         relay.handle(
             active = true,
-            fix = GpsFix(point.latitude, point.longitude),
+            fix = gpsFix(point),
             ageMillis = age,
             accuracyMeters = if (point.hasAccuracy()) point.accuracy else null,
         ) { fix ->

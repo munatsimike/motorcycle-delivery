@@ -1,5 +1,6 @@
 package com.riders.rider.feature.delivery.domain
 
+import java.util.Locale
 import com.riders.rider.core.network.ActiveAssignmentBody
 import com.riders.rider.core.network.ApiError
 import com.riders.rider.core.network.OfferResponse
@@ -24,6 +25,10 @@ data class ActiveDelivery(
     val dropoffAddress: String = "",
     val dropoffLandmark: String? = null,
     val dropoffInstructions: String? = null,
+    val serviceClass: String? = null,
+    val distanceMeters: Int? = null,
+    val createdAt: String? = null,
+    val agreedPrice: String? = null,
 )
 
 data class DeliveryContacts(
@@ -53,6 +58,9 @@ fun OfferResponse.toActiveDelivery(deliveryId: String, assignmentId: String, sta
         dropoffAddress = dropoff.address,
         dropoffLandmark = dropoff.landmark,
         dropoffInstructions = dropoff.instructions,
+        serviceClass = serviceClass,
+        distanceMeters = distanceMeters,
+        agreedPrice = offeredPrice,
     )
 }
 
@@ -70,6 +78,10 @@ fun ActiveAssignmentBody.toActiveDelivery(): ActiveDelivery {
         dropoffAddress = dropoff.address,
         dropoffLandmark = dropoff.landmark,
         dropoffInstructions = dropoff.instructions,
+        serviceClass = serviceClass,
+        distanceMeters = distanceMeters,
+        createdAt = createdAt,
+        agreedPrice = agreedPrice,
     )
 }
 
@@ -112,11 +124,11 @@ fun mapPointForStatus(status: String, contacts: DeliveryContacts?): MapPoint? {
     val latitude: String?
     val longitude: String?
     when (status) {
-        "ASSIGNED", "ARRIVED_AT_PICKUP" -> {
+        "ASSIGNED", "ARRIVED_AT_PICKUP", "RIDER_ASSIGNED", "COLLECTING" -> {
             latitude = contacts.pickupLatitude
             longitude = contacts.pickupLongitude
         }
-        "PICKED_UP", "IN_TRANSIT", "ARRIVED_AT_DROPOFF" -> {
+        "PICKED_UP", "IN_TRANSIT", "ARRIVED_AT_DROPOFF", "COLLECTED", "OUT_FOR_DELIVERY" -> {
             latitude = contacts.dropoffLatitude
             longitude = contacts.dropoffLongitude
         }
@@ -145,11 +157,16 @@ fun navigationTarget(
         return NavigationTarget("geo:${point.latitude},${point.longitude}?q=${point.latitude},${point.longitude}")
     }
     val query = when (status) {
-        "ASSIGNED", "ARRIVED_AT_PICKUP" -> navigationQuery(pickupAddress, pickupLandmark)
-        "PICKED_UP", "IN_TRANSIT", "ARRIVED_AT_DROPOFF" -> navigationQuery(dropoffAddress, dropoffLandmark)
+        "ASSIGNED", "ARRIVED_AT_PICKUP", "RIDER_ASSIGNED", "COLLECTING" -> navigationQuery(pickupAddress, pickupLandmark)
+        "PICKED_UP", "IN_TRANSIT", "ARRIVED_AT_DROPOFF", "COLLECTED", "OUT_FOR_DELIVERY" -> navigationQuery(dropoffAddress, dropoffLandmark)
         else -> null
     } ?: return null
     return NavigationTarget("geo:0,0?q=${encodeNavigationQuery(query)}")
+}
+
+fun showsRecipientOnDelivery(status: String): Boolean = when (status) {
+    "PICKED_UP", "IN_TRANSIT", "ARRIVED_AT_DROPOFF", "COLLECTED", "OUT_FOR_DELIVERY" -> true
+    else -> false
 }
 
 fun navigationQuery(address: String, landmark: String?): String? {
@@ -229,6 +246,44 @@ class DeliveryRecoveryCoordinator(
         }
         return decision
     }
+}
+
+private val internationalPhone = Regex("^\\+[1-9]\\d{7,14}$")
+
+fun senderInitials(name: String): String {
+    val letters = name.trim().split(Regex("\\s+"))
+        .filter { it.isNotEmpty() }
+        .take(2)
+        .mapNotNull { word -> word.firstOrNull { it.isLetter() }?.uppercaseChar() }
+        .joinToString("")
+    return letters.ifEmpty { "S" }
+}
+
+/** Same trimmed name always maps to the same palette slot. A blank name stays on the first color. */
+fun recipientAvatarSlot(name: String, count: Int): Int {
+    val key = name.trim().lowercase(Locale.US)
+    if (key.isEmpty() || count <= 1) {
+        return 0
+    }
+    var hash = 0
+    for (character in key) {
+        hash = ((hash.toLong() * 31 + character.code) and 0xFFFFFFFFL).toInt()
+    }
+    return (hash.toUInt() % count.toUInt()).toInt()
+}
+
+fun senderDialUri(phone: String): String? {
+    val value = phone.trim()
+    return if (internationalPhone.matches(value)) "tel:$value" else null
+}
+
+fun senderWhatsAppUri(phone: String): String? {
+    val value = phone.trim()
+    return if (internationalPhone.matches(value)) "whatsapp://send?phone=${value.drop(1)}" else null
+}
+
+fun partyContactVisible(name: String, phone: String, address: String): Boolean {
+    return name.isNotBlank() || address.isNotBlank() || senderDialUri(phone) != null
 }
 
 fun loadedDelivery(stored: ActiveDelivery?, offerCache: List<OfferResponse>, deliveryId: String): ActiveDelivery? {

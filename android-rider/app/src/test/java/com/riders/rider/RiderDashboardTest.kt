@@ -1,7 +1,9 @@
 package com.riders.rider
 
 import com.riders.rider.core.network.ApiError
+import com.riders.rider.core.network.LiveAssignmentsResponse
 import com.riders.rider.core.network.RiderService
+import com.riders.rider.core.network.ApiJson
 import com.riders.rider.core.network.httpClient
 import com.riders.rider.core.network.mapHttpFailure
 import com.riders.rider.core.network.retrofit
@@ -10,7 +12,21 @@ import com.riders.rider.feature.home.AvailabilityChange
 import com.riders.rider.feature.home.beginAvailabilityChange
 import com.riders.rider.feature.home.confirmAvailability
 import com.riders.rider.feature.home.failAvailability
+import com.riders.rider.feature.home.DashboardFailure
+import com.riders.rider.feature.home.dashboardFailure
+import com.riders.rider.feature.delivery.domain.CommittedParcel
+import com.riders.rider.feature.home.activeDeliveryCount
+import com.riders.rider.feature.home.dashboardActiveCount
 import com.riders.rider.feature.home.homeShift
+import com.riders.rider.feature.home.OFFLINE_WITH_DELIVERIES_MESSAGE
+import com.riders.rider.feature.home.offlineConfirmationRequired
+import com.riders.rider.feature.home.ReceivingAlignment
+import com.riders.rider.feature.home.homeWalletAmount
+import com.riders.rider.feature.home.receivingAfterRefresh
+import com.riders.rider.feature.home.receivingAlignment
+import com.riders.rider.feature.home.showsReceivingControl
+import com.riders.rider.feature.home.showsV1ActiveDelivery
+import com.riders.rider.feature.home.workloadCounts
 import com.riders.rider.feature.offers.domain.OfferBoard
 import com.riders.rider.feature.offers.domain.OFFER_CLOCK_INTERVAL_MS
 import com.riders.rider.feature.offers.domain.OFFER_REFRESH_INTERVAL_MS
@@ -21,10 +37,24 @@ import com.riders.rider.feature.offers.domain.adjustedNowMillis
 import com.riders.rider.feature.offers.domain.canAcceptOffer
 import com.riders.rider.feature.offers.domain.clockOffsetMillis
 import com.riders.rider.feature.offers.domain.httpDateMillis
+import com.riders.rider.feature.offers.domain.matchingOfferIndex
+import com.riders.rider.feature.offers.domain.marketplaceOffersError
 import com.riders.rider.feature.offers.domain.offerBoardAfterLoad
 import com.riders.rider.feature.offers.domain.offerExpiryLabel
 import com.riders.rider.feature.offers.domain.offerIsExpired
+import com.riders.rider.feature.offers.domain.AWAITING_CUSTOMER
+import com.riders.rider.feature.offers.domain.OFFER_YOUR_PRICE
+import com.riders.rider.feature.offers.domain.acceptOfferLabel
+import com.riders.rider.feature.offers.domain.bidSubmissionAfterResult
+import com.riders.rider.feature.offers.domain.canStartBidSubmit
+import com.riders.rider.feature.offers.domain.deliveryCategoryTitle
 import com.riders.rider.feature.offers.domain.offerPriceLabel
+import com.riders.rider.feature.offers.domain.offerSentConfirmation
+import com.riders.rider.feature.offers.domain.opensDeliveriesAfterListedOffer
+import com.riders.rider.feature.offers.domain.requestNeedsAnotherOffer
+import com.riders.rider.feature.offers.domain.sentOffersAfterRefresh
+import com.riders.rider.feature.offers.domain.submittedOfferAmount
+import com.riders.rider.feature.offers.domain.offerStopLine
 import com.riders.rider.feature.offers.domain.offerUnavailableAfterRefresh
 import com.riders.rider.feature.offers.domain.shouldPollOffers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -46,6 +76,27 @@ import org.junit.Test
 
 class RiderDashboardTest {
     @Test
+    fun receivingFollowsOnlineAndOfflineWithoutASeparateToggle() {
+        assertFalse(showsReceivingControl())
+        assertEquals(ReceivingAlignment.Enable, receivingAlignment("AVAILABLE", false))
+        assertEquals(ReceivingAlignment.Disable, receivingAlignment("OFFLINE", true))
+        assertEquals(ReceivingAlignment.None, receivingAlignment("AVAILABLE", true))
+        assertEquals(ReceivingAlignment.None, receivingAlignment("OFFLINE", false))
+        assertEquals(ReceivingAlignment.ReleaseBusy, receivingAlignment("BUSY", true))
+        assertEquals(ReceivingAlignment.ReleaseBusy, receivingAlignment("BUSY", false))
+        assertEquals(ReceivingAlignment.None, receivingAlignment("BUSY", null))
+        assertEquals(ReceivingAlignment.None, receivingAlignment("AVAILABLE", null))
+        val stale = homeShift("BUSY", canAcceptDeliveries = true, active = null, marketplace = true)
+        assertTrue(stale.showGoOnline)
+        assertFalse(stale.showGoOffline)
+        assertFalse(stale.recoveryRequired)
+        assertNull(stale.recoveryMessage)
+        val marketplaceBusy = riderReadiness(sample("APPROVED", "VERIFIED", true, "BUSY").copy(receiving = true))
+        assertTrue(marketplaceBusy.canGoOnline)
+        assertEquals("Offline", marketplaceBusy.availabilityLabel)
+    }
+
+    @Test
     fun availabilityStaysOfflineUntilTheBackendConfirmsIt() {
         val offline = AvailabilityChange(availability = "OFFLINE")
         val started = beginAvailabilityChange(offline)
@@ -57,6 +108,23 @@ class RiderDashboardTest {
         val rejected = failAvailability(started, "Rider approval is required")
         assertEquals("OFFLINE", rejected.availability)
         assertEquals("Rider approval is required", rejected.error)
+    }
+
+    @Test
+    fun offlineWithActiveDeliveriesAsksBeforeStoppingNewRequests() {
+        assertFalse(offlineConfirmationRequired(activeDeliveryCount(showActiveDelivery = false, flexibleCount = 0, expressCount = 0)))
+        assertTrue(offlineConfirmationRequired(activeDeliveryCount(showActiveDelivery = true, flexibleCount = null, expressCount = null)))
+        assertEquals(3, activeDeliveryCount(showActiveDelivery = true, flexibleCount = 2, expressCount = 1))
+        assertEquals(1, activeDeliveryCount(showActiveDelivery = true, flexibleCount = 0, expressCount = 0))
+        assertEquals(
+            2,
+            dashboardActiveCount(listOf(
+                CommittedParcel(deliveryId = "a", assignmentId = "a", status = "RIDER_ASSIGNED", serviceClass = "FLEXIBLE"),
+                CommittedParcel(deliveryId = "b", assignmentId = "b", status = "COLLECTED", serviceClass = "EXPRESS"),
+                CommittedParcel(deliveryId = "c", assignmentId = "c", status = "DELIVERED", serviceClass = "FLEXIBLE"),
+            )),
+        )
+        assertTrue(OFFLINE_WITH_DELIVERIES_MESSAGE.contains("stay assigned to you"))
     }
 
     @Test
@@ -113,6 +181,11 @@ class RiderDashboardTest {
         )
         assertEquals(1, failed.count)
         assertEquals("Network request failed. Check your connection and try again.", failed.error)
+        assertNull(marketplaceOffersError(openRequestsLoaded = true, "Cannot GET /riders/me/offers"))
+        assertEquals(
+            "Cannot GET /riders/me/offers",
+            marketplaceOffersError(openRequestsLoaded = false, "Cannot GET /riders/me/offers"),
+        )
     }
 
     @Test
@@ -122,9 +195,8 @@ class RiderDashboardTest {
         val after = java.time.Instant.parse("2026-10-20T12:01:00Z").toEpochMilli()
         assertFalse(offerIsExpired(expiresAt, before))
         assertTrue(offerIsExpired(expiresAt, after))
-        assertEquals("This offer has expired", offerExpiryLabel(expiresAt, after))
-        assertTrue(offerExpiryLabel(expiresAt, before).startsWith("Expires at "))
-        assertTrue(offerExpiryLabel(expiresAt, before).contains("s"))
+        assertEquals("Expired", offerExpiryLabel(expiresAt, after))
+        assertEquals("0:30", offerExpiryLabel(expiresAt, before))
         assertTrue(canAcceptOffer(expiresAt, before, accepting = false, unavailable = false))
         assertFalse(canAcceptOffer(expiresAt, after, accepting = false, unavailable = false))
         assertFalse(canAcceptOffer(expiresAt, before, accepting = true, unavailable = false))
@@ -134,8 +206,68 @@ class RiderDashboardTest {
     @Test
     fun offeredPriceShowsCurrencyWithoutCallingItEarnings() {
         val label = offerPriceLabel("USD", "2.00")
-        assertEquals("USD 2.00", label)
+        assertEquals("$2.00", label)
+        assertEquals("Accept", acceptOfferLabel())
+        assertEquals("Your offer", OFFER_YOUR_PRICE)
+        assertEquals("Awaiting customer", AWAITING_CUSTOMER)
+        assertEquals("Parcel delivery", deliveryCategoryTitle("Parcel"))
+        assertEquals("Food delivery", deliveryCategoryTitle("food"))
+        assertEquals("Doc delivery", deliveryCategoryTitle("document"))
         assertFalse(label.contains("earning", ignoreCase = true))
+    }
+
+    @Test
+    fun aSentOfferStaysOnTheRequestAndNamesTheSubmittedAmount() {
+        assertEquals(
+            "Offer sent. Waiting for the customer to choose a rider.",
+            offerSentConfirmation("USD", "2.99"),
+        )
+        assertEquals(
+            "Offer sent. Waiting for the customer to choose a rider.",
+            offerSentConfirmation("USD", "4.50"),
+        )
+        val sent = bidSubmissionAfterResult("4.50", null)
+        assertFalse(sent.submitting)
+        assertEquals("4.50", sent.amount)
+        assertNull(sent.error)
+    }
+
+    @Test
+    fun aFailedOfferKeepsTheBiddingActions() {
+        val failed = bidSubmissionAfterResult("2.99", "This delivery is not open for bids")
+        assertFalse(failed.submitting)
+        assertNull(failed.amount)
+        assertEquals("This delivery is not open for bids", failed.error)
+        assertTrue(requestNeedsAnotherOffer("delivery-1", emptyMap()))
+    }
+
+    @Test
+    fun aSecondTapDoesNotStartAnotherBid() {
+        assertTrue(canStartBidSubmit(submittingBid = false, accepting = false))
+        assertFalse(canStartBidSubmit(submittingBid = true, accepting = false))
+        assertFalse(canStartBidSubmit(submittingBid = false, accepting = true))
+    }
+
+    @Test
+    fun expressAndFlexibleOffersStayOnTheRequestAfterRefresh() {
+        assertFalse(opensDeliveriesAfterListedOffer("EXPRESS"))
+        assertFalse(opensDeliveriesAfterListedOffer("FLEXIBLE"))
+        assertTrue(opensDeliveriesAfterListedOffer(null))
+        val sent = mapOf("delivery-1" to "2.99")
+        val refreshed = sentOffersAfterRefresh(sent)
+        assertEquals(sent, refreshed)
+        assertEquals("2.99", submittedOfferAmount(refreshed, "delivery-1"))
+        assertFalse(requestNeedsAnotherOffer("delivery-1", refreshed))
+        assertTrue(requestNeedsAnotherOffer("delivery-2", refreshed))
+    }
+
+    @Test
+    fun offerStopOmitsALandmarkThatRepeatsTheAddress() {
+        val address = "45 Parklaan, Haarlem Netherlands"
+        assertEquals(address, offerStopLine(address, address))
+        assertEquals(address, offerStopLine(address, "haarlem netherlands"))
+        assertEquals("1Z Generaal Joubertstraat, Haarlem", offerStopLine("1Z Generaal Joubertstraat, Haarlem", null))
+        assertEquals("$address, blue gate", offerStopLine(address, "blue gate"))
     }
 
     @Test
@@ -145,6 +277,14 @@ class RiderDashboardTest {
         assertFalse(offerUnavailableAfterRefresh(hadSelection = false, stillPresent = false, refreshSucceeded = true))
         assertFalse(offerUnavailableAfterRefresh(hadSelection = true, stillPresent = true, refreshSucceeded = true))
         assertEquals("This offer is no longer available.", OFFER_UNAVAILABLE)
+    }
+
+    @Test
+    fun aRefreshedOfferForTheSameDeliveryStaysOpen() {
+        assertEquals(0, matchingOfferIndex("old-offer", "delivery-1", listOf("new-offer"), listOf("delivery-1")))
+        assertEquals(1, matchingOfferIndex("old-offer", "delivery-1", listOf("other-offer", "new-offer"), listOf("delivery-2", "delivery-1")))
+        assertEquals(0, matchingOfferIndex("same-offer", "delivery-1", listOf("same-offer"), listOf("delivery-1")))
+        assertEquals(-1, matchingOfferIndex("old-offer", "delivery-1", listOf("other-offer"), listOf("delivery-2")))
     }
 
     @Test
@@ -242,6 +382,111 @@ class RiderDashboardTest {
             assertEquals(1, loaded.body()!!.offers.size)
             assertEquals("Parcel for Avondale", loaded.body()!!.offers.first().parcel.description)
             assertEquals("/riders/me/offers", server.takeRequest(2, java.util.concurrent.TimeUnit.SECONDS)?.path)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun onlineWithNoAssignmentsStillReceivesRequests() {
+        assertFalse(showsReceivingControl())
+        assertEquals(ReceivingAlignment.None, receivingAlignment("AVAILABLE", true))
+        assertEquals(0, workloadCounts(emptyList()).flexible)
+        assertEquals(0, workloadCounts(emptyList()).express)
+    }
+
+    @Test
+    fun offlineStopsReceivingWithoutASeparateSwitch() {
+        assertFalse(showsReceivingControl())
+        assertEquals(ReceivingAlignment.None, receivingAlignment("OFFLINE", false))
+    }
+
+    @Test
+    fun offlineWithAssignmentsStillCountsWorkload() {
+        val counts = workloadCounts(listOf("FLEXIBLE", "FLEXIBLE", "EXPRESS"))
+        assertEquals(2, counts.flexible)
+        assertEquals(1, counts.express)
+        assertEquals(ReceivingAlignment.Disable, receivingAlignment("OFFLINE", true))
+        assertFalse(showsReceivingControl())
+    }
+
+    @Test
+    fun expressAlongsideFlexibleDoesNotChangeOnlineStatus() {
+        val counts = workloadCounts(listOf("FLEXIBLE", "EXPRESS", "FLEXIBLE"))
+        assertEquals(2, counts.flexible)
+        assertEquals(1, counts.express)
+        assertEquals(ReceivingAlignment.None, receivingAlignment("AVAILABLE", true))
+    }
+
+    @Test
+    fun homeWalletBalanceUsesAvailableCapacity() {
+        assertEquals("20.00", homeWalletAmount("20.00"))
+        assertEquals("0.04", homeWalletAmount("0.04"))
+        assertNull(homeWalletAmount(null))
+        assertNull(homeWalletAmount("  "))
+    }
+
+    @Test
+    fun marketplaceFlagOffKeepsTheSingleDeliveryDashboard() {
+        val active = com.riders.rider.feature.delivery.domain.ActiveDelivery(
+            deliveryId = "delivery-1",
+            assignmentId = "assignment-1",
+            status = "ASSIGNED",
+        )
+        val shift = homeShift("AVAILABLE", true, active)
+        assertTrue(showsV1ActiveDelivery(receiving = null, shift = shift))
+        assertFalse(showsV1ActiveDelivery(receiving = true, shift = shift))
+        assertFalse(showsV1ActiveDelivery(receiving = null, shift = shift, committedV2 = true))
+        assertFalse(showsV1ActiveDelivery(receiving = null, shift = shift, assignmentsUnknown = true))
+        assertFalse(showsReceivingControl())
+        assertTrue(shift.showOffers)
+        assertTrue(shift.showActiveDelivery)
+    }
+
+    @Test
+    fun availableWithAssignmentsIsStillAWorkload() {
+        val counts = workloadCounts(listOf("FLEXIBLE", "FLEXIBLE"))
+        val shift = homeShift("AVAILABLE", true, null)
+        assertEquals(2, counts.flexible)
+        assertFalse(shift.showActiveDelivery)
+        assertEquals(ReceivingAlignment.None, receivingAlignment("AVAILABLE", true))
+    }
+
+    @Test
+    fun sessionFailureStaysSeparateFromADisabledMarketplaceAndANetworkLoss() {
+        assertEquals(DashboardFailure.Authentication, dashboardFailure(ApiError.SessionEnded))
+        assertEquals(DashboardFailure.Authentication, dashboardFailure(ApiError.Forbidden))
+        assertEquals(DashboardFailure.MarketplaceDisabled, dashboardFailure(ApiError.Unexpected("Bidding is not available")))
+        assertEquals(DashboardFailure.Network, dashboardFailure(ApiError.Network))
+        assertEquals(true, receivingAfterRefresh(previous = true, loaded = null, loadedFromServer = false))
+        assertEquals(null, receivingAfterRefresh(previous = true, loaded = null, loadedFromServer = true))
+    }
+
+    @Test
+    fun assignmentReadKeepsTheAcceptedBidAndOlderPayloadsStillParse() = runTest {
+        val server = MockWebServer()
+        val body = """
+            {"assignments":[
+              {"assignmentId":"flex","deliveryId":"delivery-flex","status":"RIDER_ASSIGNED","serviceClass":"FLEXIBLE","deliverBy":"2026-10-25T16:00:00.000Z","agreedPrice":"12.50","parcel":{"description":"Documents","size":"SMALL"},"pickup":{"address":"Pickup","contactName":"A","contactPhone":"+263771111111"},"dropoff":{"address":"Dropoff","contactName":"B","contactPhone":"+263772222222"}},
+              {"assignmentId":"express","deliveryId":"delivery-express","status":"COLLECTING","serviceClass":"EXPRESS","deliverBy":"2026-10-25T16:00:00.000Z","agreedPrice":"8.00","parcel":{"description":"Box","size":"MEDIUM"},"pickup":{"address":"Pickup","contactName":"A","contactPhone":"+263771111111"},"dropoff":{"address":"Dropoff","contactName":"B","contactPhone":"+263772222222"}},
+              {"assignmentId":"legacy","deliveryId":"delivery-legacy","status":"ASSIGNED","parcel":{"description":"Letter","size":"SMALL"},"pickup":{"address":"Pickup","contactName":"A","contactPhone":"+263771111111"},"dropoff":{"address":"Dropoff","contactName":"B","contactPhone":"+263772222222"}}
+            ]}
+        """.trimIndent()
+        server.enqueue(json(body))
+        server.start()
+        try {
+            val riders = retrofit(server.url("/").toString(), httpClient()).create(RiderService::class.java)
+            val listed = riders.assignments()
+            assertEquals(listOf("FLEXIBLE", "EXPRESS", null), listed.assignments.map { it.serviceClass })
+            assertEquals("12.50", listed.assignments[0].agreedPrice)
+            assertEquals("8.00", listed.assignments[1].agreedPrice)
+            assertNull(listed.assignments[2].agreedPrice)
+            assertNull(listed.assignments[2].deliverBy)
+            val parsed = ApiJson.decodeFromString(LiveAssignmentsResponse.serializer(), body)
+            assertEquals(1, workloadCounts(parsed.assignments.map { it.serviceClass }).flexible)
+            assertEquals(1, workloadCounts(parsed.assignments.map { it.serviceClass }).express)
+            assertEquals("/riders/me/assignments", server.takeRequest(2, java.util.concurrent.TimeUnit.SECONDS)?.path)
+            assertFalse(showsReceivingControl())
         } finally {
             server.shutdown()
         }

@@ -10,17 +10,16 @@ import com.riders.rider.feature.profile.domain.ProfileBoard
 import com.riders.rider.feature.profile.domain.canEditProfileName
 import com.riders.rider.feature.profile.domain.canEditProfilePhone
 import com.riders.rider.feature.profile.domain.profileAfterRefresh
+import com.riders.rider.core.network.ApiError
 import com.riders.rider.feature.profile.domain.shouldLoadProfile
 import com.riders.rider.feature.profile.domain.showsAccountDeactivation
+import com.riders.rider.feature.profile.domain.signOutLeavesRiderOnDuty
 import com.riders.rider.navigation.RiderDestination
 import com.riders.rider.navigation.RIDER_SHELL
-import com.riders.rider.navigation.deliveriesShowsActiveDelivery
-import com.riders.rider.navigation.deliveriesShowsOffers
-import com.riders.rider.navigation.offersPollOnDeliveriesTab
+import com.riders.rider.navigation.deliveriesShowsAssignmentList
 import com.riders.rider.navigation.onboardingFocus
 import com.riders.rider.navigation.openedRootTabs
 import com.riders.rider.navigation.profileOnboardingRoute
-import com.riders.rider.navigation.selectRiderTab
 import com.riders.rider.navigation.showsRiderBottomBar
 import com.riders.rider.navigation.showsWizardChrome
 import com.riders.rider.navigation.tabAfterBack
@@ -44,7 +43,7 @@ class RiderNavigationTest {
             RiderDestination.Home,
             RiderDestination.Wallet,
         ).forEach { next ->
-            selected = selectRiderTab(selected, next)
+            selected = next
             visits += selected
             assertEquals(next, selected)
         }
@@ -68,16 +67,13 @@ class RiderNavigationTest {
     }
 
     @Test
-    fun deliveriesShowsOffersOnlyWhileAvailableAndPollsOnlyInTheForeground() {
-        assertTrue(deliveriesShowsOffers("AVAILABLE"))
-        assertFalse(deliveriesShowsOffers("BUSY"))
-        assertFalse(deliveriesShowsOffers("OFFLINE"))
-        assertTrue(deliveriesShowsActiveDelivery("BUSY"))
-        assertFalse(deliveriesShowsActiveDelivery("AVAILABLE"))
-        assertTrue(offersPollOnDeliveriesTab(RiderDestination.Deliveries, resumed = true, availability = "AVAILABLE"))
-        assertFalse(offersPollOnDeliveriesTab(RiderDestination.Deliveries, resumed = false, availability = "AVAILABLE"))
-        assertFalse(offersPollOnDeliveriesTab(RiderDestination.Home, resumed = true, availability = "AVAILABLE"))
-        assertFalse(offersPollOnDeliveriesTab(RiderDestination.Deliveries, resumed = true, availability = "BUSY"))
+    fun deliveriesKeepsAssignmentsAndTheBidBoard() {
+        assertFalse(deliveriesShowsAssignmentList(null))
+        assertTrue(deliveriesShowsAssignmentList(true))
+        assertTrue(deliveriesShowsAssignmentList(false))
+        assertTrue(deliveriesShowsAssignmentList(null, committedV2 = true))
+        assertFalse(com.riders.rider.navigation.deliveriesShowsBidBoard(null))
+        assertTrue(com.riders.rider.navigation.deliveriesShowsBidBoard(false))
     }
 
     @Test
@@ -99,6 +95,14 @@ class RiderNavigationTest {
         assertEquals("12 Samora Machel Avenue", kept.address)
         assertEquals("APPROVED", kept.onboarding?.approvalStatus)
         assertEquals("Network request failed. Check your connection and try again.", kept.error)
+    }
+
+    @Test
+    fun signOutKeepsARiderOnDutyOnlyDuringADelivery() {
+        assertTrue(signOutLeavesRiderOnDuty(ApiError.Conflict("You cannot go offline during a delivery")))
+        assertTrue(signOutLeavesRiderOnDuty(ApiError.Conflict("Availability cannot be changed while busy")))
+        assertFalse(signOutLeavesRiderOnDuty(ApiError.Conflict("Availability cannot be changed while busy.")))
+        assertFalse(signOutLeavesRiderOnDuty(ApiError.Network))
     }
 
     @Test

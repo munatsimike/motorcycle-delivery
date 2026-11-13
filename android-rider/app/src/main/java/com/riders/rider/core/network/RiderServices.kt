@@ -9,7 +9,9 @@ import retrofit2.Response
 import retrofit2.Retrofit
 import okhttp3.MultipartBody
 import retrofit2.http.Body
+import retrofit2.http.DELETE
 import retrofit2.http.GET
+import retrofit2.http.HTTP
 import retrofit2.http.Header
 import retrofit2.http.Multipart
 import retrofit2.http.PATCH
@@ -18,6 +20,7 @@ import retrofit2.http.PUT
 import retrofit2.http.Part
 import retrofit2.http.Path
 import retrofit2.http.Query
+import retrofit2.http.Streaming
 import java.util.concurrent.TimeUnit
 
 val ApiJson: Json = Json {
@@ -26,23 +29,41 @@ val ApiJson: Json = Json {
 }
 
 interface AuthService {
-    @POST("auth/rider/login/otp")
-    suspend fun requestLogin(@Body body: PhoneRequest): PendingResponse
+    @POST("auth/rider/login/whatsapp")
+    suspend fun startWhatsAppLogin(@Body body: WhatsAppRecoveryRequest): PendingResponse
 
-    @POST("auth/rider/login/verify")
-    suspend fun verifyLogin(@Body body: VerifyRequest): SessionResponse
+    @POST("auth/rider/login/whatsapp/resend")
+    suspend fun resendWhatsAppLogin(@Body body: PhoneRequest): PendingResponse
 
-    @POST("auth/rider/register/otp")
-    suspend fun requestRegistration(@Body body: RiderRegistrationRequest): PendingResponse
+    @POST("auth/rider/login/whatsapp/verify")
+    suspend fun verifyWhatsAppLogin(@Body body: VerifyRequest): RiderVerificationResponse
 
-    @POST("auth/rider/register/verify")
-    suspend fun verifyRegistration(@Body body: VerifyRequest): RegistrationVerifyResponse
+    @POST("auth/rider/register/whatsapp")
+    suspend fun startWhatsAppRegistration(@Body body: RiderWhatsAppRegistrationRequest): PendingResponse
 
-    @POST("auth/rider/register/complete")
-    suspend fun completeRegistration(@Body body: RiderAccountRequest): SessionResponse
+    @POST("auth/rider/register/whatsapp/resend")
+    suspend fun resendWhatsAppRegistration(@Body body: PhoneRequest): PendingResponse
+
+    @POST("auth/rider/register/whatsapp/verify")
+    suspend fun verifyWhatsAppRegistration(@Body body: VerifyRequest): RiderVerificationResponse
+
+    @POST("auth/rider/register/whatsapp/complete")
+    suspend fun completeWhatsAppRegistration(@Body body: RiderRegistrationCompleteRequest): SessionResponse
 
     @POST("auth/session/refresh")
     suspend fun refresh(@Body body: RefreshRequest): SessionResponse
+
+    @GET("auth/places")
+    suspend fun searchPlaces(
+        @Query("text") text: String,
+        @Query("sessionToken") sessionToken: String,
+    ): PlaceSuggestionsResponse
+
+    @GET("auth/places/detail")
+    suspend fun placeDetail(
+        @Query("placeId") placeId: String,
+        @Query("sessionToken") sessionToken: String,
+    ): ResolvedPlaceResponse
 
     @POST("auth/session/logout")
     suspend fun logout(): Response<ResponseBody>
@@ -51,6 +72,20 @@ interface AuthService {
 interface RiderService {
     @GET("riders/me/profile")
     suspend fun profile(): RiderProfileResponse
+
+    @PATCH("riders/me/profile")
+    suspend fun updateAddress(@Body body: RiderAddressRequest): RiderProfileResponse
+
+    @Streaming
+    @GET("riders/me/profile-photo")
+    suspend fun profilePhoto(): ResponseBody
+
+    @Multipart
+    @POST("riders/me/profile-photo")
+    suspend fun uploadProfilePhoto(@Part image: MultipartBody.Part): ResponseBody
+
+    @DELETE("riders/me/profile-photo")
+    suspend fun deleteProfilePhoto(): Response<ResponseBody>
 
     @GET("riders/me/onboarding")
     suspend fun onboarding(): OnboardingResponse
@@ -83,11 +118,26 @@ interface RiderService {
     @POST("riders/me/availability/offline")
     suspend fun offline(): AvailabilityResponse
 
+    @PUT("riders/me/receiving")
+    suspend fun receiving(@Body body: ReceivingRequest): ReceivingResponse
+
     @PUT("riders/me/location")
     suspend fun location(@Body body: LocationRequest): LocationResponse
 
     @GET("riders/me/offers")
     suspend fun offers(): Response<OffersResponse>
+
+    @PUT("riders/me/push-devices")
+    suspend fun registerPushDevice(@Body body: PushDeviceRequest): PushDeviceResponse
+
+    @HTTP(method = "DELETE", path = "riders/me/push-devices", hasBody = true)
+    suspend fun removePushDevice(@Body body: PushDeviceRequest): Response<ResponseBody>
+
+    @GET("riders/me/assignments")
+    suspend fun assignments(): LiveAssignmentsResponse
+
+    @GET("riders/me/assignments/completed")
+    suspend fun completedAssignments(): LiveAssignmentsResponse
 
     @GET("riders/me/assignments/active")
     suspend fun activeAssignment(): ActiveAssignmentResponse
@@ -98,17 +148,55 @@ interface RiderService {
         @Header("Idempotency-Key") idempotencyKey: String,
     ): AcceptanceResponse
 
-    @POST("riders/me/offers/{assignmentId}/release")
-    suspend fun release(
-        @Path("assignmentId") assignmentId: String,
-        @Body body: ReleaseRequest,
-    ): ProgressResponse
-
     @POST("riders/me/deliveries/{deliveryId}/status")
-    suspend fun progress(
+    suspend fun progressWithKey(
         @Path("deliveryId") deliveryId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
         @Body body: StatusRequest,
     ): ProgressResponse
+
+    @GET("riders/me/assignments/{assignmentId}/delivery-route")
+    suspend fun deliveryRoute(
+        @Path("assignmentId") assignmentId: String,
+        @Query("latitude") latitude: Double? = null,
+        @Query("longitude") longitude: Double? = null,
+        @Query("guidance") guidance: String? = null,
+    ): PickupRouteResponse
+
+    @GET("riders/me/assignments/{assignmentId}/pickup-route")
+    suspend fun pickupRoute(
+        @Path("assignmentId") assignmentId: String,
+        @Query("latitude") latitude: Double,
+        @Query("longitude") longitude: Double,
+    ): PickupRouteResponse
+
+    @POST("riders/me/assignments/{assignmentId}/cancellation")
+    suspend fun cancelAssignment(
+        @Path("assignmentId") assignmentId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body body: CancellationRequest,
+    ): CancellationResponse
+
+    @GET("riders/me/bid-requests")
+    suspend fun bidRequests(): List<BidRequestBody>
+
+    @GET("riders/me/bid-requests/{deliveryId}/route")
+    suspend fun requestRoad(@Path("deliveryId") deliveryId: String): PickupRouteResponse
+
+    @GET("riders/me/bids")
+    suspend fun ownBids(
+        @Query("limit") limit: Int,
+        @Query("cursor") cursor: String? = null,
+    ): OwnBidsResponse
+
+    @POST("riders/me/bids")
+    suspend fun submitBid(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body body: BidSubmissionRequest,
+    ): SubmittedBidResponse
+
+    @POST("riders/me/bids/{bidId}/withdrawal")
+    suspend fun withdrawBid(@Path("bidId") bidId: String): SubmittedBidResponse
 
     @GET("riders/me/wallet")
     suspend fun wallet(): WalletSummaryResponse
@@ -126,6 +214,39 @@ fun apiBaseUrl(configured: String): String {
         throw IllegalStateException("The app is missing its API address.")
     }
     return "$trimmed/"
+}
+
+const val EMULATOR_API_BASE_URL = "http://10.0.2.2:3000"
+const val DEVICE_LOOPBACK_API_BASE_URL = "http://127.0.0.1:3000"
+
+fun resolveDebugApiBaseUrl(override: String, emulator: Boolean): String {
+    val configured = override.trim().trimEnd('/')
+    if (configured.isNotEmpty()) {
+        return configured
+    }
+    return if (emulator) EMULATOR_API_BASE_URL else DEVICE_LOOPBACK_API_BASE_URL
+}
+
+fun looksLikeEmulator(
+    fingerprint: String,
+    model: String,
+    hardware: String,
+    product: String,
+    manufacturer: String,
+): Boolean {
+    val fp = fingerprint.lowercase()
+    val hw = hardware.lowercase()
+    val prod = product.lowercase()
+    return fp.startsWith("generic")
+        || fp.contains("emulator")
+        || fp.contains("sdk_gphone")
+        || model.contains("Emulator", ignoreCase = true)
+        || model.contains("Android SDK built for", ignoreCase = true)
+        || hw.contains("goldfish")
+        || hw.contains("ranchu")
+        || prod.contains("sdk_gphone")
+        || prod == "google_sdk"
+        || manufacturer.contains("Genymotion", ignoreCase = true)
 }
 
 fun retrofit(baseUrl: String, client: OkHttpClient): Retrofit {

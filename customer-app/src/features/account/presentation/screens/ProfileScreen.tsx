@@ -1,21 +1,26 @@
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { CompositeNavigationProp, useNavigation } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useMemo } from 'react';
 import type { ComponentProps } from 'react';
 import { useState } from 'react';
-import { Image, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import BottomSheetModal from '../../../../components/BottomSheetModal';
+import DialogModal, { DialogActions, DialogBody, DialogTextButton, DialogTitle } from '../../../../components/DialogModal';
 import CustomerAvatar from '../../../../components/CustomerAvatar';
 import ErrorMessage from '../../../../components/ErrorMessage';
-import GreenSurface from '../../../../components/GreenSurface';
 import LoadingIndicator from '../../../../components/LoadingIndicator';
 import SecondaryButton from '../../../../components/SecondaryButton';
 import type { CustomerTabParamList, RootStackParamList } from '../../../../navigation/types';
-import { colors, radius, spacing, typography } from '../../../../theme';
+import type { Palette } from '../../../../theme';
+import { appearanceLabel, radius, spacing, typography, useAppearance, type AppearanceMode } from '../../../../theme';
 import { useSession } from '../../../auth/presentation/viewmodels/useSession';
 import { useCustomerAccount } from '../viewmodels/useCustomerAccount';
+import { useCustomerProfilePhoto } from '../viewmodels/useCustomerProfilePhoto';
 
 type ProfileNavigation = CompositeNavigationProp<
   BottomTabNavigationProp<CustomerTabParamList, 'Profile'>,
@@ -24,19 +29,23 @@ type ProfileNavigation = CompositeNavigationProp<
 
 type IconName = ComponentProps<typeof MaterialDesignIcons>['name'];
 
+const APPEARANCE_OPTIONS: { mode: AppearanceMode; icon: IconName }[] = [
+  { mode: 'system', icon: 'cellphone' },
+  { mode: 'light', icon: 'weather-sunny' },
+  { mode: 'dark', icon: 'weather-night' },
+];
+
 export default function ProfileScreen() {
-  const {
-    accessToken,
-    logout,
-    biometricEnabled,
-    setBiometricEnabled,
-  } = useSession();
+  const { colors, mode, scheme, setMode } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  const { accessToken, logout } = useSession();
   const { account, isLoading, error } = useCustomerAccount(accessToken);
+  const photo = useCustomerProfilePhoto(accessToken, account);
   const navigation = useNavigation<ProfileNavigation>();
   const insets = useSafeAreaInsets();
   const [signingOut, setSigningOut] = useState(false);
-  const [isUpdatingBiometric, setIsUpdatingBiometric] = useState(false);
-  const [biometricError, setBiometricError] = useState<string | null>(null);
+  const [removeOpen, setRemoveOpen] = useState(false);
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
   const kindLabel = account?.kind === 'BUSINESS' ? 'Business' : 'Individual';
 
   async function handleLogout() {
@@ -51,137 +60,87 @@ export default function ProfileScreen() {
     }
   }
 
-  async function handleBiometric(enabled: boolean) {
-    if (isUpdatingBiometric) {
-      return;
-    }
-    setIsUpdatingBiometric(true);
-    setBiometricError(null);
-    try {
-      const result = await setBiometricEnabled(enabled);
-      if (result === 'unavailable') {
-        setBiometricError('Set up fingerprint, face unlock, or a screen lock in phone settings, then try again.');
-      } else if (result === 'cancelled') {
-        setBiometricError('Biometric unlock was cancelled.');
-      }
-    } finally {
-      setIsUpdatingBiometric(false);
-    }
-  }
-
   return (
     <View style={styles.screen}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <GreenSurface style={[styles.header, { paddingTop: insets.top + spacing.lg }]}>
+      <View pointerEvents="none" style={styles.profileMap}>
+        <Image
+          source={require('../../../../../assets/map.png')}
+          style={styles.profileMap}
+          resizeMode="cover"
+          accessibilityElementsHidden
+          importantForAccessibility="no"
+        />
+      </View>
+      <LinearGradient
+        pointerEvents="none"
+        colors={scheme === 'dark'
+          ? ['rgba(22,53,42,0.9)', 'rgba(16,22,20,0.72)', 'rgba(16,22,20,0.2)']
+          : ['rgba(201,239,217,0.72)', 'rgba(229,247,238,0.35)', 'rgba(247,252,249,0.55)']}
+        locations={[0, 0.62, 1]}
+        style={styles.profileMapWash}
+      />
+      <ScrollView
+        contentContainerStyle={[styles.content, { paddingTop: insets.top + 24 }]}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.sheetAnchor}>
+        <View style={[styles.sheet, account ? styles.sheetOverlap : null]}>
           {account ? (
-            <>
-              <CustomerAvatar
-                kind={account.kind}
-                name={account.name}
-                customerId={account.id}
-                photoUrl={account.photoUrl}
-                size={80}
-              />
+            <View style={styles.identity}>
+              {photo.phase === 'uploading' ? (
+                <Text style={styles.photoStatus}>Uploading {photo.progress ?? 0}%</Text>
+              ) : null}
+              {photo.phase === 'removing' ? <Text style={styles.photoStatus}>Removing photo</Text> : null}
               <Text style={styles.name}>{account.name}</Text>
               <View style={styles.kind}>
                 <MaterialDesignIcons
-                  name={account.kind === 'BUSINESS' ? 'office-building' : 'account'}
+                  name={account.kind === 'BUSINESS' ? 'office-building-outline' : 'account-outline'}
                   size={16}
                   color={colors.primaryDark}
                 />
                 <Text style={styles.kindText}>{kindLabel}</Text>
               </View>
-            </>
+            </View>
           ) : (
             <Text style={styles.name}>Profile</Text>
           )}
-        </GreenSurface>
 
-        {account ? (
-          <View style={styles.overlap}>
+          {account ? (
             <View style={styles.settingCard}>
-              <InfoRow
-                icon="phone"
-                label="Mobile number"
-                value={account.phone}
-                flag={account.phone.startsWith('+263')}
-                iconColor="#3B6FE8"
-                backgroundColor="#E8F1FF"
-              />
-              {account.email ? <InfoRow icon="email" label="Email address" value={account.email} /> : null}
-              <InfoRow
-                icon="map-marker"
-                label="Address"
-                value={account.address}
-                iconColor={colors.primary}
-                backgroundColor={colors.primaryLight}
-              />
-              {account.contactName ? (
-                <InfoRow icon="account" label="Contact person" value={account.contactName} />
+              <InfoRow icon="phone-outline" label="WhatsApp number" value={account.phone} />
+              {account.email ? (
+                <>
+                  <ProfileDivider />
+                  <InfoRow icon="email-outline" label="Email address" value={account.email} />
+                </>
               ) : null}
+              {account.contactName ? (
+                <>
+                  <ProfileDivider />
+                  <InfoRow icon="account-outline" label="Contact person" value={account.contactName} />
+                </>
+              ) : null}
+              <ProfileDivider />
+              <InfoRow
+                icon="theme-light-dark"
+                label="Appearance"
+                value={appearanceLabel(mode)}
+                chevron="up"
+                onPress={() => setAppearanceOpen(true)}
+              />
             </View>
-          </View>
-        ) : null}
+          ) : null}
 
-        <View style={styles.body}>
-        {isLoading ? <LoadingIndicator /> : null}
-        {!isLoading && error ? <ErrorMessage message={error} /> : null}
+          {isLoading ? <LoadingIndicator /> : null}
+          {!isLoading && error ? <ErrorMessage message={error} /> : null}
+          {photo.error ? <ErrorMessage message={photo.error} /> : null}
 
-        {account ? (
-          <View style={styles.edit}>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => navigation.navigate('EditProfile', { account })}
-              style={({ pressed }) => pressed && styles.pressed}
-            >
-              <View style={styles.editButton}>
-                <View style={styles.editLabelRow}>
-                  <MaterialDesignIcons name="pencil" color={colors.textInverse} size={20} />
-                  <Text style={styles.editLabel}>Edit Profile</Text>
-                </View>
-                <MaterialDesignIcons
-                  name="chevron-right"
-                  color={colors.textInverse}
-                  size={22}
-                  style={styles.editChevron}
-                />
-              </View>
-            </Pressable>
-          </View>
-        ) : null}
-
-        {Platform.OS === 'ios' || biometricEnabled ? (
-        <View style={styles.card}>
-          <View style={styles.setting}>
-            <View style={styles.iconBox}>
-              <MaterialDesignIcons name="fingerprint" size={20} color={colors.primaryDark} />
-            </View>
-            <View style={styles.settingCopy}>
-              <Text style={styles.settingTitle}>Unlock with biometrics</Text>
-              <Text style={styles.settingBody}>
-                {Platform.OS === 'android'
-                  ? 'Fingerprint protection stays on for this saved session. Turning it off keeps you signed in.'
-                  : 'Use fingerprint or face unlock on this phone.'}
-              </Text>
-            </View>
-            <Switch
-              value={biometricEnabled}
-              disabled={isUpdatingBiometric}
-              onValueChange={(enabled) => {
-                void handleBiometric(enabled);
-              }}
-              trackColor={{ true: colors.primary, false: colors.border }}
-            />
-          </View>
-        </View>
-        ) : null}
-        <ErrorMessage message={biometricError} />
-
-        <View style={styles.edit}>
           <SecondaryButton
             label="Log out"
             icon="logout"
             tone="danger"
+            weight="regular"
+            bordered={false}
             loading={signingOut}
             disabled={signingOut}
             onPress={() => {
@@ -189,71 +148,192 @@ export default function ProfileScreen() {
             }}
           />
         </View>
+        {account ? (
+          <View pointerEvents="box-none" style={styles.avatarSlot}>
+            <View style={styles.avatarWrap}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Change profile photo"
+                disabled={photo.phase !== 'idle'}
+                onPress={() => {
+                  void photo.changePhoto();
+                }}
+              >
+                <CustomerAvatar
+                  kind={account.kind}
+                  name={account.name}
+                  customerId={account.id}
+                  photoUrl={photo.uri}
+                  size={80}
+                />
+              </Pressable>
+              {photo.phase === 'idle' && (account.hasProfilePhoto || photo.uri) ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Remove photo"
+                  hitSlop={8}
+                  onPress={() => setRemoveOpen(true)}
+                  style={styles.removePhoto}
+                >
+                  <MaterialDesignIcons name="trash-can-outline" size={18} color={colors.error} />
+                </Pressable>
+              ) : null}
+            </View>
+          </View>
+        ) : null}
         </View>
       </ScrollView>
+      <DialogModal visible={removeOpen} onClose={() => setRemoveOpen(false)} closeLabel="Keep photo">
+        <DialogTitle>Remove profile photo?</DialogTitle>
+        <DialogBody>Your initials will be shown instead.</DialogBody>
+        <DialogActions>
+          <DialogTextButton label="Keep photo" tone="neutral" onPress={() => setRemoveOpen(false)} />
+          <DialogTextButton
+            label="Remove photo"
+            tone="danger"
+            onPress={() => {
+              setRemoveOpen(false);
+              void photo.removePhoto();
+            }}
+          />
+        </DialogActions>
+      </DialogModal>
+      <BottomSheetModal visible={appearanceOpen} onClose={() => setAppearanceOpen(false)} closeLabel="Close appearance">
+        <View style={[styles.appearanceSheet, { paddingBottom: spacing.lg + insets.bottom }]}>
+          <Text style={styles.appearanceTitle}>Appearance</Text>
+          <View accessibilityRole="radiogroup">
+            {APPEARANCE_OPTIONS.map((option) => {
+              const selected = option.mode === mode;
+              const selectedColor = colors.background === '#FFFFFF' ? colors.primaryDark : colors.primary;
+              return (
+                <Pressable
+                  key={option.mode}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected }}
+                  onPress={() => {
+                    setMode(option.mode);
+                    setAppearanceOpen(false);
+                  }}
+                  style={[styles.appearanceOption, selected && styles.appearanceOptionSelected]}
+                >
+                  <MaterialDesignIcons
+                    name={option.icon}
+                    size={20}
+                    color={selected ? selectedColor : colors.textSecondary}
+                  />
+                  <Text style={[styles.appearanceOptionLabel, selected && styles.appearanceOptionLabelSelected]}>
+                    {appearanceLabel(option.mode)}
+                  </Text>
+                  <View style={[styles.appearanceRadio, selected && styles.appearanceRadioSelected]}>
+                    {selected ? <MaterialDesignIcons name="check" size={14} color={colors.textInverse} /> : null}
+                  </View>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+      </BottomSheetModal>
     </View>
   );
+}
+
+function ProfileDivider() {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  return <View style={styles.divider} />;
 }
 
 function InfoRow({
   icon,
   label,
   value,
-  flag = false,
-  iconColor = colors.primaryDark,
-  backgroundColor = colors.background,
+  onEdit,
+  onPress,
+  chevron,
 }: {
   icon: IconName;
   label: string;
   value: string;
-  flag?: boolean;
-  iconColor?: string;
-  backgroundColor?: string;
+  onEdit?: () => void;
+  onPress?: () => void;
+  chevron?: 'up';
 }) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
-    <View style={styles.row}>
-      <View style={[styles.iconBox, { backgroundColor }]}>
-        <MaterialDesignIcons name={icon} size={20} color={iconColor} />
-      </View>
+      <Pressable
+        accessibilityRole={onPress ? 'button' : undefined}
+        disabled={!onPress}
+        onPress={onPress}
+        style={styles.row}
+      >
+      <MaterialDesignIcons name={icon} size={18} color={colors.text} />
       <View style={styles.rowCopy}>
         <Text style={styles.rowLabel}>{label}</Text>
-        <View style={styles.rowValueLine}>
-          {flag ? (
-            <Image
-              source={require('../../../../../assets/zimbabwe-flag.png')}
-              style={styles.flag}
-              resizeMode="cover"
-            />
-          ) : null}
-          <Text style={styles.rowValue}>{value}</Text>
-        </View>
+        <Text style={styles.rowValue}>{value}</Text>
       </View>
-    </View>
+      {onEdit ? (
+        <Pressable accessibilityRole="button" accessibilityLabel={`Edit ${label}`} hitSlop={8} onPress={onEdit}>
+          <MaterialDesignIcons name="pencil-outline" size={20} color={colors.text} />
+        </Pressable>
+      ) : chevron === 'up' ? (
+        <MaterialDesignIcons name="chevron-up" size={22} color={colors.textSecondary} />
+      ) : null}
+    </Pressable>
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: colors.canvas,
+    overflow: 'hidden',
+  },
+  profileMap: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 200,
+  },
+  profileMapWash: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
   },
   content: {
-    paddingBottom: spacing.xxl,
+    flexGrow: 1,
   },
-  header: {
-    alignItems: 'center',
-    overflow: 'hidden',
-    paddingHorizontal: spacing.xl,
-    paddingBottom: spacing.xl,
-    gap: spacing.sm,
+  sheetAnchor: {
+    flexGrow: 1,
   },
-  overlap: {
-    marginTop: -spacing.xxxl,
-    marginHorizontal: spacing.xl,
-  },
-  body: {
-    marginTop: spacing.lg,
+  sheet: {
+    flexGrow: 1,
     gap: spacing.lg,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.xl,
+    paddingBottom: spacing.xxl,
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
+    backgroundColor: colors.background,
+  },
+  sheetOverlap: {
+    marginTop: 40,
+    paddingTop: 40 + spacing.sm,
+  },
+  avatarSlot: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
+  identity: {
+    alignItems: 'center',
+    gap: spacing.sm,
   },
   name: {
     fontSize: typography.title,
@@ -261,78 +341,61 @@ const styles = StyleSheet.create({
     color: colors.text,
     textAlign: 'center',
   },
+  avatarWrap: {
+    width: 80,
+    height: 80,
+    marginBottom: spacing.sm,
+  },
+  photoStatus: {
+    fontSize: typography.caption,
+    fontWeight: '600',
+    color: colors.primaryDark,
+    textAlign: 'center',
+  },
+  removePhoto: {
+    position: 'absolute',
+    right: -8,
+    bottom: -8,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.background,
+    boxShadow: '0 2px 6px rgba(23, 33, 29, 0.16)',
+  },
   kind: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
-    backgroundColor: colors.background,
+    backgroundColor: colors.primaryLight,
     borderRadius: radius.pill,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
   },
   kindText: {
     fontSize: typography.caption,
-    fontWeight: '600',
+    fontWeight: '400',
     color: colors.primaryDark,
   },
-  card: {
-    marginHorizontal: spacing.xl,
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-  },
-  edit: {
-    marginHorizontal: spacing.xl,
-    gap: spacing.md,
-  },
-  pressed: {
-    opacity: 0.8,
-  },
-  editButton: {
-    minHeight: 56,
-    borderRadius: radius.lg,
-    backgroundColor: colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing.lg,
-  },
-  editLabelRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  editLabel: {
-    color: colors.textInverse,
-    fontSize: typography.button,
-    fontWeight: '700',
-  },
-  editChevron: {
-    position: 'absolute',
-    right: spacing.lg,
-  },
   settingCard: {
-    backgroundColor: '#F8FAF9',
+    backgroundColor: colors.background,
     borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,
-    boxShadow: '0 4px 16px rgba(23, 33, 29, 0.08)',
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    marginLeft: 30,
+    backgroundColor: colors.border,
   },
   row: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     gap: spacing.md,
     paddingVertical: spacing.md,
-  },
-  iconBox: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.background,
   },
   rowCopy: {
     flex: 1,
@@ -342,41 +405,56 @@ const styles = StyleSheet.create({
     fontSize: typography.caption,
     color: colors.textSecondary,
   },
-  rowValueLine: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  flag: {
-    width: 28,
-    height: 22,
-    borderRadius: 2,
-  },
   rowValue: {
-    flex: 1,
     fontSize: typography.body,
     lineHeight: 22,
-    fontWeight: '600',
+    fontWeight: '400',
     color: colors.text,
   },
-  setting: {
+  appearanceSheet: {
+    backgroundColor: colors.sheet,
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
+    padding: spacing.lg,
+    gap: spacing.sm,
+  },
+  appearanceTitle: {
+    fontSize: typography.heading,
+    lineHeight: 26,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  appearanceOption: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
-    paddingVertical: spacing.md,
+    paddingVertical: spacing.sm,
   },
-  settingCopy: {
+  appearanceOptionSelected: {
+    backgroundColor: colors.background === '#FFFFFF' ? colors.surface : colors.primaryLight,
+  },
+  appearanceOptionLabel: {
     flex: 1,
-    gap: spacing.xs,
-  },
-  settingTitle: {
     fontSize: typography.body,
-    fontWeight: '600',
+    lineHeight: 22,
     color: colors.text,
   },
-  settingBody: {
-    fontSize: typography.caption,
-    lineHeight: 20,
-    color: colors.textSecondary,
+  appearanceOptionLabelSelected: {
+    fontWeight: '600',
+    color: colors.background === '#FFFFFF' ? colors.primaryDark : colors.primary,
+  },
+  appearanceRadio: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  appearanceRadioSelected: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
 });
+}

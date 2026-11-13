@@ -230,8 +230,10 @@ function unusedAuth(): RiderAuthRepository {
   };
   return {
     requestRegistrationCode: unused,
+    resendRegistrationCode: unused,
     verifyRegistrationCode: unused,
     requestLoginCode: unused,
+    resendLoginCode: unused,
     verifyLoginCode: unused,
     refresh: unused,
     logout: async () => undefined,

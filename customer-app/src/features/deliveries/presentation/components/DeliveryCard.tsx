@@ -1,63 +1,49 @@
 import { MaterialDesignIcons } from '@react-native-vector-icons/material-design-icons';
-import type { ComponentProps } from 'react';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import { Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import ErrorMessage from '../../../../components/ErrorMessage';
-import { colors, radius, spacing, typography } from '../../../../theme';
-import { errorMessage } from '../../../auth/presentation/errorMessage';
-import { deliveryCardAddress } from '../../domain/deliveryCard';
-import {
-  deliveryStatusLabel,
-  deliveryUsesPackageIcon,
-  type CustomerDelivery,
-  type DeliveryStatus,
-} from '../../domain/deliveryStatus';
+import { usePressScale } from '../../../../components/useMotion';
 
-type IconName = ComponentProps<typeof MaterialDesignIcons>['name'];
+import ErrorMessage from '../../../../components/ErrorMessage';
+import type { Palette } from '../../../../theme';
+import { radius, spacing, typography, useAppearance } from '../../../../theme';
+import { errorMessage } from '../../../auth/presentation/errorMessage';
+import { deliveryCardAddress, deliveryContentKind } from '../../domain/deliveryCard';
+import { ContentIcon, ContentLabel, LocationPin, ServiceClassBadge, deliveryIcon } from '../deliveryIcons';
+import {
+  deliveryCanSearchAgain,
+  deliveryCardStatusLabel,
+  showsViewBids,
+  type CustomerDelivery,
+} from '../../domain/deliveryStatus';
+import { deliveryStatusTone, type StatusTone } from '../deliveryStatusTone';
 
 type DeliveryCardProps = {
   delivery: CustomerDelivery;
   cached?: boolean;
+  translucent?: boolean;
   onOpenDetails?: (deliveryId: string) => void;
   onSearchAgain?: (deliveryId: string) => Promise<void>;
 };
 
-type StatusTone = {
-  icon: IconName;
-  background: string;
-  color: string;
-};
-
-const STATUS_TONES: Record<DeliveryStatus, StatusTone> = {
-  CREATED: { icon: 'clock-outline', background: '#EEF2F6', color: '#475569' },
-  SEARCHING: { icon: 'clock-outline', background: '#EEF2F6', color: '#475569' },
-  NO_RIDER_FOUND: { icon: 'clock-outline', background: '#FFF4E5', color: '#C56A12' },
-  ASSIGNED: { icon: 'motorbike', background: '#E9F8EF', color: '#087A4A' },
-  ARRIVED_AT_PICKUP: { icon: 'motorbike', background: '#E9F8EF', color: '#087A4A' },
-  PICKED_UP: { icon: 'motorbike', background: '#E9F8EF', color: '#087A4A' },
-  IN_TRANSIT: { icon: 'motorbike', background: '#E9F8EF', color: '#087A4A' },
-  ARRIVED_AT_DROPOFF: { icon: 'motorbike', background: '#E9F8EF', color: '#087A4A' },
-  DELIVERED: { icon: 'check', background: '#E9F8EF', color: '#087A4A' },
-  CANCELLED: { icon: 'close', background: '#FDECEC', color: '#D92D20' },
-  FAILED: { icon: 'alert-circle-outline', background: '#FDECEC', color: '#D92D20' },
-};
-
-const PIN_SIZE = 32;
-const DOT_SIZE = 3;
-const DOT_STEP = 7;
+const ICON_SIZE = deliveryIcon.size;
 
 export default function DeliveryCard({
   delivery,
   cached = false,
+  translucent = false,
   onOpenDetails,
   onSearchAgain,
 }: DeliveryCardProps) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  const press = usePressScale();
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
-  const tone = STATUS_TONES[delivery.status];
-  const packageIcon = deliveryUsesPackageIcon(delivery.status);
-  const canSearch = delivery.status === 'NO_RIDER_FOUND' && Boolean(onSearchAgain);
+  const bidsReceived = showsViewBids(delivery);
+  const tone = deliveryStatusTone(delivery.status, colors, bidsReceived);
+  const contentKind = deliveryContentKind(delivery.parcelDescription);
+  const canSearch = deliveryCanSearchAgain(delivery) && Boolean(onSearchAgain);
 
   async function searchAgain() {
     if (!onSearchAgain || searching) {
@@ -75,79 +61,83 @@ export default function DeliveryCard({
   }
 
   return (
-    <View style={styles.card}>
+    <Animated.View style={{ transform: [{ scale: press.scale }] }}>
+    <Pressable
+      accessibilityRole={onOpenDetails ? 'button' : undefined}
+      accessibilityLabel={onOpenDetails ? `View details for delivery ${delivery.id}` : undefined}
+      onPress={onOpenDetails ? () => onOpenDetails(delivery.id) : undefined}
+      onPressIn={press.onPressIn}
+      onPressOut={press.onPressOut}
+      style={[styles.card, translucent && styles.cardTranslucent]}
+    >
       <View style={styles.body}>
-        {packageIcon ? (
-          <View style={styles.packageIcon}>
-            <MaterialDesignIcons name="package-variant" color={colors.primary} size={20} />
+        <View style={styles.summary}>
+          <View style={styles.summaryBody}>
+            <View style={styles.badgeRow}>
+              <View style={styles.contentBadge}>
+                <ContentIcon kind={contentKind} />
+                <ContentLabel kind={contentKind} />
+                {delivery.serviceClass ? <ServiceClassBadge serviceClass={delivery.serviceClass} /> : null}
+              </View>
+            </View>
+            <RouteStops
+              pickup={delivery.pickupAddress}
+              dropoff={delivery.dropoffAddress}
+            />
           </View>
-        ) : null}
-        <RouteStops
-          pickup={delivery.pickupAddress}
-          dropoff={delivery.dropoffAddress}
-          status={(
+          <View pointerEvents="none" style={styles.statusFloat}>
             <StatusPill
               tone={tone}
-              label={deliveryStatusLabel(delivery.status)}
-              pulse={!cached && delivery.status === 'SEARCHING'}
+              label={deliveryCardStatusLabel(delivery)}
+              pulse={!cached && delivery.serviceClass != null && delivery.status === 'CREATED'}
             />
-          )}
-        />
-        {onOpenDetails ? (
-          <View style={styles.actions}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`View details for delivery ${delivery.id}`}
-              onPress={() => onOpenDetails(delivery.id)}
-              style={styles.detailsButton}
-            >
-              <MaterialDesignIcons name="information-outline" color={colors.textSecondary} size={16} />
-              <Text style={styles.detailsText}>View details</Text>
-              <MaterialDesignIcons name="chevron-right" color={colors.textSecondary} size={18} />
-            </Pressable>
-            {canSearch ? <View style={styles.actionDivider} /> : null}
-            {canSearch ? (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`Search again for delivery ${delivery.id}`}
-                disabled={searching}
-                onPress={() => {
-                  void searchAgain();
-                }}
-                style={styles.searchButton}
-              >
-                <MaterialDesignIcons name="refresh" color={colors.primary} size={16} />
-                <Text style={styles.searchText}>{searching ? 'Searching' : 'Search again'}</Text>
-              </Pressable>
-            ) : null}
           </View>
+        </View>
+        {canSearch ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Search again for delivery ${delivery.id}`}
+            disabled={searching}
+            onPress={() => {
+              void searchAgain();
+            }}
+            style={[styles.searchButton, styles.compactAction]}
+          >
+            <MaterialDesignIcons name="refresh" color={colors.primary} size={16} />
+            <Text style={styles.searchText}>{searching ? 'Searching' : 'Search again'}</Text>
+          </Pressable>
         ) : null}
         {searchError ? <ErrorMessage message={searchError} /> : null}
       </View>
-      <View style={styles.divider} />
-    </View>
+    </Pressable>
+    </Animated.View>
   );
 }
 
 function StatusPill({ tone, label, pulse }: { tone: StatusTone; label: string; pulse: boolean }) {
-  const opacity = useRef(new Animated.Value(1)).current;
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  const presence = useRef(new Animated.Value(1)).current;
+  const opacity = presence.interpolate({ inputRange: [0, 1], outputRange: [0.35, 1] });
+  const scale = presence.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1.08] });
 
   useEffect(() => {
     if (!pulse) {
-      opacity.stopAnimation();
-      opacity.setValue(1);
+      presence.stopAnimation();
+      presence.setValue(1);
       return;
     }
+    presence.setValue(0);
     const animation = Animated.loop(
       Animated.sequence([
-        Animated.timing(opacity, {
-          toValue: 0.35,
+        Animated.timing(presence, {
+          toValue: 1,
           duration: 900,
           easing: Easing.inOut(Easing.sin),
           useNativeDriver: true,
         }),
-        Animated.timing(opacity, {
-          toValue: 1,
+        Animated.timing(presence, {
+          toValue: 0,
           duration: 900,
           easing: Easing.inOut(Easing.sin),
           useNativeDriver: true,
@@ -156,12 +146,11 @@ function StatusPill({ tone, label, pulse }: { tone: StatusTone; label: string; p
     );
     animation.start();
     return () => animation.stop();
-  }, [opacity, pulse]);
+  }, [presence, pulse]);
 
   return (
-    <Animated.View style={[styles.pill, { backgroundColor: tone.background, opacity }]}>
-      <MaterialDesignIcons name={tone.icon} color={tone.color} size={14} />
-      <Text style={[styles.pillText, { color: tone.color }]}>{label}</Text>
+    <Animated.View style={[styles.pill, { backgroundColor: tone.background, opacity }, pulse ? { transform: [{ scale }] } : null]}>
+      <Text numberOfLines={1} style={[styles.pillText, { color: tone.color }]}>{label}</Text>
     </Animated.View>
   );
 }
@@ -169,114 +158,111 @@ function StatusPill({ tone, label, pulse }: { tone: StatusTone; label: string; p
 function RouteStops({
   pickup,
   dropoff,
-  status,
+  compact = false,
 }: {
   pickup: string;
   dropoff: string;
-  status: ReactNode;
+  compact?: boolean;
 }) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
-    <View style={styles.route}>
-      <Stop label="Pickup" address={pickup} pin={colors.primary} badge={colors.primaryLight} connect aside={status} />
-      <Stop label="Drop-off" address={dropoff} pin={colors.error} badge="#FDECEC" />
+    <View style={[styles.route, compact && styles.routeCompact]}>
+      <Stop address={pickup} />
+      <Stop address={dropoff} dropoff />
     </View>
   );
 }
 
 function Stop({
-  label,
   address,
-  pin,
-  badge,
-  connect = false,
-  aside = null,
+  dropoff = false,
 }: {
-  label: string;
   address: string;
-  pin: string;
-  badge: string;
-  connect?: boolean;
-  aside?: ReactNode;
+  dropoff?: boolean;
 }) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <View style={styles.stop}>
       <View style={styles.markerColumn}>
-        <View style={[styles.pinCircle, { backgroundColor: badge }]}>
-          <MaterialDesignIcons name="map-marker" color={pin} size={18} />
+        <View style={styles.pinCircle}>
+          <LocationPin dropoff={dropoff} />
         </View>
-        {connect ? <DottedConnector /> : null}
       </View>
       <View style={styles.placeText}>
-        <View style={styles.placeHead}>
-          <Text style={styles.placeLabel}>{label}</Text>
-          {aside}
-        </View>
         <Text style={styles.placeValue}>{deliveryCardAddress(address)}</Text>
       </View>
     </View>
   );
 }
 
-function DottedConnector() {
-  const [count, setCount] = useState(0);
-
-  return (
-    <View
-      pointerEvents="none"
-      style={styles.connector}
-      onLayout={(event) => {
-        const next = Math.max(1, Math.floor(event.nativeEvent.layout.height / DOT_STEP));
-        setCount((current) => (current === next ? current : next));
-      }}
-    >
-      {Array.from({ length: count }, (_, index) => (
-        <View key={index} style={styles.dot} />
-      ))}
-    </View>
-  );
-}
-
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   card: {
-    backgroundColor: '#F8FAF9',
+    backgroundColor: colors.background,
     borderRadius: radius.lg,
     borderWidth: 1,
-    borderColor: colors.border,
-    boxShadow: '0 4px 16px rgba(23, 33, 29, 0.08)',
+    borderColor: colors.listCardBorder,
+    boxShadow: '0 2px 8px rgba(23, 33, 29, 0.08)',
+  },
+  cardTranslucent: {
+    backgroundColor: colors.background,
+  },
+  cardCompact: {
+    marginHorizontal: spacing.sm,
   },
   body: {
-    padding: spacing.lg,
-    gap: spacing.md,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.md,
+    gap: spacing.sm,
   },
-  packageIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: radius.lg,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.primaryLight,
+  bodyCompact: {
+    paddingVertical: spacing.sm,
+    gap: spacing.xs,
   },
-  divider: {
-    height: StyleSheet.hairlineWidth,
-    marginHorizontal: spacing.lg,
-    backgroundColor: colors.border,
-  },
-  pill: {
+  summary: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xs,
+    gap: spacing.sm,
+  },
+  summaryBody: {
+    flex: 1,
+    gap: spacing.md,
+  },
+  statusFloat: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+  },
+  contentBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: spacing.sm,
+  },
+  badgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: spacing.sm,
+    paddingRight: 96,
+  },
+  pill: {
+    flexShrink: 0,
     borderRadius: radius.pill,
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
-    maxWidth: '48%',
   },
   pillText: {
-    flexShrink: 1,
     fontSize: typography.small,
     fontWeight: '700',
   },
   route: {
-    gap: spacing.md,
+    gap: 8,
+  },
+  routeCompact: {
+    gap: spacing.xs,
   },
   stop: {
     flexDirection: 'row',
@@ -284,77 +270,24 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   markerColumn: {
-    width: PIN_SIZE,
-    alignItems: 'center',
+    width: ICON_SIZE,
+    alignItems: 'flex-start',
   },
   pinCircle: {
-    width: PIN_SIZE,
-    height: PIN_SIZE,
-    borderRadius: PIN_SIZE / 2,
-    alignItems: 'center',
+    width: ICON_SIZE,
+    height: ICON_SIZE,
+    alignItems: 'flex-start',
     justifyContent: 'center',
-  },
-  connector: {
-    position: 'absolute',
-    top: PIN_SIZE,
-    bottom: -spacing.md,
-    width: PIN_SIZE,
-    alignItems: 'center',
-    justifyContent: 'space-evenly',
-  },
-  dot: {
-    width: DOT_SIZE,
-    height: DOT_SIZE,
-    borderRadius: DOT_SIZE / 2,
-    backgroundColor: '#B7C2BC',
   },
   placeText: {
     flex: 1,
     gap: 2,
   },
-  placeHead: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing.sm,
-  },
-  placeLabel: {
-    fontSize: typography.caption,
-    color: colors.textSecondary,
-  },
   placeValue: {
-    fontSize: typography.body,
-    lineHeight: 22,
-    fontWeight: '700',
+    fontSize: 16,
+    lineHeight: 21,
+    fontWeight: '400',
     color: colors.text,
-  },
-  actions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  detailsButton: {
-    flex: 1,
-    minHeight: 44,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.xs,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.sm,
-    backgroundColor: colors.surface,
-  },
-  detailsText: {
-    fontSize: typography.caption,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  actionDivider: {
-    width: 1,
-    alignSelf: 'stretch',
-    backgroundColor: colors.border,
   },
   searchButton: {
     flex: 1,
@@ -364,10 +297,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: spacing.xs,
     borderWidth: 1,
-    borderColor: 'rgba(22, 155, 98, 0.35)',
-    borderRadius: radius.md,
+    borderColor: colors.primary,
+    borderRadius: radius.pill,
+    backgroundColor: colors.background,
     paddingHorizontal: spacing.sm,
-    backgroundColor: colors.primaryLight,
+  },
+  compactAction: {
+    flex: 0,
+    alignSelf: 'flex-end',
+    minHeight: 32,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.pill,
   },
   searchText: {
     fontSize: typography.caption,
@@ -375,3 +315,4 @@ const styles = StyleSheet.create({
     color: colors.primary,
   },
 });
+}

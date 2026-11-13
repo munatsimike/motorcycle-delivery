@@ -61,6 +61,14 @@ export class DeliveryService {
         id: deliveryId,
         customerId: customer.customerAccountId,
       },
+      include: {
+        statusEvents: {
+          where: { newStatus: DeliveryStatus.DELIVERED },
+          orderBy: { occurredAt: 'desc' },
+          take: 1,
+          select: { newStatus: true, occurredAt: true },
+        },
+      },
     });
 
     if (!delivery) {

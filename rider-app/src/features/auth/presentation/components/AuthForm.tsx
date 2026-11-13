@@ -7,12 +7,16 @@ import {
   Text,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import BrandLogo from '../../../../components/BrandLogo';
 import ErrorMessage from '../../../../components/ErrorMessage';
 import FormInput from '../../../../components/FormInput';
 import PrimaryButton from '../../../../components/PrimaryButton';
 import ZimbabwePhoneField from '../../../../components/ZimbabwePhoneField';
+import { riderNameFieldError } from '../../domain/personName';
+import { looksLikeDutchPhoneEntry } from '../../domain/phone';
+import RegistrationAddressField from './RegistrationAddressField';
 import { colors, spacing, typography } from '../../../../theme';
 
 type AuthFormProps = {
@@ -27,8 +31,11 @@ type AuthFormProps = {
   footerText: string;
   footerAction: string;
   onFooterPress: () => void;
+  helperText?: string | null;
   fullName?: string;
   onChangeFullName?: (value: string) => void;
+  address?: string;
+  onChangeAddress?: (value: string) => void;
 };
 
 export default function AuthForm({
@@ -43,10 +50,14 @@ export default function AuthForm({
   footerText,
   footerAction,
   onFooterPress,
+  helperText = null,
   fullName,
   onChangeFullName,
+  address,
+  onChangeAddress,
 }: AuthFormProps) {
   return (
+    <SafeAreaView style={styles.container} edges={['top']}>
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -65,11 +76,24 @@ export default function AuthForm({
             textContentType="name"
             maxLength={200}
             editable={!isLoading}
+            error={riderNameFieldError(error)}
           />
         ) : null}
-        <ZimbabwePhoneField value={phone} onChangeText={onChangePhone} editable={!isLoading} />
-        <Text style={styles.helper}>We'll send a one-time SMS code to this Zimbabwe number.</Text>
-        <ErrorMessage message={error} />
+        {onChangeAddress ? (
+          <RegistrationAddressField
+            value={address ?? ''}
+            onChangeText={onChangeAddress}
+            editable={!isLoading}
+          />
+        ) : null}
+        <ZimbabwePhoneField
+          value={phone}
+          onChangeText={onChangePhone}
+          editable={!isLoading}
+          countryCode={typeof __DEV__ === 'boolean' && __DEV__ && looksLikeDutchPhoneEntry(phone) ? '+31' : '+263'}
+        />
+        {helperText ? <Text style={styles.helper}>{helperText}</Text> : null}
+        <ErrorMessage message={riderNameFieldError(error) ? null : error} />
         <PrimaryButton
           label={buttonLabel}
           onPress={onSubmit}
@@ -84,6 +108,7 @@ export default function AuthForm({
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 

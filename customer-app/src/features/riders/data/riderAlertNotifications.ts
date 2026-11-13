@@ -8,15 +8,6 @@ export const RIDER_ALERT_CHANNEL_ID = 'rider-availability';
 
 const DEVELOPMENT_BUILD_MESSAGE = 'Notifications need a Riders development build on this phone. They are not available in Expo Go.';
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
-});
-
 export type RiderAlertPermission =
   | { status: 'granted'; token: string }
   | { status: 'denied' }

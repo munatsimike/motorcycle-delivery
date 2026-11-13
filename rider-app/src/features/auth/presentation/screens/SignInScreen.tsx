@@ -22,8 +22,8 @@ export default function SignInScreen({ navigation }: SignInProps) {
   return (
     <AuthForm
       title="Welcome back"
-      subtitle="Enter the mobile number on your rider account."
-      buttonLabel="Sign in"
+      subtitle="We'll send a one-time WhatsApp code to this number."
+      buttonLabel="Send code"
       isLoading={isLoading}
       error={error}
       phone={phone}
@@ -31,6 +31,7 @@ export default function SignInScreen({ navigation }: SignInProps) {
       onSubmit={() => {
         void handleContinue();
       }}
+      helperText="We'll send a one-time WhatsApp code to this Zimbabwe number."
       footerText="New rider?"
       footerAction="Create an account"
       onFooterPress={() => navigation.navigate('SignUp')}

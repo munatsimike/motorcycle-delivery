@@ -40,12 +40,12 @@ export default function AppNavigator() {
         ) : (
           <>
             <Stack.Screen name="Welcome" component={WelcomeScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="SignIn" component={SignInScreen} options={{ title: 'Sign in' }} />
-            <Stack.Screen name="SignUp" component={SignUpScreen} options={{ title: 'Create account' }} />
+            <Stack.Screen name="SignIn" component={SignInScreen} options={{ headerShown: false }} />
+            <Stack.Screen name="SignUp" component={SignUpScreen} options={{ headerShown: false }} />
             <Stack.Screen
               name="OtpVerification"
               component={OtpVerificationScreen}
-              options={{ title: 'Verification code' }}
+              options={{ headerShown: false }}
             />
           </>
         )}

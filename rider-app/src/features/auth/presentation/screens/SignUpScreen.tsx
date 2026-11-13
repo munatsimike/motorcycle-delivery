@@ -9,11 +9,12 @@ type SignUpProps = NativeStackScreenProps<RootStackParamList, 'SignUp'>;
 
 export default function SignUpScreen({ navigation }: SignUpProps) {
   const [fullName, setFullName] = useState('');
+  const [address, setAddress] = useState('');
   const [phone, setPhone] = useState('');
   const { isLoading, error, requestCode } = useSignUp();
 
   async function handleContinue() {
-    const started = await requestCode(phone, fullName);
+    const started = await requestCode(phone, fullName, address);
     if (!started) {
       return;
     }
@@ -27,12 +28,14 @@ export default function SignUpScreen({ navigation }: SignUpProps) {
   return (
     <AuthForm
       title="Create your rider account"
-      subtitle="Use the name on your driving licence."
+      subtitle="We'll send one WhatsApp code to create your rider account."
       buttonLabel="Continue"
       isLoading={isLoading}
       error={error}
       fullName={fullName}
       onChangeFullName={setFullName}
+      address={address}
+      onChangeAddress={setAddress}
       phone={phone}
       onChangePhone={setPhone}
       onSubmit={() => {

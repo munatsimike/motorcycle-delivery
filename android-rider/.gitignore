@@ -11,3 +11,5 @@
 *.apks
 *.jks
 *.keystore
+keystore.properties
+google-services.json

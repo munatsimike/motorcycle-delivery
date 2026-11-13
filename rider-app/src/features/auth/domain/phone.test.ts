@@ -10,12 +10,22 @@ describe('rider phone and name', () => {
     expect(normalizeRiderPhone('+263 77 123 4567')).toBe('+263771234567');
   });
 
+  it('accepts Netherlands numbers in local and international form', () => {
+    expect(normalizeRiderPhone('0612345678')).toBe('+31612345678');
+    expect(normalizeRiderPhone('612345678')).toBe('+31612345678');
+    expect(normalizeRiderPhone('+31 6 12345678')).toBe('+31612345678');
+  });
+
   it('rejects a number the rider API will not accept', () => {
-    expect(() => normalizeRiderPhone('0612345678')).toThrow('Enter a valid Zimbabwe mobile number');
+    expect(() => normalizeRiderPhone('0812345678')).toThrow('Enter a valid Zimbabwe mobile number');
   });
 
   it('collapses a rider name the same way the API does', () => {
     expect(normalizeRiderName('  Tariro   Moyo ')).toBe('Tariro Moyo');
+    expect(normalizeRiderName('Tariro Joe Moyo')).toBe('Tariro Joe Moyo');
+    expect(normalizeRiderName('Ann Moyo')).toBe('Ann Moyo');
     expect(() => normalizeRiderName('   ')).toThrow('Full name is required');
+    expect(() => normalizeRiderName('Tariro')).toThrow('Enter your name and surname.');
+    expect(() => normalizeRiderName('Tariro M')).toThrow('Each name must be at least 3 letters.');
   });
 });

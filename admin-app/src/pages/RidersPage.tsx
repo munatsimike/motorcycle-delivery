@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { adminApi } from '../lib/client';
 import { when } from '../lib/labels';
@@ -11,6 +12,7 @@ export function RidersPage() {
   const approvalStatus = params.get('approvalStatus') ?? '';
   const verificationStatus = params.get('verificationStatus') ?? '';
   const phone = params.get('phone') ?? '';
+  const [phoneError, setPhoneError] = useState<string | null>(null);
   const query = new URLSearchParams({ page: String(page), limit: '20' });
   if (approvalStatus) query.set('approvalStatus', approvalStatus);
   if (verificationStatus) query.set('verificationStatus', verificationStatus);
@@ -44,8 +46,10 @@ export function RidersPage() {
         const data = new FormData(event.currentTarget);
         const nextPhone = String(data.get('phone') ?? '').trim();
         if (nextPhone && !/^\+?[0-9]{7,15}$/.test(nextPhone)) {
+          setPhoneError('Enter a phone number with 7 to 15 digits. An optional leading + is allowed.');
           return;
         }
+        setPhoneError(null);
         update({ phone: nextPhone, approvalStatus: String(data.get('approvalStatus') ?? ''), verificationStatus: String(data.get('verificationStatus') ?? '') });
       }}>
         <label>Approval
@@ -70,6 +74,7 @@ export function RidersPage() {
         </label>
         <button className="button" type="submit">Apply</button>
       </form>
+      {phoneError ? <ErrorNote>{phoneError}</ErrorNote> : null}
       {riders.isLoading ? <Loading label="Loading riders" /> : null}
       {riders.error ? <ErrorNote>{textOf(riders.error)}</ErrorNote> : null}
       {riders.data && riders.data.data.length === 0 ? <Empty>No riders match these filters.</Empty> : null}

@@ -1,9 +1,10 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../lib/client';
 import { when } from '../lib/labels';
-import type { ClassTariff, Page, PricingAudit } from '../lib/types';
+import type { ClassTariff, Page, PricingAudit, V2CommissionAudit, V2CommissionRate } from '../lib/types';
 import { SettingsPage } from './SettingsPage';
 
 const request = vi.hoisted(() => vi.fn());
@@ -16,9 +17,8 @@ vi.mock('../lib/client', async () => {
 type Call = { path: string; body?: unknown };
 
 const wallet = { configVersion: 1, currency: 'USD', welcomeBonus: '0.00', defaultBorrowingLimit: '0.00', platformFee: '0.00' };
-const v1 = { pricingVersion: 4, currency: 'USD', baseFee: '2.00', pricePerKilometre: '1.00', minimumTripMetres: 0, maximumTripMetres: 100_000 };
-const commission = { model: 'ON_COMPLETION' as const, policyVersion: 2 };
 const emptyAudits: Page<PricingAudit> = { data: [], pagination: { page: 1, limit: 20, total: 0, totalPages: 0 } };
+const emptyV2Audits: Page<V2CommissionAudit> = { data: [], pagination: { page: 1, limit: 20, total: 0, totalPages: 0 } };
 
 const world = {
   express: null as ClassTariff | null,
@@ -29,8 +29,12 @@ const world = {
   publishGate: null as Promise<void> | null,
   posts: [] as Call[],
   puts: [] as unknown[],
+  walletPuts: [] as unknown[],
+  v2Posts: [] as unknown[],
   audits: emptyAudits,
   pageTwo: emptyAudits,
+  v2Rate: { configured: false } as V2CommissionRate,
+  v2Audits: emptyV2Audits,
 };
 
 beforeEach(() => {
@@ -42,13 +46,17 @@ beforeEach(() => {
   world.publishGate = null;
   world.posts = [];
   world.puts = [];
+  world.walletPuts = [];
+  world.v2Posts = [];
   world.audits = emptyAudits;
   world.pageTwo = emptyAudits;
+  world.v2Rate = { configured: false };
+  world.v2Audits = emptyV2Audits;
   request.mockImplementation(async (path: string, options?: { method?: string; body?: unknown }) => {
     const method = options?.method ?? 'GET';
     if (method === 'PUT' && path === '/admin/delivery-pricing') {
       world.puts.push(options?.body);
-      return { ...v1, pricingVersion: 5 };
+      return classTariff('EXPRESS', 5);
     }
     if (method === 'POST' && path.includes('/windows/')) {
       world.posts.push({ path, body: options?.body });
@@ -71,9 +79,26 @@ beforeEach(() => {
       }
       return world.express;
     }
-    if (path === '/admin/wallet-config') return wallet;
-    if (path === '/admin/delivery-pricing') return v1;
-    if (path === '/admin/commission-policy') return commission;
+    if (method === 'POST' && path === '/admin/v2-commission-rate') {
+      world.v2Posts.push(options?.body);
+      return {
+        configured: true,
+        basisPoints: 0,
+        percentage: '0',
+        rateVersion: 1,
+        createdById: 'admin-1',
+        createdAt: '2026-10-24T07:00:00.000Z',
+      };
+    }
+    if (path.startsWith('/admin/wallet-config/audits') || path.startsWith('/admin/wallet-borrowing-limit-audits')) {
+      return { data: [], pagination: { page: 1, limit: 20, total: 0, totalPages: 0 } };
+    }
+    if (path === '/admin/wallet-config') {
+      if (method === 'PUT') world.walletPuts.push(options?.body);
+      return wallet;
+    }
+    if (path === '/admin/v2-commission-rate') return world.v2Rate;
+    if (path.startsWith('/admin/v2-commission-rate/audits')) return world.v2Audits;
     if (path.startsWith('/admin/delivery-pricing/audits')) {
       if (world.auditError) throw world.auditError;
       const page = new URL(path, 'http://local').searchParams.get('page');
@@ -92,24 +117,31 @@ afterEach(() => {
   cleanup();
 });
 
-describe('admin pricing settings', () => {
-  it('keeps the V1 pricing editor on its existing contract', async () => {
+describe('admin wallet settings', () => {
+  it('keeps the welcome bonus and platform fee when reviewing the default negative wallet limit', async () => {
     await renderReady();
-    const panel = screen.getByRole('tabpanel', { name: 'V1 Legacy' });
-    expect(within(panel).queryByLabelText('Pricing model')).toBeNull();
-    fireEvent.change(within(panel).getByLabelText('Base fee'), { target: { value: '3.50' } });
-    fireEvent.click(within(panel).getByRole('button', { name: 'Review pricing' }));
-    expect(screen.getByRole('dialog').textContent).toContain('Base fee USD 3.50');
+    expect(screen.getByLabelText('Default negative wallet limit')).toBeTruthy();
+    expect(screen.queryByLabelText('Default borrowing limit')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Review wallet settings' }));
+    expect(screen.getByText('Welcome bonus USD 0.00, default negative wallet limit USD 0.00, platform fee USD 0.00.')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-    await waitFor(() => expect(world.puts).toEqual([{
+    await waitFor(() => expect(world.walletPuts).toEqual([{
       currency: 'USD',
-      baseFee: '3.50',
-      pricePerKilometre: '1.00',
-      minimumTripMetres: 0,
-      maximumTripMetres: 100_000,
+      welcomeBonus: '0.00',
+      defaultBorrowingLimit: '0.00',
+      platformFee: '0.00',
     }]));
-    expect(world.posts).toEqual([]);
-    expect(screen.getByRole('heading', { name: 'Commission policy' })).toBeTruthy();
+  });
+});
+
+describe('admin pricing settings', () => {
+  it('shows Express and Flexible pricing without the legacy tariff or commission policy', async () => {
+    await renderReady();
+    expect(screen.queryByRole('tab', { name: 'V1 Legacy' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Commission policy' })).toBeNull();
+    expect(screen.getByRole('tab', { name: 'Express' })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'Flexible' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'V2 commission percentage' })).toBeTruthy();
   });
 
   it('keeps Express and Flexible drafts apart', async () => {
@@ -156,8 +188,50 @@ describe('admin pricing settings', () => {
     fireEvent.change(model, { target: { value: 'DISTANCE_TIERS' } });
     expect(within(panel).queryByLabelText('Base fee')).toBeNull();
     expect(within(panel).queryByLabelText('Price per kilometre')).toBeNull();
+    expect(within(panel).queryByLabelText('Included distance (km)')).toBeNull();
     expect(panel.textContent).toContain('own slice');
     expect(within(panel).getByRole('button', { name: 'Add tier' })).toBeTruthy();
+    fireEvent.change(model, { target: { value: 'INCLUDED_DISTANCE' } });
+    expect(within(panel).getByLabelText('Base price (USD)')).toBeTruthy();
+    expect(within(panel).getByLabelText('Included distance (km)')).toBeTruthy();
+    expect(within(panel).getByLabelText('Additional price per kilometre (USD)')).toBeTruthy();
+    expect(within(panel).queryByLabelText('Base fee')).toBeNull();
+    expect(within(panel).queryByRole('button', { name: 'Add tier' })).toBeNull();
+  });
+
+  it('publishes included distance in metres and reloads a saved version', async () => {
+    world.express = classTariff('EXPRESS', 8, {
+      pricingModel: 'INCLUDED_DISTANCE',
+      baseFee: '5.00',
+      pricePerKilometre: '0.80',
+      includedMetres: 5500,
+      minimumTripMetres: 100,
+      maximumTripMetres: 100000,
+    });
+    await renderReady();
+    fireEvent.click(screen.getByRole('tab', { name: 'Express' }));
+    const panel = await screen.findByRole('tabpanel', { name: 'Express' });
+    expect((within(panel).getByLabelText('Base price (USD)') as HTMLInputElement).value).toBe('5.00');
+    expect((within(panel).getByLabelText('Included distance (km)') as HTMLInputElement).value).toBe('5.5');
+    expect((within(panel).getByLabelText('Additional price per kilometre (USD)') as HTMLInputElement).value).toBe('0.80');
+    fireEvent.change(within(panel).getByLabelText('Included distance (km)'), { target: { value: '5' } });
+    fireEvent.click(within(panel).getByRole('button', { name: 'Review and publish' }));
+    expect(screen.getByRole('dialog').textContent).toContain('includes 5000 metres');
+    fireEvent.click(screen.getByRole('button', { name: 'Publish' }));
+    await waitFor(() => expect(world.posts).toHaveLength(1));
+    expect(world.posts[0]).toEqual({
+      path: '/admin/delivery-pricing/classes/EXPRESS',
+      body: {
+        pricingModel: 'INCLUDED_DISTANCE',
+        currency: 'USD',
+        baseFee: '5.00',
+        pricePerKilometre: '0.80',
+        includedMetres: 5000,
+        minimumTripMetres: 100,
+        maximumTripMetres: 100000,
+        windows: [],
+      },
+    });
   });
 
   it('edits distance tiers without repairing an invalid order', async () => {
@@ -366,7 +440,74 @@ describe('admin pricing settings', () => {
     fireEvent.click(within(screen.getByRole('tabpanel', { name: 'Express' })).getByRole('button', { name: 'Try again' }));
     expect(await screen.findByText(/Express pricing has not been published/)).toBeTruthy();
   });
+
+  it('shows an unpublished V2 percentage separately from a published 0%', async () => {
+    await renderReady();
+    const section = v2Section();
+    expect(section.textContent).toContain('No V2 commission percentage has been published.');
+    expect(within(section).queryByText(/Version/)).toBeNull();
+    world.v2Rate = {
+      configured: true,
+      basisPoints: 0,
+      percentage: '0',
+      rateVersion: 3,
+      createdById: 'admin-1',
+      createdAt: '2026-10-24T07:00:00.000Z',
+    };
+    cleanup();
+    await renderReady();
+    const published = v2Section();
+    expect(published.textContent).toContain('0% · Version 3');
+    expect(published.textContent).not.toContain('No V2 commission percentage has been published.');
+    expect((within(published).getByLabelText('Percentage') as HTMLInputElement).value).toBe('0');
+  });
+
+  it('asks for confirmation before publishing 100% and rejects an invalid percentage', async () => {
+    await renderReady();
+    const section = v2Section();
+    fireEvent.change(within(section).getByLabelText('Percentage'), { target: { value: '101' } });
+    fireEvent.click(within(section).getByRole('button', { name: 'Review V2 commission' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(world.v2Posts).toEqual([]);
+    expect(screen.getByText('Enter a commission percentage from 0 to 100, with at most two decimal places.')).toBeTruthy();
+    fireEvent.change(within(section).getByLabelText('Percentage'), { target: { value: '100' } });
+    fireEvent.click(within(section).getByRole('button', { name: 'Review V2 commission' }));
+    expect(screen.getByRole('dialog').textContent).toContain('V2 commission 100% for Express and Flexible deliveries.');
+    expect(world.v2Posts).toEqual([]);
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(world.v2Posts).toEqual([{ percentage: '100' }]));
+    expect(screen.getByRole('heading', { name: 'V2 commission percentage' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Commission policy' })).toBeNull();
+  });
+
+  it('shows V2 commission audit history', async () => {
+    world.v2Audits = {
+      data: [{
+        id: 'audit-1',
+        actorId: 'admin-9',
+        actorName: 'Ada Admin',
+        previousVersion: null,
+        nextVersion: 1,
+        previousBasisPoints: null,
+        nextBasisPoints: 1000,
+        previousPercentage: null,
+        nextPercentage: '10',
+        createdAt: '2026-10-24T07:00:00.000Z',
+      }],
+      pagination: { page: 1, limit: 20, total: 1, totalPages: 1 },
+    };
+    await renderReady();
+    const history = screen.getByRole('heading', { name: 'V2 commission history' }).closest('section') as HTMLElement;
+    expect(history.textContent).toContain('Ada Admin');
+    expect(history.textContent).not.toContain('admin-9');
+    expect(history.textContent).toContain('None');
+    expect(history.textContent).toContain('10% · version 1');
+  });
 });
+
+function v2Section() {
+  return screen.getByRole('heading', { name: 'V2 commission percentage' }).closest('section') as HTMLElement;
+}
 
 async function renderReady() {
   const client = new QueryClient({
@@ -374,11 +515,13 @@ async function renderReady() {
   });
   render(
     <QueryClientProvider client={client}>
-      <SettingsPage />
+      <MemoryRouter>
+        <SettingsPage />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
-  const legacy = await screen.findByRole('tabpanel', { name: 'V1 Legacy' });
-  await within(legacy).findByLabelText('Base fee');
+  await screen.findByRole('heading', { name: 'Wallet configuration' });
+  await screen.findByRole('tab', { name: 'Express' });
 }
 
 function selectFixed(panel: HTMLElement) {
@@ -404,6 +547,7 @@ function classTariff(serviceClass: 'EXPRESS' | 'FLEXIBLE', pricingVersion: numbe
     currency: 'USD',
     baseFee: '1.00',
     pricePerKilometre: '0.00',
+    includedMetres: null,
     minimumTripMetres: 0,
     maximumTripMetres: 10000,
     isActive: true,

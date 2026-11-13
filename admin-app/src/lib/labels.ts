@@ -1,5 +1,16 @@
 const WORDS: Record<string, string> = {
   CREATED: 'Created',
+  RIDER_ASSIGNED: 'Rider assigned',
+  COLLECTING: 'Collecting',
+  COLLECTED: 'Collected',
+  OUT_FOR_DELIVERY: 'Out for delivery',
+  EXPRESS: 'Express',
+  FLEXIBLE: 'Flexible',
+  OPEN: 'Open',
+  WITHDRAWN: 'Withdrawn',
+  ACCEPTED: 'Accepted',
+  SUPERSEDED: 'Superseded',
+  EXPIRED: 'Expired',
   SEARCHING: 'Searching',
   NO_RIDER_FOUND: 'No rider found',
   ASSIGNED: 'Assigned',
@@ -27,7 +38,42 @@ const WORDS: Record<string, string> = {
   ON_COMPLETION: 'On completion',
   ON_ACCEPTANCE: 'On acceptance',
   OFF_PEAK: 'Off-peak',
+  SENT: 'Sent',
+  TOP_UP: 'Top-up',
+  PROMOTIONAL_CREDIT: 'Promotional credit',
+  PLATFORM_FEE: 'Platform fee',
+  PLATFORM_FEE_HOLD: 'Platform fee hold',
+  PLATFORM_FEE_RELEASE: 'Platform fee release',
+  PLATFORM_FEE_REFUND: 'Platform fee refund',
+  WELCOME_BONUS: 'Welcome bonus',
+  ADJUSTMENT: 'Adjustment',
+  BID_ACCEPTED: 'Offer accepted',
+  REQUEST_REOPENED: 'Request reopened',
+  DEADLINE_REMINDER: 'Deadline reminder',
+  RIDER_OPPORTUNITY: 'Rider opportunity',
+  BID_RECEIVED: 'Offer received',
+  COUNTEROFFER: 'Counteroffer',
+  ACCOUNT_APPROVED: 'Account approved',
+  provider_timeout: 'Provider timed out',
+  provider_unavailable: 'Provider unavailable',
+  not_available: 'No longer available',
 };
+
+export const NOTICE_STATUSES = ['PENDING', 'SENT', 'FAILED'] as const;
+
+export const NOTICE_EVENT_TYPES = [
+  'BID_ACCEPTED',
+  'REQUEST_REOPENED',
+  'COLLECTING',
+  'COLLECTED',
+  'OUT_FOR_DELIVERY',
+  'DELIVERED',
+  'DEADLINE_REMINDER',
+  'RIDER_OPPORTUNITY',
+  'BID_RECEIVED',
+  'COUNTEROFFER',
+  'ACCOUNT_APPROVED',
+] as const;
 
 export function label(value: string): string {
   return WORDS[value] ?? value.replaceAll('_', ' ').toLowerCase().replace(/^\w/, (letter) => letter.toUpperCase());
@@ -62,4 +108,8 @@ export const DELIVERY_STATUSES = [
   'DELIVERED',
   'CANCELLED',
   'FAILED',
+  'RIDER_ASSIGNED',
+  'COLLECTING',
+  'COLLECTED',
+  'OUT_FOR_DELIVERY',
 ] as const;

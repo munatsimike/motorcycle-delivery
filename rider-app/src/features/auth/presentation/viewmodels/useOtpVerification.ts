@@ -2,8 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 
 import { riderAuthRepository } from '../../data/RiderAuthApiRepository';
 import type { AuthFlow, AuthSession } from '../../domain/auth.types';
-import { requestLoginCode } from '../../domain/usecases/requestLoginCode';
-import { requestRegistrationCode } from '../../domain/usecases/requestRegistrationCode';
 import { verifyLoginCode } from '../../domain/usecases/verifyLoginCode';
 import { verifyRegistrationCode } from '../../domain/usecases/verifyRegistrationCode';
 import { errorMessage } from '../errorMessage';
@@ -59,9 +57,9 @@ export function useOtpVerification(phone: string, flow: AuthFlow, fullName?: str
     setError(null);
     try {
       if (flow === 'registration') {
-        await requestRegistrationCode(riderAuthRepository, phone, fullName ?? '');
+        await riderAuthRepository.resendRegistrationCode(phone);
       } else {
-        await requestLoginCode(riderAuthRepository, phone);
+        await riderAuthRepository.resendLoginCode(phone);
       }
       setResendAvailableAt(Date.now() + RESEND_COOLDOWN_MS);
     } catch (caught) {

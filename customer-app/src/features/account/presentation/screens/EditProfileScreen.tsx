@@ -1,15 +1,15 @@
-import { useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useState, useMemo } from 'react';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
+import DialogModal, { DialogActions, DialogBody, DialogTextButton, DialogTitle } from '../../../../components/DialogModal';
 import ErrorMessage from '../../../../components/ErrorMessage';
-import FormInput from '../../../../components/FormInput';
-import ZimbabwePhoneField from '../../../../components/ZimbabwePhoneField';
 import { useKeyboardLift } from '../../../../components/useKeyboardLift';
 import PrimaryButton from '../../../../components/PrimaryButton';
 import SecondaryButton from '../../../../components/SecondaryButton';
 import type { RootStackParamList } from '../../../../navigation/types';
-import { colors, spacing, typography } from '../../../../theme';
+import type { Palette } from '../../../../theme';
+import { useAppearance, spacing, typography } from '../../../../theme';
 import { customerDeliveryRepository } from '../../../deliveries/data/CustomerDeliveryApiRepository';
 import { emptyStop, type StopDraft } from '../../../deliveries/domain/bookingDraft';
 import AddressField from '../../../deliveries/presentation/components/AddressField';
@@ -20,10 +20,13 @@ import { useEditProfile } from '../viewmodels/useEditProfile';
 type EditProfileProps = NativeStackScreenProps<RootStackParamList, 'EditProfile'>;
 
 export default function EditProfileScreen({ route, navigation }: EditProfileProps) {
+  const { colors } = useAppearance();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { accessToken } = useSession();
   const form = useEditProfile(accessToken, route.params.account);
   const placeBias = usePlaceBias();
   const keyboard = useKeyboardLift();
+  const [savedOpen, setSavedOpen] = useState(false);
   const [addressStop, setAddressStop] = useState<StopDraft>(() => ({
     ...emptyStop(),
     address: route.params.account.address,
@@ -37,9 +40,7 @@ export default function EditProfileScreen({ route, navigation }: EditProfileProp
     if (!saved) {
       return;
     }
-    Alert.alert('Profile updated', 'Your changes have been saved.', [
-      { text: 'OK', onPress: () => navigation.goBack() },
-    ]);
+    setSavedOpen(true);
   }
 
   return (
@@ -56,18 +57,7 @@ export default function EditProfileScreen({ route, navigation }: EditProfileProp
       }}
       scrollEventThrottle={16}
     >
-      <Text style={styles.section}>Personal information</Text>
-      <FormInput
-        label="Full name"
-        value={form.fullName}
-        onChangeText={form.setFullName}
-        autoCapitalize="words"
-        autoComplete="name"
-        textContentType="name"
-        maxLength={200}
-        error={form.fieldErrors.fullName}
-        onFocus={keyboard.revealFocusedField}
-      />
+      <Text style={styles.section}>Address</Text>
       <AddressField
         stop={addressStop}
         error={form.fieldErrors.address}
@@ -82,14 +72,6 @@ export default function EditProfileScreen({ route, navigation }: EditProfileProp
           }
         }}
       />
-      <ZimbabwePhoneField
-        label="Mobile number"
-        value={form.phone.startsWith('+263') ? form.phone.slice(4) : form.phone.startsWith('+31') ? form.phone.slice(3) : form.phone}
-        onChangeText={() => undefined}
-        editable={false}
-        countryCode={form.phone.startsWith('+31') ? '+31' : '+263'}
-      />
-      <Text style={styles.note}>Your mobile number is used to sign in and cannot be changed here.</Text>
       <ErrorMessage message={form.error} />
       <View style={styles.actions}>
         <PrimaryButton
@@ -103,11 +85,20 @@ export default function EditProfileScreen({ route, navigation }: EditProfileProp
         />
         <SecondaryButton
           label="Cancel"
-          soft
+          tone="danger"
+          weight="regular"
+          bordered={false}
           disabled={form.isSaving}
           onPress={() => navigation.goBack()}
         />
       </View>
+      <DialogModal visible={savedOpen} onClose={() => navigation.goBack()} closeLabel="OK">
+        <DialogTitle>Address updated</DialogTitle>
+        <DialogBody>Your address has been saved.</DialogBody>
+        <DialogActions>
+          <DialogTextButton label="OK" onPress={() => navigation.goBack()} />
+        </DialogActions>
+      </DialogModal>
     </ScrollView>
   );
 }
@@ -131,13 +122,14 @@ function resolvePlace(accessToken: string | null, placeId: string, sessionToken:
   return customerDeliveryRepository.resolvePlace(accessToken, placeId, sessionToken);
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.background,
   },
   content: {
-    paddingHorizontal: spacing.xl,
+    paddingHorizontal: spacing.lg,
     paddingTop: spacing.lg,
     paddingBottom: spacing.xxl,
   },
@@ -147,14 +139,8 @@ const styles = StyleSheet.create({
     color: colors.text,
     marginBottom: spacing.lg,
   },
-  note: {
-    marginTop: -spacing.sm,
-    marginBottom: spacing.lg,
-    fontSize: typography.caption,
-    lineHeight: 20,
-    color: colors.textSecondary,
-  },
   actions: {
     gap: spacing.md,
   },
 });
+}

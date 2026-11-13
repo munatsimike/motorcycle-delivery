@@ -8,12 +8,36 @@ plugins {
     alias(libs.plugins.hilt)
 }
 
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+    apply(plugin = "com.google.firebase.crashlytics")
+}
+
 val localProperties = Properties().apply {
     val file = rootProject.file("local.properties")
     if (file.exists()) {
         file.inputStream().use { load(it) }
     }
 }
+
+val keystoreProperties = Properties().apply {
+    val file = rootProject.file("keystore.properties")
+    if (file.exists()) {
+        file.inputStream().use { load(it) }
+    }
+}
+
+fun signingValue(name: String, property: String): String {
+    return System.getenv(name)?.trim().orEmpty().ifEmpty {
+        keystoreProperties.getProperty(property)?.trim().orEmpty()
+    }
+}
+
+val releaseStoreFile = signingValue("RIDER_RELEASE_STORE_FILE", "storeFile")
+val releaseStorePassword = signingValue("RIDER_RELEASE_STORE_PASSWORD", "storePassword")
+val releaseKeyAlias = signingValue("RIDER_RELEASE_KEY_ALIAS", "keyAlias")
+val releaseKeyPassword = signingValue("RIDER_RELEASE_KEY_PASSWORD", "keyPassword")
+val releaseStoreType = signingValue("RIDER_RELEASE_STORE_TYPE", "storeType")
 
 val configuredApiBaseUrl = localProperties.getProperty("API_BASE_URL")?.trim().orEmpty().trimEnd('/')
 // Debug-only. Release reads API_BASE_URL and never this value.
@@ -23,9 +47,10 @@ fun apiBaseUrl(release: Boolean): String {
     if (release) {
         return configuredApiBaseUrl
     }
-    return debugApiBaseUrl.ifEmpty {
-        configuredApiBaseUrl.ifEmpty { "http://10.0.2.2:3000" }
-    }
+    // Empty in a debug build. The app then uses the emulator host or the phone
+    // loopback that adb reverse forwards. A local DEBUG_API_BASE_URL is only an
+    // explicit override for a phone that cannot use adb reverse.
+    return debugApiBaseUrl
 }
 
 gradle.taskGraph.whenReady {
@@ -36,9 +61,18 @@ gradle.taskGraph.whenReady {
     if (buildingRelease && debugApiBaseUrl.isNotEmpty() && apiBaseUrl(true) == debugApiBaseUrl) {
         throw GradleException("The release build cannot use DEBUG_API_BASE_URL.")
     }
+    if (buildingRelease && (releaseStoreFile.isEmpty() || releaseStorePassword.isEmpty() || releaseKeyAlias.isEmpty() || releaseKeyPassword.isEmpty())) {
+        throw GradleException("The release build requires signing credentials in keystore.properties or RIDER_RELEASE_* environment variables.")
+    }
 }
 
 android {
+    // adb install without a user also enables the package for Samsung's dual-app
+    // user, which adds a second Home screen icon. Debug installs stay on the owner.
+    installation {
+        installOptions.addAll(listOf("--user", "0"))
+    }
+
     namespace = "com.riders.rider"
     compileSdk {
         version = release(37) {
@@ -54,11 +88,28 @@ android {
         versionName = "1.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "API_BASE_URL", "\"${apiBaseUrl(false)}\"")
+        manifestPlaceholders["GOOGLE_MAPS_API_KEY"] = localProperties.getProperty("GOOGLE_MAPS_API_KEY")?.trim().orEmpty()
+            .ifEmpty { System.getenv("GOOGLE_MAPS_API_KEY")?.trim().orEmpty() }
+    }
+
+    signingConfigs {
+        create("release") {
+            if (releaseStoreFile.isNotEmpty()) {
+                storeFile = file(releaseStoreFile)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+                if (releaseStoreType.isNotEmpty()) {
+                    storeType = releaseStoreType
+                }
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
             buildConfigField("String", "API_BASE_URL", "\"${apiBaseUrl(true)}\"")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
@@ -109,15 +160,18 @@ dependencies {
     implementation(libs.serialization.converter)
     implementation(libs.okhttp)
     implementation(libs.security.crypto)
-    implementation(libs.biometric)
     implementation(libs.coroutines)
     implementation(libs.play.location)
+    implementation(libs.play.maps)
+    implementation(libs.maps.compose)
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.messaging)
+    implementation(libs.firebase.crashlytics)
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.ui.test.manifest)
     testImplementation(libs.junit)
     testImplementation(libs.coroutines.test)
     testImplementation(libs.mockwebserver)
-    testImplementation(libs.turbine)
     androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.compose.ui.test)
 }

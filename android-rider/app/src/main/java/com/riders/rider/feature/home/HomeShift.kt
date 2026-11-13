@@ -22,6 +22,7 @@ fun homeShift(
     active: ActiveDelivery?,
     recovering: Boolean = false,
     recoveryFailed: Boolean = false,
+    marketplace: Boolean = false,
 ): HomeShift {
     val resumable = active?.takeIf { it.status != "DELIVERED" }
     if (availability == null) {
@@ -34,6 +35,17 @@ fun homeShift(
             recoveryFailed = recoveryFailed,
             recoveryRequired = false,
             recoveryMessage = if (recoveryFailed && resumable == null) RECOVERY_RETRY else null,
+        )
+    }
+    if (marketplace && availability == "BUSY") {
+        return HomeShift(
+            showGoOnline = true,
+            showGoOffline = false,
+            showOffers = false,
+            showActiveDelivery = resumable != null,
+            recoveryFailed = recoveryFailed,
+            recoveryRequired = false,
+            recoveryMessage = null,
         )
     }
     if (availability == "BUSY" && resumable == null && recovering) {
@@ -71,8 +83,8 @@ fun homeShift(
     if (availability == "BUSY") {
         return HomeShift(
             showGoOnline = false,
-            showGoOffline = false,
-            showOffers = false,
+            showGoOffline = true,
+            showOffers = canAcceptDeliveries,
             showActiveDelivery = true,
             recoveryFailed = recoveryFailed,
             recoveryRequired = false,

@@ -85,6 +85,13 @@ fun normalizeRiderName(input: String): String {
     if (name.isEmpty() || name.length > 200 || name.any { it.code < 32 }) {
         throw IllegalArgumentException("Full name is required")
     }
+    val words = name.split(" ")
+    if (words.size < 2) {
+        throw IllegalArgumentException("Enter your name and surname.")
+    }
+    if (words.any { word -> word.count { it.isLetter() } < 3 }) {
+        throw IllegalArgumentException("Each name must be at least 3 letters.")
+    }
     return name
 }
 

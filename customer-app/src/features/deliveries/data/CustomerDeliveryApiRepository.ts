@@ -1,5 +1,7 @@
-import { apiGet, apiGetBytes, apiPost } from '../../../services/api/apiClient';
-import { createBody, quoteBody, type PreparedBooking } from '../domain/bookingDraft';
+import { ACCEPTANCE_TIMEOUT_MS, apiGet, apiPost } from '../../../services/api/apiClient';
+import { createBody, quoteBody, v2CreateBody, type PreparedBooking } from '../domain/bookingDraft';
+import { readBidAcceptance, readCustomerBids, type BidAcceptance, type CustomerBid } from '../domain/customerBids';
+import { readOpenBidRequest, type OpenBidRequest } from '../domain/openBidRequest';
 import { readCustomerDeliveryDetail, type CustomerDeliveryDetail } from '../domain/customerDeliveryDetail';
 import { readCustomerDeliveryPage, type CustomerDeliveryPage } from '../domain/customerDeliveryList';
 import { readDeliveryQuote, type DeliveryQuote } from '../domain/deliveryQuote';
@@ -55,6 +57,14 @@ export class CustomerDeliveryApiRepository implements CustomerDeliveryRepository
     return readCustomerDeliveryDetail(body);
   }
 
+  async createOpenRequest(accessToken: string, booking: PreparedBooking, offeredPrice: string, idempotencyKey: string): Promise<OpenBidRequest> {
+    const body = await apiPost<unknown>('/customers/me/deliveries', v2CreateBody(booking, offeredPrice), {
+      accessToken,
+      headers: { 'Idempotency-Key': idempotencyKey },
+    });
+    return readOpenBidRequest(body);
+  }
+
   async getById(accessToken: string, deliveryId: string): Promise<CustomerDeliveryDetail> {
     const body = await apiGet<unknown>(`/customers/me/deliveries/${encodeURIComponent(deliveryId)}`, { accessToken });
     return readCustomerDeliveryDetail(body);
@@ -83,6 +93,10 @@ export class CustomerDeliveryApiRepository implements CustomerDeliveryRepository
     return this.loadPlaces(`/auth/customer/places?${placeQuery(text, bias, sessionToken)}`, registrationToken, text, bias, sessionToken);
   }
 
+  searchOpenPlaces(text: string, sessionToken: string): Promise<PlaceSuggestion[]> {
+    return this.loadPlaces(`/auth/places?${placeQuery(text, null, sessionToken)}`, undefined, text, null, sessionToken);
+  }
+
   resolvePlace(accessToken: string, placeId: string, sessionToken: string): Promise<ResolvedPlace> {
     return this.loadPlace(`/customers/me/places/detail?${detailQuery(placeId, sessionToken)}`, accessToken);
   }
@@ -91,14 +105,18 @@ export class CustomerDeliveryApiRepository implements CustomerDeliveryRepository
     return this.loadPlace(`/auth/customer/places/detail?${detailQuery(placeId, sessionToken)}`, registrationToken);
   }
 
-  private async loadPlace(path: string, token: string): Promise<ResolvedPlace> {
-    const body = await apiGet<unknown>(path, { accessToken: token });
+  resolveOpenPlace(placeId: string, sessionToken: string): Promise<ResolvedPlace> {
+    return this.loadPlace(`/auth/places/detail?${detailQuery(placeId, sessionToken)}`);
+  }
+
+  private async loadPlace(path: string, token?: string): Promise<ResolvedPlace> {
+    const body = await apiGet<unknown>(path, token ? { accessToken: token } : undefined);
     return readResolvedPlace(body);
   }
 
   private async loadPlaces(
     path: string,
-    token: string,
+    token: string | undefined,
     text: string,
     bias: PlaceBias | null | undefined,
     sessionToken: string,
@@ -108,7 +126,7 @@ export class CustomerDeliveryApiRepository implements CustomerDeliveryRepository
     if (saved && Date.now() - saved.at < SEARCH_CACHE_MS) {
       return saved.suggestions;
     }
-    const body = await apiGet<unknown>(path, { accessToken: token });
+    const body = await apiGet<unknown>(path, token ? { accessToken: token } : undefined);
     const suggestions = readPlaceSuggestions(body);
     searchCache.set(key, { at: Date.now(), suggestions });
     if (searchCache.size > 20) {
@@ -120,12 +138,65 @@ export class CustomerDeliveryApiRepository implements CustomerDeliveryRepository
     return suggestions;
   }
 
+  async listBids(accessToken: string, deliveryId: string): Promise<CustomerBid[]> {
+    const body = await apiGet<unknown>(
+      `/customers/me/deliveries/${encodeURIComponent(deliveryId)}/bids`,
+      { accessToken },
+    );
+    return readCustomerBids(body);
+  }
+
+  async dismissBid(accessToken: string, deliveryId: string, bidId: string): Promise<void> {
+    await apiPost<unknown>(
+      `/customers/me/deliveries/${encodeURIComponent(deliveryId)}/bids/${encodeURIComponent(bidId)}/dismissal`,
+      {},
+      { accessToken },
+    );
+  }
+
+  async rateDelivery(accessToken: string, deliveryId: string, stars: number): Promise<{ stars: number }> {
+    const body = await apiPost<unknown>(
+      `/customers/me/deliveries/${encodeURIComponent(deliveryId)}/rating`,
+      { stars },
+      { accessToken },
+    );
+    if (!body || typeof body !== 'object' || Array.isArray(body) || typeof (body as { stars?: unknown }).stars !== 'number') {
+      throw new Error('This rating could not be saved.');
+    }
+    return { stars: (body as { stars: number }).stars };
+  }
+
+  async acceptBid(accessToken: string, deliveryId: string, bidId: string, idempotencyKey: string): Promise<BidAcceptance> {
+    const body = await apiPost<unknown>(
+      `/customers/me/deliveries/${encodeURIComponent(deliveryId)}/bids/${encodeURIComponent(bidId)}/acceptance`,
+      {},
+      { accessToken, headers: { 'Idempotency-Key': idempotencyKey }, timeoutMs: ACCEPTANCE_TIMEOUT_MS },
+    );
+    return readBidAcceptance(body);
+  }
+
   async search(accessToken: string, deliveryId: string): Promise<void> {
     await apiPost<unknown>(
       `/customers/me/deliveries/${encodeURIComponent(deliveryId)}/search`,
       {},
       { accessToken },
     );
+  }
+
+  async adjustOffer(accessToken: string, deliveryId: string, offeredPrice: string): Promise<{ customerOffer: string }> {
+    const body = await apiPost<unknown>(
+      `/customers/me/deliveries/${encodeURIComponent(deliveryId)}/offer`,
+      { offeredPrice },
+      { accessToken },
+    );
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      throw new Error('This offer could not be saved.');
+    }
+    const customerOffer = (body as { customerOffer?: unknown }).customerOffer;
+    if (typeof customerOffer !== 'string' || !customerOffer.trim()) {
+      throw new Error('This offer could not be saved.');
+    }
+    return { customerOffer };
   }
 
   async cancel(accessToken: string, deliveryId: string): Promise<void> {
@@ -138,38 +209,6 @@ export class CustomerDeliveryApiRepository implements CustomerDeliveryRepository
 }
 
 export const customerDeliveryRepository = new CustomerDeliveryApiRepository();
-
-const mapImages = new Map<string, string | null>();
-
-export async function loadDeliveryMapImage(accessToken: string, deliveryId: string): Promise<string | null> {
-  const saved = mapImages.get(deliveryId);
-  if (saved !== undefined) {
-    return saved;
-  }
-  const bytes = await apiGetBytes(
-    `/customers/me/deliveries/${encodeURIComponent(deliveryId)}/map?labels=off`,
-    { accessToken },
-  );
-  const image = bytes && bytes.length > 0 ? pngDataUrl(bytes) : null;
-  mapImages.set(deliveryId, image);
-  return image;
-}
-
-function pngDataUrl(bytes: Uint8Array): string {
-  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-  let encoded = '';
-  for (let index = 0; index < bytes.length; index += 3) {
-    const first = bytes[index] ?? 0;
-    const second = bytes[index + 1] ?? 0;
-    const third = bytes[index + 2] ?? 0;
-    const triple = (first << 16) | (second << 8) | third;
-    encoded += alphabet[(triple >> 18) & 63];
-    encoded += alphabet[(triple >> 12) & 63];
-    encoded += index + 1 < bytes.length ? alphabet[(triple >> 6) & 63] : '=';
-    encoded += index + 2 < bytes.length ? alphabet[triple & 63] : '=';
-  }
-  return `data:image/png;base64,${encoded}`;
-}
 
 const SEARCH_CACHE_MS = 30_000;
 const searchCache = new Map<string, { at: number; suggestions: PlaceSuggestion[] }>();

@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 
@@ -7,56 +7,135 @@ import { expoCustomerLocation } from '../../data/expoCustomerLocation';
 import { nearbyRiderRepository } from '../../data/NearbyRiderApiRepository';
 import type { DeviceLocation } from '../../domain/customerLocation';
 import { resolveNearbyAvailability, type NearbyAvailability } from '../../domain/nearbyAvailability';
-import { loadNearbyRiderCount } from '../../domain/usecases/loadNearbyRiderCount';
+import { nextNearbyMarkers, type NearbyMarker } from '../../domain/nearbyMarkers';
+import { isNearbyRiderPointExpired, filterValidNearbyRiderPoints } from '../../domain/nearbyRiderCount';
+import { loadNearbyRiders } from '../../domain/usecases/loadNearbyRiderCount';
 
 export type NearbyPoint = {
   latitude: number;
   longitude: number;
 };
 
-export function useNearbyRiders(accessToken: string | null) {
+type NearbyRiderQuery = {
+  /** Ask for riders around this point instead of waiting for a device GPS fix. */
+  origin?: { latitude: number; longitude: number } | null;
+  /** Do not fall back to device GPS when origin is missing. */
+  requireOrigin?: boolean;
+};
+
+export function useNearbyRiders(accessToken: string | null, query?: NearbyRiderQuery) {
   const [state, setState] = useState<NearbyAvailability>({ status: 'loading' });
   const [point, setPoint] = useState<NearbyPoint | null>(null);
+  const [points, setPoints] = useState<readonly NearbyMarker[]>([]);
   const [revision, setRevision] = useState(0);
   const request = useRef(0);
+  const refreshInFlight = useRef(false);
+  const markerIds = useRef(0);
+  const focused = useRef(false);
+  const pointsRef = useRef<readonly NearbyMarker[]>([]);
   const stateRef = useRef(state);
   stateRef.current = state;
 
   const apply = useCallback(async (location: DeviceLocation) => {
-    const current = request.current + 1;
-    request.current = current;
+    const current = ++request.current;
     const availability = await resolveNearbyAvailability(
       location,
-      (latitude, longitude) => {
+      async (latitude, longitude) => {
         if (!accessToken) {
           throw new Error('Rider availability is unavailable.');
         }
-        return loadNearbyRiderCount(nearbyRiderRepository, accessToken, latitude, longitude);
+        const nearby = await loadNearbyRiders(nearbyRiderRepository, accessToken, latitude, longitude);
+        const points = filterValidNearbyRiderPoints(nearby.points);
+        return {
+          count: points.length,
+          points,
+        };
       },
       (error) => errorMessage(error, 'Check your connection and try again.'),
     );
     if (request.current === current) {
-      setState(availability);
+      const shown = nextNearbyMarkers(
+        pointsRef.current,
+        availability.status === 'ready'
+          ? { status: 'ready', points: availability.points }
+          : { status: 'failed' },
+        () => `nearby-marker-${markerIds.current += 1}`,
+      );
+      pointsRef.current = shown;
+      setState(availability.status === 'ready'
+        ? { status: 'ready', count: shown.length, points: [...shown] }
+        : availability);
       setPoint(location.status === 'ready'
         ? { latitude: location.latitude, longitude: location.longitude }
         : null);
+      setPoints(shown);
       setRevision((value) => value + 1);
     }
   }, [accessToken]);
 
+  useEffect(() => {
+    if (points.length === 0) {
+      return undefined;
+    }
+    const pruneExpired = () => {
+      setPoints((current) => {
+        const nextPoints = current.filter((point) => !isNearbyRiderPointExpired(point));
+        pointsRef.current = nextPoints;
+        if (nextPoints.length === current.length) return current;
+        setState((currentState) => (
+          currentState.status === 'ready'
+            ? { status: 'ready', count: nextPoints.length, points: nextPoints }
+            : currentState
+        ));
+        setRevision((value) => value + 1);
+        return nextPoints;
+      });
+    };
+    const timer = setInterval(pruneExpired, 5_000);
+    return () => clearInterval(timer);
+  }, [points]);
+
+  const originLatitude = query?.origin?.latitude;
+  const originLongitude = query?.origin?.longitude;
+  const requireOrigin = query?.requireOrigin === true;
+
   const refresh = useCallback(async () => {
-    const location = await expoCustomerLocation.read();
-    await apply(location);
-  }, [apply]);
+    const origin = Number.isFinite(originLatitude) && Number.isFinite(originLongitude)
+      ? { latitude: originLatitude as number, longitude: originLongitude as number }
+      : null;
+    if (requireOrigin && !origin) return;
+    if (refreshInFlight.current) return;
+    refreshInFlight.current = true;
+    const current = ++request.current;
+    try {
+      const location = origin
+        ? { status: 'ready' as const, latitude: origin.latitude, longitude: origin.longitude }
+        : await expoCustomerLocation.read();
+      if (request.current === current) await apply(location);
+    } finally {
+      refreshInFlight.current = false;
+    }
+  }, [apply, originLatitude, originLongitude, requireOrigin]);
 
   useFocusEffect(useCallback(() => {
+    focused.current = true;
     void refresh();
+    const timer = setInterval(() => {
+      if (focused.current) {
+        void refresh();
+      }
+    }, 20_000);
     const subscription = AppState.addEventListener('change', (next) => {
-      if (next === 'active') {
+      if (next === 'active' && focused.current) {
         void refresh();
       }
     });
-    return () => subscription.remove();
+    return () => {
+      focused.current = false;
+      ++request.current;
+      clearInterval(timer);
+      subscription.remove();
+    };
   }, [refresh]));
 
   const turnOnLocation = useCallback(async () => {
@@ -76,6 +155,7 @@ export function useNearbyRiders(accessToken: string | null) {
   return {
     state,
     point,
+    points,
     revision,
     turnOnLocation,
     allowLocation,

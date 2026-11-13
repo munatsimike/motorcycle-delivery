@@ -43,7 +43,14 @@ export function appendDeliveries(current: CustomerDelivery[], incoming: Customer
 export function deliveryTrackingTarget(deliveryId: string) {
   return {
     screen: 'DeliveryTracking' as const,
-    params: { deliveryId },
+    params: { deliveryId, riderConfirmed: false },
+  };
+}
+
+export function riderAcceptedTrackingTarget(deliveryId: string) {
+  return {
+    screen: 'DeliveryTracking' as const,
+    params: { deliveryId, riderConfirmed: true },
   };
 }
 
@@ -65,13 +72,102 @@ function readCustomerDelivery(value: unknown): CustomerDelivery {
   if (!pickupAddress || !dropoffAddress) {
     throw new Error('Deliveries are unavailable.');
   }
+  const serviceClass = readServiceClass(value.serviceClass);
+  const deliverBy = readDeadline(value.deliverBy);
+  const suggestedPrice = readMoney(value.suggestedPrice);
+  const offeredPrice = readMoney(value.offeredPrice);
+  const currency = readCurrency(value.currency);
+  const openBidCount = readOpenBidCount(value.openBidCount);
+  if (
+    serviceClass === undefined
+    || deliverBy === undefined
+    || suggestedPrice === undefined
+    || offeredPrice === undefined
+    || currency === undefined
+    || openBidCount === undefined
+  ) {
+    throw new Error('Deliveries are unavailable.');
+  }
   return {
     id: value.id,
     status: value.status,
     createdAt: value.createdAt,
     pickupAddress,
     dropoffAddress,
+    serviceClass,
+    deliverBy,
+    currency,
+    suggestedPrice,
+    offeredPrice,
+    distanceMeters: readDistance(value.distanceMeters),
+    parcelDescription: readParcelDescription(value.parcel),
+    openBidCount,
   };
+}
+
+function readServiceClass(value: unknown): 'EXPRESS' | 'FLEXIBLE' | null | undefined {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+  if (value === 'EXPRESS' || value === 'FLEXIBLE') {
+    return value;
+  }
+  return undefined;
+}
+
+function readDeadline(value: unknown): string | null | undefined {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+  if (typeof value !== 'string' || Number.isNaN(new Date(value).getTime())) {
+    return undefined;
+  }
+  return value;
+}
+
+function readMoney(value: unknown): string | null | undefined {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+  if (typeof value !== 'string' || !/^\d{1,10}\.\d{2}$/.test(value)) {
+    return undefined;
+  }
+  return value;
+}
+
+function readDistance(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    return null;
+  }
+  return Math.round(value);
+}
+
+function readOpenBidCount(value: unknown): number | undefined {
+  if (value === undefined || value === null) {
+    return 0;
+  }
+  if (typeof value === 'number' && Number.isInteger(value) && value >= 0) {
+    return value;
+  }
+  return undefined;
+}
+
+function readCurrency(value: unknown): string | null | undefined {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+  if (value !== 'USD') {
+    return undefined;
+  }
+  return 'USD';
+}
+
+function readParcelDescription(value: unknown): string | null {
+  if (!isRecord(value) || typeof value.description !== 'string') {
+    return null;
+  }
+  const description = value.description.trim();
+  return description.length > 0 ? description.slice(0, 500) : null;
 }
 
 function addressOf(value: unknown): string | null {

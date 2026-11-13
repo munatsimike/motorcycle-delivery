@@ -40,16 +40,6 @@ class ActiveDeliveryStore @Inject constructor(
         }
     }
 
-    suspend fun updateStatus(deliveryId: String, status: String): ActiveDelivery? {
-        val current = read() ?: return null
-        if (current.deliveryId != deliveryId) {
-            return null
-        }
-        val updated = current.copy(status = status)
-        write(updated)
-        return updated
-    }
-
     suspend fun clear() {
         context.deliveryStore.edit { it.clear() }
     }

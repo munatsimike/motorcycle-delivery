@@ -23,13 +23,9 @@ function session(accessInMs: number, refreshInMs: number): AuthSession {
   };
 }
 
-function memoryStore(initial: AuthSession | null, biometric = false) {
+function memoryStore(initial: AuthSession | null) {
   let current = initial;
-  let biometricEnabled = biometric;
-  const store: CustomerSessionStore & {
-    saveBiometricEnabled(enabled: boolean): Promise<void>;
-    biometricEnabled(): boolean;
-  } = {
+  const store: CustomerSessionStore = {
     load: () => Promise.resolve(current),
     save: (next) => {
       current = next;
@@ -39,58 +35,31 @@ function memoryStore(initial: AuthSession | null, biometric = false) {
       current = null;
       return Promise.resolve();
     },
-    saveBiometricEnabled: (enabled) => {
-      biometricEnabled = enabled;
-      return Promise.resolve();
-    },
-    biometricEnabled: () => biometricEnabled,
   };
   return store;
 }
 
 function repository(refresh: CustomerAuthRepository['refresh']): CustomerAuthRepository {
   return {
-    requestRegistrationCode: () => Promise.reject(new Error('unused')),
-    requestLoginCode: () => Promise.reject(new Error('unused')),
-    verifyRegistrationCode: () => Promise.reject(new Error('unused')),
-    verifyLoginCode: () => Promise.reject(new Error('unused')),
-    completeRegistration: () => Promise.reject(new Error('unused')),
+    startWhatsAppLogin: () => Promise.reject(new Error('unused')),
+    resendWhatsAppLogin: () => Promise.reject(new Error('unused')),
+    verifyWhatsAppLogin: () => Promise.reject(new Error('unused')),
+    startWhatsAppRegistration: () => Promise.reject(new Error('unused')),
+    resendWhatsAppRegistration: () => Promise.reject(new Error('unused')),
+    verifyWhatsAppRegistration: () => Promise.reject(new Error('unused')),
+    completeWhatsAppRegistration: () => Promise.reject(new Error('unused')),
     refresh,
     logout: () => Promise.resolve(),
   };
 }
 
 describe('session gate', () => {
-  it('sends a first visit to OTP because no session is stored', () => {
-    expect(sessionGate({
-      hasStoredSession: false,
-      biometricEnabled: false,
-      biometricAvailable: true,
-    })).toBe('signed-out');
+  it('sends a first visit to sign-in because no session is stored', () => {
+    expect(sessionGate(false)).toBe('signed-out');
   });
 
-  it('asks for biometrics when a returning customer enabled them', () => {
-    expect(sessionGate({
-      hasStoredSession: true,
-      biometricEnabled: true,
-      biometricAvailable: true,
-    })).toBe('biometric');
-  });
-
-  it('restores without biometrics when the device has none enrolled', () => {
-    expect(sessionGate({
-      hasStoredSession: true,
-      biometricEnabled: false,
-      biometricAvailable: false,
-    })).toBe('restore');
-  });
-
-  it('does not silently restore after biometric enrollment is removed', () => {
-    expect(sessionGate({
-      hasStoredSession: true,
-      biometricEnabled: true,
-      biometricAvailable: false,
-    })).toBe('biometric-unavailable');
+  it('restores a stored session without a biometric prompt', () => {
+    expect(sessionGate(true)).toBe('restore');
   });
 });
 
@@ -113,6 +82,19 @@ describe('restoreSession', () => {
     const restored = await restoreSession(repository(() => Promise.resolve(replacement)), store, now);
     expect(restored).toEqual({ status: 'ready', session: replacement });
     expect(await store.load()).toEqual(replacement);
+  });
+
+  it('does not restore a revoked session while the access token is still fresh', async () => {
+    const store = memoryStore(session(10 * 60_000, 24 * 60 * 60_000));
+    const restored = await restoreSession(
+      repository(() => Promise.reject({ status: 401 })),
+      store,
+      now,
+      null,
+      { requireLiveSession: true },
+    );
+    expect(restored).toEqual({ status: 'signed-out' });
+    expect(await store.load()).toBeNull();
   });
 
   it('clears a revoked or rejected refresh token', async () => {
@@ -146,7 +128,7 @@ describe('restoreSession', () => {
     const stored = session(-1_000, 60_000);
     const refreshed = session(60_000, 60_000);
     const store = memoryStore(stored);
-    store.save = () => Promise.reject(new Error('User canceled the biometric prompt'));
+    store.save = () => Promise.reject(new Error('Secure storage is unavailable'));
     const restored = await restoreSession(repository(() => Promise.resolve(refreshed)), store, now);
     expect(restored).toEqual({ status: 'ready', session: refreshed });
   });
@@ -172,8 +154,8 @@ describe('restoreSession', () => {
 });
 
 describe('logoutCustomer', () => {
-  it('revokes one device and clears the local session and biometric preference', async () => {
-    const store = memoryStore(session(60_000, 60_000), true);
+  it('revokes one device and clears the local session', async () => {
+    const store = memoryStore(session(60_000, 60_000));
     let scope = '';
     const auth = repository(() => Promise.reject(new Error('unused')));
     auth.logout = () => {
@@ -183,15 +165,13 @@ describe('logoutCustomer', () => {
     await logoutCustomer(auth, store, 'access-token');
     expect(scope).toBe('device');
     expect(await store.load()).toBeNull();
-    expect(store.biometricEnabled()).toBe(false);
   });
 
   it('still clears local state when this device cannot reach the server', async () => {
-    const store = memoryStore(session(60_000, 60_000), true);
+    const store = memoryStore(session(60_000, 60_000));
     const auth = repository(() => Promise.reject(new Error('unused')));
     auth.logout = () => Promise.reject(new Error('offline'));
-    await expect(logoutCustomer(auth, store, 'access-token')).rejects.toThrow('offline');
+    await expect(logoutCustomer(auth, store, 'access-token')).resolves.toBeUndefined();
     expect(await store.load()).toBeNull();
-    expect(store.biometricEnabled()).toBe(false);
   });
 });

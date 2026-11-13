@@ -1,0 +1,225 @@
+package com.riders.rider.feature.bids.presentation
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import kotlinx.coroutines.delay
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.riders.rider.R
+import com.riders.rider.core.design.RidersColors
+import com.riders.rider.core.design.RidersEmptyState
+import com.riders.rider.core.design.RidersFailureNotice
+import com.riders.rider.core.design.RidersLoadingState
+import com.riders.rider.core.design.RidersPullRefresh
+import com.riders.rider.core.design.RidersSecondaryButton
+import com.riders.rider.core.design.RidersSpacing
+import com.riders.rider.core.design.RidersType
+import com.riders.rider.feature.bids.domain.AWAITING_CUSTOMER_RESPONSE
+import com.riders.rider.feature.bids.domain.BidBoardPhase
+import com.riders.rider.feature.bids.domain.OwnBid
+import com.riders.rider.feature.bids.domain.bidBoardPhase
+import com.riders.rider.feature.bids.domain.bidCanWithdraw
+import com.riders.rider.feature.bids.domain.pendingBids
+import com.riders.rider.feature.delivery.domain.DeliveryListSort
+import com.riders.rider.feature.delivery.domain.sortDeliveries
+import com.riders.rider.feature.delivery.presentation.ContentIcon
+import com.riders.rider.feature.delivery.presentation.ContentLabel
+import com.riders.rider.feature.delivery.presentation.DeliveryRoute
+import com.riders.rider.feature.offers.domain.OFFER_REFRESH_INTERVAL_MS
+import com.riders.rider.feature.delivery.presentation.deliveryContentMatches
+import com.riders.rider.feature.delivery.presentation.filteredContentTitle
+import com.riders.rider.feature.offers.domain.offerPriceLabel
+
+@Composable
+fun BidBoardScreen(
+    contentKind: String? = null,
+    sort: DeliveryListSort = DeliveryListSort.Newest,
+    modifier: Modifier = Modifier,
+    model: BidBoardViewModel = hiltViewModel(),
+) {
+    val ui by model.ui.collectAsStateWithLifecycle()
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(Unit) {
+        model.refresh()
+        while (true) {
+            delay(OFFER_REFRESH_INTERVAL_MS)
+            model.refresh()
+        }
+    }
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                model.refresh()
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
+    val pending = pendingBids(ui.bids)
+    val phase = bidBoardPhase(ui.loading, requestCount = 0, bidCount = pending.size, error = ui.error)
+    RidersPullRefresh(refreshing = ui.refreshing, onRefresh = model::refresh, modifier = modifier) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = RidersSpacing.lg)
+                .padding(bottom = RidersSpacing.lg),
+            verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
+        ) {
+            when (phase) {
+                BidBoardPhase.Loading -> RidersLoadingState("Loading your offers")
+                BidBoardPhase.Failed -> RidersFailureNotice(
+                    message = ui.error.orEmpty(),
+                    title = "Offers unavailable",
+                    onRetry = model::refresh,
+                )
+                BidBoardPhase.Empty -> RidersEmptyState(
+                    title = filteredContentTitle(contentKind, "No pending offers"),
+                    body = "Offers awaiting customer responses will appear here.",
+                    image = R.drawable.parcel_box,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                BidBoardPhase.Ready -> {
+                    val shown = sortDeliveries(
+                        pending.filter { deliveryContentMatches(it.parcelDescription, contentKind) },
+                        sort,
+                        { it.createdAt },
+                        { it.distanceMeters },
+                        { it.amount },
+                        { it.bidId },
+                    )
+                    if (shown.isEmpty()) {
+                        RidersEmptyState(
+                            title = filteredContentTitle(contentKind, "No pending offers"),
+                            body = "Offers awaiting customer responses will appear here.",
+                            image = R.drawable.parcel_box,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    if (shown.isNotEmpty()) {
+                        Text(
+                            AWAITING_CUSTOMER_RESPONSE,
+                            style = RidersType.captionStrong,
+                            color = Color(0xFFB45309),
+                        )
+                    }
+                    Column(Modifier.fillMaxWidth()) {
+                        shown.forEachIndexed { index, bid ->
+                            if (index == 0) {
+                                BidCardDivider()
+                            }
+                            OwnBidRow(
+                                bid = bid,
+                                withdrawing = ui.withdrawingBidId == bid.bidId,
+                                onWithdraw = { model.withdraw(bid.bidId) },
+                            )
+                            BidCardDivider()
+                        }
+                    }
+                    if (ui.nextCursor != null) {
+                        RidersSecondaryButton(
+                            label = if (ui.loadingMore) "Loading offers" else "More offers",
+                            onClick = model::loadMore,
+                            enabled = !ui.loadingMore,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+            }
+            if (ui.error != null && pending.isNotEmpty()) {
+                RidersFailureNotice(message = ui.error.orEmpty(), onRetry = model::refresh)
+            }
+        }
+    }
+}
+
+@Composable
+private fun OwnBidRow(
+    bid: OwnBid,
+    withdrawing: Boolean,
+    onWithdraw: () -> Unit,
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = RidersSpacing.md),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md),
+        ) {
+            ContentIcon(bid.parcelDescription, size = 22.dp)
+            Row(
+                Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
+            ) {
+                ContentLabel(bid.parcelDescription)
+            }
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("Your offer", style = RidersType.caption, color = RidersColors.textSecondary, maxLines = 1)
+                Text(
+                    offerPriceLabel(bid.currency, bid.amount),
+                    style = RidersType.bodyStrong,
+                    color = RidersColors.text,
+                    maxLines = 1,
+                )
+            }
+        }
+        DeliveryRoute(bid.pickupAddress, bid.dropoffAddress)
+        if (bidCanWithdraw(bid.status)) {
+            WithdrawAction(withdrawing, onWithdraw)
+        }
+    }
+}
+
+@Composable
+private fun WithdrawAction(withdrawing: Boolean, onWithdraw: () -> Unit) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+        Text(
+            if (withdrawing) "Withdrawing" else "Withdraw",
+            style = RidersType.captionStrong,
+            color = RidersColors.error,
+            modifier = Modifier.clickable(enabled = !withdrawing, role = Role.Button, onClick = onWithdraw),
+        )
+    }
+}
+
+@Composable
+private fun BidCardDivider() {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(1.dp)
+            .background(
+                Brush.horizontalGradient(
+                    listOf(Color.Transparent, RidersColors.border, Color.Transparent),
+                ),
+            ),
+    )
+}
