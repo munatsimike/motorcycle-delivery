@@ -129,12 +129,14 @@ function PhoneStep({ flow, title, notice }: { flow: AuthFlow; title: string; not
         <Button type="submit" disabled={isLoading}>
           {isLoading ? 'Sending code' : 'Send code'}
         </Button>
+        <p className="auth-switch">
+          {flow === 'whatsapp_login' ? (
+            <>Don't have an account? <Link to="/create-account">Sign up</Link></>
+          ) : (
+            <>Already have an account? <Link to="/sign-in">Sign in</Link></>
+          )}
+        </p>
       </form>
-      {flow === 'whatsapp_login' ? (
-        <Button to="/create-account" variant="outline">Create account</Button>
-      ) : (
-        <Button to="/sign-in" variant="outline">Sign in</Button>
-      )}
     </Page>
     </>
   );

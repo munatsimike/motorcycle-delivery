@@ -303,6 +303,21 @@ input:focus-visible {
   font-weight: 600;
 }
 
+.auth-screen .auth-switch {
+  margin: 10px 0 0;
+  text-align: center;
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+.auth-screen .auth-switch a {
+  color: #169b62;
+  font-weight: 600;
+  text-decoration: none;
+  padding: 12px 8px;
+  margin: -12px -4px;
+}
+
 .shell {
   height: 100vh;
   height: 100dvh;
