@@ -741,6 +741,7 @@ button.home-status:disabled {
 .welcome-logo {
   display: flex;
   justify-content: center;
+  margin-top: 36px;
 }
 
 .welcome-hero {
