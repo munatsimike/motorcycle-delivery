@@ -52,7 +52,7 @@ function HomeIcon({ filled }: { filled: boolean }) {
       {filled ? (
         <path d="M12 3.2 3 11h2v9h5.2v-5.4h3.6V20H19v-9h2L12 3.2Z" />
       ) : (
-        <path d="M12 4.4 5 10.4V20h4.4v-5.2h5.2V20H19v-9.6L12 4.4Zm0-1.8 9 7.6h-2.2V20h-5.2v-5.2H10.4V20H5.2v-9.8H3L12 2.6Z" />
+        <path d="M12 5.69 17 10.19V18h-2v-6H9v6H7v-7.81L12 5.69M12 3 2 12h3v8h6v-6h2v6h6v-8h3L12 3Z" />
       )}
     </svg>
   );

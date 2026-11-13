@@ -328,7 +328,7 @@ input:focus-visible {
   overflow: hidden;
   background: var(--background);
   padding-top: env(safe-area-inset-top);
-  padding-bottom: calc(4.75rem + env(safe-area-inset-bottom));
+  padding-bottom: calc(58px + env(safe-area-inset-bottom));
 }
 
 .fullscreen {
@@ -423,7 +423,7 @@ input:focus-visible {
   flex-direction: column;
   gap: 7px;
   width: 100%;
-  padding: var(--space-lg) var(--space-lg) 18px;
+  padding: var(--space-lg) var(--space-lg) 8px;
   border-top-left-radius: var(--radius-xl);
   border-top-right-radius: var(--radius-xl);
   background: var(--background);
