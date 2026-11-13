@@ -11,6 +11,7 @@ import { clearRegistrationProof, readRegistrationProof, saveRegistrationProof, v
 import { readReturnPath, safeReturnPath } from '../auth/returnPath';
 import { useSession } from '../auth/sessionContext';
 import { VerificationForm } from './VerificationForm';
+import { AuthBack } from '../components/AuthBack';
 import { Button } from '../components/Button';
 import { ErrorMessage } from '../components/ErrorMessage';
 import { Input } from '../components/Input';
@@ -42,6 +43,7 @@ function RegistrationDetails() {
   if (!proof) {
     return (
       <div className="auth-screen">
+        <AuthBack to="/" />
         <Page title="Create account">
           <ErrorMessage>Verify your number again to finish creating the account.</ErrorMessage>
           <Button to="/create-account" variant="secondary">Start again</Button>
@@ -91,6 +93,7 @@ function RegistrationDetails() {
 
   return (
     <div className="auth-screen">
+      <AuthBack to="/create-account" />
       <Page title="Your details">
         <p className="lede">Your number is verified. Add the details for this customer account.</p>
         {phone ? <p className="note">Verified mobile number {phone}</p> : null}

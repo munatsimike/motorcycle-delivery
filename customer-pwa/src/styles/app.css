@@ -143,6 +143,64 @@ input:focus-visible {
   resize: vertical;
 }
 
+.phone-field {
+  display: flex;
+  align-items: center;
+  min-height: 56px;
+  padding: 0 var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--background);
+}
+
+[data-theme="dark"] .phone-field {
+  background: var(--sheet);
+}
+
+.phone-field:focus-within {
+  border-color: var(--primary);
+  outline: 3px solid rgba(22, 155, 98, 0.28);
+  outline-offset: 2px;
+}
+
+.phone-field-prefix {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex: none;
+  color: var(--text);
+  font-weight: 700;
+}
+
+.phone-field-prefix img {
+  width: 28px;
+  height: 22px;
+  border-radius: 2px;
+  object-fit: cover;
+}
+
+.phone-field-divider {
+  width: 1px;
+  height: 24px;
+  margin: 0 var(--space-md);
+  background: var(--border);
+}
+
+.field .phone-field input {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.field .phone-field input:focus-visible {
+  outline: none;
+}
+
 .note, .error {
   margin: 0;
   padding: var(--space-md) var(--space-lg);
@@ -210,6 +268,39 @@ input:focus-visible {
   background: var(--canvas);
   padding-top: env(safe-area-inset-top);
   padding-bottom: env(safe-area-inset-bottom);
+}
+
+.auth-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin: 12px 20px 0;
+  border-radius: 50%;
+  background: #ffffff;
+  color: #17211d;
+  box-shadow: 0 2px 8px rgba(23, 33, 29, 0.12);
+  text-decoration: none;
+}
+
+[data-theme="dark"] .auth-back {
+  background: var(--sheet);
+  color: var(--text);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
+.auth-screen .page {
+  padding: 12px 20px 32px;
+}
+
+.auth-screen .stack {
+  gap: 12px;
+}
+
+.auth-screen .button {
+  border-radius: 999px;
+  font-weight: 600;
 }
 
 .shell {
@@ -602,12 +693,19 @@ button.home-status:disabled {
 
 .welcome {
   --welcome-mint: #f1f7f3;
-  min-height: 100vh;
+  --welcome-fade: #ffffff;
+  height: 100dvh;
   min-height: 100dvh;
+  overflow: auto;
   display: flex;
   justify-content: center;
   background: var(--welcome-mint);
-  padding: calc(var(--space-xl) + env(safe-area-inset-top)) var(--space-lg) calc(var(--space-xl) + env(safe-area-inset-bottom));
+  padding: calc(var(--space-md) + env(safe-area-inset-top)) var(--space-lg) calc(var(--space-md) + env(safe-area-inset-bottom));
+}
+
+[data-theme="dark"] .welcome {
+  --welcome-mint: #101614;
+  --welcome-fade: #24302b;
 }
 
 .welcome-stage {
@@ -615,7 +713,7 @@ button.home-status:disabled {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--space-lg);
+  gap: clamp(4px, 1vh, 10px);
 }
 
 .welcome-card {
@@ -635,47 +733,55 @@ button.home-status:disabled {
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  width: min(100%, 34rem);
-  min-height: 220px;
+  width: min(100%, 20rem);
+  height: clamp(148px, 28dvh, 220px);
 }
 
 .welcome-hero img {
-  width: min(100%, 34rem);
-  height: auto;
-  max-height: 46vh;
+  width: 100%;
+  height: 100%;
   object-fit: contain;
   object-position: center bottom;
+  mix-blend-mode: darken;
+  -webkit-mask-image: radial-gradient(ellipse 86% 78% at 50% 46%, #000 58%, transparent 86%);
+  mask-image: radial-gradient(ellipse 86% 78% at 50% 46%, #000 58%, transparent 86%);
+}
+
+[data-theme="dark"] .welcome-hero img {
+  mix-blend-mode: normal;
+  -webkit-mask-image: radial-gradient(ellipse 78% 74% at 50% 42%, #000 48%, transparent 78%);
+  mask-image: radial-gradient(ellipse 78% 74% at 50% 42%, #000 48%, transparent 78%);
 }
 
 .welcome-fade {
   position: absolute;
-  left: 0;
-  right: 0;
+  left: 6%;
+  right: 6%;
   bottom: 0;
-  height: 34%;
-  background: linear-gradient(to bottom, rgb(241 247 243 / 0), var(--welcome-mint) 68%, var(--background));
+  height: 28%;
+  background: linear-gradient(to bottom, transparent, var(--welcome-mint));
   pointer-events: none;
 }
 
 .welcome-panel {
   width: 100%;
   text-align: center;
-  background: linear-gradient(var(--welcome-mint), var(--background) 2.5rem);
+  background: transparent;
   padding: 0;
 }
 
 .welcome-panel h1 {
-  line-height: 1.2;
+  line-height: 1.15;
 }
 
 .welcome-panel .lede {
-  margin-top: var(--space-sm);
+  margin-top: 2px;
 }
 
 .welcome-actions {
   display: grid;
-  gap: var(--space-md);
-  margin-top: var(--space-xl);
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
 }
 
 .welcome .button {

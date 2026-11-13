@@ -10,7 +10,7 @@ import {
   type AuthSession,
 } from './contracts.ts';
 import { registrationDetailsIssue } from './name.ts';
-import { normalizePhone } from './phone.ts';
+import { localPhoneEntry, normalizePhone } from './phone.ts';
 import { proofExpiryMs, proofStillValid, verifiedRegistrationPhone, type StoredProof } from './proof.ts';
 import { clearReturnPath, readReturnPath, rememberReturnPath, safeReturnPath } from './returnPath.ts';
 
@@ -19,6 +19,17 @@ test('normalizes Zimbabwe mobile numbers the same way as the customer app', () =
   assert.equal(normalizePhone('771234567'), '+263771234567');
   assert.equal(normalizePhone('+263771234567'), '+263771234567');
   assert.throws(() => normalizePhone('123'), /Zimbabwe mobile number/);
+});
+
+test('keeps a pasted Zimbabwe number beside the fixed +263 prefix', () => {
+  assert.equal(localPhoneEntry('0771234567'), '0771234567');
+  assert.equal(localPhoneEntry('771234567'), '771234567');
+  assert.equal(localPhoneEntry('+263771234567'), '771234567');
+  assert.equal(localPhoneEntry('+263 77 123 4567'), '771234567');
+  assert.equal(localPhoneEntry('263771234567'), '771234567');
+  assert.equal(localPhoneEntry('00263771234567'), '771234567');
+  assert.equal(normalizePhone(localPhoneEntry('+263771234567')), '+263771234567');
+  assert.equal(normalizePhone(localPhoneEntry('0771234567')), '+263771234567');
 });
 
 test('accepts a 4 to 10 digit verification code', () => {

@@ -15,9 +15,11 @@ import { clearPendingVerification, readPendingVerification, savePendingVerificat
 import { saveRegistrationProof, storeProof } from '../auth/proof';
 import { clearReturnPath, readReturnPath, safeReturnPath } from '../auth/returnPath';
 import { useSession } from '../auth/sessionContext';
+import { AuthBack } from '../components/AuthBack';
 import { Button } from '../components/Button';
 import { ErrorMessage } from '../components/ErrorMessage';
 import { Input } from '../components/Input';
+import { ZimbabwePhoneField } from '../components/ZimbabwePhoneField';
 import { Loading } from '../components/Loading';
 import { Page } from '../components/Page';
 
@@ -110,19 +112,17 @@ function PhoneStep({ flow, title, notice }: { flow: AuthFlow; title: string; not
   }
 
   return (
+    <>
+    <AuthBack to="/" />
     <Page title={title}>
       <p className="lede">We will send a verification code on WhatsApp.</p>
       {notice ? <ErrorMessage>{notice}</ErrorMessage> : null}
       <form className="stack" onSubmit={(event) => { void submit(event); }}>
         {error ? <ErrorMessage>{error}</ErrorMessage> : null}
-        <Input
+        <ZimbabwePhoneField
           id={flow === 'whatsapp_login' ? 'sign-in-phone' : 'create-phone'}
-          label="Phone number"
-          type="tel"
-          inputMode="tel"
-          autoComplete="tel"
           value={phone}
-          onChange={(event) => setPhone(event.target.value)}
+          onChange={setPhone}
           disabled={isLoading}
           required
         />
@@ -131,12 +131,12 @@ function PhoneStep({ flow, title, notice }: { flow: AuthFlow; title: string; not
         </Button>
       </form>
       {flow === 'whatsapp_login' ? (
-        <Button to="/create-account" variant="secondary">Create account</Button>
+        <Button to="/create-account" variant="outline">Create account</Button>
       ) : (
-        <Button to="/sign-in" variant="secondary">Sign in</Button>
+        <Button to="/sign-in" variant="outline">Sign in</Button>
       )}
-      <Button to="/" variant="secondary">Back to welcome</Button>
     </Page>
+    </>
   );
 }
 
@@ -166,12 +166,12 @@ function CodeStep({
 
   if (!phone) {
     return (
-      <Page title={title}>
-        <ErrorMessage>Request a new verification code.</ErrorMessage>
-        <Button to={flow === 'whatsapp_login' ? '/sign-in' : '/create-account'} variant="secondary">
-          Back
-        </Button>
-      </Page>
+      <>
+        <AuthBack to={flow === 'whatsapp_login' ? '/sign-in' : '/create-account'} />
+        <Page title={title}>
+          <ErrorMessage>Request a new verification code.</ErrorMessage>
+        </Page>
+      </>
     );
   }
 
@@ -243,6 +243,8 @@ function CodeStep({
   }
 
   return (
+    <>
+    <AuthBack to={flow === 'whatsapp_login' ? '/sign-in' : '/create-account'} />
     <Page title={title}>
       <p className="lede">Enter the WhatsApp code for {phone}.</p>
       <form className="stack" onSubmit={(event) => { void submit(event); }}>
@@ -276,6 +278,7 @@ function CodeStep({
         Use a different number
       </Button>
     </Page>
+    </>
   );
 }
 

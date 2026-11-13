@@ -1,3 +1,17 @@
+export function localPhoneEntry(value: string): string {
+  const compact = value.replace(/[\s()-]/g, '');
+  if (compact.startsWith('+263')) {
+    return compact.slice(4);
+  }
+  if (compact.startsWith('00263')) {
+    return compact.slice(5);
+  }
+  if (/^2637\d*$/.test(compact)) {
+    return compact.slice(3);
+  }
+  return value;
+}
+
 export function normalizePhone(phone: string): string {
   const cleaned = phone.replace(/[\s()-]/g, '');
 
