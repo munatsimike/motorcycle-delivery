@@ -85,6 +85,21 @@ export function contactPhoneForField(input: string): string {
   return dutchMobileE164(input) ?? zimbabweNationalNumber(input) ?? '';
 }
 
+export function bookingPhoneDisplay(stored: string): string {
+  const compact = stored.replace(/[\s()-]/g, '');
+  if (compact.startsWith('+31')) return compact.slice(3);
+  if (compact.startsWith('+263')) return compact.slice(4);
+  if (compact.startsWith('00263')) return compact.slice(5);
+  if (/^2637\d*$/.test(compact)) return compact.slice(3);
+  return stored;
+}
+
+export function bookingPhoneStored(local: string): string {
+  const digits = bookingPhoneDisplay(local).replace(/\D/g, '');
+  if (!digits) return '';
+  return deliveryContactPhone(digits) ?? `+263${digits}`;
+}
+
 export function deliveryContactPhone(input: string): string | null {
   return zimbabweMobileE164(input) ?? dutchMobileE164(input);
 }
@@ -203,6 +218,15 @@ export function clearStopLocation(address: string): Partial<StopDraft> {
     placeId: null,
     coordinateSource: null,
   };
+}
+
+export function hasSelectedCoordinates(stop: StopDraft): boolean {
+  const latitude = readCoordinate(stop.latitude, -90, 90);
+  const longitude = readCoordinate(stop.longitude, -180, 180);
+  if (latitude === null || longitude === null) return false;
+  if (stop.coordinateSource === 'GOOGLE_PLACES') return Boolean(stop.placeId);
+  if (stop.coordinateSource === 'DEVICE_GEOCODER') return !stop.placeId;
+  return false;
 }
 
 export function applyResolvedStop(stop: StopDraft, location: {

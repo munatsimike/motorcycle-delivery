@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { isVerificationCode } from './code.ts';
+import { fitOtpDigits, isVerificationCode } from './code.ts';
 import {
   planSessionRestore,
   readCustomerAccount,
@@ -30,6 +30,12 @@ test('keeps a pasted Zimbabwe number beside the fixed +263 prefix', () => {
   assert.equal(localPhoneEntry('00263771234567'), '771234567');
   assert.equal(normalizePhone(localPhoneEntry('+263771234567')), '+263771234567');
   assert.equal(normalizePhone(localPhoneEntry('0771234567')), '+263771234567');
+});
+
+test('keeps six digits for the verification boxes', () => {
+  assert.equal(fitOtpDigits('code 12-34 56 now'), '123456');
+  assert.equal(fitOtpDigits('1234567890'), '123456');
+  assert.equal(fitOtpDigits('12a'), '12');
 });
 
 test('accepts a 4 to 10 digit verification code', () => {

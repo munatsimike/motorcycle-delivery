@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import parcelBox from '../assets/parcel-box.png';
 import { ErrorMessage } from '../components/ErrorMessage';
+import { TopSpinner } from '../components/TopSpinner';
 import { useSession } from '../auth/sessionContext';
 import { DeliveryCard } from '../deliveries/DeliveryCard';
 import { searchForRider } from '../deliveries/api';
@@ -79,14 +80,19 @@ export function DeliveriesPage() {
           ))}
         </div>
         <div className="deliveries-tools">
-          <button type="button" className="deliveries-tool" aria-label={`Filter deliveries, ${selectedFilter.label}`} onClick={() => setSheet('filter')}>
-            {selectedFilter.label}
+          <button type="button" className="deliveries-tool" aria-label={`Filter deliveries, ${selectedFilter.menu}`} onClick={() => setSheet('filter')}>
+            <FilterIcon />
+            <span>{selectedFilter.menu}</span>
+            <ChevronDownIcon />
           </button>
           <button type="button" className="deliveries-tool" aria-label={`Sort deliveries, ${selectedSort.label}`} onClick={() => setSheet('sort')}>
-            {selectedSort.shortLabel}
+            <SortIcon />
+            <span>{selectedSort.shortLabel}</span>
+            <ChevronDownIcon />
           </button>
         </div>
       </div>
+      <TopSpinner active={(selected.isLoading || selected.isRefreshing) && !selected.isLoadingMore} label="Loading deliveries" />
       <div
         className="deliveries-scroll"
         onTouchStart={(event) => {
@@ -98,7 +104,6 @@ export function DeliveriesPage() {
           if (pull.current.top <= 0 && dy > 72 && !selected.isRefreshing) selected.refresh();
         }}
       >
-        {selected.isLoading && !selected.isRefreshing && selected.deliveries.length === 0 ? <p className="deliveries-loading" role="status">Loading deliveries</p> : null}
         {selected.offlineNote ? <p className="deliveries-saved" role="status">{selected.offlineNote}</p> : null}
         {selected.error ? (
           <div className="deliveries-error">
@@ -155,5 +160,29 @@ export function DeliveriesPage() {
         </div>
       ) : null}
     </div>
+  );
+}
+
+function FilterIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M6 13h12v-2H6v2Zm-2-4h16V7H4v2Zm4 8h8v-2H8v2Z" />
+    </svg>
+  );
+}
+
+function SortIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M16 17.01V10h-2v7.01h-3L15 21l4-3.99h-3ZM9 3 5 7h3v7h2V7h3L9 3Z" />
+    </svg>
+  );
+}
+
+function ChevronDownIcon() {
+  return (
+    <svg className="deliveries-chevron" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M7.41 8.58 12 13.17l4.59-4.59L18 10l-6 6-6-6 1.41-1.42Z" />
+    </svg>
   );
 }

@@ -9,16 +9,18 @@ import type { CustomerAccount } from '../auth/contracts';
 import { useSession } from '../auth/sessionContext';
 import { Button } from '../components/Button';
 import { ErrorMessage } from '../components/ErrorMessage';
+import { ZimbabwePhoneField } from '../components/ZimbabwePhoneField';
 import { Loading } from '../components/Loading';
 import { createDelivery, quoteDelivery, resolvePlace, searchPlaces } from '../booking/api';
 import {
-  applyResolvedStop,
   clearStopLocation,
-  contactPhoneForField,
+  bookingPhoneDisplay,
+  bookingPhoneStored,
   deliveryContactPhone,
   describeParcel,
   displayPhone,
   emptyBookingDraft,
+  hasSelectedCoordinates,
   parcelError,
   paymentMethodLabel,
   prepareBooking,
@@ -54,7 +56,6 @@ import {
   createPlaceSessionToken,
   decideAddressAutofill,
   pickupAutofillFix,
-  resolveManualAddress,
   selectedAddressLabel,
   type PlaceSuggestion,
 } from '../booking/places';
@@ -86,7 +87,6 @@ export function BookPage() {
   const [offer, setOffer] = useState({ text: '', edited: false, pinKey: null as string | null });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<BookingBusy>(null);
-  const [areaChoices, setAreaChoices] = useState<PlaceSuggestion[]>([]);
   const [booked, setBooked] = useState(false);
   const [keyboardInset, setKeyboardInset] = useState(0);
   const creating = useRef(false);
@@ -136,7 +136,7 @@ export function BookPage() {
       pickup: {
         ...current.pickup,
         contactName: current.pickup.contactName || name,
-        contactPhone: current.pickup.contactPhone || contactPhoneForField(account.phone),
+        contactPhone: current.pickup.contactPhone || deliveryContactPhone(account.phone) || '',
       },
     }));
   }, [account]);
@@ -226,7 +226,6 @@ export function BookPage() {
       quoteRequest.current += 1;
       setQuote(null);
       setOffer({ text: '', edited: false, pinKey: null });
-      setAreaChoices([]);
     }
     setDraft((current) => ({ ...current, [which]: { ...current[which], ...patch } }));
   }
@@ -281,61 +280,19 @@ export function BookPage() {
     if (step === 'pickup' || step === 'destination') {
       const which = step === 'pickup' ? 'pickup' : 'dropoff';
       const label = step === 'pickup' ? 'pickup' : 'drop-off';
-      const details = stopEntryError(draft[which], label);
+      const located = draft[which];
+      if (!located.address.trim()) {
+        setError(`Enter the ${label} address`);
+        return;
+      }
+      if (!hasSelectedCoordinates(located)) {
+        setError('Select an address from the suggestions.');
+        return;
+      }
+      const details = stopEntryError(located, label);
       if (details) {
         setError(details);
         return;
-      }
-      let located = draft[which];
-      if (!located.latitude.trim() || !located.longitude.trim()) {
-        if (located.address.trim().length < 3) {
-          setError(`Choose the ${label} address`);
-          return;
-        }
-        setBusy('locate');
-        setAreaChoices([]);
-        try {
-          const token = await accessToken();
-          if (!token) {
-            setError('Sign in to search for an address.');
-            return;
-          }
-          const sessionToken = createPlaceSessionToken();
-          let suggestions: PlaceSuggestion[] = [];
-          let lookupError: string | null = null;
-          try {
-            const bias = which === 'dropoff' ? placeBias(draft.pickup.latitude, draft.pickup.longitude) : null;
-            suggestions = (await searchPlaces(token, located.address.trim(), bias, sessionToken))
-              .map((suggestion) => ({ ...suggestion, sessionToken }));
-            const exact = suggestions.find((suggestion) => suggestion.exact && suggestion.placeId && !suggestion.latitude);
-            if (exact?.placeId) {
-              const resolved = await resolvePlace(token, exact.placeId, sessionToken);
-              suggestions = suggestions.map((suggestion) => suggestion.placeId === exact.placeId
-                ? { ...suggestion, label: selectedAddressLabel(suggestion.label, resolved), latitude: resolved.latitude, longitude: resolved.longitude }
-                : suggestion);
-            }
-          } catch (caught) {
-            lookupError = deliveryErrorMessage(caught, 'Address suggestions are unavailable. You can type the address.');
-          }
-          suggestions = suggestions.filter((suggestion) => suggestion.latitude.trim() || !suggestion.exact);
-          const resolution = resolveManualAddress(located.address.trim(), suggestions, null);
-          if (resolution.status === 'resolved' || resolution.status === 'confirm-pin') {
-            located = applyResolvedStop(draft[which], resolution.location);
-            setDraft((current) => ({ ...current, [which]: located }));
-          } else if (resolution.status === 'choose-area') {
-            setAreaChoices(resolution.areas);
-            setError('This street was not found. Choose a nearby area.');
-            return;
-          } else if (lookupError) {
-            setError(lookupError);
-            return;
-          } else {
-            setError('This address could not be found. Choose a nearby area.');
-            return;
-          }
-        } finally {
-          setBusy(null);
-        }
       }
       setError(null);
       setStep(step === 'pickup' ? 'destination' : 'parcel');
@@ -476,8 +433,8 @@ export function BookPage() {
           </div>
           {step === 'pickup' || step === 'destination' ? (
             <StopForm
+              phoneId={step === 'pickup' ? 'pickup-phone' : 'dropoff-phone'}
               stop={step === 'pickup' ? draft.pickup : draft.dropoff}
-              areaChoices={areaChoices}
               onChange={(patch) => updateStop(step === 'pickup' ? 'pickup' : 'dropoff', patch)}
               onManualInput={() => { addressEdited.current = true; }}
               search={(text, sessionToken) => searchWithToken(accessToken, text, step === 'destination' ? placeBias(draft.pickup.latitude, draft.pickup.longitude) : null, sessionToken)}
@@ -506,7 +463,7 @@ export function BookPage() {
               </Button>
             ) : (
               <Button type="button" disabled={Boolean(busy)} onClick={() => { void goNext(); }}>
-                {busy === 'locate' ? 'Finding address' : busy === 'quote' ? 'Getting price' : 'Continue'}
+                {busy === 'quote' ? 'Getting price' : 'Continue'}
               </Button>
             )}
           </div>
@@ -525,60 +482,45 @@ export function BookPage() {
 }
 
 function StopForm({
+  phoneId,
   stop,
-  areaChoices,
   onChange,
   onManualInput,
   search,
   resolve,
 }: {
+  phoneId: string;
   stop: StopDraft;
-  areaChoices: PlaceSuggestion[];
   onChange: (patch: Partial<StopDraft>) => void;
   onManualInput: () => void;
   search: (text: string, sessionToken: string) => Promise<PlaceSuggestion[]>;
   resolve: (placeId: string, sessionToken: string) => Promise<{ label: string; latitude: string; longitude: string; suburb?: string; locality?: string }>;
 }) {
-  const dutch = stop.contactPhone.replace(/[\s()-]/g, '').startsWith('+31');
-  const national = dutch ? stop.contactPhone.replace(/[\s()-]/g, '').slice(3) : stop.contactPhone;
   return (
     <div className="book-fields">
-      <AddressField stop={stop} areaChoices={areaChoices} onChange={onChange} onManualInput={onManualInput} searchPlaces={search} resolvePlace={resolve} />
+      <AddressField stop={stop} onChange={onChange} onManualInput={onManualInput} searchPlaces={search} resolvePlace={resolve} />
       <label className="field">
         Contact name
         <input value={stop.contactName} maxLength={200} autoComplete="name" onChange={(event) => onChange({ contactName: event.target.value })} />
       </label>
-      <label className="field">
-        Contact phone
-        <span className="book-phone">
-          <span>{dutch ? '+31' : '+263'}</span>
-          <input
-            value={national}
-            inputMode="tel"
-            autoComplete="tel"
-            maxLength={16}
-            placeholder={dutch ? '612345678' : '771234567'}
-            onChange={(event) => {
-              const digits = event.target.value.replace(/\D/g, '');
-              onChange({ contactPhone: dutch ? `+31${digits}` : digits });
-            }}
-          />
-        </span>
-      </label>
+      <ZimbabwePhoneField
+        id={phoneId}
+        label="Contact phone"
+        value={bookingPhoneDisplay(stop.contactPhone)}
+        onChange={(local) => onChange({ contactPhone: bookingPhoneStored(local) })}
+      />
     </div>
   );
 }
 
 function AddressField({
   stop,
-  areaChoices,
   onChange,
   onManualInput,
   searchPlaces,
   resolvePlace,
 }: {
   stop: StopDraft;
-  areaChoices: PlaceSuggestion[];
   onChange: (patch: Partial<StopDraft>) => void;
   onManualInput: () => void;
   searchPlaces: (text: string, sessionToken: string) => Promise<PlaceSuggestion[]>;
@@ -586,6 +528,7 @@ function AddressField({
 }) {
   const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
   const [searching, setSearching] = useState(false);
+  const [searched, setSearched] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const typed = useRef(false);
   const sessionToken = useRef(createPlaceSessionToken());
@@ -600,6 +543,7 @@ function AddressField({
     if (!typed.current || (stop.latitude && stop.longitude)) {
       setSuggestions([]);
       setSearching(false);
+      setSearched(false);
       setSearchError(null);
       return undefined;
     }
@@ -607,6 +551,7 @@ function AddressField({
       sessionToken.current = createPlaceSessionToken();
       setSuggestions([]);
       setSearching(false);
+      setSearched(false);
       setSearchError(null);
       return undefined;
     }
@@ -618,11 +563,13 @@ function AddressField({
         .then((next) => {
           if (!acceptSearchResult(started, requestId.current, next)) return;
           setSuggestions(next.slice(0, 10));
+          setSearched(true);
           setSearchError(null);
         })
         .catch((caught: unknown) => {
           if (!acceptSearchResult(started, requestId.current, true)) return;
           setSuggestions([]);
+          setSearched(false);
           setSearchError(deliveryErrorMessage(caught, 'Address suggestions are unavailable. You can type the address.'));
         })
         .finally(() => {
@@ -652,6 +599,7 @@ function AddressField({
       const location = confirmMapPin(chosen);
       sessionToken.current = createPlaceSessionToken();
       setSuggestions([]);
+      setSearched(false);
       onChange({
         address: location.label,
         landmark: location.precision === 'exact' ? stop.landmark : stop.address.trim().slice(0, 200),
@@ -670,7 +618,6 @@ function AddressField({
     }
   }
 
-  const items = areaChoices.length > 0 ? areaChoices : suggestions;
   return (
     <div className="book-address">
       <label className="field">
@@ -678,7 +625,9 @@ function AddressField({
         <input
           value={stop.address}
           maxLength={500}
-          autoComplete="street-address"
+          autoComplete="off"
+          aria-autocomplete="list"
+          aria-expanded={suggestions.length > 0}
           onChange={(event) => {
             typed.current = true;
             onManualInput();
@@ -688,11 +637,14 @@ function AddressField({
       </label>
       {searching ? <p className="book-search-status" role="status">Searching addresses</p> : null}
       {searchError ? <ErrorMessage>{searchError}</ErrorMessage> : null}
-      {items.length > 0 ? (
-        <ul className="book-suggestions">
-          {items.map((suggestion) => (
+      {searched && !searching && suggestions.length === 0 && !searchError ? (
+        <p className="book-search-status" role="status">No matching addresses.</p>
+      ) : null}
+      {suggestions.length > 0 ? (
+        <ul className="book-suggestions" role="listbox" aria-label="Address suggestions">
+          {suggestions.map((suggestion) => (
             <li key={`${suggestion.placeId ?? suggestion.label}:${suggestion.latitude}`}>
-              <button type="button" onClick={() => { void selectSuggestion(suggestion); }}>{suggestion.label}</button>
+              <button type="button" role="option" onClick={() => { void selectSuggestion(suggestion); }}>{suggestion.label}</button>
             </li>
           ))}
         </ul>

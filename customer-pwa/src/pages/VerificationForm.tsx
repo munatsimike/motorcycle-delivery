@@ -8,7 +8,7 @@ import {
   verifyWhatsAppLogin,
   verifyWhatsAppRegistration,
 } from '../auth/api';
-import { fitOtpDigits, isVerificationCode } from '../auth/code';
+import { isVerificationCode } from '../auth/code';
 import type { AuthFlow, AuthSession } from '../auth/contracts';
 import { normalizePhone } from '../auth/phone';
 import { clearPendingVerification, readPendingVerification, savePendingVerification } from '../auth/pending';
@@ -18,7 +18,7 @@ import { useSession } from '../auth/sessionContext';
 import { AuthBack } from '../components/AuthBack';
 import { Button } from '../components/Button';
 import { ErrorMessage } from '../components/ErrorMessage';
-import { Input } from '../components/Input';
+import { OtpCodeBoxes } from '../components/OtpCodeBoxes';
 import { ZimbabwePhoneField } from '../components/ZimbabwePhoneField';
 import { Loading } from '../components/Loading';
 import { Page } from '../components/Page';
@@ -252,17 +252,14 @@ function CodeStep({
       <form className="stack" onSubmit={(event) => { void submit(event); }}>
         {error ? <ErrorMessage>{error}</ErrorMessage> : null}
         {error === SIGN_IN_INSTEAD ? <Link to="/sign-in">Go to sign in</Link> : null}
-        <Input
+        <OtpCodeBoxes
           id={flow === 'whatsapp_login' ? 'sign-in-code' : 'create-code'}
-          label="Verification code"
-          inputMode="numeric"
-          autoComplete="one-time-code"
           value={code}
-          onChange={(event) => setCode(fitOtpDigits(event.target.value))}
+          onChange={setCode}
           disabled={isLoading}
-          required
+          invalid={Boolean(error)}
         />
-        <Button type="submit" disabled={isLoading}>
+        <Button type="submit" disabled={isLoading || code.length !== 6}>
           {isLoading ? 'Checking code' : 'Verify code'}
         </Button>
       </form>

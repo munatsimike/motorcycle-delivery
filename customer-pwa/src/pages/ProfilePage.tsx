@@ -7,7 +7,7 @@ import { isSessionRejection, type CustomerAccount } from '../auth/contracts';
 import { rememberReturnPath } from '../auth/returnPath';
 import { useSession } from '../auth/sessionContext';
 import { ErrorMessage } from '../components/ErrorMessage';
-import { Loading } from '../components/Loading';
+import { TopSpinner } from '../components/TopSpinner';
 import { appearanceLabel, profileSignOutRequest, type AppearanceMode } from '../theme/appearance';
 import { useAppearance } from '../theme/appearanceContext';
 
@@ -133,6 +133,7 @@ export function ProfilePage() {
     <main id="main" className="profile-screen">
       <div className={`profile-wash ${scheme === 'dark' ? 'is-dark' : ''}`} aria-hidden="true" />
       <div className="profile-sheet">
+        <TopSpinner active={isLoading} label="Loading your profile" />
         {account ? (
           <>
             <div className="profile-identity">
@@ -146,7 +147,11 @@ export function ProfilePage() {
                 {photoUrl ? <img src={photoUrl} alt="" /> : <span style={{ background: colors?.backgroundColor, color: colors?.color }}>{customerInitials(account)}</span>}
               </button>
               {phase === 'idle' && (account.hasProfilePhoto || photoUrl) ? (
-                <button type="button" className="profile-remove" aria-label="Remove photo" onClick={() => setRemoveOpen(true)}>Delete</button>
+                <button type="button" className="profile-remove" aria-label="Remove photo" onClick={() => setRemoveOpen(true)}>
+                  <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                    <path fill="currentColor" d="M9 3h6v1h5v2h-1v13a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6H4V4h5V3Zm-2 3v13h10V6H7Zm2 2h2v9H9V8Zm4 0h2v9h-2V8Z" />
+                  </svg>
+                </button>
               ) : null}
               <input ref={fileInput} className="profile-file" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => { void changePhoto(event.target.files?.[0]); event.target.value = ''; }} />
             </div>
@@ -157,7 +162,11 @@ export function ProfilePage() {
                   {row.action === 'appearance' ? (
                     <button type="button" className="profile-row" onClick={() => setAppearanceOpen(true)}>
                       <span><small>{row.label}</small><strong>{row.value}</strong></span>
-                      <span aria-hidden="true">⌃</span>
+                      <span aria-hidden="true" className="profile-chevron">
+                        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+                          <path fill="currentColor" d="M7.41 15.41 12 10.83l4.59 4.58L18 14l-6-6-6 6 1.41 1.41Z" />
+                        </svg>
+                      </span>
                     </button>
                   ) : (
                     <div className="profile-row">
@@ -169,7 +178,6 @@ export function ProfilePage() {
             </div>
           </>
         ) : <h1>Profile</h1>}
-        {isLoading ? <Loading label="Loading your profile" /> : null}
         {error ? <ErrorMessage>{error}</ErrorMessage> : null}
         {photoError ? <ErrorMessage>{photoError}</ErrorMessage> : null}
         <button type="button" className="profile-logout" disabled={isSigningOut} onClick={() => { void handleSignOut(); }}>
@@ -198,7 +206,13 @@ export function ProfilePage() {
                 return (
                   <button key={option} type="button" role="radio" aria-checked={selected} className={selected ? 'is-selected' : undefined} onClick={() => { setMode(option); setAppearanceOpen(false); }}>
                     <span>{appearanceLabel(option)}</span>
-                    <span className="profile-radio" aria-hidden="true">{selected ? '✓' : ''}</span>
+                    <span className="profile-radio" aria-hidden="true">
+                      {selected ? (
+                        <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                          <path d="M5 12.5 9.2 17 19 7" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      ) : null}
+                    </span>
                   </button>
                 );
               })}

@@ -4,6 +4,10 @@ import { customerOfferForBooking, offerFieldText } from '../deliveries/tracking.
 import {
   applyResolvedStop,
   deliveryContactPhone,
+  hasSelectedCoordinates,
+  bookingPhoneDisplay,
+  bookingPhoneStored,
+  clearStopLocation,
   emptyBookingDraft,
   emptyStop,
   parcelError,
@@ -47,6 +51,27 @@ test('Zimbabwe and Dutch mobile numbers follow the native rules', () => {
   assert.equal(deliveryContactPhone('0612345678'), '+31612345678');
   assert.equal(deliveryContactPhone('+31612345678'), '+31612345678');
   assert.equal(deliveryContactPhone('12345'), null);
+  assert.equal(bookingPhoneStored('771234567'), '+263771234567');
+  assert.equal(bookingPhoneStored('+263 771234567'), '+263771234567');
+  assert.equal(bookingPhoneStored('0771234567'), '+263771234567');
+  assert.equal(bookingPhoneStored('7'), '+2637');
+  assert.equal(bookingPhoneStored(''), '');
+  assert.equal(bookingPhoneDisplay('+263771234567'), '771234567');
+  assert.equal(bookingPhoneDisplay('+2637'), '7');
+  assert.equal(bookingPhoneDisplay('771234567'), '771234567');
+  const typed = clearStopLocation('12 Samora');
+  assert.equal(typed.latitude, '');
+  assert.equal(typed.longitude, '');
+  assert.equal(typed.placeId, null);
+  assert.equal(hasSelectedCoordinates({ ...emptyStop(), address: '12 Samora' }), false);
+  assert.equal(hasSelectedCoordinates({
+    ...emptyStop(),
+    address: '12 Samora',
+    latitude: '-17.8292000',
+    longitude: '31.0522000',
+    placeId: 'place-1',
+    coordinateSource: 'GOOGLE_PLACES',
+  }), true);
 });
 
 test('address resolution keeps exact places and ignores a stale search', () => {
