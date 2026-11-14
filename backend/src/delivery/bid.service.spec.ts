@@ -8,6 +8,7 @@ import {
   MotorcycleVerificationStatus,
   RiderApprovalStatus,
   RiderAvailability,
+  Prisma,
   RiderVerificationStatus,
   ServiceClass,
 } from '../generated/prisma/client.js';
@@ -208,6 +209,33 @@ describe('V2 bid lifecycle', () => {
     expect(metresFrom(rudo?.rider.mapPoint, -17.8, 31.04)).toBeLessThan(45);
     expect(JSON.stringify(page)).not.toContain('profile-photos');
     expect(JSON.stringify(page)).not.toContain('-17.824');
+  });
+
+  it('returns a numeric map point when the stored rider location is a Prisma Decimal', async () => {
+    process.env.V2_MARKETPLACE_ENABLED = 'true';
+    const ctx = store();
+    Object.assign(ctx.deliveries[0]!, {
+      pickupLatitude: new Prisma.Decimal('-17.8292000'),
+      pickupLongitude: new Prisma.Decimal('31.0522000'),
+    });
+    ctx.locations.push({
+      riderProfileId: RIDER,
+      latitude: new Prisma.Decimal('-17.8240000'),
+      longitude: new Prisma.Decimal('31.0500000'),
+      updatedAt: NOW,
+    });
+    const bids = new BidService(ctx.prisma);
+    await bids.submit(RIDER_CONTEXT, bidBody(1_500), 'key-decimal', NOW);
+    const page = await bids.listForCustomer(CUSTOMER, DELIVERY, NOW);
+    const point = page[0]?.rider.mapPoint;
+    expect(point).toEqual({
+      latitude: expect.any(Number),
+      longitude: expect.any(Number),
+    });
+    expect(metresFrom(point, -17.824, 31.05)).toBeGreaterThan(0);
+    expect(metresFrom(point, -17.824, 31.05)).toBeLessThan(45);
+    expect(page[0]?.rider.distanceMeters).toBeGreaterThan(0);
+    expect(JSON.stringify(point)).not.toContain('Decimal');
   });
 
   it('returns road pickupEtaSeconds for fresh GPS and skips stale or missing GPS', async () => {
@@ -583,7 +611,7 @@ function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?:
     { id: 'wallet-2', riderProfileId: OTHER_RIDER, balance: '0.00', borrowingLimitOverride: null },
   ];
     const expressRiders = new Set<string>();
-    const locations: Array<{ riderProfileId: string; latitude: number; longitude: number; updatedAt: Date }> = [];
+    const locations: Array<{ riderProfileId: string; latitude: number | Prisma.Decimal; longitude: number | Prisma.Decimal; updatedAt: Date }> = [];
     const completedAssignments: Array<{ riderProfileId: string }> = [];
     const profilePhotos: Array<{ riderProfileId: string }> = [];
   const rates = options?.rate === false ? [] : [{ isActive: true, basisPoints: options?.basisPoints ?? 1_000, rateVersion: 1 }];

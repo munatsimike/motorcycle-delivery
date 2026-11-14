@@ -63,9 +63,20 @@ export function pickupDistanceMeters(
 }
 
 function readCoordinate(value: unknown): number | null {
-  const number = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : Number.NaN;
-  if (!Number.isFinite(number)) {
-    return null;
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
   }
-  return number;
+  if (typeof value === 'string') {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+  }
+  if (isDecimal(value)) {
+    const number = Number(value.toFixed(7));
+    return Number.isFinite(number) ? number : null;
+  }
+  return null;
+}
+
+function isDecimal(value: unknown): value is { toFixed(digits: number): string } {
+  return typeof value === 'object' && value !== null && 'toFixed' in value && typeof value.toFixed === 'function';
 }
