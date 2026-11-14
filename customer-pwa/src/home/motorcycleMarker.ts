@@ -2,15 +2,16 @@
  * Native Customer Android draws rider_motorcycle_yellow_box.png at its
  * bitmap size, 106 by 115 device pixels, with the anchor in the center
  * and no extra scale. CSS pixels match that on-screen size when divided
- * by the screen density.
+ * by the screen density. The Maps JavaScript API only draws an icon when
+ * its scaled size and anchor are whole pixels.
  */
 export const NATIVE_MOTORCYCLE_MARKER = { width: 106, height: 115 };
 
 export function motorcycleMarkerDisplaySize(devicePixelRatio: number): { width: number; height: number } {
   const density = devicePixelRatio > 0 ? devicePixelRatio : 1;
   return {
-    width: NATIVE_MOTORCYCLE_MARKER.width / density,
-    height: NATIVE_MOTORCYCLE_MARKER.height / density,
+    width: Math.max(1, Math.round(NATIVE_MOTORCYCLE_MARKER.width / density)),
+    height: Math.max(1, Math.round(NATIVE_MOTORCYCLE_MARKER.height / density)),
   };
 }
 

@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { subscribeToAppUpdate } from '../pwa';
-import { Button } from './Button';
 
 export function UpdateNotice() {
   const [reload, setReload] = useState<(() => void) | null>(null);
@@ -16,9 +15,9 @@ export function UpdateNotice() {
   return (
     <div className="banner banner-update" role="status">
       <span>A new version of Riders is ready.</span>
-      <Button type="button" onClick={reload}>
+      <button type="button" className="banner-update-refresh" onClick={reload}>
         Refresh
-      </Button>
+      </button>
     </div>
   );
 }

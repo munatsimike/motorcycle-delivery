@@ -42,13 +42,17 @@ test('the first camera is Harare and a later fix stays locked', () => {
   assert.equal(shouldAutoFrame({ gestured: false, locked: false, customer: null, cardHeight: 220 }), false);
 });
 
-test('motorcycle markers use the native bitmap size and center anchor', () => {
+test('motorcycle markers use whole pixels at the native bitmap size', () => {
   assert.equal(NATIVE_MOTORCYCLE_MARKER.width, 106);
   assert.equal(NATIVE_MOTORCYCLE_MARKER.height, 115);
-  const phone = motorcycleMarkerDisplaySize(3);
-  assert.equal(phone.width, 106 / 3);
-  assert.equal(phone.height, 115 / 3);
-  assert.equal(phone.width / phone.height, 106 / 115);
+  const phone = motorcycleMarkerDisplaySize(1.5);
+  assert.equal(phone.width, 71);
+  assert.equal(phone.height, 77);
+  assert.equal(Number.isInteger(phone.width) && Number.isInteger(phone.height), true);
+  const retina = motorcycleMarkerDisplaySize(3);
+  assert.equal(retina.width, 35);
+  assert.equal(retina.height, 38);
+  assert.ok(retina.width > 0 && retina.height > 0);
   assert.equal(motorcycleMarkerDisplaySize(1).width, 106);
   assert.equal(motorcycleMarkerDisplaySize(0).height, 115);
 });

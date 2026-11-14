@@ -698,10 +698,35 @@ button.home-status:disabled {
   color: #9a4d00;
 }
 
-.banner-update .button,
-.banner-update .button:hover {
+.banner-update-refresh,
+.banner-update-refresh:hover,
+.banner-update-refresh:active,
+.banner-update-refresh:focus,
+.banner-update-refresh:focus-visible {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  min-height: 40px;
+  padding: 0 var(--space-lg);
+  border: 0;
+  border-radius: var(--radius-lg);
   background: #e67e22;
   color: #ffffff;
+  font: inherit;
+  font-size: var(--button);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.banner-update-refresh:focus-visible {
+  outline: 3px solid #e67e22;
+  outline-offset: 2px;
+}
+
+[data-theme="dark"] .banner-update {
+  background: #3d2914;
+  color: #f6c48a;
 }
 
 .banner .button {
