@@ -789,11 +789,11 @@ button.home-status:disabled {
   --welcome-fade: #ffffff;
   height: 100dvh;
   min-height: 100dvh;
-  overflow: auto;
+  overflow-y: auto;
   display: flex;
   justify-content: center;
   background: var(--welcome-mint);
-  padding: calc(var(--space-md) + env(safe-area-inset-top)) var(--space-lg) calc(var(--space-md) + env(safe-area-inset-bottom));
+  padding: calc(20px + env(safe-area-inset-top)) var(--space-lg) calc(16px + env(safe-area-inset-bottom));
 }
 
 [data-theme="dark"] .welcome {
@@ -801,13 +801,43 @@ button.home-status:disabled {
   --welcome-fade: #24302b;
 }
 
+/* Fill the available viewport: logo at top, art in flexible middle, actions near bottom. */
 .welcome-stage {
   width: min(100%, var(--max-width));
+  min-height: 0;
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: clamp(8px, 1.5dvh, 16px);
-  min-height: 0;
+  gap: clamp(12px, 2dvh, 20px);
+}
+
+.welcome-logo {
+  display: flex;
+  justify-content: center;
+  flex: 0 0 auto;
+  margin-top: clamp(8px, 2dvh, 18px);
+  margin-bottom: clamp(10px, 2dvh, 20px);
+}
+
+.welcome-hero {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: min(100%, 20rem);
+  flex: 1 1 auto;
+  min-height: 80px;
+  max-height: 320px;
+}
+
+.welcome-hero img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  object-position: center;
 }
 
 .welcome-card {
@@ -815,45 +845,8 @@ button.home-status:disabled {
   flex-direction: column;
   align-items: center;
   width: min(100%, 420px);
-}
-
-.welcome-logo {
-  display: flex;
-  justify-content: center;
-  margin-top: clamp(8px, 3dvh, 36px);
-  margin-bottom: clamp(12px, 2.5dvh, 24px);
   flex: 0 0 auto;
-}
-
-.welcome-hero {
-  position: relative;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  width: min(100%, 20rem);
-  height: clamp(100px, 24dvh, 220px);
-  flex: 0 1 auto;
-  min-height: 0;
-}
-
-.welcome-hero img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  object-position: center bottom;
-}
-
-[data-theme="dark"] .welcome-hero img {
-}
-
-.welcome-fade {
-  position: absolute;
-  left: 6%;
-  right: 6%;
-  bottom: 0;
-  height: 28%;
-  background: linear-gradient(to bottom, transparent, var(--welcome-mint));
-  pointer-events: none;
+  margin-top: auto;
 }
 
 .welcome-panel {
@@ -863,36 +856,31 @@ button.home-status:disabled {
   padding: 0;
 }
 
-.welcome-panel h1 {
-  line-height: 1.15;
-}
-
-.welcome-panel .lede {
-  margin-top: 2px;
-}
+.welcome-panel h1 { line-height: 1.15; }
+.welcome-panel .lede { margin-top: 2px; }
 
 .welcome-actions {
   display: grid;
   gap: var(--space-sm);
-  margin-top: clamp(10px, 2.5dvh, 24px);
+  margin-top: clamp(10px, 2dvh, 20px);
 }
 
-/* On short phones, prioritize keeping both welcome actions visible. */
+/* Compress artwork and gaps, not the top safe-area or action buttons. */
 @media (max-height: 740px) {
   .welcome {
-    padding-top: calc(8px + env(safe-area-inset-top));
-    padding-bottom: calc(8px + env(safe-area-inset-bottom));
+    padding-top: calc(16px + env(safe-area-inset-top));
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
   }
-
-  .welcome-stage { gap: 6px; }
-  .welcome-logo { margin-top: 4px; margin-bottom: 12px; }
-  .welcome-hero { height: clamp(78px, 18dvh, 148px); }
-  .welcome-actions { margin-top: 12px; }
+  .welcome-stage { gap: 10px; }
+  .welcome-logo { margin-top: 8px; margin-bottom: 12px; }
+  .welcome-hero { min-height: 65px; max-height: 180px; }
+  .welcome-actions { margin-top: 10px; }
 }
 
 @media (max-height: 600px) {
-  .welcome-logo { margin-bottom: 8px; }
-  .welcome-hero { height: clamp(60px, 15dvh, 100px); }
+  .welcome-stage { gap: 6px; }
+  .welcome-logo { margin-top: 6px; margin-bottom: 10px; }
+  .welcome-hero { min-height: 45px; max-height: 110px; }
   .welcome-actions { margin-top: 8px; }
 }
 
