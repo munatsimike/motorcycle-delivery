@@ -3,6 +3,7 @@ import test from 'node:test';
 import { HARARE, INITIAL_SPAN, NEIGHBORHOOD_SPAN, cameraFor, shouldAutoFrame } from './camera.ts';
 import { motorcycleMarkerDisplaySize, NATIVE_MOTORCYCLE_MARKER } from './motorcycleMarker.ts';
 import {
+  filterValidNearbyRiderPoints,
   locationFromGeolocationError,
   nearbyHomeCountLabel,
   nextNearbyMarkers,
@@ -67,7 +68,28 @@ test('nearby responses keep only unexpired approximate points', () => {
   });
   assert.equal(map.count, 1);
   assert.equal(map.points[0]?.latitude, -17.8);
+  const mixed = readNearbyRiderMap({
+    count: 2,
+    points: [
+      { latitude: 999, longitude: 31.05, expiresAt: future },
+      { latitude: -17.82, longitude: 31.04, expiresAt: future },
+      { latitude: -17.83, longitude: 31.07 },
+    ],
+  });
+  assert.equal(mixed.count, 1);
+  assert.equal(mixed.points[0]?.latitude, -17.82);
+  assert.equal(mixed.points[0]?.expiresAt, future);
   assert.throws(() => readNearbyRiderMap({ count: 0, points: [{ latitude: -17.8, longitude: 31.05, expiresAt: future }] }), /unavailable/);
+});
+
+test('stored nearby points keep their expiry and drop only the expired ones', () => {
+  const points = [
+    { latitude: -17.8, longitude: 31.05, expiresAt: future },
+    { latitude: -17.81, longitude: 31.06, expiresAt: past },
+  ];
+  const kept = filterValidNearbyRiderPoints(points);
+  assert.equal(kept.length, 1);
+  assert.equal(kept[0]?.expiresAt, future);
 });
 
 test('rider markers keep their identity and survive a failed refresh', () => {

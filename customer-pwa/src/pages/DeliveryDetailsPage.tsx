@@ -7,6 +7,7 @@ import { acceptOffer, adjustOffer, cancelDelivery, deliveryErrorMessage, dismiss
 import { RiderPhoto } from '../deliveries/RiderPhoto';
 import { TrackingMap } from '../deliveries/TrackingMap';
 import { fetchNearbyRiders } from '../home/nearbyApi';
+import { filterValidNearbyRiderPoints, NEARBY_MARKER_PRUNE_MS, type NearbyRiderMapPoint } from '../home/nearby';
 import { beginPageTransition } from '../motion/pageTransition';
 import { motionClass, usePresence } from '../motion/usePresence';
 import {
@@ -90,7 +91,7 @@ export function DeliveryDetailsPage() {
   const [offersLoaded, setOffersLoaded] = useState(false);
   const [offersError, setOffersError] = useState<string | null>(null);
   const [offerNotice, setOfferNotice] = useState<string | null>(null);
-  const [nearby, setNearby] = useState<RoutePoint[]>([]);
+  const [nearby, setNearby] = useState<NearbyRiderMapPoint[]>([]);
   const [routeLine, setRouteLine] = useState<RoutePoint[]>([]);
   const [token, setToken] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -333,7 +334,7 @@ export function DeliveryDetailsPage() {
       if (!token || stopped) return;
       try {
         const result = await fetchNearbyRiders(token, latitude, longitude);
-        if (!stopped) setNearby(result.points.map((point) => ({ latitude: point.latitude, longitude: point.longitude })));
+        if (!stopped) setNearby(result.points);
       } catch {
         if (!stopped) setNearby([]);
       }
@@ -345,6 +346,18 @@ export function DeliveryDetailsPage() {
       window.clearInterval(timer);
     };
   }, [accessToken, delivery]);
+
+  useEffect(() => {
+    if (nearby.length === 0) return undefined;
+    const timer = window.setInterval(() => {
+      const now = new Date();
+      setNearby((current) => {
+        const next = filterValidNearbyRiderPoints(current, now);
+        return next.length === current.length ? current : next;
+      });
+    }, NEARBY_MARKER_PRUNE_MS);
+    return () => window.clearInterval(timer);
+  }, [nearby.length]);
 
   useEffect(() => {
     if (acceptedId !== id || confirmedDismissed) return undefined;
@@ -664,7 +677,7 @@ export function DeliveryDetailsPage() {
           summary={null}
           extraMarkers={[
             ...orderedOffers.flatMap((bid) => bid.mapPoint ? [{ ...bid.mapPoint, title: bid.riderName }] : []),
-            ...nearby.map((point) => ({ ...point, title: 'Available rider' })),
+            ...nearby.map((point) => ({ latitude: point.latitude, longitude: point.longitude, title: 'Available rider' })),
           ]}
           neighborhood
           interactive={false}

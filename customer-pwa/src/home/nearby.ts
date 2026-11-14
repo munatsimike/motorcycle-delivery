@@ -23,13 +23,18 @@ export type DeviceLocation =
   | { status: 'ready'; latitude: number; longitude: number };
 
 const NEARBY_MARKER_MATCH_METRES = 600;
+export const NEARBY_MARKER_PRUNE_MS = 5_000;
 
 export function readNearbyRiderMap(value: unknown, now = new Date()): { count: number; points: NearbyRiderMapPoint[] } {
   if (!isRecord(value)) {
     throw new Error('Rider availability is unavailable.');
   }
   const count = readCount(value);
-  const points = filterValidNearbyRiderPoints(Array.isArray(value.points) ? value.points.map(readPoint) : [], now);
+  const rawPoints = Array.isArray(value.points) ? value.points : [];
+  const points = filterValidNearbyRiderPoints(rawPoints.flatMap((item) => {
+    const point = readPoint(item);
+    return point ? [point] : [];
+  }), now);
   if (points.length > count) {
     throw new Error('Rider availability is unavailable.');
   }
@@ -136,9 +141,9 @@ function readCount(value: Record<string, unknown>): number {
   return value.count;
 }
 
-function readPoint(value: unknown): NearbyRiderMapPoint {
+function readPoint(value: unknown): NearbyRiderMapPoint | null {
   if (!isRecord(value) || !Number.isFinite(value.latitude) || !Number.isFinite(value.longitude) || Number(value.latitude) < -90 || Number(value.latitude) > 90 || Number(value.longitude) < -180 || Number(value.longitude) > 180 || typeof value.expiresAt !== 'string') {
-    throw new Error('Rider availability is unavailable.');
+    return null;
   }
   return {
     latitude: Number(value.latitude),

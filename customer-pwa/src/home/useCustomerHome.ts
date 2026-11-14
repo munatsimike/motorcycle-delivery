@@ -6,6 +6,7 @@ import { createHomeMap, loadGoogleMaps, type HomeMap } from './googleMap';
 import { fetchNearbyRiders } from './nearbyApi';
 import {
   isNearbyRiderPointExpired,
+  NEARBY_MARKER_PRUNE_MS,
   nextNearbyMarkers,
   type DeviceLocation,
   type NearbyAvailability,
@@ -14,7 +15,6 @@ import {
 import type { MapPoint } from './camera';
 
 const REFRESH_MS = 20_000;
-const PRUNE_MS = 5_000;
 const POLL_MAX_AGE_MS = 15_000;
 
 export function useCustomerHome(mapElement: HTMLDivElement | null, cardHeight: number, iconUrl: string) {
@@ -149,7 +149,7 @@ export function useCustomerHome(mapElement: HTMLDivElement | null, cardHeight: n
       pointsRef.current = next;
       setPoints(next);
       setAvailability((state) => (state.status === 'ready' ? { status: 'ready', count: next.length } : state));
-    }, PRUNE_MS);
+    }, NEARBY_MARKER_PRUNE_MS);
     return () => window.clearInterval(timer);
   }, [points.length]);
 
