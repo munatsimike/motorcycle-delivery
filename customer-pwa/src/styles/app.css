@@ -806,7 +806,8 @@ button.home-status:disabled {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: clamp(4px, 1vh, 10px);
+  gap: clamp(8px, 1.5dvh, 16px);
+  min-height: 0;
 }
 
 .welcome-card {
@@ -819,7 +820,9 @@ button.home-status:disabled {
 .welcome-logo {
   display: flex;
   justify-content: center;
-  margin-top: 36px;
+  margin-top: clamp(8px, 3dvh, 36px);
+  margin-bottom: clamp(12px, 2.5dvh, 24px);
+  flex: 0 0 auto;
 }
 
 .welcome-hero {
@@ -828,7 +831,9 @@ button.home-status:disabled {
   align-items: flex-end;
   justify-content: center;
   width: min(100%, 20rem);
-  height: clamp(148px, 28dvh, 220px);
+  height: clamp(100px, 24dvh, 220px);
+  flex: 0 1 auto;
+  min-height: 0;
 }
 
 .welcome-hero img {
@@ -869,7 +874,26 @@ button.home-status:disabled {
 .welcome-actions {
   display: grid;
   gap: var(--space-sm);
-  margin-top: var(--space-xl);
+  margin-top: clamp(10px, 2.5dvh, 24px);
+}
+
+/* On short phones, prioritize keeping both welcome actions visible. */
+@media (max-height: 740px) {
+  .welcome {
+    padding-top: calc(8px + env(safe-area-inset-top));
+    padding-bottom: calc(8px + env(safe-area-inset-bottom));
+  }
+
+  .welcome-stage { gap: 6px; }
+  .welcome-logo { margin-top: 4px; margin-bottom: 12px; }
+  .welcome-hero { height: clamp(78px, 18dvh, 148px); }
+  .welcome-actions { margin-top: 12px; }
+}
+
+@media (max-height: 600px) {
+  .welcome-logo { margin-bottom: 8px; }
+  .welcome-hero { height: clamp(60px, 15dvh, 100px); }
+  .welcome-actions { margin-top: 8px; }
 }
 
 .welcome .button {
