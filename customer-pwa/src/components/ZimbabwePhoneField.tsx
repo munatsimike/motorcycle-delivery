@@ -8,6 +8,7 @@ type ZimbabwePhoneFieldProps = {
   onChange: (value: string) => void;
   disabled?: boolean;
   required?: boolean;
+  autoComplete?: string;
 };
 
 export function ZimbabwePhoneField({
@@ -17,6 +18,7 @@ export function ZimbabwePhoneField({
   onChange,
   disabled = false,
   required = false,
+  autoComplete = 'tel',
 }: ZimbabwePhoneFieldProps) {
   return (
     <label className="field" htmlFor={id}>
@@ -31,7 +33,7 @@ export function ZimbabwePhoneField({
           id={id}
           type="tel"
           inputMode="tel"
-          autoComplete="tel"
+          autoComplete={autoComplete}
           placeholder="Phone number"
           maxLength={16}
           value={value}

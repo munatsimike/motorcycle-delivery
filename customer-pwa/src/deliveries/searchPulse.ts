@@ -3,8 +3,8 @@ export const SEARCH_PULSE_MS = 2800;
 export const SEARCH_RING_COUNT = 3;
 export const SEARCH_PULSE_FRAME_MS = 70;
 
-const MIN_RADIUS_METRES = 70;
-const GROWTH_METRES = 680;
+const MIN_RADIUS_METRES = 140;
+const GROWTH_METRES = 1360;
 const PEAK_OPACITY = 0.16;
 
 export type SearchRing = {
@@ -15,7 +15,7 @@ export type SearchRing = {
 /** Rings for a search centered on a real coordinate. Progress is the fraction of the current sweep, from 0 to 1. */
 export function searchPulseRings(progress: number, reduceMotion: boolean): SearchRing[] {
   if (reduceMotion) {
-    return [{ radius: 260, opacity: 0.14 }];
+    return [{ radius: 520, opacity: 0.14 }];
   }
   const turn = wrap(progress);
   return Array.from({ length: SEARCH_RING_COUNT }, (_, index) => {

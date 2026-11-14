@@ -25,7 +25,7 @@ test('rider search pulse returns to the same rings when the sweep repeats', () =
 });
 
 test('rider search pulse uses one static ring when motion is reduced', () => {
-  assert.deepEqual(searchPulseRings(0.4, true), [{ radius: 260, opacity: 0.14 }]);
+  assert.deepEqual(searchPulseRings(0.4, true), [{ radius: 520, opacity: 0.14 }]);
 });
 
 test('rider search pulse keeps the green tint faint', () => {

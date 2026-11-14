@@ -4,7 +4,7 @@ import { beginPageTransition } from '../motion/pageTransition';
 import { ApiError } from '../api/client';
 import { loadCustomerAccount } from '../account/profileApi';
 import { offerFieldText } from '../deliveries/tracking';
-import { deliveryCardAddress } from '../deliveries/rules';
+import { deliveryCardAddress, deliveryContentKind, type DeliveryContentKind } from '../deliveries/rules';
 import { deliveryErrorMessage } from '../deliveries/api';
 import type { CustomerAccount } from '../auth/contracts';
 import { useSession } from '../auth/sessionContext';
@@ -78,7 +78,6 @@ const SEARCH_DELAY_MS = 500;
 const LOCATION_DENIED = 'Location permission is needed to detect your pickup point.';
 const LOCATION_UNAVAILABLE = 'We couldn\'t detect your location. Try again or search for your pickup address.';
 const LOCATION_STREET = 'Enter the street address.';
-let pickupLocationRequested = false;
 const ATTEMPT_KEY = 'customer_delivery_create_v1';
 
 type QuotedPrice = DeliveryQuote & { pinKey: string };
@@ -107,6 +106,7 @@ export function BookPage() {
   const addressEdited = useRef(false);
   const draftRef = useRef(draft);
   const locatingRef = useRef(false);
+  const pickupAttempt = useRef(0);
   const [locating, setLocating] = useState(false);
   const [locateError, setLocateError] = useState<string | null>(null);
   draftRef.current = draft;
@@ -155,8 +155,12 @@ export function BookPage() {
   }, [account]);
 
   useEffect(() => {
-    if (mode !== 'v2') return;
-    void detectPickup(false);
+    if (mode !== 'v2') return undefined;
+    const attemptId = ++pickupAttempt.current;
+    void detectPickup(false, attemptId);
+    return () => {
+      pickupAttempt.current += 1;
+    };
   }, [mode]);
 
   useEffect(() => {
@@ -195,22 +199,22 @@ export function BookPage() {
     };
   }, []);
 
-  async function detectPickup(manual: boolean) {
+  async function detectPickup(manual: boolean, attemptId = 0) {
+    const stale = () => !manual && attemptId !== pickupAttempt.current;
     if (locatingRef.current) return;
-    if (!manual && pickupLocationRequested) return;
     const pickup = draftRef.current.pickup;
     if (pickup.address.trim() || pickup.latitude) return;
-    if (!manual && await geolocationPermission() === 'denied') {
-      pickupLocationRequested = true;
-      setLocateError(LOCATION_DENIED);
-      return;
+    if (!manual) {
+      const permission = await geolocationPermission();
+      if (stale() || permission === 'denied') return;
     }
-    pickupLocationRequested = true;
+    if (stale() || locatingRef.current) return;
     locatingRef.current = true;
     setLocating(true);
     setLocateError(null);
     try {
       const position = await readCurrentPosition();
+      if (stale() || addressEdited.current) return;
       const fix = pickupAutofillFix({
         permission: 'granted',
         latitude: position.coords.latitude,
@@ -220,43 +224,40 @@ export function BookPage() {
         now: Date.now(),
       });
       if (!fix) {
-        setLocateError(LOCATION_UNAVAILABLE);
+        if (manual) setLocateError(LOCATION_UNAVAILABLE);
         return;
       }
-      const latitude = Number(fix.latitude);
-      const longitude = Number(fix.longitude);
-      const found = await lookupAddress(latitude, longitude);
-      if (addressEdited.current) return;
+      const found = await lookupAddress(Number(fix.latitude), Number(fix.longitude));
+      if (stale() || addressEdited.current) return;
       const decision = decideAddressAutofill(addressEdited.current, found);
       if (decision.status === 'needs-street') {
         setLocateError(LOCATION_STREET);
         return;
       }
       if (decision.status !== 'apply') {
-        setLocateError(LOCATION_UNAVAILABLE);
+        if (manual) setLocateError(LOCATION_UNAVAILABLE);
         return;
       }
-      const token = await accessToken();
-      const place = token ? await nearestPlace(token, decision.display, latitude, longitude).catch(() => null) : null;
-      if (addressEdited.current) return;
       setDraft((current) => {
         if (current.pickup.address.trim() || current.pickup.latitude) return current;
         return {
           ...current,
           pickup: {
             ...current.pickup,
-            address: place?.label ?? decision.display,
+            address: decision.display,
             resolvedAddress: decision.fullAddress,
-            latitude: place?.latitude ?? fix.latitude,
-            longitude: place?.longitude ?? fix.longitude,
+            latitude: fix.latitude,
+            longitude: fix.longitude,
             approximate: false,
             precision: 'exact',
-            placeId: place?.placeId ?? null,
-            coordinateSource: place ? 'GOOGLE_PLACES' : 'DEVICE_GEOCODER',
+            placeId: null,
+            coordinateSource: 'DEVICE_GEOCODER',
           },
         };
       });
     } catch (caught) {
+      if (stale()) return;
+      if (!manual) return;
       const code = typeof caught === 'object' && caught && 'code' in caught ? Number(caught.code) : 0;
       setLocateError(code === 1 ? LOCATION_DENIED : LOCATION_UNAVAILABLE);
     } finally {
@@ -557,12 +558,13 @@ function StopForm({
       <AddressField stop={stop} onChange={onChange} onManualInput={onManualInput} locating={locating} onLocate={onLocate} locateError={locateError} searchPlaces={search} resolvePlace={resolve} />
       <label className="field">
         Contact name
-        <input value={stop.contactName} maxLength={200} autoComplete="name" onChange={(event) => onChange({ contactName: event.target.value })} />
+        <input value={stop.contactName} maxLength={200} autoComplete="off" onChange={(event) => onChange({ contactName: event.target.value })} />
       </label>
       <ZimbabwePhoneField
         id={phoneId}
         label="Contact phone"
         value={bookingPhoneDisplay(stop.contactPhone)}
+        autoComplete="off"
         onChange={(local) => onChange({ contactPhone: bookingPhoneStored(local) })}
       />
     </div>
@@ -724,9 +726,9 @@ function AddressField({
 
 function ParcelForm({ draft, onChange }: { draft: BookingDraft; onChange: (patch: Partial<BookingDraft>) => void }) {
   const contents = [
-    { label: 'Parcel', description: 'Parcel' as const },
-    { label: 'Document', description: 'Document' as const },
-    { label: 'Food', description: 'Food' as const },
+    { label: 'Parcel', description: 'Parcel' as const, icon: PARCEL_ICON },
+    { label: 'Document', description: 'Document' as const, icon: DOCUMENT_ICON },
+    { label: 'Food', description: 'Food' as const, icon: FOOD_ICON },
   ];
   const classes: { value: ServiceClass; label: string }[] = [
     { value: 'FLEXIBLE', label: 'Flexible' },
@@ -745,6 +747,7 @@ function ParcelForm({ draft, onChange }: { draft: BookingDraft; onChange: (patch
             const selected = draft.description === content.description;
             return (
               <button key={content.description} type="button" aria-pressed={selected} className={selected ? 'is-selected' : undefined} onClick={() => onChange(selectParcelContent(content.description))}>
+                <svg className="book-square-icon" viewBox="0 0 24 24" aria-hidden="true"><path d={content.icon} /></svg>
                 {content.label}
               </button>
             );
@@ -804,32 +807,52 @@ function ReviewForm({
   editable: boolean;
   onOfferChange: (value: string) => void;
 }) {
+  const urgent = draft.serviceClass === 'EXPRESS';
   return (
     <div className="book-review">
       <div className="book-route">
-        <StopSummary stop={draft.pickup} />
-        <StopSummary stop={draft.dropoff} />
+        <StopSummary stop={draft.pickup} dropoff={false} />
+        <StopSummary stop={draft.dropoff} dropoff />
       </div>
       <dl className="book-facts">
-        <div><dt>Sending</dt><dd>{describeParcel(draft)}{draft.instructions.trim() ? ` · ${draft.instructions.trim()}` : ''}</dd></div>
-        <div><dt>Delivery type</dt><dd>{draft.serviceClass === 'EXPRESS' ? 'Urgent' : 'Flexible'}</dd></div>
-        {draft.paymentMethod ? <div><dt>Method</dt><dd>{paymentMethodLabel(draft.paymentMethod)}</dd></div> : null}
+        <div>
+          <ContentMark kind={deliveryContentKind(draft.description)} />
+          <dt>Sending</dt>
+          <dd>{describeParcel(draft)}</dd>
+        </div>
+        <div>
+          <ReviewIcon path={urgent ? FLASH_ICON : MESSAGE_ICON} />
+          <dt>Delivery type</dt>
+          <dd>{urgent ? 'Urgent' : 'Flexible'}</dd>
+        </div>
+        {draft.paymentMethod ? (
+          <div>
+            <ReviewIcon path={draft.paymentMethod === 'ECOCASH' ? PHONE_ICON : CASH_ICON} />
+            <dt>Method</dt>
+            <dd>{paymentMethodLabel(draft.paymentMethod)}</dd>
+          </div>
+        ) : null}
       </dl>
       <div className="book-price">
         {quoting ? <Loading label="Getting price" /> : null}
         {quote && !quoting ? (
           <>
-            <div>
-              <p>Suggested price</p>
-              <strong>{moneyLabel(quote.suggestedPrice)}</strong>
+            <div className="book-price-row">
+              <div>
+                <p>Suggested price</p>
+                <strong>{moneyLabel(quote.suggestedPrice)}</strong>
+              </div>
+              <div className="book-distance">
+                <p>Distance</p>
+                <strong>{formatDistance(quote.distanceMeters)}</strong>
+              </div>
             </div>
-            <div>
-              <p>Distance</p>
-              <strong>{formatDistance(quote.distanceMeters)}</strong>
-            </div>
-            <label className="field">
-              Your offer ($)
-              <input inputMode="decimal" maxLength={7} value={offerText} disabled={!editable} placeholder="0.00" onChange={(event) => onOfferChange(event.target.value)} />
+            <label className="book-offer">
+              <span>Your offer ($)</span>
+              <span className="book-offer-field">
+                <span aria-hidden="true">$</span>
+                <input inputMode="decimal" maxLength={7} value={offerText} disabled={!editable} placeholder="0.00" onChange={(event) => onOfferChange(event.target.value)} />
+              </span>
             </label>
           </>
         ) : null}
@@ -838,14 +861,42 @@ function ReviewForm({
   );
 }
 
-function StopSummary({ stop }: { stop: StopDraft }) {
+function StopSummary({ stop, dropoff }: { stop: StopDraft; dropoff: boolean }) {
   const phone = displayPhone(stop.contactPhone);
   return (
-    <div>
-      <p>{deliveryCardAddress(stop.address.trim())}</p>
-      {stop.contactName.trim() ? <p>{stop.contactName.trim()}</p> : null}
-      {phone ? <p>{deliveryContactPhone(stop.contactPhone) ? phone : stop.contactPhone.trim()}</p> : null}
+    <div className="book-stop">
+      <span className="book-stop-rail">
+        <svg className={dropoff ? 'book-stop-pin is-dropoff' : 'book-stop-pin is-pickup'} viewBox="0 0 24 24" aria-label={dropoff ? 'Drop-off' : 'Pickup'}>
+          <path d="M12,11.5A2.5,2.5 0 0,1 9.5,9A2.5,2.5 0 0,1 12,6.5A2.5,2.5 0 0,1 14.5,9A2.5,2.5 0 0,1 12,11.5M12,2A7,7 0 0,0 5,9C5,14.25 12,22 12,22C12,22 19,14.25 19,9A7,7 0 0,0 12,2Z" />
+        </svg>
+      </span>
+      <div className="book-stop-copy">
+        <p>{deliveryCardAddress(stop.address.trim())}</p>
+        {stop.contactName.trim() ? <p>{stop.contactName.trim()}</p> : null}
+        {phone ? <p>{deliveryContactPhone(stop.contactPhone) ? phone : stop.contactPhone.trim()}</p> : null}
+      </div>
     </div>
+  );
+}
+
+const PARCEL_ICON = 'M21,16.5C21,16.88 20.79,17.21 20.47,17.38L12.57,21.82C12.41,21.94 12.21,22 12,22C11.79,22 11.59,21.94 11.43,21.82L3.53,17.38C3.21,17.21 3,16.88 3,16.5V7.5C3,7.12 3.21,6.79 3.53,6.62L11.43,2.18C11.59,2.06 11.79,2 12,2C12.21,2 12.41,2.06 12.57,2.18L20.47,6.62C20.79,6.79 21,7.12 21,7.5V16.5M12,4.15L10.11,5.22L16,8.61L17.96,7.5L12,4.15M6.04,7.5L12,10.85L13.96,9.75L8.08,6.35L6.04,7.5M5,15.91L11,19.29V12.58L5,9.21V15.91M19,15.91V9.21L13,12.58V19.29L19,15.91Z';
+const DOCUMENT_ICON = 'M6,2A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2H6M6,4H13V9H18V20H6V4M8,12V14H16V12H8M8,16V18H13V16H8Z';
+const FOOD_ICON = 'M11,9H9V2H7V9H5V2H3V9C3,11.12 4.66,12.84 6.75,12.97V22H9.25V12.97C11.34,12.84 13,11.12 13,9V2H11V9M16,6V14H18.5V22H21V2C18.24,2 16,4.24 16,6Z';
+const MESSAGE_ICON = 'M20,2A2,2 0 0,1 22,4V16A2,2 0 0,1 20,18H6L2,22V4C2,2.89 2.9,2 4,2H20M4,4V17.17L5.17,16H20V4H4M6,7H18V9H6V7M6,11H15V13H6V11Z';
+const FLASH_ICON = 'M7,2H17L13.5,9H17L10,22V14H7V2M9,4V12H12V14.66L14,11H10.24L13.76,4H9Z';
+const CASH_ICON = 'M3,6H21V18H3V6M12,9A3,3 0 0,1 15,12A3,3 0 0,1 12,15A3,3 0 0,1 9,12A3,3 0 0,1 12,9M7,8A2,2 0 0,1 5,10V14A2,2 0 0,1 7,16H17A2,2 0 0,1 19,14V10A2,2 0 0,1 17,8H7Z';
+const PHONE_ICON = 'M17,19H7V5H17M17,1H7C5.89,1 5,1.89 5,3V21A2,2 0 0,0 7,23H17A2,2 0 0,0 19,21V3C19,1.89 18.1,1 17,1Z';
+
+function ContentMark({ kind }: { kind: DeliveryContentKind }) {
+  const path = kind === 'document' ? DOCUMENT_ICON : kind === 'food' ? FOOD_ICON : PARCEL_ICON;
+  return <ReviewIcon path={path} content />;
+}
+
+function ReviewIcon({ path, content = false }: { path: string; content?: boolean }) {
+  return (
+    <svg className={content ? 'book-fact-icon is-content' : 'book-fact-icon'} viewBox="0 0 24 24" aria-hidden="true">
+      <path d={path} />
+    </svg>
   );
 }
 
@@ -916,23 +967,4 @@ async function lookupAddress(latitude: number, longitude: number) {
   return readGeocodedAddress(found?.address_components, found?.formatted_address);
 }
 
-async function nearestPlace(accessToken: string, query: string, latitude: number, longitude: number) {
-  if (query.trim().length < 3) return null;
-  const sessionToken = createPlaceSessionToken();
-  const suggestions = await searchPlaces(accessToken, query, { latitude, longitude }, sessionToken);
-  const match = suggestions.find((suggestion) => suggestion.placeId);
-  if (!match?.placeId) return null;
-  const resolved = await resolvePlace(accessToken, match.placeId, sessionToken);
-  const placeLatitude = Number(resolved.latitude);
-  const placeLongitude = Number(resolved.longitude);
-  if (!nearPoint(latitude, longitude, placeLatitude, placeLongitude)) return null;
-  return { label: resolved.label, latitude: String(resolved.latitude), longitude: String(resolved.longitude), placeId: match.placeId };
-}
-
-function nearPoint(latitude: number, longitude: number, otherLatitude: number, otherLongitude: number): boolean {
-  if (!Number.isFinite(otherLatitude) || !Number.isFinite(otherLongitude)) return false;
-  const north = (latitude - otherLatitude) * 111_320;
-  const east = (longitude - otherLongitude) * 111_320 * Math.cos((latitude * Math.PI) / 180);
-  return Math.hypot(north, east) <= 500;
-}
 

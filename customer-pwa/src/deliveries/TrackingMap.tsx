@@ -355,7 +355,7 @@ export function TrackingMap({
         pulseCircles.current.push(new maps.Circle({
           map: liveMap,
           center: { lat: latest.stop.latitude, lng: latest.stop.longitude },
-          radius: 70,
+          radius: 140,
           clickable: false,
           zIndex: 0,
         }));
