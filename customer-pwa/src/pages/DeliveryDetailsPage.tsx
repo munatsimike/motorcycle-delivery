@@ -732,6 +732,7 @@ export function DeliveryDetailsPage() {
           rider={mapView.kind === 'live' ? mapView.rider : storedRiderPoint(delivery)}
           stop={mapView.stop}
           headingToDropoff={mapView.headingToDropoff}
+          pickupLabel={!mapView.headingToDropoff ? 'Pickup location' : null}
           line={approach?.line ?? []}
           summary={summary}
         />
