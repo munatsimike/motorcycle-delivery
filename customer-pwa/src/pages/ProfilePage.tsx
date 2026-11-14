@@ -10,6 +10,7 @@ import { ErrorMessage } from '../components/ErrorMessage';
 import { TopSpinner } from '../components/TopSpinner';
 import { appearanceLabel, profileSignOutRequest, type AppearanceMode } from '../theme/appearance';
 import { useAppearance } from '../theme/appearanceContext';
+import { motionClass, usePresence } from '../motion/usePresence';
 
 const APPEARANCE_OPTIONS: AppearanceMode[] = ['system', 'light', 'dark'];
 
@@ -27,6 +28,8 @@ export function ProfilePage() {
   const [progress, setProgress] = useState(0);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [removeOpen, setRemoveOpen] = useState(false);
+  const removeMotion = usePresence(removeOpen, 150);
+  const appearanceMotion = usePresence(appearanceOpen, 220);
   const fileInput = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -191,8 +194,8 @@ export function ProfilePage() {
           {isSigningOut ? 'Signing out' : 'Log out'}
         </button>
       </div>
-      {removeOpen ? (
-        <div className="profile-dialog" role="dialog" aria-modal="true" aria-labelledby="remove-photo-title">
+      {removeMotion.mounted ? (
+        <div className={motionClass('profile-dialog', 'dialog', removeMotion.visible)} role="dialog" aria-modal="true" aria-labelledby="remove-photo-title">
           <div className="profile-dialog-card">
             <h2 id="remove-photo-title">Remove profile photo?</h2>
             <p>Your initials will be shown instead.</p>
@@ -203,8 +206,8 @@ export function ProfilePage() {
           </div>
         </div>
       ) : null}
-      {appearanceOpen ? (
-        <div className="profile-sheet-backdrop" onClick={() => setAppearanceOpen(false)}>
+      {appearanceMotion.mounted ? (
+        <div className={motionClass('profile-sheet-backdrop', 'sheet', appearanceMotion.visible)} onClick={() => setAppearanceOpen(false)}>
           <div className="profile-appearance" role="dialog" aria-modal="true" aria-label="Appearance" onClick={(event) => event.stopPropagation()}>
             <h2>Appearance</h2>
             <div role="radiogroup">

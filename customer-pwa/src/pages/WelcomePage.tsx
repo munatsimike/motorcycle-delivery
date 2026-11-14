@@ -4,7 +4,7 @@ import { Button } from '../components/Button';
 
 export function WelcomePage() {
   return (
-    <main id="main" className="welcome">
+    <main id="main" className="welcome page-stage is-entering">
       <div className="welcome-stage">
         <div className="welcome-logo">
           <BrandLogo />

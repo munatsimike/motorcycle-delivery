@@ -392,6 +392,15 @@ export function pickupEtaLabel(seconds: number | null): string {
   return minutes === 1 ? '1 min' : `${minutes} min`;
 }
 
+export function offerRiderName(name: string | null | undefined): string {
+  const parts = (name ?? '').trim().split(/\s+/).filter((part) => part.length > 0);
+  if (parts.length === 0) return 'Rider';
+  const first = parts[0] ?? '';
+  if (parts.length === 1) return first;
+  const initial = Array.from(parts[parts.length - 1] ?? '')[0]?.toLocaleUpperCase() ?? '';
+  return initial ? `${first} ${initial}.` : first;
+}
+
 export function riderInitials(name: string): string {
   const letters = name.trim().split(/\s+/).filter((part) => part.length > 0).slice(0, 2).map((part) => part[0]?.toUpperCase() ?? '').join('');
   return letters || 'R';

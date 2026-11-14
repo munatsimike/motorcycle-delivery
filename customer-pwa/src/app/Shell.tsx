@@ -1,11 +1,20 @@
+import { useLayoutEffect, useRef, type ReactNode } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import type { ReactNode } from 'react';
 
 export function Shell() {
-  const onDeliveries = useLocation().pathname === '/deliveries';
+  const { pathname } = useLocation();
+  const onDeliveries = pathname === '/deliveries';
+  const mainRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const node = mainRef.current;
+    if (!node || document.documentElement.classList.contains('is-page-transition')) return;
+    node.classList.remove('is-entering');
+    void node.offsetWidth;
+    node.classList.add('is-entering');
+  }, [pathname]);
   return (
     <div className={onDeliveries ? 'shell shell-deliveries' : 'shell'}>
-      <div className="shell-main">
+      <div ref={mainRef} className="shell-main page-stage">
         <Outlet />
       </div>
       <nav className="shell-nav" aria-label="Customer">

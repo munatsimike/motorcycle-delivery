@@ -18,6 +18,7 @@ import {
   receivedOfferCountLabel,
   readRouteLine,
   riderFixIsFresh,
+  offerRiderName,
   riderPhotoPresentation,
   shouldPollDelivery,
   shouldShowRiderConfirmed,
@@ -210,6 +211,11 @@ test('rider confirmation, completed route, and photo fallback follow the native 
   assert.equal(riderPhotoPresentation({ hasProfilePhoto: true, photoUrl: null, failed: false }), 'initials');
   assert.equal(riderPhotoPresentation({ hasProfilePhoto: true, photoUrl: 'blob:photo', failed: false }), 'photo');
   assert.equal(riderPhotoPresentation({ hasProfilePhoto: true, photoUrl: 'blob:photo', failed: true }), 'initials');
+  assert.equal(offerRiderName('Michael Banda'), 'Michael B.');
+  assert.equal(offerRiderName('Michael'), 'Michael');
+  assert.equal(offerRiderName('  Michael   John   Banda  '), 'Michael B.');
+  assert.equal(offerRiderName(''), 'Rider');
+  assert.equal(offerRiderName('   '), 'Rider');
 });
 
 function memoryStore() {

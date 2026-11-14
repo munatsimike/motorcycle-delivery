@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { beginPageTransition } from '../motion/pageTransition';
 import { ApiError } from '../api/client';
 import { loadCustomerAccount } from '../account/profileApi';
 import { offerFieldText } from '../deliveries/tracking';
@@ -371,12 +372,12 @@ export function BookPage() {
     const openTracking = () => {
       const path = bookingSuccessPath(deliveryId);
       if (window.history.state?.bookingHold !== true) {
-        navigate(path, { replace: true });
+        beginPageTransition(() => navigate(path, { replace: true }));
         return;
       }
       const reveal = () => {
         window.removeEventListener('popstate', reveal);
-        navigate(path, { replace: true });
+        beginPageTransition(() => navigate(path, { replace: true }));
       };
       window.addEventListener('popstate', reveal);
       window.history.back();
@@ -393,7 +394,7 @@ export function BookPage() {
     const action = bookingBackAction(step, busy);
     if (action === 'blocked') return;
     if (action === 'exit') {
-      navigate('/home');
+      beginPageTransition(() => navigate('/home'));
       return;
     }
     setError(null);
@@ -402,7 +403,7 @@ export function BookPage() {
 
   if (mode === 'unavailable' || (mode === 'unknown' && !accountLoading)) {
     return (
-      <section className="book">
+      <section className="book page-stage is-entering">
         <div className="book-scroll">
           <div className="book-column">
             <ErrorMessage>{accountError ?? 'Express and Flexible booking is unavailable right now.'}</ErrorMessage>
@@ -414,7 +415,7 @@ export function BookPage() {
 
   const index = bookingStepIndex(step);
   return (
-    <section className="book">
+    <section className="book page-stage is-entering">
       <header className="book-header">
         <button type="button" className="book-back" aria-label="Back" disabled={busy !== null} onClick={goBack}>
           <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">

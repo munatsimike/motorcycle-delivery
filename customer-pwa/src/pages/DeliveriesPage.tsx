@@ -15,6 +15,7 @@ import {
   type DeliveryListSort,
 } from '../deliveries/rules';
 import { useDeliveries } from '../deliveries/useDeliveries';
+import { motionClass, usePresence } from '../motion/usePresence';
 
 const SORTS: { id: DeliveryListSort; label: string; shortLabel: string }[] = [
   { id: 'oldest', label: 'Date: oldest to newest', shortLabel: 'Date' },
@@ -38,6 +39,10 @@ export function DeliveriesPage() {
   const [contentKind, setContentKind] = useState<DeliveryContentKind | null>(null);
   const [sort, setSort] = useState<DeliveryListSort>('newest');
   const [sheet, setSheet] = useState<'filter' | 'sort' | null>(null);
+  const sheetSnapshot = useRef(sheet);
+  if (sheet) sheetSnapshot.current = sheet;
+  const shownSheet = sheet ?? sheetSnapshot.current;
+  const sheetMotion = usePresence(sheet !== null, 220);
   const active = useDeliveries(ACTIVE_LIST_STATUSES);
   const history = useDeliveries(HISTORY_LIST_STATUSES);
   const selected = group === 'active' ? active : history;
@@ -128,12 +133,12 @@ export function DeliveriesPage() {
         ) : null}
       </div>
       <Link className="deliveries-fab" to="/book" aria-label="Send a parcel">+</Link>
-      {sheet ? (
-        <div className="deliveries-sheet-backdrop" onClick={() => setSheet(null)}>
-          <div className="deliveries-sheet" role="dialog" aria-label={sheet === 'filter' ? 'Filter' : 'Sort by'} onClick={(event) => event.stopPropagation()}>
-            <h2>{sheet === 'filter' ? 'Filter' : 'Sort by'}</h2>
+      {sheetMotion.mounted && shownSheet ? (
+        <div className={motionClass('deliveries-sheet-backdrop', 'sheet', sheetMotion.visible)} onClick={() => setSheet(null)}>
+          <div className="deliveries-sheet" role="dialog" aria-label={shownSheet === 'filter' ? 'Filter' : 'Sort by'} onClick={(event) => event.stopPropagation()}>
+            <h2>{shownSheet === 'filter' ? 'Filter' : 'Sort by'}</h2>
             <div role="radiogroup">
-              {sheet === 'filter' ? FILTERS.map((item) => {
+              {shownSheet === 'filter' ? FILTERS.map((item) => {
                 const selectedItem = item.id === 'all' ? contentKind === null : item.id === contentKind;
                 return (
                   <button key={item.id} type="button" role="radio" aria-checked={selectedItem} className={selectedItem ? 'is-selected' : undefined} onClick={() => {

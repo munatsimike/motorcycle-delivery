@@ -2,10 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useSession } from '../auth/sessionContext';
 import { ErrorMessage } from '../components/ErrorMessage';
+import { TopSpinner } from '../components/TopSpinner';
 import { acceptOffer, adjustOffer, cancelDelivery, deliveryErrorMessage, dismissOffer, loadDelivery, loadDeliveryRoute, loadOffers, rateDelivery, searchForRider } from '../deliveries/api';
 import { RiderPhoto } from '../deliveries/RiderPhoto';
 import { TrackingMap } from '../deliveries/TrackingMap';
 import { fetchNearbyRiders } from '../home/nearbyApi';
+import { beginPageTransition } from '../motion/pageTransition';
+import { motionClass, usePresence } from '../motion/usePresence';
 import {
   TRACKING_POLL_MS,
   arrivalLabel,
@@ -22,6 +25,7 @@ import {
   keepsAcceptanceKey,
   offerFieldText,
   offersMissingSince,
+  offerRiderName,
   pickupEtaLabel,
   receivedOfferCountLabel,
   riderBikeLine,
@@ -93,7 +97,41 @@ export function DeliveryDetailsPage() {
   const seenOffers = useRef<string[]>([]);
   const accepting = useRef(createAcceptanceGate());
   const busyRef = useRef(false);
+  const cancelTriggerRef = useRef<HTMLButtonElement>(null);
+  const keepRequestRef = useRef<HTMLButtonElement>(null);
+  const cancelDialogRef = useRef<HTMLDivElement>(null);
   latest.current = delivery;
+
+  useEffect(() => {
+    if (confirm !== 'cancel' || !showsRiderOffers(latest.current)) return undefined;
+    keepRequestRef.current?.focus();
+    function onKey(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        if (busyRef.current) return;
+        event.preventDefault();
+        setConfirmError(null);
+        setConfirm(null);
+        return;
+      }
+      if (event.key !== 'Tab' || !cancelDialogRef.current) return;
+      const items = [...cancelDialogRef.current.querySelectorAll<HTMLElement>('button:not([disabled])')];
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      cancelTriggerRef.current?.focus();
+    };
+  }, [confirm]);
 
   useEffect(() => {
     let stopped = false;
@@ -211,13 +249,29 @@ export function DeliveryDetailsPage() {
     return () => window.clearInterval(timer);
   }, [trackingClock]);
 
+  const confirmSnapshot = useRef(confirm);
+  if (confirm) confirmSnapshot.current = confirm;
+  const shownConfirm = confirm ?? confirmSnapshot.current;
+  const requestDialog = confirm === 'cancel' && showsRiderOffers(delivery);
+  const parcelMotion = usePresence(parcelOpen, 220);
+  const sortMotion = usePresence(sortOpen, 220);
+  const priceMotion = usePresence(priceOpen, 150);
+  const requestMotion = usePresence(requestDialog, 150);
+  const confirmMotion = usePresence(confirm !== null && !requestDialog, 150);
   const view = detailViewState({ isLoading, error, hasDelivery: delivery !== null });
   if (view === 'loading') {
-    return <div className="track"><p className="track-status" role="status">Loading delivery</p></div>;
+    return (
+      <div className="track page-stage is-entering">
+        <div className="track-loading">
+          <TopSpinner active label="Loading delivery" />
+          <p aria-hidden="true">Loading delivery</p>
+        </div>
+      </div>
+    );
   }
   if (view === 'error' || !delivery) {
     return (
-      <div className="track">
+      <div className="track page-stage is-entering">
         <Link className="fullscreen-back" to="/deliveries" aria-label="Back">
           <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z" fill="currentColor" />
@@ -300,6 +354,24 @@ export function DeliveryDetailsPage() {
     }
   }
 
+  async function cancelRequest() {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    setConfirmError(null);
+    try {
+      const sessionToken = await accessToken();
+      if (!sessionToken) throw new Error('Sign in again.');
+      await cancelDelivery(sessionToken, currentDelivery.id);
+      beginPageTransition(() => navigate('/deliveries', { replace: true }));
+    } catch (caught) {
+      setConfirmError(deliveryErrorMessage(caught, 'This request could not be cancelled.'));
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  }
+
   async function deleteRequest() {
     if (busyRef.current) return;
     busyRef.current = true;
@@ -309,7 +381,7 @@ export function DeliveryDetailsPage() {
       const sessionToken = await accessToken();
       if (!sessionToken) throw new Error('Sign in again.');
       await cancelDelivery(sessionToken, currentDelivery.id);
-      navigate('/deliveries', { replace: true });
+      beginPageTransition(() => navigate('/deliveries', { replace: true }));
     } catch (caught) {
       setConfirmError(deliveryErrorMessage(caught, 'This delivery could not be deleted.'));
     } finally {
@@ -344,7 +416,7 @@ export function DeliveryDetailsPage() {
   }
 
   return (
-    <div className={screen === 'tracking' ? 'track track-live' : showsMap ? 'track' : 'track track-plain'}>
+    <div className={screen === 'tracking' ? 'track track-live page-stage is-entering' : showsMap ? 'track page-stage is-entering' : 'track track-plain page-stage is-entering'}>
       {showsMap ? null : <div className="track-wash" aria-hidden="true" />}
       <Link className="fullscreen-back" to="/deliveries" aria-label="Back">
         <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true">
@@ -520,7 +592,7 @@ export function DeliveryDetailsPage() {
                 />
                 <div className="offer-copy">
                   <div className="offer-name-row">
-                    <strong>{bid.riderName}</strong>
+                    <strong>{offerRiderName(bid.riderName)}</strong>
                     <span className={`offer-class offer-class-${bid.riderClass.toLowerCase()}`}>{riderClassLabel(bid.riderClass)}</span>
                   </div>
                   {bid.motorcycle ? <p>{bid.motorcycle}</p> : null}
@@ -553,7 +625,7 @@ export function DeliveryDetailsPage() {
         ) : null}
         {screen === 'tracking' ? <div className="facts-divider" /> : null}
         <div className={screen === 'outcome' ? 'outcome-actions' : screen === 'tracking' || screen === 'offers' ? 'track-actions track-footer' : 'track-actions'}>
-          {actions.cancel || actions.offers ? <button type="button" onClick={() => setConfirm('cancel')}>{busy ? 'Cancelling' : actions.offers ? 'Cancel request' : 'Cancel delivery'}</button> : null}
+          {actions.cancel || actions.offers ? <button ref={actions.offers ? cancelTriggerRef : undefined} type="button" onClick={() => { if (busyRef.current) return; setConfirmError(null); setConfirm('cancel'); }}>{busy ? 'Cancelling' : actions.offers ? 'Cancel request' : 'Cancel delivery'}</button> : null}
           {actions.searchAgain ? <button type="button" className="outcome-search" disabled={busy} onClick={() => void searchAgain()}><SearchIcon />{searching ? 'Searching…' : 'Search again'}</button> : null}
           {actions.deleteRequest ? <button type="button" className="outcome-delete" disabled={busy} onClick={() => { if (busyRef.current) return; setConfirmError(null); setConfirm('delete'); }}>Delete</button> : null}
           {actions.adjustPrice && screen !== 'outcome' ? <button type="button" disabled={busy} onClick={openPrice}>Adjust price</button> : null}
@@ -568,32 +640,58 @@ export function DeliveryDetailsPage() {
         ) : null}
         {actionError ? <ErrorMessage>{actionError}</ErrorMessage> : null}
       </section>}
-      {parcelOpen ? (
-        <div className="deliveries-sheet-backdrop" onClick={() => setParcelOpen(false)}>
+      {parcelMotion.mounted ? (
+        <div className={motionClass('deliveries-sheet-backdrop', 'sheet', parcelMotion.visible)} onClick={() => setParcelOpen(false)}>
           <div className="deliveries-sheet" role="dialog" aria-label="Parcel details" onClick={(event) => event.stopPropagation()}>
-            <h2>Parcel details</h2>
+            <div className="parcel-sheet-head">
+              <h2>Parcel details</h2>
+              <button type="button" className="parcel-sheet-close" aria-label="Close" onClick={() => setParcelOpen(false)}>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41Z" /></svg>
+              </button>
+            </div>
             <DeliveryFacts delivery={delivery} showContacts />
-            <button type="button" onClick={() => setParcelOpen(false)}>Close</button>
           </div>
         </div>
       ) : null}
-      {confirm ? (
-        <div className="deliveries-sheet-backdrop" onClick={() => { if (busy && confirm === 'delete') return; setConfirmError(null); setConfirm(null); }}>
+      {requestMotion.mounted ? (
+        <div className={motionClass('confirm-dialog-backdrop', 'dialog', requestMotion.visible)} onClick={() => { if (busy) return; setConfirmError(null); setConfirm(null); }}>
+          <div
+            ref={cancelDialogRef}
+            className="confirm-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="cancel-request-title"
+            aria-describedby="cancel-request-copy"
+            aria-busy={busy}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 id="cancel-request-title">Cancel this request?</h2>
+            <p id="cancel-request-copy">We will stop looking for a rider.</p>
+            {confirmError ? <ErrorMessage>{confirmError}</ErrorMessage> : null}
+            <div className="confirm-dialog-actions">
+              <button ref={keepRequestRef} type="button" className="confirm-keep" disabled={busy} onClick={() => { if (busy) return; setConfirmError(null); setConfirm(null); }}>Keep request</button>
+              <button type="button" className="confirm-cancel" disabled={busy} onClick={() => void cancelRequest()}>{busy ? 'Cancelling' : 'Cancel request'}</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {confirmMotion.mounted && shownConfirm ? (
+        <div className={motionClass('deliveries-sheet-backdrop', 'dialog', confirmMotion.visible)} onClick={() => { if (busy && shownConfirm === 'delete') return; setConfirmError(null); setConfirm(null); }}>
           <div className="deliveries-sheet" role="dialog" aria-label="Confirm" onClick={(event) => event.stopPropagation()}>
-            <h2>{confirm === 'cancel' ? (actions.offers ? 'Cancel this request?' : 'Cancel delivery?') : confirm === 'delete' ? 'Delete this delivery?' : 'Choose rider'}</h2>
-            <p>{confirm === 'cancel' ? (actions.offers ? 'We will stop looking for a rider.' : 'Cancelling closes this delivery request.') : confirm === 'delete' ? 'This cannot be undone.' : confirm.riderName}</p>
-            {confirm !== 'cancel' && confirm !== 'delete' ? <p>${confirm.amount}</p> : null}
-            {confirm === 'delete' && confirmError ? <ErrorMessage>{confirmError}</ErrorMessage> : null}
-            <button type="button" disabled={busy && confirm !== 'cancel' && confirm !== 'delete'} onClick={() => { if (!busy) { setConfirmError(null); setConfirm(null); } }}>{confirm === 'delete' ? 'Cancel' : confirm === 'cancel' && actions.offers ? 'Keep request' : confirm === 'cancel' ? 'Keep delivery' : 'Keep comparing'}</button>
+            <h2>{shownConfirm === 'cancel' ? 'Cancel delivery?' : shownConfirm === 'delete' ? 'Delete this delivery?' : 'Choose rider'}</h2>
+            <p>{shownConfirm === 'cancel' ? 'Cancelling closes this delivery request.' : shownConfirm === 'delete' ? 'This cannot be undone.' : shownConfirm.riderName}</p>
+            {shownConfirm !== 'cancel' && shownConfirm !== 'delete' ? <p>${shownConfirm.amount}</p> : null}
+            {shownConfirm === 'delete' && confirmError ? <ErrorMessage>{confirmError}</ErrorMessage> : null}
+            <button type="button" disabled={busy && shownConfirm !== 'cancel' && shownConfirm !== 'delete'} onClick={() => { if (!busy) { setConfirmError(null); setConfirm(null); } }}>{shownConfirm === 'delete' ? 'Cancel' : shownConfirm === 'cancel' ? 'Keep delivery' : 'Keep comparing'}</button>
             <button type="button" disabled={busy} onClick={() => {
-              if (confirm === 'delete') {
+              if (shownConfirm === 'delete') {
                 void deleteRequest();
                 return;
               }
               void withToken(async (token) => {
-              if (confirm === 'cancel') {
+              if (shownConfirm === 'cancel') {
                 await cancelDelivery(token, delivery.id);
-                navigate('/deliveries', { replace: true });
+                beginPageTransition(() => navigate('/deliveries', { replace: true }));
                 return;
               }
               const started = accepting.current.begin();
@@ -603,25 +701,25 @@ export function DeliveryDetailsPage() {
                 return;
               }
               try {
-                const key = acceptanceKeyFor(sessionStorage, delivery.id, confirm.id, () => crypto.randomUUID());
+                const key = acceptanceKeyFor(sessionStorage, delivery.id, shownConfirm.id, () => crypto.randomUUID());
                 let accepted;
                 try {
-                  accepted = await acceptOffer(token, delivery.id, confirm.id, key);
+                  accepted = await acceptOffer(token, delivery.id, shownConfirm.id, key);
                 } catch (caught) {
                   if (!keepsAcceptanceKey(caught)) throw caught;
                   const latestDelivery = await loadDelivery(token, delivery.id);
                   if (latestDelivery.status !== 'RIDER_ASSIGNED' && latestDelivery.status !== 'COLLECTING') throw caught;
-                  clearAcceptanceKey(sessionStorage, delivery.id, confirm.id);
+                  clearAcceptanceKey(sessionStorage, delivery.id, shownConfirm.id);
                   setDelivery(latestDelivery);
                   setAcceptedId(latestDelivery.id);
                   setConfirmedDismissed(false);
                   setConfirm(null);
                   return;
                 }
-                if (accepted.deliveryId !== delivery.id || accepted.bidId !== confirm.id) {
+                if (accepted.deliveryId !== delivery.id || accepted.bidId !== shownConfirm.id) {
                   throw new Error('This offer could not be accepted.');
                 }
-                clearAcceptanceKey(sessionStorage, delivery.id, confirm.id);
+                clearAcceptanceKey(sessionStorage, delivery.id, shownConfirm.id);
                 setDelivery((current) => current ? { ...current, status: 'RIDER_ASSIGNED', offeredPrice: accepted.acceptedBidAmount, riderLocation: null } : current);
                 const next = await loadDelivery(token, delivery.id).catch(() => null);
                 if (next) setDelivery(next);
@@ -632,12 +730,12 @@ export function DeliveryDetailsPage() {
                 accepting.current.end();
               }
             });
-            }}>{busy ? 'Confirming' : confirm === 'delete' ? 'Delete' : confirm === 'cancel' ? (actions.offers ? 'Cancel request' : 'Cancel delivery') : 'Confirm rider'}</button>
+            }}>{busy ? 'Confirming' : shownConfirm === 'delete' ? 'Delete' : shownConfirm === 'cancel' ? 'Cancel delivery' : 'Confirm rider'}</button>
           </div>
         </div>
       ) : null}
-      {sortOpen ? (
-        <div className="deliveries-sheet-backdrop" onClick={() => setSortOpen(false)}>
+      {sortMotion.mounted ? (
+        <div className={motionClass('deliveries-sheet-backdrop', 'sheet', sortMotion.visible)} onClick={() => setSortOpen(false)}>
           <div className="deliveries-sheet" role="dialog" aria-label="Sort by" onClick={(event) => event.stopPropagation()}>
             <h2>Sort by</h2>
             {([
@@ -655,8 +753,8 @@ export function DeliveryDetailsPage() {
           </div>
         </div>
       ) : null}
-      {priceOpen ? (
-        <div className="deliveries-sheet-backdrop">
+      {priceMotion.mounted ? (
+        <div className={motionClass('deliveries-sheet-backdrop', 'dialog', priceMotion.visible)}>
           <div className="deliveries-sheet" role="dialog" aria-label="Adjust price">
             <h2>Your offer ($)</h2>
             <input inputMode="decimal" maxLength={7} value={priceText} onChange={(event) => { setPriceText(offerFieldText(event.target.value)); setPriceError(null); }} />
@@ -794,7 +892,7 @@ function DeliveryFacts({
       <div className="facts-divider" />
       <div className="delivery-facts">
         <p><span>Distance</span><strong>{deliveryDistanceLabel(delivery.distanceMeters)}</strong></p>
-        <p>
+        <p className="facts-price">
           <span>{customerOffer ? 'Your offer' : 'Price'}</span>
           <strong>{moneyLabel(delivery.currency, amount)}</strong>
           {onAdjust ? <button type="button" className="facts-adjust" onClick={onAdjust}><PencilMark />Adjust price</button> : null}

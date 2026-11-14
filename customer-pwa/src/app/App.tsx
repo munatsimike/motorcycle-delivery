@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
-import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import { beginPageTransition, samePageLink } from '../motion/pageTransition';
 import { OfflineNotice } from '../components/OfflineNotice';
 import { UpdateNotice } from '../components/UpdateNotice';
 import { Loading } from '../components/Loading';
@@ -23,6 +24,7 @@ export function App() {
   return (
     <>
       <a className="skip" href="#main">Skip to content</a>
+      <PageTransitionLinks />
       <OfflineNotice />
       <UpdateNotice />
       {visibleTree(status) === 'session-check' ? <SessionCheck /> : status === 'signed-in' ? <SignedInRoutes /> : <SignedOutRoutes />}
@@ -30,9 +32,35 @@ export function App() {
   );
 }
 
+function PageTransitionLinks() {
+  const navigate = useNavigate();
+  useEffect(() => {
+    function onClick(event: MouseEvent) {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const anchor = event.target instanceof Element ? event.target.closest('a') : null;
+      if (!anchor || anchor.target || anchor.hasAttribute('download')) return;
+      const href = anchor.getAttribute('href');
+      if (!href || href.startsWith('#')) return;
+      let url: URL;
+      try {
+        url = new URL(anchor.href, window.location.href);
+      } catch {
+        return;
+      }
+      if (url.origin !== window.location.origin || samePageLink(url)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      beginPageTransition(() => navigate(`${url.pathname}${url.search}${url.hash}`));
+    }
+    document.addEventListener('click', onClick, true);
+    return () => document.removeEventListener('click', onClick, true);
+  }, [navigate]);
+  return null;
+}
+
 function SessionCheck() {
   return (
-    <div className="auth-screen">
+    <div className="auth-screen page-stage is-entering">
       <Loading label="Checking your session" />
     </div>
   );
@@ -88,7 +116,7 @@ function SignedInHomeRedirect() {
   }, [leaving]);
   if (leaving) {
     return (
-      <div className="auth-screen">
+      <div className="auth-screen page-stage is-entering">
         <Loading label="Signing out" />
       </div>
     );

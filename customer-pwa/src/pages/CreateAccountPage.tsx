@@ -23,7 +23,7 @@ export function CreateAccountPage() {
     return <RegistrationDetails />;
   }
   return (
-    <div className="auth-screen">
+    <div className="auth-screen page-stage is-entering">
       <VerificationForm flow="whatsapp_registration" title="Create account" />
     </div>
   );
@@ -42,7 +42,7 @@ function RegistrationDetails() {
 
   if (!proof) {
     return (
-      <div className="auth-screen">
+      <div className="auth-screen page-stage is-entering">
         <AuthBack to="/" />
         <Page title="Create account">
           <ErrorMessage>Verify your number again to finish creating the account.</ErrorMessage>
@@ -92,7 +92,7 @@ function RegistrationDetails() {
   const nameError = registrationNameFieldError(error);
 
   return (
-    <div className="auth-screen">
+    <div className="auth-screen page-stage is-entering">
       <AuthBack to="/create-account" />
       <Page title="Your details">
         <p className="lede">Your number is verified. Add the details for this customer account.</p>

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { beginPageTransition } from '../motion/pageTransition';
 import { ErrorMessage } from '../components/ErrorMessage';
 import { deliveryErrorMessage } from './api';
 import {
@@ -46,7 +47,7 @@ export function DeliveryCard({
 
   return (
     <article className="delivery-card">
-      <button type="button" className="delivery-card-open" onClick={() => navigate(`/deliveries/${delivery.id}`)}>
+      <button type="button" className="delivery-card-open" onClick={() => beginPageTransition(() => navigate(`/deliveries/${delivery.id}`))}>
         <span className="delivery-badge">
           <ContentIcon kind={kind} />
           <span>{contentLabel(kind)}</span>
