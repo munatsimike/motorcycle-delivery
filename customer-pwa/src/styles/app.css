@@ -1890,7 +1890,7 @@ button.home-status:disabled {
   flex: 1;
   margin: 0;
   font-size: var(--heading);
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .track-live-pill {
@@ -1918,12 +1918,21 @@ button.home-status:disabled {
   background: transparent;
 }
 
+.track-contact .track-icon-btn svg {
+  fill: none;
+  stroke: currentColor;
+}
+
 .track-icon-btn svg,
 .track-parcel svg,
 .outcome-parcel svg {
   width: 22px;
   height: 22px;
   fill: currentColor;
+}
+
+.track-contact .track-icon-btn svg {
+  fill: none;
 }
 
 .track-parcel svg,
