@@ -80,6 +80,8 @@ export function TrackingMap({
   const markerKey = extraMarkers.map((point) => `${point.latitude.toFixed(5)}:${point.longitude.toFixed(5)}`).join('|');
   const routeKey = line.length > 1 ? `${line.length}:${line[0].latitude.toFixed(4)}:${line[line.length - 1].latitude.toFixed(4)}` : '';
   const stopKey = stop ? `${stop.latitude.toFixed(5)}:${stop.longitude.toFixed(5)}` : '';
+  // Reframe once when the assigned rider's first GPS fix arrives, not on every poll.
+  const riderAvailable = rider !== null;
   const stopKeyRef = useRef(stopKey);
   const frameRef = useRef(frame);
   const drawRef = useRef(draw);
@@ -175,7 +177,7 @@ export function TrackingMap({
     programmatic.current = false;
     rememberOffers(next);
     drawRef.current();
-  }, [deliveryId, live, stopKey, markerKey, neighborhood, routeKey]);
+  }, [deliveryId, live, riderAvailable, stopKey, markerKey, neighborhood, routeKey]);
 
   useEffect(() => {
     drawRef.current();
@@ -185,7 +187,8 @@ export function TrackingMap({
     const height = node.current?.clientHeight || 480;
     const width = node.current?.clientWidth || height;
     const fitRoute = Boolean(props.current.pickup) && !props.current.live;
-    if (!props.current.neighborhood && !fitRoute) return zoomForSpan(next.latitudeDelta, height);
+    // Tracking must fit both rider and pickup horizontally as well as vertically.
+    if (!props.current.neighborhood && !fitRoute) return Math.min(zoomForSpan(next.latitudeDelta, height), zoomForSpan(next.longitudeDelta, width));
     return Math.min(zoomForSpan(next.latitudeDelta, height), zoomForSpan(next.longitudeDelta, width));
   }
 
