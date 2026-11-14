@@ -818,7 +818,7 @@ button.home-status:disabled {
   justify-content: center;
   flex: 0 0 auto;
   margin-top: clamp(22px, 4dvh, 44px);
-  margin-bottom: clamp(10px, 1.5dvh, 16px);
+  margin-bottom: clamp(22px, 4dvh, 44px);
 }
 
 .welcome-hero {
@@ -829,7 +829,7 @@ button.home-status:disabled {
   width: min(100%, 20rem);
   flex: 0 1 auto;
   height: clamp(180px, 31dvh, 340px);
-  margin-bottom: clamp(10px, 1.4dvh, 16px);
+  margin-bottom: clamp(22px, 4dvh, 44px);
   min-height: 0;
   /* Keep the illustration compact; distribute remaining space between sections. */
 }
@@ -876,15 +876,15 @@ button.home-status:disabled {
     padding-bottom: calc(12px + env(safe-area-inset-bottom));
   }
   .welcome-stage { gap: 0; }
-  .welcome-logo { margin-top: 14px; margin-bottom: 9px; }
-  .welcome-hero { height: clamp(120px, 27dvh, 210px); min-height: 0; margin-bottom: 8px; }
+  .welcome-logo { margin-top: 14px; margin-bottom: 18px; }
+  .welcome-hero { height: clamp(120px, 27dvh, 210px); min-height: 0; margin-bottom: 18px; }
   .welcome-actions { margin-top: 10px; }
 }
 
 @media (max-height: 600px) {
   .welcome-stage { gap: 0; }
-  .welcome-logo { margin-top: 8px; margin-bottom: 6px; }
-  .welcome-hero { height: clamp(75px, 20dvh, 125px); min-height: 0; margin-bottom: 5px; }
+  .welcome-logo { margin-top: 8px; margin-bottom: 10px; }
+  .welcome-hero { height: clamp(75px, 20dvh, 125px); min-height: 0; margin-bottom: 10px; }
   .welcome-actions { margin-top: 8px; }
 }
 
