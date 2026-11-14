@@ -1619,16 +1619,25 @@ button.home-status:disabled {
 
 .track-recenter {
   position: absolute;
-  right: var(--space-lg);
+  right: 20px;
   bottom: 88px;
-  z-index: 2;
-  width: 40px;
-  height: 40px;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  padding: 0;
   border: 0;
-  border-radius: 20px;
+  border-radius: 23px;
   background: #ffffff;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+  color: #263f34;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
   cursor: pointer;
+}
+
+.track-recenter svg {
+  width: 22px;
+  height: 22px;
 }
 
 .track-sheet {
