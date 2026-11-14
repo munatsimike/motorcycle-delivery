@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { HARARE, INITIAL_SPAN, NEIGHBORHOOD_SPAN, cameraFor, shouldAutoFrame } from './camera.ts';
+import { motorcycleMarkerDisplaySize, NATIVE_MOTORCYCLE_MARKER } from './motorcycleMarker.ts';
 import {
   locationFromGeolocationError,
   nearbyHomeCountLabel,
@@ -39,6 +40,17 @@ test('the first camera is Harare and a later fix stays locked', () => {
   assert.equal(shouldAutoFrame({ gestured: true, locked: false, customer, cardHeight: 220 }), false);
   assert.equal(shouldAutoFrame({ gestured: false, locked: true, customer, cardHeight: 220 }), false);
   assert.equal(shouldAutoFrame({ gestured: false, locked: false, customer: null, cardHeight: 220 }), false);
+});
+
+test('motorcycle markers use the native bitmap size and center anchor', () => {
+  assert.equal(NATIVE_MOTORCYCLE_MARKER.width, 106);
+  assert.equal(NATIVE_MOTORCYCLE_MARKER.height, 115);
+  const phone = motorcycleMarkerDisplaySize(3);
+  assert.equal(phone.width, 106 / 3);
+  assert.equal(phone.height, 115 / 3);
+  assert.equal(phone.width / phone.height, 106 / 115);
+  assert.equal(motorcycleMarkerDisplaySize(1).width, 106);
+  assert.equal(motorcycleMarkerDisplaySize(0).height, 115);
 });
 
 test('nearby responses keep only unexpired approximate points', () => {

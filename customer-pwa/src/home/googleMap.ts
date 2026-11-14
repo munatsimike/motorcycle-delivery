@@ -8,6 +8,7 @@ import {
   shouldAutoFrame,
   type MapPoint,
 } from './camera';
+import { motorcycleMarkerIcon } from './motorcycleMarker';
 import type { NearbyMarker } from './nearby';
 import { bindMapTheme } from '../theme/mapStyle';
 
@@ -47,8 +48,6 @@ export type HomeMap = {
   destroy: () => void;
 };
 
-const MARKER_WIDTH = 106;
-const MARKER_HEIGHT = 115;
 let loader: Promise<void> | null = null;
 
 export function loadGoogleMaps(key: string): Promise<void> {
@@ -191,11 +190,7 @@ export function createHomeMap(element: HTMLElement, iconUrl: string, onAuthFailu
           clickable: false,
           optimized: false,
           zIndex: 3,
-          icon: {
-            url: iconUrl,
-            scaledSize: new maps.Size(MARKER_WIDTH, MARKER_HEIGHT),
-            anchor: new maps.Point(MARKER_WIDTH / 2, MARKER_HEIGHT / 2),
-          },
+          icon: motorcycleMarkerIcon(maps, iconUrl),
         }));
       }
       for (const [id, marker] of markers) {

@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import riderMarker from '../assets/rider-motorcycle-marker.png';
 import { mapsBrowserKey } from '../config/env';
 import { zoomForSpan } from '../home/camera';
+import { motorcycleMarkerIcon } from '../home/motorcycleMarker';
 import { loadGoogleMaps } from '../home/googleMap';
 import { offersFrameHolds, offersMapCamera, showsTrackingRoute, trackingCameraRegion, trackingCameraShouldMove, TRACKING_MAP_HEIGHT, TRACKING_MARKER_CLEARANCE, TRACKING_SHEET_OVERLAP, TRACKING_ZOOM_DELTA, type OffersMapFrame, type RoutePoint } from './tracking';
 import { bindMapTheme } from '../theme/mapStyle';
@@ -291,11 +292,7 @@ export function TrackingMap({
         position: { lat: current.rider.latitude, lng: current.rider.longitude },
         title: current.summary ? `Rider location, ${current.summary}` : 'Rider location',
         zIndex: 3,
-        icon: {
-          url: riderMarker,
-          scaledSize: new maps.Size(AVAILABLE_MARKER_WIDTH, AVAILABLE_MARKER_HEIGHT),
-          anchor: new maps.Point(AVAILABLE_MARKER_WIDTH / 2, AVAILABLE_MARKER_HEIGHT / 2),
-        },
+        icon: motorcycleMarkerIcon(maps, riderMarker),
       });
     } else {
       riderMarkerRef.current.setPosition({ lat: current.rider.latitude, lng: current.rider.longitude });
@@ -306,12 +303,9 @@ export function TrackingMap({
       position: { lat: point.latitude, lng: point.longitude },
       title: point.title,
       clickable: false,
+      optimized: false,
       zIndex: 3,
-      icon: {
-        url: riderMarker,
-        scaledSize: new maps.Size(AVAILABLE_MARKER_WIDTH, AVAILABLE_MARKER_HEIGHT),
-        anchor: new maps.Point(AVAILABLE_MARKER_WIDTH / 2, AVAILABLE_MARKER_HEIGHT / 2),
-      },
+      icon: motorcycleMarkerIcon(maps, riderMarker),
     }));
   }
 
@@ -375,9 +369,6 @@ function deliveredMarkerIcon(maps: Maps, callout: DeliveredCallout) {
 function truncate(value: string, max: number): string {
   return value.length > max ? `${value.slice(0, max - 1)}…` : value;
 }
-
-const AVAILABLE_MARKER_WIDTH = 106;
-const AVAILABLE_MARKER_HEIGHT = 115;
 
 function routeCamera(points: RoutePoint[]) {
   let minLatitude = points[0].latitude;

@@ -694,8 +694,14 @@ button.home-status:disabled {
 }
 
 .banner-update {
-  background: var(--primary-light);
-  color: var(--primary-dark);
+  background: #fff0d9;
+  color: #9a4d00;
+}
+
+.banner-update .button,
+.banner-update .button:hover {
+  background: #e67e22;
+  color: #ffffff;
 }
 
 .banner .button {
