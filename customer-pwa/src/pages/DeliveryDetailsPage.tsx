@@ -27,7 +27,6 @@ import {
   offersMissingSince,
   offerRiderName,
   pickupEtaLabel,
-  receivedOfferCountLabel,
   riderBikeLine,
   riderClassLabel,
   riderRatingLine,
@@ -519,6 +518,14 @@ export function DeliveryDetailsPage() {
             <div className="track-title-row">
               <h1>{headline ?? deliveryCardStatusLabel({ status: delivery.status, serviceClass: delivery.serviceClass, deliverBy: delivery.deliverBy, openBidCount: offers.length })}</h1>
               {live ? <p className="track-live-pill">Live</p> : null}
+              {screen === 'offers' ? (
+                <button type="button" className="offer-sort" aria-label={`Sort offers, ${offerSortLabel(offerSort)}`} onClick={() => setSortOpen(true)}>
+                  <SwapIcon />
+                  <span>{offerSortShortLabel(offerSort)}</span>
+                  <SortIcon descending={offerSort.endsWith('high')} />
+                  <ChevronDown />
+                </button>
+              ) : null}
             </div>
             {subtitle ? <p>{subtitle}</p> : null}
             {screen === 'tracking' && deadlineLabel(delivery.deliverBy) ? <p className="track-note">Deliver by {deadlineLabel(delivery.deliverBy)}</p> : null}
@@ -550,15 +557,6 @@ export function DeliveryDetailsPage() {
         ) : null}
         {screen === 'offers' ? (
           <div className="track-offers">
-            <div className="track-offer-head">
-              <h2 className="offer-count">{receivedOfferCountLabel(orderedOffers.length)}</h2>
-              <button type="button" className="offer-sort" aria-label={`Sort offers, ${offerSortLabel(offerSort)}`} onClick={() => setSortOpen(true)}>
-                <SwapIcon />
-                <span>{offerSortShortLabel(offerSort)}</span>
-                <SortIcon descending={offerSort.endsWith('high')} />
-                <ChevronDown />
-              </button>
-            </div>
             {offerNotice ? <p className="track-meta">{offerNotice}</p> : null}
             {!offersLoaded && orderedOffers.length === 0 ? (
               <div className="offer-skeletons" role="status" aria-label="Loading offers">

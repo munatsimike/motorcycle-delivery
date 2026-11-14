@@ -1972,6 +1972,8 @@ button.home-status:disabled {
 }
 
 .track-offers-sheet {
+  padding-right: 16px;
+  padding-left: 16px;
   background: var(--list-background);
 }
 
@@ -1983,36 +1985,24 @@ button.home-status:disabled {
   background: var(--border);
 }
 
+.track-offers-sheet .track-title-row h1 {
+  min-width: 0;
+}
+
 .track-offers {
   display: grid;
   gap: var(--space-sm);
-  margin-top: var(--space-sm);
+  margin-top: 12px;
+  padding-inline: 0;
 }
 
-.track-offer-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-sm);
-}
-
-.offer-count {
-  flex: 1;
-  margin: 0;
-  color: #7c3aed;
-  font-size: 18px;
-  font-weight: 500;
-}
-
-[data-theme="dark"] .offer-count {
-  color: #c4b5fd;
-}
-
-.track-offers .offer-sort {
+.track-offers-sheet .offer-sort {
   display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: 4px;
   width: auto;
+  margin-left: auto;
   min-height: 32px;
   padding: 4px 12px;
   border: 1px solid var(--border);
@@ -2023,21 +2013,22 @@ button.home-status:disabled {
   font-weight: 600;
 }
 
-.track-offers .offer-sort svg {
+.track-offers-sheet .offer-sort svg {
   width: 18px;
   height: 18px;
   fill: currentColor;
 }
 
-.track-offers .offer-sort svg:last-child {
+.track-offers-sheet .offer-sort svg:last-child {
   color: var(--text-secondary);
 }
 
 .track-offers article {
   display: grid;
   gap: var(--space-sm);
-  margin-top: 0;
-  padding: var(--space-lg);
+  width: 100%;
+  margin: 0;
+  padding: 12px 16px;
   border: 1px solid var(--list-card-border);
   border-radius: var(--radius-lg);
   background: var(--background);
