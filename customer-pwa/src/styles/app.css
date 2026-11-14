@@ -828,14 +828,14 @@ button.home-status:disabled {
   width: min(100%, 20rem);
   flex: 1 1 auto;
   min-height: 80px;
-  max-height: 320px;
+  /* The hero fills the space between logo and copy, rather than leaving a blank strip. */
 }
 
 .welcome-hero img {
   display: block;
   width: 100%;
   height: 100%;
-  max-height: 100%;
+  max-height: min(34dvh, 340px);
   object-fit: contain;
   object-position: center;
 }
@@ -846,7 +846,8 @@ button.home-status:disabled {
   align-items: center;
   width: min(100%, 420px);
   flex: 0 0 auto;
-  margin-top: auto;
+  /* Keep the headline near the illustration; the hero absorbs spare height. */
+  margin-top: 0;
 }
 
 .welcome-panel {
@@ -873,14 +874,16 @@ button.home-status:disabled {
   }
   .welcome-stage { gap: 10px; }
   .welcome-logo { margin-top: 8px; margin-bottom: 12px; }
-  .welcome-hero { min-height: 65px; max-height: 180px; }
+  .welcome-hero { min-height: 65px; }
+  .welcome-hero img { max-height: 180px; }
   .welcome-actions { margin-top: 10px; }
 }
 
 @media (max-height: 600px) {
   .welcome-stage { gap: 6px; }
   .welcome-logo { margin-top: 6px; margin-bottom: 10px; }
-  .welcome-hero { min-height: 45px; max-height: 110px; }
+  .welcome-hero { min-height: 45px; }
+  .welcome-hero img { max-height: 110px; }
   .welcome-actions { margin-top: 8px; }
 }
 
