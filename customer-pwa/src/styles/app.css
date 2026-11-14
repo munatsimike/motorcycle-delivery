@@ -809,7 +809,8 @@ button.home-status:disabled {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: clamp(12px, 2dvh, 20px);
+  gap: 0;
+  justify-content: space-between;
 }
 
 .welcome-logo {
@@ -826,16 +827,17 @@ button.home-status:disabled {
   align-items: center;
   justify-content: center;
   width: min(100%, 20rem);
-  flex: 1 1 auto;
-  min-height: 80px;
-  /* The hero fills the space between logo and copy, rather than leaving a blank strip. */
+  flex: 0 1 auto;
+  height: clamp(180px, 31dvh, 340px);
+  min-height: 0;
+  /* Keep the illustration compact; distribute remaining space between sections. */
 }
 
 .welcome-hero img {
   display: block;
   width: 100%;
   height: 100%;
-  max-height: min(34dvh, 340px);
+  max-height: 100%;
   object-fit: contain;
   object-position: center;
 }
@@ -872,18 +874,16 @@ button.home-status:disabled {
     padding-top: calc(16px + env(safe-area-inset-top));
     padding-bottom: calc(12px + env(safe-area-inset-bottom));
   }
-  .welcome-stage { gap: 10px; }
+  .welcome-stage { gap: 0; }
   .welcome-logo { margin-top: 8px; margin-bottom: 12px; }
-  .welcome-hero { min-height: 65px; }
-  .welcome-hero img { max-height: 180px; }
+  .welcome-hero { height: clamp(120px, 27dvh, 210px); min-height: 0; }
   .welcome-actions { margin-top: 10px; }
 }
 
 @media (max-height: 600px) {
-  .welcome-stage { gap: 6px; }
+  .welcome-stage { gap: 0; }
   .welcome-logo { margin-top: 6px; margin-bottom: 10px; }
-  .welcome-hero { min-height: 45px; }
-  .welcome-hero img { max-height: 110px; }
+  .welcome-hero { height: clamp(75px, 20dvh, 125px); min-height: 0; }
   .welcome-actions { margin-top: 8px; }
 }
 
