@@ -176,6 +176,36 @@ export function pickupAutofillFix(input: {
   return { latitude: String(input.latitude), longitude: String(input.longitude) };
 }
 
+export type GeocoderComponent = { long_name?: string; short_name?: string; types?: string[] };
+
+export function readGeocodedAddress(
+  components: readonly GeocoderComponent[] | null | undefined,
+  formatted?: string | null,
+): { display: string; fullAddress: string; needsStreet: boolean } | null {
+  const part = (type: string) => components?.find((item) => item.types?.includes(type))?.long_name?.trim() ?? '';
+  const country = part('country');
+  const countryCode = components?.find((item) => item.types?.includes('country'))?.short_name?.trim().toLowerCase() ?? '';
+  const city = part('locality') || part('administrative_area_level_1');
+  const suburb = part('sublocality') || part('sublocality_level_1') || part('neighborhood');
+  const street = [part('street_number'), part('route')].filter(Boolean).join(' ');
+  const zimbabwe = countryCode === 'zw' || country.toLowerCase() === 'zimbabwe';
+  const display = uniqueAddress([...(zimbabwe ? [street, suburb] : [street, suburb, city])]);
+  const fullAddress = uniqueAddress([street, suburb, city, country]) || formatted?.trim() || '';
+  if (!display && !fullAddress) return null;
+  const needsStreet = zimbabwe && street.length === 0;
+  return { display: needsStreet ? '' : display, fullAddress, needsStreet };
+}
+
+function uniqueAddress(parts: string[]): string {
+  const seen = new Set<string>();
+  return parts.filter((part) => {
+    const key = part.trim().toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).join(', ');
+}
+
 export function decideAddressAutofill(userEdited: boolean, result: { display: string; fullAddress: string; needsStreet: boolean } | null) {
   if (userEdited || !result) return { status: 'ignore' as const, display: '', fullAddress: '' };
   if (result.needsStreet || !result.display) return { status: 'needs-street' as const, display: '', fullAddress: result.fullAddress };

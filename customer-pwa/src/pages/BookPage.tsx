@@ -13,6 +13,8 @@ import { ErrorMessage } from '../components/ErrorMessage';
 import { ZimbabwePhoneField } from '../components/ZimbabwePhoneField';
 import { Loading } from '../components/Loading';
 import { createDelivery, quoteDelivery, resolvePlace, searchPlaces } from '../booking/api';
+import { mapsBrowserKey } from '../config/env';
+import { loadGoogleMaps } from '../home/googleMap';
 import {
   clearStopLocation,
   bookingPhoneDisplay,
@@ -57,6 +59,7 @@ import {
   createPlaceSessionToken,
   decideAddressAutofill,
   pickupAutofillFix,
+  readGeocodedAddress,
   selectedAddressLabel,
   type PlaceSuggestion,
 } from '../booking/places';
@@ -72,6 +75,10 @@ import {
 
 const INSTRUCTION_LIMIT = 200;
 const SEARCH_DELAY_MS = 500;
+const LOCATION_DENIED = 'Location permission is needed to detect your pickup point.';
+const LOCATION_UNAVAILABLE = 'We couldn\'t detect your location. Try again or search for your pickup address.';
+const LOCATION_STREET = 'Enter the street address.';
+let pickupLocationRequested = false;
 const ATTEMPT_KEY = 'customer_delivery_create_v1';
 
 type QuotedPrice = DeliveryQuote & { pinKey: string };
@@ -98,6 +105,11 @@ export function BookPage() {
   busyRef.current = busy;
   const prefilled = useRef(false);
   const addressEdited = useRef(false);
+  const draftRef = useRef(draft);
+  const locatingRef = useRef(false);
+  const [locating, setLocating] = useState(false);
+  const [locateError, setLocateError] = useState<string | null>(null);
+  draftRef.current = draft;
   const leaving = useRef(false);
   const attempts = useRef<AttemptStore>(persistentAttemptStore(localStorage, ATTEMPT_KEY));
   const mode = bookingMode(account ? account.marketplaceEnabled : accountLoading ? null : false);
@@ -143,47 +155,9 @@ export function BookPage() {
   }, [account]);
 
   useEffect(() => {
-    let cancelled = false;
-    async function autofill() {
-      try {
-        if (!navigator.permissions?.query || !navigator.geolocation) return;
-        const status = await navigator.permissions.query({ name: 'geolocation' });
-        if (cancelled || status.state !== 'granted') return;
-        navigator.geolocation.getCurrentPosition((position) => {
-          const fix = pickupAutofillFix({
-            permission: 'granted',
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-            accuracyMetres: Number.isFinite(position.coords.accuracy) ? position.coords.accuracy : null,
-            capturedAt: position.timestamp || Date.now(),
-            now: Date.now(),
-          });
-          const decision = decideAddressAutofill(addressEdited.current, null);
-          if (!fix || cancelled || decision.status !== 'apply') return;
-          setDraft((current) => {
-            if (current.pickup.address.trim() || current.pickup.latitude) return current;
-            return {
-              ...current,
-              pickup: {
-                ...current.pickup,
-                address: decision.display,
-                resolvedAddress: decision.fullAddress,
-                latitude: fix.latitude,
-                longitude: fix.longitude,
-                approximate: false,
-                precision: 'exact',
-                coordinateSource: 'DEVICE_GEOCODER',
-              },
-            };
-          });
-        }, () => undefined, { enableHighAccuracy: false, timeout: 12000, maximumAge: 15000 });
-      } catch {
-        // Location remains optional.
-      }
-    }
-    void autofill();
-    return () => { cancelled = true; };
-  }, []);
+    if (mode !== 'v2') return;
+    void detectPickup(false);
+  }, [mode]);
 
   useEffect(() => {
     function holdBack() {
@@ -220,6 +194,76 @@ export function BookPage() {
       viewport.removeEventListener('scroll', sync);
     };
   }, []);
+
+  async function detectPickup(manual: boolean) {
+    if (locatingRef.current) return;
+    if (!manual && pickupLocationRequested) return;
+    const pickup = draftRef.current.pickup;
+    if (pickup.address.trim() || pickup.latitude) return;
+    if (!manual && await geolocationPermission() === 'denied') {
+      pickupLocationRequested = true;
+      setLocateError(LOCATION_DENIED);
+      return;
+    }
+    pickupLocationRequested = true;
+    locatingRef.current = true;
+    setLocating(true);
+    setLocateError(null);
+    try {
+      const position = await readCurrentPosition();
+      const fix = pickupAutofillFix({
+        permission: 'granted',
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        accuracyMetres: Number.isFinite(position.coords.accuracy) ? position.coords.accuracy : null,
+        capturedAt: position.timestamp || Date.now(),
+        now: Date.now(),
+      });
+      if (!fix) {
+        setLocateError(LOCATION_UNAVAILABLE);
+        return;
+      }
+      const latitude = Number(fix.latitude);
+      const longitude = Number(fix.longitude);
+      const found = await lookupAddress(latitude, longitude);
+      if (addressEdited.current) return;
+      const decision = decideAddressAutofill(addressEdited.current, found);
+      if (decision.status === 'needs-street') {
+        setLocateError(LOCATION_STREET);
+        return;
+      }
+      if (decision.status !== 'apply') {
+        setLocateError(LOCATION_UNAVAILABLE);
+        return;
+      }
+      const token = await accessToken();
+      const place = token ? await nearestPlace(token, decision.display, latitude, longitude).catch(() => null) : null;
+      if (addressEdited.current) return;
+      setDraft((current) => {
+        if (current.pickup.address.trim() || current.pickup.latitude) return current;
+        return {
+          ...current,
+          pickup: {
+            ...current.pickup,
+            address: place?.label ?? decision.display,
+            resolvedAddress: decision.fullAddress,
+            latitude: place?.latitude ?? fix.latitude,
+            longitude: place?.longitude ?? fix.longitude,
+            approximate: false,
+            precision: 'exact',
+            placeId: place?.placeId ?? null,
+            coordinateSource: place ? 'GOOGLE_PLACES' : 'DEVICE_GEOCODER',
+          },
+        };
+      });
+    } catch (caught) {
+      const code = typeof caught === 'object' && caught && 'code' in caught ? Number(caught.code) : 0;
+      setLocateError(code === 1 ? LOCATION_DENIED : LOCATION_UNAVAILABLE);
+    } finally {
+      locatingRef.current = false;
+      setLocating(false);
+    }
+  }
 
   function updateStop(which: 'pickup' | 'dropoff', patch: Partial<StopDraft>) {
     setError(null);
@@ -439,7 +483,10 @@ export function BookPage() {
               phoneId={step === 'pickup' ? 'pickup-phone' : 'dropoff-phone'}
               stop={step === 'pickup' ? draft.pickup : draft.dropoff}
               onChange={(patch) => updateStop(step === 'pickup' ? 'pickup' : 'dropoff', patch)}
-              onManualInput={() => { addressEdited.current = true; }}
+              onManualInput={() => { if (step === 'pickup') { addressEdited.current = true; setLocateError(null); } }}
+              locating={step === 'pickup' && locating}
+              onLocate={step === 'pickup' ? () => { void detectPickup(true); } : undefined}
+              locateError={step === 'pickup' ? locateError : null}
               search={(text, sessionToken) => searchWithToken(accessToken, text, step === 'destination' ? placeBias(draft.pickup.latitude, draft.pickup.longitude) : null, sessionToken)}
               resolve={(placeId, sessionToken) => resolveWithToken(accessToken, placeId, sessionToken)}
             />
@@ -489,6 +536,9 @@ function StopForm({
   stop,
   onChange,
   onManualInput,
+  locating = false,
+  onLocate,
+  locateError = null,
   search,
   resolve,
 }: {
@@ -496,12 +546,15 @@ function StopForm({
   stop: StopDraft;
   onChange: (patch: Partial<StopDraft>) => void;
   onManualInput: () => void;
+  locating?: boolean;
+  onLocate?: () => void;
+  locateError?: string | null;
   search: (text: string, sessionToken: string) => Promise<PlaceSuggestion[]>;
   resolve: (placeId: string, sessionToken: string) => Promise<{ label: string; latitude: string; longitude: string; suburb?: string; locality?: string }>;
 }) {
   return (
     <div className="book-fields">
-      <AddressField stop={stop} onChange={onChange} onManualInput={onManualInput} searchPlaces={search} resolvePlace={resolve} />
+      <AddressField stop={stop} onChange={onChange} onManualInput={onManualInput} locating={locating} onLocate={onLocate} locateError={locateError} searchPlaces={search} resolvePlace={resolve} />
       <label className="field">
         Contact name
         <input value={stop.contactName} maxLength={200} autoComplete="name" onChange={(event) => onChange({ contactName: event.target.value })} />
@@ -520,12 +573,18 @@ function AddressField({
   stop,
   onChange,
   onManualInput,
+  locating = false,
+  onLocate,
+  locateError = null,
   searchPlaces,
   resolvePlace,
 }: {
   stop: StopDraft;
   onChange: (patch: Partial<StopDraft>) => void;
   onManualInput: () => void;
+  locating?: boolean;
+  onLocate?: () => void;
+  locateError?: string | null;
   searchPlaces: (text: string, sessionToken: string) => Promise<PlaceSuggestion[]>;
   resolvePlace: (placeId: string, sessionToken: string) => Promise<{ label: string; latitude: string; longitude: string; suburb?: string; locality?: string }>;
 }) {
@@ -560,8 +619,8 @@ function AddressField({
     }
     const started = requestId.current + 1;
     requestId.current = started;
+    setSearching(true);
     const timer = window.setTimeout(() => {
-      setSearching(true);
       void searchRef.current(text, sessionToken.current)
         .then((next) => {
           if (!acceptSearchResult(started, requestId.current, next)) return;
@@ -625,20 +684,27 @@ function AddressField({
     <div className="book-address">
       <label className="field">
         Address
-        <input
-          value={stop.address}
-          maxLength={500}
-          autoComplete="off"
-          aria-autocomplete="list"
-          aria-expanded={suggestions.length > 0}
-          onChange={(event) => {
-            typed.current = true;
-            onManualInput();
-            onChange(clearStopLocation(event.target.value));
-          }}
-        />
+        <span className="book-address-control">
+          <input
+            value={stop.address}
+            maxLength={500}
+            autoComplete="off"
+            aria-autocomplete="list"
+            aria-expanded={suggestions.length > 0}
+            onChange={(event) => {
+              typed.current = true;
+              onManualInput();
+              onChange(clearStopLocation(event.target.value));
+            }}
+          />
+          {searching || locating ? <span className="book-address-spinner" role="status" aria-label={locating ? 'Finding your location' : 'Searching addresses'} /> : onLocate ? (
+            <button type="button" className="book-locate" aria-label="Use current location" onClick={(event) => { event.preventDefault(); event.stopPropagation(); onLocate(); }}>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8a4 4 0 1 0 4 4 4 4 0 0 0-4-4Zm8.94 3A8.99 8.99 0 0 0 13 3.06V1h-2v2.06A8.99 8.99 0 0 0 3.06 11H1v2h2.06A8.99 8.99 0 0 0 11 20.94V23h2v-2.06A8.99 8.99 0 0 0 20.94 13H23v-2h-2.06ZM12 19a7 7 0 1 1 7-7 7 7 0 0 1-7 7Z" /></svg>
+            </button>
+          ) : null}
+        </span>
       </label>
-      {searching ? <p className="book-search-status" role="status">Searching addresses</p> : null}
+      {locateError ? <p className="book-locate-error" role="status">{locateError}</p> : null}
       {searchError ? <ErrorMessage>{searchError}</ErrorMessage> : null}
       {searched && !searching && suggestions.length === 0 && !searchError ? (
         <p className="book-search-status" role="status">No matching addresses.</p>
@@ -805,5 +871,68 @@ async function resolveWithToken(accessToken: () => Promise<string | null>, place
   const token = await accessToken();
   if (!token) throw new Error('Sign in to search for an address.');
   return resolvePlace(token, placeId, sessionToken);
+}
+
+function geolocationPermission(): Promise<'granted' | 'prompt' | 'denied'> {
+  if (!navigator.permissions?.query) return Promise.resolve('prompt');
+  return navigator.permissions.query({ name: 'geolocation' }).then((status) => (
+    status.state === 'granted' || status.state === 'denied' ? status.state : 'prompt'
+  )).catch(() => 'prompt');
+}
+
+function readCurrentPosition(): Promise<GeolocationPosition> {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject({ code: 2 });
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 12000, maximumAge: 15000 });
+  });
+}
+
+type GeocodedPlace = {
+  formatted_address?: string;
+  address_components?: Array<{ long_name?: string; short_name?: string; types?: string[] }>;
+};
+
+type GeocoderMaps = {
+  Geocoder?: new () => {
+    geocode: (
+      request: { location: { lat: number; lng: number } },
+      callback: (results: GeocodedPlace[] | null, status: string) => void,
+    ) => void;
+  };
+};
+
+async function lookupAddress(latitude: number, longitude: number) {
+  await loadGoogleMaps(mapsBrowserKey());
+  const Geocoder = (window as Window & { google?: { maps?: GeocoderMaps } }).google?.maps?.Geocoder;
+  if (!Geocoder) return null;
+  const found = await new Promise<GeocodedPlace | null>((resolve) => {
+    new Geocoder().geocode({ location: { lat: latitude, lng: longitude } }, (results, status) => {
+      resolve(status === 'OK' ? results?.[0] ?? null : null);
+    });
+  });
+  return readGeocodedAddress(found?.address_components, found?.formatted_address);
+}
+
+async function nearestPlace(accessToken: string, query: string, latitude: number, longitude: number) {
+  if (query.trim().length < 3) return null;
+  const sessionToken = createPlaceSessionToken();
+  const suggestions = await searchPlaces(accessToken, query, { latitude, longitude }, sessionToken);
+  const match = suggestions.find((suggestion) => suggestion.placeId);
+  if (!match?.placeId) return null;
+  const resolved = await resolvePlace(accessToken, match.placeId, sessionToken);
+  const placeLatitude = Number(resolved.latitude);
+  const placeLongitude = Number(resolved.longitude);
+  if (!nearPoint(latitude, longitude, placeLatitude, placeLongitude)) return null;
+  return { label: resolved.label, latitude: String(resolved.latitude), longitude: String(resolved.longitude), placeId: match.placeId };
+}
+
+function nearPoint(latitude: number, longitude: number, otherLatitude: number, otherLongitude: number): boolean {
+  if (!Number.isFinite(otherLatitude) || !Number.isFinite(otherLongitude)) return false;
+  const north = (latitude - otherLatitude) * 111_320;
+  const east = (longitude - otherLongitude) * 111_320 * Math.cos((latitude * Math.PI) / 180);
+  return Math.hypot(north, east) <= 500;
 }
 

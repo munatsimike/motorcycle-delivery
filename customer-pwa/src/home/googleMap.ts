@@ -101,6 +101,7 @@ export function createHomeMap(element: HTMLElement, iconUrl: string, onAuthFailu
   let framedCard = 0;
   let framedSpan = NEIGHBORHOOD_SPAN;
   let shownPoints: readonly NearbyMarker[] = [];
+  let customerMarker: GoogleMarker | null = null;
   const map = createMap(maps, element);
   const releaseTheme = bindMapTheme(map);
   const markers = new Map<string, GoogleMarker>();
@@ -142,6 +143,35 @@ export function createHomeMap(element: HTMLElement, iconUrl: string, onAuthFailu
     revealMarkers(shownPoints);
   };
 
+  const showCustomer = (customer: MapPoint | null) => {
+    const valid = customer !== null
+      && Number.isFinite(customer.latitude)
+      && Number.isFinite(customer.longitude)
+      && customer.latitude >= -90
+      && customer.latitude <= 90
+      && customer.longitude >= -180
+      && customer.longitude <= 180;
+    if (!valid || !customer) {
+      customerMarker?.setMap(null);
+      customerMarker = null;
+      return;
+    }
+    const position = { lat: customer.latitude, lng: customer.longitude };
+    if (customerMarker) {
+      customerMarker.setPosition(position);
+      return;
+    }
+    customerMarker = new maps.Marker({
+      map,
+      position,
+        title: 'Your location',
+        clickable: false,
+        optimized: false,
+        zIndex: 1,
+      icon: customerLocationIcon(maps),
+    });
+  };
+
   return {
     showMarkers(points) {
       shownPoints = points;
@@ -176,14 +206,18 @@ export function createHomeMap(element: HTMLElement, iconUrl: string, onAuthFailu
       revealMarkers(points);
     },
     tryInitialFrame(customer, cardHeight) {
+      showCustomer(customer);
       if (!customer || !shouldAutoFrame({ gestured, locked, customer, cardHeight })) return;
       frame(customer, cardHeight);
     },
     recenter(customer, cardHeight) {
+      showCustomer(customer);
       if (cardHeight <= 0) return;
       frame(customer, cardHeight);
     },
     destroy() {
+      customerMarker?.setMap(null);
+      customerMarker = null;
       releaseTheme();
       resize.disconnect();
       element.removeEventListener('wheel', markGesture);
@@ -233,6 +267,16 @@ export function createHomeMap(element: HTMLElement, iconUrl: string, onAuthFailu
     map.setZoom(camera.zoom);
     programmatic = false;
   }
+}
+
+function customerLocationIcon(maps: GoogleMaps) {
+  const size = 27;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 27 27"><circle cx="13.5" cy="13.5" r="13.5" fill="#2A86F0" fill-opacity="0.17"/><circle cx="13.5" cy="13.5" r="6.5" fill="#FFFFFF"/><circle cx="13.5" cy="13.5" r="4.5" fill="#2885E9"/></svg>`;
+  return {
+    url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
+    scaledSize: new maps.Size(size, size),
+    anchor: new maps.Point(size / 2, size / 2),
+  };
 }
 
 function createMap(maps: GoogleMaps, element: HTMLElement): GoogleMap {

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { zoomForSpan } from '../home/camera.ts';
 import {
   customerCanCancelDelivery,
   customerOfferForBooking,
@@ -12,6 +13,8 @@ import {
   createAcceptanceGate,
   duplicateAcceptanceNotice,
   offerFieldText,
+  offersFrameHolds,
+  offersMapCamera,
   offersMissingSince,
   readBidAcceptance,
   readCustomerDeliveryDetail,
@@ -216,6 +219,27 @@ test('rider confirmation, completed route, and photo fallback follow the native 
   assert.equal(offerRiderName('  Michael   John   Banda  '), 'Michael B.');
   assert.equal(offerRiderName(''), 'Rider');
   assert.equal(offerRiderName('   '), 'Rider');
+});
+
+test('offers camera keeps pickup and riders above a short sheet', () => {
+  const pickup = { latitude: -17.82, longitude: 31.05 };
+  const riders = [
+    { latitude: -17.828, longitude: 31.046 },
+    { latitude: -17.814, longitude: 31.056 },
+  ];
+  const points = [pickup, ...riders];
+  const frame = offersMapCamera(points, 360, 280);
+  assert.equal(offersFrameHolds(points, frame, 360, 280), true);
+  const zoom = Math.min(zoomForSpan(frame.latitudeDelta, 280), zoomForSpan(frame.longitudeDelta, 360));
+  const degreesPerPixel = 360 / (256 * 2 ** zoom);
+  for (const point of points) {
+    const y = 280 / 2 - (point.latitude - frame.latitude) / degreesPerPixel;
+    assert.ok(y <= 280 - 72, `marker at ${y} sits behind the sheet`);
+    assert.ok(y >= 8, `marker at ${y} is clipped by the top`);
+  }
+  const nudged = points.map((point) => ({ latitude: point.latitude + 0.00005, longitude: point.longitude }));
+  assert.equal(offersFrameHolds(nudged, frame, 360, 280), true);
+  assert.equal(offersFrameHolds([{ latitude: -17.9, longitude: 31.05 }], frame, 360, 280), false);
 });
 
 function memoryStore() {

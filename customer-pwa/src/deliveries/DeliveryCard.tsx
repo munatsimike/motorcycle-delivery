@@ -38,6 +38,7 @@ export function DeliveryCard({
     setSearchError(null);
     try {
       await onSearchAgain(delivery.id);
+      beginPageTransition(() => navigate(`/deliveries/${delivery.id}`));
     } catch (caught) {
       setSearchError(deliveryErrorMessage(caught, 'Rider search could not be started.'));
     } finally {
@@ -116,7 +117,7 @@ function FlashIcon() {
 function Pin({ dropoff }: { dropoff: boolean }) {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" style={{ color: dropoff ? '#1A73E8' : '#169B62' }}>
-      <path d="M12 2.8a6.2 6.2 0 0 0-6.2 6.2c0 4.7 6.2 12.2 6.2 12.2s6.2-7.5 6.2-12.2A6.2 6.2 0 0 0 12 2.8Zm0 8.4a2.2 2.2 0 1 1 2.2-2.2A2.2 2.2 0 0 1 12 11.2Z" />
+      {dropoff ? <path fill="#1A73E8" d="M12 2.8a6.2 6.2 0 0 0-6.2 6.2c0 4.7 6.2 12.2 6.2 12.2s6.2-7.5 6.2-12.2A6.2 6.2 0 0 0 12 2.8Zm0 8.4a2.2 2.2 0 1 1 2.2-2.2A2.2 2.2 0 0 1 12 11.2Z" /> : <><path fill="#169B62" fillRule="evenodd" d="M12 11.5A2.5 2.5 0 0 1 9.5 9 2.5 2.5 0 0 1 12 6.5 2.5 2.5 0 0 1 14.5 9 2.5 2.5 0 0 1 12 11.5M12 2A7 7 0 0 0 5 9C5 14.25 12 22 12 22 12 22 19 14.25 19 9A7 7 0 0 0 12 2Z" /><circle cx="12" cy="9" r="3.33" fill="#ffffff" /></>}
     </svg>
   );
 }

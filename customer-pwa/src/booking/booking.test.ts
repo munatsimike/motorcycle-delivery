@@ -27,7 +27,7 @@ import {
   clearBookingAttempt,
   memoryAttemptStore,
 } from './flow.ts';
-import { acceptSearchResult, pickupAutofillFix, resolveManualAddress } from './places.ts';
+import { acceptSearchResult, pickupAutofillFix, readGeocodedAddress, resolveManualAddress } from './places.ts';
 import { bookingSuccessPath, confirmQuoteDecision, nextCustomerOffer, quotesMatch, readDeliveryQuote } from './quote.ts';
 
 test('pickup and drop-off require an address, contact, phone, and resolved point', () => {
@@ -177,6 +177,15 @@ test('pickup autofill accepts only a granted, fresh, accurate Zimbabwe fix', () 
   assert.ok(allowed);
   assert.equal(pickupAutofillFix({ permission: 'prompt', latitude: -17.8292, longitude: 31.0522, accuracyMetres: 20, capturedAt: now, now }), null);
   assert.equal(pickupAutofillFix({ permission: 'granted', latitude: 52.3, longitude: 4.9, accuracyMetres: 10, capturedAt: now, now }), null);
+  const address = readGeocodedAddress([
+    { long_name: '12', types: ['street_number'] },
+    { long_name: 'Samora Machel Avenue', types: ['route'] },
+    { long_name: 'Harare', types: ['locality'] },
+    { long_name: 'Zimbabwe', short_name: 'ZW', types: ['country'] },
+  ]);
+  assert.equal(address?.display, '12 Samora Machel Avenue');
+  assert.equal(address?.needsStreet, false);
+  assert.equal(readGeocodedAddress([{ long_name: 'Harare', types: ['locality'] }, { long_name: 'Zimbabwe', short_name: 'ZW', types: ['country'] }])?.needsStreet, true);
 });
 
 test('the create body carries the resolved stop and offer', () => {

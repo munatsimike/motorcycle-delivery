@@ -3,8 +3,7 @@ import riderMarker from '../assets/rider-motorcycle-marker.png';
 import { mapsBrowserKey } from '../config/env';
 import { zoomForSpan } from '../home/camera';
 import { loadGoogleMaps } from '../home/googleMap';
-import { NEIGHBORHOOD_SPAN } from '../home/camera';
-import { showsTrackingRoute, trackingCameraRegion, trackingCameraShouldMove, TRACKING_MAP_HEIGHT, TRACKING_MARKER_CLEARANCE, TRACKING_SHEET_OVERLAP, TRACKING_ZOOM_DELTA, type RoutePoint } from './tracking';
+import { offersFrameHolds, offersMapCamera, showsTrackingRoute, trackingCameraRegion, trackingCameraShouldMove, TRACKING_MAP_HEIGHT, TRACKING_MARKER_CLEARANCE, TRACKING_SHEET_OVERLAP, TRACKING_ZOOM_DELTA, type OffersMapFrame, type RoutePoint } from './tracking';
 import { bindMapTheme } from '../theme/mapStyle';
 
 type Listener = { remove: () => void };
@@ -34,6 +33,7 @@ export function TrackingMap({
   stroke = '#17211D',
   deliveredCallout = null,
   neighborhood = false,
+  pickupLabel = null,
 }: {
   deliveryId: string;
   live: boolean;
@@ -48,6 +48,7 @@ export function TrackingMap({
   stroke?: string;
   deliveredCallout?: DeliveredCallout | null;
   neighborhood?: boolean;
+  pickupLabel?: string | null;
 }) {
   const node = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<GoogleMap | null>(null);
@@ -61,8 +62,9 @@ export function TrackingMap({
   const pickupMarker = useRef<Marker | null>(null);
   const labelMarker = useRef<Marker | null>(null);
   const deliveredMarker = useRef<Marker | null>(null);
-  const props = useRef({ deliveryId, live, rider, stop, headingToDropoff, line, summary, extraMarkers, pickup, interactive, stroke, deliveredCallout, neighborhood });
-  props.current = { deliveryId, live, rider, stop, headingToDropoff, line, summary, extraMarkers, pickup, interactive, stroke, deliveredCallout, neighborhood };
+  const heldOffers = useRef<{ width: number; height: number; frame: OffersMapFrame } | null>(null);
+  const props = useRef({ deliveryId, live, rider, stop, headingToDropoff, line, summary, extraMarkers, pickup, interactive, stroke, deliveredCallout, neighborhood, pickupLabel });
+  props.current = { deliveryId, live, rider, stop, headingToDropoff, line, summary, extraMarkers, pickup, interactive, stroke, deliveredCallout, neighborhood, pickupLabel };
   const markerKey = extraMarkers.map((point) => `${point.latitude.toFixed(5)}:${point.longitude.toFixed(5)}`).join('|');
   const routeKey = line.length > 1 ? `${line.length}:${line[0].latitude.toFixed(4)}:${line[line.length - 1].latitude.toFixed(4)}` : '';
   const stopKey = stop ? `${stop.latitude.toFixed(5)}:${stop.longitude.toFixed(5)}` : '';
@@ -95,10 +97,30 @@ export function TrackingMap({
       mapRef.current = map;
       const releaseTheme = bindMapTheme(map);
       listeners.push({ remove: releaseTheme });
+      const themeObserver = new MutationObserver(() => drawRef.current());
+      themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+      listeners.push({ remove: () => themeObserver.disconnect() });
       listeners.push(
         maps.event.addListener(map, 'dragstart', () => { gestured.current = true; }),
         maps.event.addListener(map, 'zoom_changed', () => { if (!programmatic.current) gestured.current = true; }),
       );
+      rememberOffers(initial);
+      const resize = new ResizeObserver(() => {
+        if (!props.current.neighborhood || !mapRef.current || gestured.current) return;
+        const size = measuredMap();
+        const held = heldOffers.current;
+        if (!size) return;
+        if (held && Math.abs(size.width - held.width) < 8 && Math.abs(size.height - held.height) < 8) return;
+        const next = frameRef.current();
+        programmatic.current = true;
+        mapRef.current.setCenter({ lat: next.latitude, lng: next.longitude });
+        mapRef.current.setZoom(zoomForFrame(next));
+        programmatic.current = false;
+        rememberOffers(next);
+        drawRef.current();
+      });
+      resize.observe(element);
+      listeners.push({ remove: () => resize.disconnect() });
       drawRef.current();
     }).catch(() => undefined);
     return () => {
@@ -123,17 +145,28 @@ export function TrackingMap({
     if (!decision.move) return;
     const map = mapRef.current;
     if (!map) return;
+    if (props.current.neighborhood && props.current.stop && heldOffers.current) {
+      const size = measuredMap();
+      const held = heldOffers.current;
+      const sameSize = size !== null && Math.abs(size.width - held.width) < 8 && Math.abs(size.height - held.height) < 8;
+      const points = [props.current.stop, ...props.current.extraMarkers];
+      if (sameSize && size && offersFrameHolds(points, held.frame, size.width, size.height)) {
+        drawRef.current();
+        return;
+      }
+    }
     const next = frameRef.current();
     programmatic.current = true;
     map.setCenter({ lat: next.latitude, lng: next.longitude });
     map.setZoom(zoomForFrame(next));
     programmatic.current = false;
+    rememberOffers(next);
     drawRef.current();
   }, [deliveryId, live, stopKey, markerKey, neighborhood, routeKey]);
 
   useEffect(() => {
     drawRef.current();
-  }, [rider?.latitude, rider?.longitude, headingToDropoff, summary, line.length, extraMarkers.length, pickup?.latitude, pickup?.longitude, deliveredCallout?.name, deliveredCallout?.address, deliveredCallout?.when]);
+  }, [rider?.latitude, rider?.longitude, headingToDropoff, summary, line.length, extraMarkers.length, pickup?.latitude, pickup?.longitude, deliveredCallout?.name, deliveredCallout?.address, deliveredCallout?.when, pickupLabel]);
 
   function zoomForFrame(next: { latitudeDelta: number; longitudeDelta: number }) {
     const height = node.current?.clientHeight || 480;
@@ -143,9 +176,29 @@ export function TrackingMap({
     return Math.min(zoomForSpan(next.latitudeDelta, height), zoomForSpan(next.longitudeDelta, width));
   }
 
+  function measuredMap(): { width: number; height: number } | null {
+    const width = node.current?.clientWidth ?? 0;
+    const height = node.current?.clientHeight ?? 0;
+    if (width < 40 || height < 40) return null;
+    return { width, height };
+  }
+
+  function rememberOffers(frame: OffersMapFrame) {
+    if (!props.current.neighborhood) {
+      heldOffers.current = null;
+      return;
+    }
+    const size = measuredMap();
+    if (!size) return;
+    heldOffers.current = { width: size.width, height: size.height, frame };
+  }
+
   function frame() {
     const current = props.current;
-    if (current.neighborhood && current.stop) return neighborhoodCamera(current.stop, current.extraMarkers);
+    if (current.neighborhood && current.stop) {
+      const size = measuredMap() ?? { width: 360, height: 280 };
+      return offersMapCamera([current.stop, ...current.extraMarkers], size.width, size.height);
+    }
     if (!current.live && current.pickup && current.stop) return routeCamera(current.line.length > 1 ? current.line : [current.pickup, current.stop]);
     if (current.live && current.rider) return trackingCameraRegion(current.rider, current.stop);
     if (current.stop) return trackingCameraRegion(current.stop, null);
@@ -160,6 +213,7 @@ export function TrackingMap({
     map.setCenter({ lat: next.latitude, lng: next.longitude });
     map.setZoom(zoomForFrame(next));
     programmatic.current = false;
+    rememberOffers(next);
     void animated;
   }
 
@@ -177,6 +231,8 @@ export function TrackingMap({
     else lineRef.current.setPath(path);
     drawPin(maps, map, pickupMarker, current.pickup, 'Pickup', '#169B62');
     const callout = current.deliveredCallout;
+    const pickupStop = !current.headingToDropoff;
+    const stopIcon = pickupStop ? pickupPinIcon(maps, current.pickupLabel) : pinIcon('#1A73E8');
     if (!current.stop || callout) {
       stopMarkerRef.current?.setMap(null);
       stopMarkerRef.current = null;
@@ -184,11 +240,13 @@ export function TrackingMap({
       stopMarkerRef.current = new maps.Marker({
         map,
         position: { lat: current.stop.latitude, lng: current.stop.longitude },
-        title: current.headingToDropoff ? 'Drop-off' : 'Pickup',
-        icon: pinIcon(current.headingToDropoff ? '#1A73E8' : '#169B62'),
+        title: pickupStop ? (current.pickupLabel ?? 'Pickup') : 'Drop-off',
+        zIndex: pickupStop && current.pickupLabel ? 4 : 1,
+        icon: stopIcon,
       });
     } else {
       stopMarkerRef.current.setPosition({ lat: current.stop.latitude, lng: current.stop.longitude });
+      stopMarkerRef.current.setIcon(stopIcon);
     }
     if (!callout || !current.stop) {
       deliveredMarker.current?.setMap(null);
@@ -263,11 +321,13 @@ export function TrackingMap({
       slot.current = null;
       return;
     }
+    const icon = color.toLowerCase() === '#169b62' ? pickupPinIcon(maps, null) : pinIcon(color);
     if (!slot.current) {
-      slot.current = new maps.Marker({ map, position: { lat: point.latitude, lng: point.longitude }, title, icon: pinIcon(color) });
+      slot.current = new maps.Marker({ map, position: { lat: point.latitude, lng: point.longitude }, title, icon });
       return;
     }
     slot.current.setPosition({ lat: point.latitude, lng: point.longitude });
+    slot.current.setIcon(icon);
   }
 
   return (
@@ -344,31 +404,6 @@ function routeCamera(points: RoutePoint[]) {
   };
 }
 
-function neighborhoodCamera(stop: RoutePoint, markers: RoutePoint[]) {
-  const points = [stop, ...markers];
-  let minLatitude = points[0].latitude;
-  let maxLatitude = points[0].latitude;
-  let minLongitude = points[0].longitude;
-  let maxLongitude = points[0].longitude;
-  for (const point of points) {
-    minLatitude = Math.min(minLatitude, point.latitude);
-    maxLatitude = Math.max(maxLatitude, point.latitude);
-    minLongitude = Math.min(minLongitude, point.longitude);
-    maxLongitude = Math.max(maxLongitude, point.longitude);
-  }
-  const latitudeDelta = Math.max((maxLatitude - minLatitude) * 1.25, NEIGHBORHOOD_SPAN);
-  const longitudeDelta = Math.max((maxLongitude - minLongitude) * 1.25, NEIGHBORHOOD_SPAN);
-  const openHeight = TRACKING_MAP_HEIGHT - TRACKING_SHEET_OVERLAP - TRACKING_MARKER_CLEARANCE;
-  const openCenter = TRACKING_MARKER_CLEARANCE + openHeight / 2;
-  const southOfCenter = (TRACKING_MAP_HEIGHT / 2 - openCenter) / TRACKING_MAP_HEIGHT;
-  return {
-    latitude: (minLatitude + maxLatitude) / 2 - southOfCenter * latitudeDelta,
-    longitude: (minLongitude + maxLongitude) / 2,
-    latitudeDelta,
-    longitudeDelta,
-  };
-}
-
 function summaryIcon(maps: Maps, text: string) {
   const dark = document.documentElement.dataset.theme === 'dark';
   const width = Math.min(220, Math.max(72, Math.round(text.length * 7.2) + 16));
@@ -383,6 +418,38 @@ function summaryIcon(maps: Maps, text: string) {
 
 function escapeXml(value: string): string {
   return value.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' })[character] ?? character);
+}
+
+const PICKUP_PIN = 36;
+const PICKUP_PIN_PATH = 'M12 11.5A2.5 2.5 0 0 1 9.5 9 2.5 2.5 0 0 1 12 6.5 2.5 2.5 0 0 1 14.5 9 2.5 2.5 0 0 1 12 11.5M12 2A7 7 0 0 0 5 9C5 14.25 12 22 12 22 12 22 19 14.25 19 9A7 7 0 0 0 12 2Z';
+
+function pickupPinMarkup(): string {
+  return `<path fill="#169B62" fill-rule="evenodd" d="${PICKUP_PIN_PATH}"/><circle cx="12" cy="9" r="3.33" fill="#ffffff"/>`;
+}
+
+function pickupPinIcon(maps: Maps, label: string | null) {
+  if (!label) {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${PICKUP_PIN}" height="${PICKUP_PIN}" viewBox="0 0 24 24">${pickupPinMarkup()}</svg>`;
+    return {
+      url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
+      scaledSize: new maps.Size(PICKUP_PIN, PICKUP_PIN),
+      anchor: new maps.Point(PICKUP_PIN / 2, 33),
+    };
+  }
+  const dark = document.documentElement.dataset.theme === 'dark';
+  const width = Math.max(PICKUP_PIN, Math.round(label.length * 7.1) + 20);
+  const labelHeight = 28;
+  const gap = 6;
+  const height = labelHeight + gap + PICKUP_PIN;
+  const background = dark ? '#1A2420' : '#ffffff';
+  const text = dark ? '#F3F7F5' : '#17211D';
+  const shadow = dark ? 'rgba(0,0,0,0.45)' : 'rgba(23,33,29,0.16)';
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect x="1" y="2" width="${width - 2}" height="${labelHeight}" rx="11" fill="${shadow}"/><rect width="${width}" height="${labelHeight}" rx="11" fill="${background}"/><text x="${width / 2}" y="18" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" font-weight="600" fill="${text}">${escapeXml(label)}</text><svg x="${(width - PICKUP_PIN) / 2}" y="${labelHeight + gap}" width="${PICKUP_PIN}" height="${PICKUP_PIN}" viewBox="0 0 24 24">${pickupPinMarkup()}</svg></svg>`;
+  return {
+    url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
+    scaledSize: new maps.Size(width, height),
+    anchor: new maps.Point(width / 2, labelHeight + gap + 33),
+  };
 }
 
 function pinIcon(color: string) {

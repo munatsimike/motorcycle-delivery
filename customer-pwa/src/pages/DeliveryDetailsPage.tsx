@@ -82,6 +82,8 @@ export function DeliveryDetailsPage() {
   const [priceText, setPriceText] = useState('');
   const [priceError, setPriceError] = useState<string | null>(null);
   const [confirmError, setConfirmError] = useState<string | null>(null);
+  const [decline, setDecline] = useState<CustomerBid | null>(null);
+  const [declineError, setDeclineError] = useState<string | null>(null);
   const [searching, setSearching] = useState(false);
   const [acceptedId, setAcceptedId] = useState<string | null>(null);
   const [confirmedDismissed, setConfirmedDismissed] = useState(false);
@@ -103,6 +105,10 @@ export function DeliveryDetailsPage() {
   const keepComparingRef = useRef<HTMLButtonElement>(null);
   const riderDialogRef = useRef<HTMLDivElement>(null);
   const riderHistory = useRef(false);
+  const declineTriggerRef = useRef<HTMLButtonElement>(null);
+  const keepOfferRef = useRef<HTMLButtonElement>(null);
+  const declineDialogRef = useRef<HTMLDivElement>(null);
+  const declineHistory = useRef(false);
   latest.current = delivery;
 
   useEffect(() => {
@@ -187,6 +193,57 @@ export function DeliveryDetailsPage() {
       window.removeEventListener('popstate', onPop);
     };
   }, [confirm]);
+
+  useEffect(() => {
+    if (!decline) {
+      if (declineHistory.current) {
+        declineHistory.current = false;
+        declineTriggerRef.current?.focus();
+        if (window.history.state?.declineOfferDialog === true) window.history.back();
+      }
+      return undefined;
+    }
+    keepOfferRef.current?.focus();
+    if (!declineHistory.current) {
+      window.history.pushState({ declineOfferDialog: true }, '');
+      declineHistory.current = true;
+    }
+    function onKey(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        if (busyRef.current) return;
+        event.preventDefault();
+        setDeclineError(null);
+        setDecline(null);
+        return;
+      }
+      if (event.key !== 'Tab' || !declineDialogRef.current) return;
+      const items = [...declineDialogRef.current.querySelectorAll<HTMLElement>('button:not([disabled])')];
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+    function onPop() {
+      if (busyRef.current) {
+        window.history.pushState({ declineOfferDialog: true }, '');
+        return;
+      }
+      setDeclineError(null);
+      setDecline(null);
+    }
+    document.addEventListener('keydown', onKey);
+    window.addEventListener('popstate', onPop);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      window.removeEventListener('popstate', onPop);
+    };
+  }, [decline]);
 
   useEffect(() => {
     let stopped = false;
@@ -312,12 +369,16 @@ export function DeliveryDetailsPage() {
   const shownRider = confirm !== null && confirm !== 'cancel' && confirm !== 'delete' ? confirm : riderSnapshot.current;
   const requestDialog = confirm === 'cancel' && showsRiderOffers(delivery);
   const riderDialog = confirm !== null && confirm !== 'cancel' && confirm !== 'delete';
+  const declineSnapshot = useRef<CustomerBid | null>(null);
+  if (decline) declineSnapshot.current = decline;
+  const shownDecline = decline ?? declineSnapshot.current;
   const sheetConfirm = confirm === 'delete' || (confirm === 'cancel' && !requestDialog);
   const parcelMotion = usePresence(parcelOpen, 220);
   const sortMotion = usePresence(sortOpen, 220);
   const priceMotion = usePresence(priceOpen, 150);
   const requestMotion = usePresence(requestDialog, 150);
   const riderMotion = usePresence(riderDialog, 150);
+  const declineMotion = usePresence(decline !== null, 150);
   const confirmMotion = usePresence(sheetConfirm, 150);
   const view = detailViewState({ isLoading, error, hasDelivery: delivery !== null });
   if (view === 'loading') {
@@ -499,6 +560,34 @@ export function DeliveryDetailsPage() {
     }
   }
 
+  async function declineOffer(bid: CustomerBid) {
+    if (!currentDelivery || busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    setDeclineError(null);
+    try {
+      const sessionToken = await accessToken();
+      if (!sessionToken) throw new Error('Sign in again.');
+      await dismissOffer(sessionToken, currentDelivery.id, bid.id);
+      seenOffers.current = seenOffers.current.filter((item) => item !== bid.id);
+      setOffers((current) => current.filter((item) => item.id !== bid.id));
+      try {
+        const bids = await loadOffers(sessionToken, currentDelivery.id);
+        const open = bids.filter((item) => item.status === 'OPEN' && item.id !== bid.id);
+        seenOffers.current = open.map((item) => item.id);
+        setOffers(open);
+      } catch {
+        // The declined offer is already removed from the list.
+      }
+      setDecline(null);
+    } catch (caught) {
+      setDeclineError(deliveryErrorMessage(caught, 'This offer could not be declined.'));
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  }
+
   async function searchAgain() {
     if (busyRef.current) return;
     busyRef.current = true;
@@ -579,6 +668,7 @@ export function DeliveryDetailsPage() {
           ]}
           neighborhood
           interactive={false}
+          pickupLabel="Pickup location"
         />
       ) : null}
       {screen !== 'outcome' && mapView.kind !== 'hidden' ? (
@@ -718,11 +808,7 @@ export function DeliveryDetailsPage() {
                 </div>
                 {canAccept ? (
                 <div className="offer-actions">
-                  <button type="button" className="offer-decline" disabled={busy} onClick={() => void withToken(async (sessionToken) => {
-                    await dismissOffer(sessionToken, delivery.id, bid.id);
-                    seenOffers.current = seenOffers.current.filter((item) => item !== bid.id);
-                    setOffers((current) => current.filter((item) => item.id !== bid.id));
-                  })}>Decline</button>
+                  <button type="button" className="offer-decline" disabled={busy} onClick={(event) => { if (busy) return; setDeclineError(null); declineTriggerRef.current = event.currentTarget; setDecline(bid); }}>Decline</button>
                   <button type="button" className="offer-choose" disabled={busy} onClick={(event) => { if (busy) return; setConfirmError(null); chooseTriggerRef.current = event.currentTarget; setConfirm(bid); }}>Choose Rider</button>
                 </div>
                 ) : <p>This offer is no longer available.</p>}
@@ -805,6 +891,32 @@ export function DeliveryDetailsPage() {
             <div className="confirm-dialog-actions">
               <button ref={keepComparingRef} type="button" className="confirm-keep" disabled={busy} onClick={() => { if (busy) return; setConfirmError(null); setConfirm(null); }}>Keep comparing</button>
               <button type="button" className="confirm-accept" disabled={busy} onClick={() => void confirmRider(shownRider)}>{busy ? 'Confirming…' : 'Confirm rider'}</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {declineMotion.mounted && shownDecline ? (
+        <div className={motionClass('confirm-dialog-backdrop', 'dialog', declineMotion.visible)} onClick={() => { if (busy) return; setDeclineError(null); setDecline(null); }}>
+          <div
+            ref={declineDialogRef}
+            className="confirm-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="decline-offer-title"
+            aria-describedby="decline-offer-copy"
+            aria-busy={busy}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 id="decline-offer-title">Decline this offer?</h2>
+            <p id="decline-offer-copy">Are you sure you want to decline this rider&apos;s offer?</p>
+            <div className="confirm-rider">
+              <strong>{offerRiderName(shownDecline.riderName)}</strong>
+              <span>${shownDecline.amount}</span>
+            </div>
+            {declineError ? <ErrorMessage>{declineError}</ErrorMessage> : null}
+            <div className="confirm-dialog-actions">
+              <button ref={keepOfferRef} type="button" className="confirm-keep" disabled={busy} onClick={() => { if (busy) return; setDeclineError(null); setDecline(null); }}>Keep offer</button>
+              <button type="button" className="confirm-decline" disabled={busy} onClick={() => void declineOffer(shownDecline)}>{busy ? 'Declining…' : 'Decline offer'}</button>
             </div>
           </div>
         </div>
@@ -1038,7 +1150,7 @@ function CalendarMark() {
 function PinMark({ dropoff }: { dropoff: boolean }) {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" style={{ color: dropoff ? '#1A73E8' : '#169B62' }}>
-      <path d="M12 2.8a6.2 6.2 0 0 0-6.2 6.2c0 4.7 6.2 12.2 6.2 12.2s6.2-7.5 6.2-12.2A6.2 6.2 0 0 0 12 2.8Zm0 8.4a2.2 2.2 0 1 1 2.2-2.2 2.2 2.2 0 0 1-2.2 2.2Z" />
+      {dropoff ? <path fill="#1A73E8" d="M12 2.8a6.2 6.2 0 0 0-6.2 6.2c0 4.7 6.2 12.2 6.2 12.2s6.2-7.5 6.2-12.2A6.2 6.2 0 0 0 12 2.8Zm0 8.4a2.2 2.2 0 1 1 2.2-2.2 2.2 2.2 0 0 1-2.2 2.2Z" /> : <><path fill="#169B62" fillRule="evenodd" d="M12 11.5A2.5 2.5 0 0 1 9.5 9 2.5 2.5 0 0 1 12 6.5 2.5 2.5 0 0 1 14.5 9 2.5 2.5 0 0 1 12 11.5M12 2A7 7 0 0 0 5 9C5 14.25 12 22 12 22 12 22 19 14.25 19 9A7 7 0 0 0 12 2Z" /><circle cx="12" cy="9" r="3.33" fill="#ffffff" /></>}
     </svg>
   );
 }

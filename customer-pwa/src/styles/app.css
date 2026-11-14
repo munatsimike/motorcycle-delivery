@@ -991,7 +991,8 @@ button.home-status:disabled {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .top-spinner-mark {
+  .top-spinner-mark,
+  .book-address-spinner {
     animation: none;
   }
 }
@@ -1230,7 +1231,8 @@ button.home-status:disabled {
   color: var(--text);
 }
 
-.confirm-cancel {
+.confirm-cancel,
+.confirm-decline {
   border: 0;
   background: #d92d20;
   color: #ffffff;
@@ -1274,7 +1276,8 @@ button.home-status:disabled {
   background: var(--sheet);
 }
 
-[data-theme="dark"] .confirm-cancel {
+[data-theme="dark"] .confirm-cancel,
+[data-theme="dark"] .confirm-decline {
   background: #f04438;
 }
 
@@ -2535,6 +2538,57 @@ button.home-status:disabled {
 .book-address {
   position: relative;
   z-index: 2;
+}
+
+.book-address-control {
+  position: relative;
+  display: block;
+}
+
+.book-address-control input {
+  padding-right: 44px;
+}
+
+.book-address-spinner {
+  position: absolute;
+  top: 50%;
+  right: 14px;
+  width: 17px;
+  height: 17px;
+  margin-top: -8.5px;
+  border: 2px solid var(--primary-light);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: top-spin 0.8s linear infinite;
+}
+
+.book-locate {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  margin-top: -18px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--primary);
+  cursor: pointer;
+}
+
+.book-locate svg {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+}
+
+.book-locate-error {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--caption);
+  font-weight: 500;
 }
 
 .book-suggestions {

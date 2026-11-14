@@ -1,3 +1,4 @@
+import { NEIGHBORHOOD_SPAN, zoomForSpan } from '../home/camera.ts';
 import { isKnownDeliveryStatus, deliveryCanSearchAgain, type DeliveryStatus } from './rules.ts';
 
 export const TRACKING_POLL_MS = 8_000;
@@ -428,6 +429,73 @@ export function trackingCameraShouldMove(destinationChanged: boolean, gestured: 
 
 export function showsTrackingRoute(pointCount: number): boolean {
   return pointCount > 1;
+}
+
+const OFFERS_LABEL_CLEARANCE = 72;
+const OFFERS_MARKER_BLEED = 58;
+const OFFERS_SIDE_CLEARANCE = 72;
+const OFFERS_MIN_OPEN = 80;
+
+export type OffersMapFrame = {
+  latitude: number;
+  longitude: number;
+  latitudeDelta: number;
+  longitudeDelta: number;
+};
+
+function offersPadding(width: number, height: number) {
+  const sheet = TRACKING_SHEET_OVERLAP;
+  let top = OFFERS_LABEL_CLEARANCE;
+  let bleed = OFFERS_MARKER_BLEED;
+  const spare = height - sheet - OFFERS_MIN_OPEN;
+  if (top + bleed > spare) {
+    const room = Math.max(0, spare);
+    top = Math.min(OFFERS_LABEL_CLEARANCE, Math.round(room * 0.45));
+    bleed = Math.min(OFFERS_MARKER_BLEED, Math.max(0, room - top));
+  }
+  const side = Math.min(OFFERS_SIDE_CLEARANCE, Math.max(16, Math.floor((width - 120) / 2)));
+  return { top, bottom: sheet + bleed, left: side, right: side };
+}
+
+export function offersMapCamera(points: readonly RoutePoint[], width: number, height: number): OffersMapFrame {
+  const safeWidth = width > 0 ? width : 360;
+  const safeHeight = height > 0 ? height : 280;
+  const padding = offersPadding(safeWidth, safeHeight);
+  let minLatitude = points[0]?.latitude ?? -17.8292;
+  let maxLatitude = minLatitude;
+  let minLongitude = points[0]?.longitude ?? 31.0522;
+  let maxLongitude = minLongitude;
+  for (const point of points) {
+    minLatitude = Math.min(minLatitude, point.latitude);
+    maxLatitude = Math.max(maxLatitude, point.latitude);
+    minLongitude = Math.min(minLongitude, point.longitude);
+    maxLongitude = Math.max(maxLongitude, point.longitude);
+  }
+  const spanLatitude = Math.max((maxLatitude - minLatitude) * 1.25, NEIGHBORHOOD_SPAN);
+  const spanLongitude = Math.max((maxLongitude - minLongitude) * 1.25, NEIGHBORHOOD_SPAN);
+  const paddedWidth = Math.max(1, safeWidth - padding.left - padding.right);
+  const paddedHeight = Math.max(1, safeHeight - padding.top - padding.bottom);
+  const zoom = Math.min(zoomForSpan(spanLatitude, paddedHeight), zoomForSpan(spanLongitude, paddedWidth));
+  const degreesPerPixel = 360 / (256 * 2 ** zoom);
+  const offsetY = (padding.bottom - padding.top) / 2;
+  return {
+    latitude: (minLatitude + maxLatitude) / 2 - offsetY * degreesPerPixel,
+    longitude: (minLongitude + maxLongitude) / 2,
+    latitudeDelta: spanLatitude * (safeHeight / paddedHeight),
+    longitudeDelta: spanLongitude * (safeWidth / paddedWidth),
+  };
+}
+
+export function offersFrameHolds(points: readonly RoutePoint[], frame: OffersMapFrame, width: number, height: number): boolean {
+  if (points.length === 0 || width <= 0 || height <= 0) return false;
+  const padding = offersPadding(width, height);
+  const zoom = Math.min(zoomForSpan(frame.latitudeDelta, height), zoomForSpan(frame.longitudeDelta, width));
+  const degreesPerPixel = 360 / (256 * 2 ** zoom);
+  return points.every((point) => {
+    const x = width / 2 + (point.longitude - frame.longitude) / degreesPerPixel;
+    const y = height / 2 - (point.latitude - frame.latitude) / degreesPerPixel;
+    return x >= padding.left - 2 && x <= width - padding.right + 2 && y >= padding.top - 2 && y <= height - padding.bottom + 2;
+  });
 }
 
 export function trackingCameraRegion(rider: RoutePoint, destination: RoutePoint | null): { latitude: number; longitude: number; latitudeDelta: number; longitudeDelta: number } {
