@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useSession } from '../auth/sessionContext';
 import { ErrorMessage } from '../components/ErrorMessage';
@@ -12,6 +12,8 @@ import { beginPageTransition } from '../motion/pageTransition';
 import { motionClass, usePresence } from '../motion/usePresence';
 import {
   TRACKING_POLL_MS,
+  activeCustomerBids,
+  activeOfferCountLabel,
   arrivalLabel,
   customerOfferForBooking,
   deliveryActions,
@@ -97,11 +99,15 @@ export function DeliveryDetailsPage() {
   const [attempt, setAttempt] = useState(0);
   const latest = useRef<CustomerDeliveryDetail | null>(null);
   const seenOffers = useRef<string[]>([]);
+  const dismissedOffers = useRef(new Set<string>());
+  const dismissedDeliveryId = useRef('');
   const accepting = useRef(createAcceptanceGate());
   const busyRef = useRef(false);
   const cancelTriggerRef = useRef<HTMLButtonElement>(null);
   const keepRequestRef = useRef<HTMLButtonElement>(null);
   const cancelDialogRef = useRef<HTMLDivElement>(null);
+  const cancelHistory = useRef(false);
+  const cancelLeaving = useRef(false);
   const chooseTriggerRef = useRef<HTMLButtonElement>(null);
   const keepComparingRef = useRef<HTMLButtonElement>(null);
   const riderDialogRef = useRef<HTMLDivElement>(null);
@@ -113,8 +119,19 @@ export function DeliveryDetailsPage() {
   latest.current = delivery;
 
   useEffect(() => {
-    if (confirm !== 'cancel' || !showsRiderOffers(latest.current)) return undefined;
+    if (confirm !== 'cancel') {
+      if (cancelHistory.current) {
+        cancelHistory.current = false;
+        cancelTriggerRef.current?.focus();
+        if (window.history.state?.cancelDeliveryDialog === true) window.history.back();
+      }
+      return undefined;
+    }
     keepRequestRef.current?.focus();
+    if (!cancelHistory.current) {
+      window.history.pushState({ cancelDeliveryDialog: true }, '');
+      cancelHistory.current = true;
+    }
     function onKey(event: KeyboardEvent) {
       if (event.key === 'Escape') {
         if (busyRef.current) return;
@@ -136,10 +153,20 @@ export function DeliveryDetailsPage() {
         first.focus();
       }
     }
+    function onPop() {
+      if (cancelLeaving.current) return;
+      if (busyRef.current) {
+        window.history.pushState({ cancelDeliveryDialog: true }, '');
+        return;
+      }
+      setConfirmError(null);
+      setConfirm(null);
+    }
     document.addEventListener('keydown', onKey);
+    window.addEventListener('popstate', onPop);
     return () => {
       document.removeEventListener('keydown', onKey);
-      cancelTriggerRef.current?.focus();
+      window.removeEventListener('popstate', onPop);
     };
   }, [confirm]);
 
@@ -271,7 +298,7 @@ export function DeliveryDetailsPage() {
           try {
             const bids = await loadOffers(token, id);
             if (!stopped) {
-              const open = bids.filter((bid) => bid.status === 'OPEN');
+              const open = activeCustomerBids(bids, dismissedOffers.current);
               const ids = open.map((bid) => bid.id);
               if (offersMissingSince(seenOffers.current, ids)) setOfferNotice('An offer is no longer available.');
               seenOffers.current = ids;
@@ -292,7 +319,7 @@ export function DeliveryDetailsPage() {
           setOffersError(null);
           setOfferNotice(null);
         }
-        if (!stopped && loaded.status === 'PICKED_UP') {
+        if (!stopped && showsCompletedRoute(loaded)) {
           const line = await loadDeliveryRoute(token, id).catch(() => []);
           if (!stopped) setRouteLine(line);
         }
@@ -304,6 +331,10 @@ export function DeliveryDetailsPage() {
     }
     latest.current = null;
     seenOffers.current = [];
+    if (dismissedDeliveryId.current !== id) {
+      dismissedDeliveryId.current = id;
+      dismissedOffers.current = new Set();
+    }
     setOfferNotice(null);
     setDelivery(null);
     setIsLoading(true);
@@ -380,12 +411,12 @@ export function DeliveryDetailsPage() {
   const riderSnapshot = useRef<CustomerBid | null>(null);
   if (confirm !== null && confirm !== 'cancel' && confirm !== 'delete') riderSnapshot.current = confirm;
   const shownRider = confirm !== null && confirm !== 'cancel' && confirm !== 'delete' ? confirm : riderSnapshot.current;
-  const requestDialog = confirm === 'cancel' && showsRiderOffers(delivery);
+  const requestDialog = confirm === 'cancel';
   const riderDialog = confirm !== null && confirm !== 'cancel' && confirm !== 'delete';
   const declineSnapshot = useRef<CustomerBid | null>(null);
   if (decline) declineSnapshot.current = decline;
   const shownDecline = decline ?? declineSnapshot.current;
-  const sheetConfirm = confirm === 'delete' || (confirm === 'cancel' && !requestDialog);
+  const sheetConfirm = confirm === 'delete';
   const parcelMotion = usePresence(parcelOpen, 220);
   const sortMotion = usePresence(sortOpen, 220);
   const priceMotion = usePresence(priceOpen, 150);
@@ -494,13 +525,22 @@ export function DeliveryDetailsPage() {
     busyRef.current = true;
     setBusy(true);
     setConfirmError(null);
+    const request = showsRiderOffers(currentDelivery);
     try {
       const sessionToken = await accessToken();
       if (!sessionToken) throw new Error('Sign in again.');
       await cancelDelivery(sessionToken, currentDelivery.id);
+      cancelLeaving.current = true;
+      cancelHistory.current = false;
+      if (window.history.state?.cancelDeliveryDialog === true) {
+        await new Promise<void>((resolve) => {
+          window.addEventListener('popstate', () => resolve(), { once: true });
+          window.history.back();
+        });
+      }
       beginPageTransition(() => navigate('/deliveries', { replace: true }));
     } catch (caught) {
-      setConfirmError(deliveryErrorMessage(caught, 'This request could not be cancelled.'));
+      setConfirmError(deliveryErrorMessage(caught, request ? 'This request could not be cancelled.' : 'This action could not be completed.'));
     } finally {
       busyRef.current = false;
       setBusy(false);
@@ -582,11 +622,12 @@ export function DeliveryDetailsPage() {
       const sessionToken = await accessToken();
       if (!sessionToken) throw new Error('Sign in again.');
       await dismissOffer(sessionToken, currentDelivery.id, bid.id);
+      dismissedOffers.current.add(bid.id);
       seenOffers.current = seenOffers.current.filter((item) => item !== bid.id);
-      setOffers((current) => current.filter((item) => item.id !== bid.id));
+      setOffers((current) => activeCustomerBids(current, dismissedOffers.current));
       try {
         const bids = await loadOffers(sessionToken, currentDelivery.id);
-        const open = bids.filter((item) => item.status === 'OPEN' && item.id !== bid.id);
+        const open = activeCustomerBids(bids, dismissedOffers.current);
         seenOffers.current = open.map((item) => item.id);
         setOffers(open);
       } catch {
@@ -638,7 +679,7 @@ export function DeliveryDetailsPage() {
         <TrackingMap
           deliveryId={delivery.id}
           live={false}
-          rider={null}
+          rider={storedRiderPoint(delivery)}
           stop={{ latitude: delivery.dropoffLatitude ?? 0, longitude: delivery.dropoffLongitude ?? 0 }}
           pickup={{ latitude: delivery.pickupLatitude ?? 0, longitude: delivery.pickupLongitude ?? 0 }}
           headingToDropoff
@@ -688,7 +729,7 @@ export function DeliveryDetailsPage() {
         <TrackingMap
           deliveryId={mapView.deliveryId}
           live={live}
-          rider={mapView.kind === 'live' ? mapView.rider : null}
+          rider={mapView.kind === 'live' ? mapView.rider : storedRiderPoint(delivery)}
           stop={mapView.stop}
           headingToDropoff={mapView.headingToDropoff}
           line={approach?.line ?? []}
@@ -729,7 +770,7 @@ export function DeliveryDetailsPage() {
             ) : null}
             {delivery.serviceClass === 'EXPRESS' ? <p className="track-kicker">Urgent</p> : null}
             <div className="track-title-row">
-              <h1>{headline ?? deliveryCardStatusLabel({ status: delivery.status, serviceClass: delivery.serviceClass, deliverBy: delivery.deliverBy, openBidCount: offers.length })}</h1>
+              <h1>{screen === 'offers' ? activeOfferCountLabel(offers.length) : (headline ?? deliveryCardStatusLabel({ status: delivery.status, serviceClass: delivery.serviceClass, deliverBy: delivery.deliverBy, openBidCount: offers.length }))}</h1>
               {live ? <p className="track-live-pill">Live</p> : null}
               {screen === 'offers' ? (
                 <button type="button" className="offer-sort" aria-label={`Sort offers, ${offerSortLabel(offerSort)}`} onClick={() => setSortOpen(true)}>
@@ -832,7 +873,7 @@ export function DeliveryDetailsPage() {
         ) : null}
         {screen === 'tracking' ? <div className="facts-divider" /> : null}
         <div className={screen === 'outcome' ? 'outcome-actions' : screen === 'tracking' || screen === 'offers' ? 'track-actions track-footer' : 'track-actions'}>
-          {actions.cancel || actions.offers ? <button ref={actions.offers ? cancelTriggerRef : undefined} type="button" onClick={() => { if (busyRef.current) return; setConfirmError(null); setConfirm('cancel'); }}>{busy ? 'Cancelling' : actions.offers ? 'Cancel request' : 'Cancel delivery'}</button> : null}
+          {actions.cancel || actions.offers ? <button ref={cancelTriggerRef} type="button" onClick={() => { if (busyRef.current) return; setConfirmError(null); setConfirm('cancel'); }}>{busy ? 'Cancelling' : actions.offers ? 'Cancel request' : 'Cancel delivery'}</button> : null}
           {actions.searchAgain ? <button type="button" className="outcome-search" disabled={busy} onClick={() => void searchAgain()}><SearchIcon />{searching ? 'Searching…' : 'Search again'}</button> : null}
           {actions.deleteRequest ? <button type="button" className="outcome-delete" disabled={busy} onClick={() => { if (busyRef.current) return; setConfirmError(null); setConfirm('delete'); }}>Delete</button> : null}
           {actions.adjustPrice && screen !== 'outcome' ? <button type="button" disabled={busy} onClick={openPrice}>Adjust price</button> : null}
@@ -861,26 +902,16 @@ export function DeliveryDetailsPage() {
         </div>
       ) : null}
       {requestMotion.mounted ? (
-        <div className={motionClass('confirm-dialog-backdrop', 'dialog', requestMotion.visible)} onClick={() => { if (busy) return; setConfirmError(null); setConfirm(null); }}>
-          <div
-            ref={cancelDialogRef}
-            className="confirm-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="cancel-request-title"
-            aria-describedby="cancel-request-copy"
-            aria-busy={busy}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <h2 id="cancel-request-title">Cancel this request?</h2>
-            <p id="cancel-request-copy">We will stop looking for a rider.</p>
-            {confirmError ? <ErrorMessage>{confirmError}</ErrorMessage> : null}
-            <div className="confirm-dialog-actions">
-              <button ref={keepRequestRef} type="button" className="confirm-keep" disabled={busy} onClick={() => { if (busy) return; setConfirmError(null); setConfirm(null); }}>Keep request</button>
-              <button type="button" className="confirm-cancel" disabled={busy} onClick={() => void cancelRequest()}>{busy ? 'Cancelling' : 'Cancel request'}</button>
-            </div>
-          </div>
-        </div>
+        <CancelDeliveryDialog
+          request={showsRiderOffers(delivery)}
+          busy={busy}
+          error={confirmError}
+          visible={requestMotion.visible}
+          dialogRef={cancelDialogRef}
+          keepRef={keepRequestRef}
+          onDismiss={() => { if (busy) return; setConfirmError(null); setConfirm(null); }}
+          onConfirm={() => void cancelRequest()}
+        />
       ) : null}
       {riderMotion.mounted && shownRider ? (
         <div className={motionClass('confirm-dialog-backdrop', 'dialog', riderMotion.visible)} onClick={() => { if (busy) return; setConfirmError(null); setConfirm(null); }}>
@@ -934,23 +965,14 @@ export function DeliveryDetailsPage() {
           </div>
         </div>
       ) : null}
-      {confirmMotion.mounted && (shownConfirm === 'cancel' || shownConfirm === 'delete') ? (
-        <div className={motionClass('deliveries-sheet-backdrop', 'dialog', confirmMotion.visible)} onClick={() => { if (busy && shownConfirm === 'delete') return; setConfirmError(null); setConfirm(null); }}>
+      {confirmMotion.mounted && shownConfirm === 'delete' ? (
+        <div className={motionClass('deliveries-sheet-backdrop', 'dialog', confirmMotion.visible)} onClick={() => { if (busy) return; setConfirmError(null); setConfirm(null); }}>
           <div className="deliveries-sheet" role="dialog" aria-label="Confirm" onClick={(event) => event.stopPropagation()}>
-            <h2>{shownConfirm === 'cancel' ? 'Cancel delivery?' : 'Delete this delivery?'}</h2>
-            <p>{shownConfirm === 'cancel' ? 'Cancelling closes this delivery request.' : 'This cannot be undone.'}</p>
-            {shownConfirm === 'delete' && confirmError ? <ErrorMessage>{confirmError}</ErrorMessage> : null}
-            <button type="button" disabled={busy && shownConfirm !== 'delete'} onClick={() => { if (!busy) { setConfirmError(null); setConfirm(null); } }}>{shownConfirm === 'delete' ? 'Cancel' : 'Keep delivery'}</button>
-            <button type="button" disabled={busy} onClick={() => {
-              if (shownConfirm === 'delete') {
-                void deleteRequest();
-                return;
-              }
-              void withToken(async (token) => {
-                await cancelDelivery(token, delivery.id);
-                beginPageTransition(() => navigate('/deliveries', { replace: true }));
-              });
-            }}>{busy ? 'Confirming' : shownConfirm === 'delete' ? 'Delete' : 'Cancel delivery'}</button>
+            <h2>Delete this delivery?</h2>
+            <p>This cannot be undone.</p>
+            {confirmError ? <ErrorMessage>{confirmError}</ErrorMessage> : null}
+            <button type="button" disabled={busy} onClick={() => { if (busy) return; setConfirmError(null); setConfirm(null); }}>Cancel</button>
+            <button type="button" disabled={busy} onClick={() => void deleteRequest()}>{busy ? 'Confirming' : 'Delete'}</button>
           </div>
         </div>
       ) : null}
@@ -986,6 +1008,59 @@ export function DeliveryDetailsPage() {
       ) : null}
     </div>
   );
+}
+
+function CancelDeliveryDialog({
+  request,
+  busy,
+  error,
+  visible,
+  dialogRef,
+  keepRef,
+  onDismiss,
+  onConfirm,
+}: {
+  request: boolean;
+  busy: boolean;
+  error: string | null;
+  visible: boolean;
+  dialogRef: RefObject<HTMLDivElement | null>;
+  keepRef: RefObject<HTMLButtonElement | null>;
+  onDismiss: () => void;
+  onConfirm: () => void;
+}) {
+  const title = request ? 'Cancel this request?' : 'Cancel delivery?';
+  const copy = request ? 'We will stop looking for a rider.' : 'Cancelling closes this delivery request.';
+  const keep = request ? 'Keep request' : 'Keep delivery';
+  const confirm = request ? 'Cancel request' : 'Cancel delivery';
+  return (
+    <div className={motionClass('confirm-dialog-backdrop', 'dialog', visible)} onClick={onDismiss}>
+      <div
+        ref={dialogRef}
+        className="confirm-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="cancel-delivery-title"
+        aria-describedby="cancel-delivery-copy"
+        aria-busy={busy}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <h2 id="cancel-delivery-title">{title}</h2>
+        <p id="cancel-delivery-copy">{copy}</p>
+        {error ? <ErrorMessage>{error}</ErrorMessage> : null}
+        <div className="confirm-dialog-actions">
+          <button ref={keepRef} type="button" className="confirm-keep" disabled={busy} onClick={onDismiss}>{keep}</button>
+          <button type="button" className="confirm-cancel" disabled={busy} onClick={onConfirm}>{busy ? 'Cancelling' : confirm}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function storedRiderPoint(delivery: CustomerDeliveryDetail): RoutePoint | null {
+  const point = delivery.riderLocation;
+  if (!point) return null;
+  return { latitude: point.latitude, longitude: point.longitude };
 }
 
 function OutcomeSummary({

@@ -18,6 +18,8 @@ import {
   offersMissingSince,
   readBidAcceptance,
   readCustomerDeliveryDetail,
+  activeCustomerBids,
+  activeOfferCountLabel,
   receivedOfferCountLabel,
   readRouteLine,
   riderFixIsFresh,
@@ -172,6 +174,25 @@ function bid(id: string, amount: string, rides: number): CustomerBid {
   };
 }
 
+test('the bids heading counts only active offers', () => {
+  const dismissed = new Set(['gone']);
+  const bids = [
+    bid('open', '4.00', 1),
+    { ...bid('gone', '5.00', 2) },
+    { ...bid('withdrawn', '6.00', 3), status: 'WITHDRAWN' as const },
+    { ...bid('expired', '7.00', 4), status: 'EXPIRED' as const },
+    { ...bid('accepted', '8.00', 5), status: 'ACCEPTED' as const },
+    { ...bid('replaced', '9.00', 6), status: 'SUPERSEDED' as const },
+    bid('fresh', '3.00', 7),
+  ];
+  const active = activeCustomerBids(bids, dismissed);
+  assert.deepEqual(active.map((item) => item.id), ['open', 'fresh']);
+  assert.equal(activeOfferCountLabel(active.length), '2 offers received');
+  assert.equal(activeOfferCountLabel(1), '1 offer received');
+  assert.equal(activeOfferCountLabel(0), '0 offers received');
+  assert.deepEqual(activeCustomerBids([bid('fresh', '3.00', 7)], dismissed).map((item) => item.id), ['fresh']);
+});
+
 test('offers sort by price or rides, and price entry stays within the native limits', () => {
   const sorted = sortRiderOffers([bid('b', '8.00', 1), bid('a', '4.00', 9)], 'price');
   assert.deepEqual(sorted.map((item) => item.id), ['a', 'b']);
@@ -209,6 +230,7 @@ test('rider confirmation, completed route, and photo fallback follow the native 
   }).status, 'RIDER_ASSIGNED');
   assert.throws(() => readBidAcceptance({ status: 'OPEN' }), /could not be accepted/);
   assert.equal(showsCompletedRoute(detail({ status: 'PICKED_UP', riderLocation: null, pickupApproach: null })), true);
+  assert.equal(showsCompletedRoute(detail({ status: 'IN_TRANSIT', riderLocation: null, pickupApproach: null })), true);
   assert.equal(showsCompletedRoute(detail({ status: 'DELIVERED', riderLocation: null, pickupApproach: null })), false);
   assert.equal(readRouteLine({ line: [{ latitude: -17.8, longitude: 31 }, { latitude: 99, longitude: 0 }] }).length, 1);
   assert.equal(riderPhotoPresentation({ hasProfilePhoto: true, photoUrl: null, failed: false }), 'initials');

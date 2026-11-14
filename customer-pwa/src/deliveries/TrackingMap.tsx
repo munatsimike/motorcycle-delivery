@@ -212,8 +212,12 @@ export function TrackingMap({
       const size = measuredMap() ?? { width: 360, height: 280 };
       return offersMapCamera([current.stop, ...current.extraMarkers], size.width, size.height);
     }
-    if (!current.live && current.pickup && current.stop) return routeCamera(current.line.length > 1 ? current.line : [current.pickup, current.stop]);
-    if (current.live && current.rider) return trackingCameraRegion(current.rider, current.stop);
+    if (!current.live && current.pickup && current.stop) {
+      const fitted = trackingRoute(current.line, current.rider, current.stop, current.pickup);
+      const points = current.rider ? [...fitted, current.rider] : fitted;
+      return routeCamera(points.length > 0 ? points : [current.pickup, current.stop]);
+    }
+    if (current.rider && (current.live || current.stop)) return trackingCameraRegion(current.rider, current.stop);
     if (current.stop) return trackingCameraRegion(current.stop, null);
     return { latitude: -17.8292, longitude: 31.0522, latitudeDelta: 0.07, longitudeDelta: 0.07 };
   }
@@ -235,9 +239,8 @@ export function TrackingMap({
     const map = mapRef.current;
     if (!maps || !map) return;
     const current = props.current;
-    const path = (current.live || current.pickup) && showsTrackingRoute(current.line.length)
-      ? current.line.map((point) => ({ lat: point.latitude, lng: point.longitude }))
-      : [];
+    const route = trackingRoute(current.line, current.rider, current.stop, current.pickup);
+    const path = route.map((point) => ({ lat: point.latitude, lng: point.longitude }));
     const strokeColor = current.stroke === '#17211D' && document.documentElement.dataset.theme === 'dark' ? '#F3F7F5' : current.stroke;
     const strokeWeight = current.pickup ? 5 : 4;
     if (!lineRef.current) lineRef.current = new maps.Polyline({ map, path, strokeColor, strokeWeight });
@@ -295,7 +298,7 @@ export function TrackingMap({
       labelMarker.current.setIcon(summaryIcon(maps, label));
       labelMarker.current.setMap(map);
     }
-    if (!current.live || !current.rider) {
+    if (!current.rider) {
       riderMarkerRef.current?.setMap(null);
       riderMarkerRef.current = null;
     } else if (!riderMarkerRef.current) {
@@ -303,11 +306,15 @@ export function TrackingMap({
         map,
         position: { lat: current.rider.latitude, lng: current.rider.longitude },
         title: current.summary ? `Rider location, ${current.summary}` : 'Rider location',
+        clickable: false,
+        optimized: false,
         zIndex: 3,
         icon: motorcycleMarkerIcon(maps, riderMarker),
       });
     } else {
       riderMarkerRef.current.setPosition({ lat: current.rider.latitude, lng: current.rider.longitude });
+      riderMarkerRef.current.setIcon(motorcycleMarkerIcon(maps, riderMarker));
+      riderMarkerRef.current.setMap(map);
     }
     extras.current.forEach((marker) => marker.setMap(null));
     extras.current = current.extraMarkers.map((point) => new maps.Marker({
@@ -440,6 +447,13 @@ function deliveredMarkerIcon(maps: Maps, callout: DeliveredCallout) {
 
 function truncate(value: string, max: number): string {
   return value.length > max ? `${value.slice(0, max - 1)}…` : value;
+}
+
+function trackingRoute(line: RoutePoint[], rider: RoutePoint | null, stop: RoutePoint | null, pickup: RoutePoint | null): RoutePoint[] {
+  if (showsTrackingRoute(line.length)) return line;
+  if (rider && stop) return [rider, stop];
+  if (pickup && stop) return [pickup, stop];
+  return [];
 }
 
 function routeCamera(points: RoutePoint[]) {

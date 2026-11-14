@@ -215,7 +215,10 @@ export function deliveryActions(delivery: CustomerDeliveryDetail, now = Date.now
 }
 
 export function showsCompletedRoute(delivery: CustomerDeliveryDetail): boolean {
-  return delivery.status === 'PICKED_UP'
+  const inTransit = delivery.status === 'PICKED_UP'
+    || delivery.status === 'IN_TRANSIT'
+    || delivery.status === 'ARRIVED_AT_DROPOFF';
+  return inTransit
     && delivery.pickupLatitude !== null
     && delivery.pickupLongitude !== null
     && delivery.dropoffLatitude !== null
@@ -256,6 +259,17 @@ export function customerOfferForBooking(value: string): { offeredPrice: string }
 
 export function receivedOfferCountLabel(count: number): string {
   return count === 1 ? '1 offer' : `${count} offers`;
+}
+
+export function activeOfferCountLabel(count: number): string {
+  return count === 1 ? '1 offer received' : `${count} offers received`;
+}
+
+export function activeCustomerBids<T extends { id: string; status: string }>(
+  bids: readonly T[],
+  dismissedIds: ReadonlySet<string> = new Set(),
+): T[] {
+  return bids.filter((bid) => bid.status === 'OPEN' && !dismissedIds.has(bid.id));
 }
 
 export function offersMissingSince(previous: readonly string[], next: readonly string[]): boolean {
