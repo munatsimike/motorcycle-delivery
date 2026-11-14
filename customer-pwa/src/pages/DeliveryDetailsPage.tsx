@@ -1300,12 +1300,14 @@ function ContactLinks({
   );
 }
 
+// Lucide-style phone outline; kept inline because this source-only archive has no package.json.
 function PhoneIcon() {
-  return <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.37 1.9.7 2.8a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.28-1.27a2 2 0 0 1 2.11-.45c.9.33 1.84.57 2.8.7A2 2 0 0 1 22 16.92Z" /></svg>;
+  return <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.37 1.9.7 2.8a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.28-1.27a2 2 0 0 1 2.11-.45c.9.33 1.84.57 2.8.7A2 2 0 0 1 22 16.92Z" /></svg>;
 }
 
+// WhatsApp brand silhouette with a clear outline and handset, no external dependency.
 function WhatsAppIcon() {
-  return <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20.5 11.7a8.5 8.5 0 0 1-12.6 7.4L3 20.5l1.4-4.7A8.5 8.5 0 1 1 20.5 11.7Z" /><path d="M8.3 7.8c-.5.2-.9.9-.9 1.6 0 2.3 3.2 5.7 5.8 6.3.9.2 1.9-.1 2.3-.7l.5-.9-2.2-1-1 1c-1.3-.6-2.4-1.7-3-3l1-1-1-2.2-1.5-.1Z" /></svg>;
+  return <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.4 11.8a8.4 8.4 0 0 1-12.5 7.3L3 20.5l1.4-4.8A8.4 8.4 0 1 1 20.4 11.8Z" /><path d="M8.1 7.7c-.4.4-.6.9-.6 1.6 0 2.6 3.5 6.2 6.3 6.6.7.1 1.4-.2 1.9-.7l.5-.9-2.4-1.1-1 1c-1.3-.6-2.5-1.8-3.1-3.1l1-1-1.1-2.4-1.5 0Z" /></svg>;
 }
 
 function deadlineLabel(value: string | null): string | null {
