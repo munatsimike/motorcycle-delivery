@@ -1,4 +1,4 @@
-import motorcycle from '../assets/riders-motorcycle.png';
+import motorcycle from '../assets/rider-cutout.png';
 import { BrandLogo } from '../components/BrandLogo';
 import { Button } from '../components/Button';
 

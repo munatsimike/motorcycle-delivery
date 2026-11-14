@@ -836,15 +836,9 @@ button.home-status:disabled {
   height: 100%;
   object-fit: contain;
   object-position: center bottom;
-  mix-blend-mode: darken;
-  -webkit-mask-image: radial-gradient(ellipse 86% 78% at 50% 46%, #000 58%, transparent 86%);
-  mask-image: radial-gradient(ellipse 86% 78% at 50% 46%, #000 58%, transparent 86%);
 }
 
 [data-theme="dark"] .welcome-hero img {
-  mix-blend-mode: normal;
-  -webkit-mask-image: radial-gradient(ellipse 78% 74% at 50% 42%, #000 48%, transparent 78%);
-  mask-image: radial-gradient(ellipse 78% 74% at 50% 42%, #000 48%, transparent 78%);
 }
 
 .welcome-fade {
