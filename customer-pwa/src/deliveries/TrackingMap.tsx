@@ -4,17 +4,25 @@ import { mapsBrowserKey } from '../config/env';
 import { zoomForSpan } from '../home/camera';
 import { motorcycleMarkerIcon } from '../home/motorcycleMarker';
 import { loadGoogleMaps } from '../home/googleMap';
+import { SEARCH_PULSE_FRAME_MS, SEARCH_PULSE_MS, searchPulseRings } from './searchPulse';
 import { offersFrameHolds, offersMapCamera, showsTrackingRoute, trackingCameraRegion, trackingCameraShouldMove, TRACKING_MAP_HEIGHT, TRACKING_MARKER_CLEARANCE, TRACKING_SHEET_OVERLAP, TRACKING_ZOOM_DELTA, type OffersMapFrame, type RoutePoint } from './tracking';
 import { bindMapTheme } from '../theme/mapStyle';
 
 type Listener = { remove: () => void };
 type Marker = { setMap: (map: object | null) => void; setPosition: (position: { lat: number; lng: number }) => void; setIcon: (icon: unknown) => void };
 type Polyline = { setMap: (map: object | null) => void; setPath: (path: { lat: number; lng: number }[]) => void };
+type Circle = {
+  setMap: (map: object | null) => void;
+  setCenter: (position: { lat: number; lng: number }) => void;
+  setRadius: (radius: number) => void;
+  setOptions: (options: Record<string, unknown>) => void;
+};
 type GoogleMap = { setCenter: (position: { lat: number; lng: number }) => void; setZoom: (zoom: number) => void; setOptions: (options: Record<string, unknown>) => void };
 type Maps = {
   Map: new (element: HTMLElement, options: Record<string, unknown>) => GoogleMap;
   Marker: new (options: Record<string, unknown>) => Marker;
   Polyline: new (options: Record<string, unknown>) => Polyline;
+  Circle: new (options: Record<string, unknown>) => Circle;
   Size: new (width: number, height: number) => unknown;
   Point: new (x: number, y: number) => unknown;
   event: { addListener: (instance: object, name: string, handler: () => void) => Listener; clearInstanceListeners: (instance: object) => void };
@@ -60,6 +68,9 @@ export function TrackingMap({
   const gestured = useRef(false);
   const programmatic = useRef(false);
   const extras = useRef<Marker[]>([]);
+  const pulseCircles = useRef<Circle[]>([]);
+  const pulseTimer = useRef<number | null>(null);
+  const pulseStarted = useRef(0);
   const pickupMarker = useRef<Marker | null>(null);
   const labelMarker = useRef<Marker | null>(null);
   const deliveredMarker = useRef<Marker | null>(null);
@@ -132,6 +143,7 @@ export function TrackingMap({
       deliveredMarker.current?.setMap(null);
       stopMarkerRef.current?.setMap(null);
       lineRef.current?.setMap(null);
+      stopSearchPulse();
       const maps = mapsRef.current;
       if (maps && mapRef.current) maps.event.clearInstanceListeners(mapRef.current);
       mapRef.current = null;
@@ -307,6 +319,66 @@ export function TrackingMap({
       zIndex: 3,
       icon: motorcycleMarkerIcon(maps, riderMarker),
     }));
+    syncSearchPulse();
+  }
+
+  function stopSearchPulse() {
+    if (pulseTimer.current !== null) {
+      window.clearInterval(pulseTimer.current);
+      pulseTimer.current = null;
+    }
+    for (const circle of pulseCircles.current) circle.setMap(null);
+    pulseCircles.current = [];
+  }
+
+  function syncSearchPulse() {
+    const maps = mapsRef.current;
+    const map = mapRef.current;
+    const current = props.current;
+    if (!maps || !map || !current.neighborhood || !current.stop) {
+      stopSearchPulse();
+      return;
+    }
+    if (pulseTimer.current !== null) return;
+    pulseStarted.current = performance.now();
+    const tick = () => {
+      const liveMap = mapRef.current;
+      const latest = props.current;
+      if (!mapsRef.current || !liveMap || !latest.neighborhood || !latest.stop) {
+        stopSearchPulse();
+        return;
+      }
+      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const progress = reduceMotion ? 0 : ((performance.now() - pulseStarted.current) % SEARCH_PULSE_MS) / SEARCH_PULSE_MS;
+      const rings = searchPulseRings(progress, reduceMotion);
+      while (pulseCircles.current.length < rings.length) {
+        pulseCircles.current.push(new maps.Circle({
+          map: liveMap,
+          center: { lat: latest.stop.latitude, lng: latest.stop.longitude },
+          radius: 70,
+          clickable: false,
+          zIndex: 0,
+        }));
+      }
+      while (pulseCircles.current.length > rings.length) {
+        pulseCircles.current.pop()?.setMap(null);
+      }
+      rings.forEach((ring, index) => {
+        const circle = pulseCircles.current[index];
+        if (!circle || !latest.stop) return;
+        circle.setCenter({ lat: latest.stop.latitude, lng: latest.stop.longitude });
+        circle.setRadius(ring.radius);
+        circle.setOptions({
+          fillColor: '#169B62',
+          fillOpacity: ring.opacity,
+          strokeColor: '#169B62',
+          strokeOpacity: Math.min(1, ring.opacity * 1.7),
+          strokeWeight: 2,
+        });
+      });
+    };
+    tick();
+    pulseTimer.current = window.setInterval(tick, SEARCH_PULSE_FRAME_MS);
   }
 
   function drawPin(maps: Maps, map: GoogleMap, slot: { current: Marker | null }, point: RoutePoint | null, title: string, color: string) {

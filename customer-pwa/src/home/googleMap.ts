@@ -1,3 +1,4 @@
+import riderMarker from '../assets/rider-motorcycle-marker.png';
 import {
   HARARE,
   INITIAL_SPAN,
@@ -163,11 +164,11 @@ export function createHomeMap(element: HTMLElement, iconUrl: string, onAuthFailu
     customerMarker = new maps.Marker({
       map,
       position,
-        title: 'Your location',
-        clickable: false,
-        optimized: false,
-        zIndex: 1,
-      icon: customerLocationIcon(maps),
+      title: 'Your location',
+      clickable: false,
+      optimized: false,
+      zIndex: 1,
+      icon: motorcycleMarkerIcon(maps, riderMarker),
     });
   };
 
@@ -262,16 +263,6 @@ export function createHomeMap(element: HTMLElement, iconUrl: string, onAuthFailu
     map.setZoom(camera.zoom);
     programmatic = false;
   }
-}
-
-function customerLocationIcon(maps: GoogleMaps) {
-  const size = 27;
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 27 27"><circle cx="13.5" cy="13.5" r="13.5" fill="#2A86F0" fill-opacity="0.17"/><circle cx="13.5" cy="13.5" r="6.5" fill="#FFFFFF"/><circle cx="13.5" cy="13.5" r="4.5" fill="#2885E9"/></svg>`;
-  return {
-    url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
-    scaledSize: new maps.Size(size, size),
-    anchor: new maps.Point(size / 2, size / 2),
-  };
 }
 
 function createMap(maps: GoogleMaps, element: HTMLElement): GoogleMap {

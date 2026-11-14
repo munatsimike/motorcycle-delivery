@@ -223,6 +223,10 @@ input:focus-visible {
   object-fit: contain;
 }
 
+.auth-screen .brand-mark {
+  margin-bottom: 36px;
+}
+
 .brand-logo {
   display: flex;
   align-items: flex-start;

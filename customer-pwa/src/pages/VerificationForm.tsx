@@ -16,6 +16,7 @@ import { saveRegistrationProof, storeProof } from '../auth/proof';
 import { clearReturnPath, readReturnPath, safeReturnPath } from '../auth/returnPath';
 import { useSession } from '../auth/sessionContext';
 import { AuthBack } from '../components/AuthBack';
+import { BrandMark } from '../components/BrandMark';
 import { Button } from '../components/Button';
 import { ErrorMessage } from '../components/ErrorMessage';
 import { OtpCodeBoxes } from '../components/OtpCodeBoxes';
@@ -114,7 +115,7 @@ function PhoneStep({ flow, title, notice }: { flow: AuthFlow; title: string; not
   return (
     <>
     <AuthBack to="/" />
-    <Page title={title}>
+    <Page title={title} leading={<BrandMark />}>
       <p className="lede">We will send a verification code on WhatsApp.</p>
       {notice ? <ErrorMessage>{notice}</ErrorMessage> : null}
       <form className="stack" onSubmit={(event) => { void submit(event); }}>
