@@ -1,4 +1,4 @@
-import riderImage from '../assets/rider-cutout.png';
+import riderImage from '../assets/rider-cutout-visible.png';
 import { BrandLogo } from './BrandLogo';
 
 export function BrandMark() {

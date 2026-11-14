@@ -1,4 +1,4 @@
-import motorcycle from '../assets/rider-cutout.png';
+import motorcycle from '../assets/rider-cutout-visible.png';
 import { BrandLogo } from '../components/BrandLogo';
 import { Button } from '../components/Button';
 
@@ -11,7 +11,6 @@ export function WelcomePage() {
         </div>
         <div className="welcome-hero">
           <img src={motorcycle} alt="" width={229} height={217} />
-          <div className="welcome-fade" aria-hidden="true" />
         </div>
         <div className="welcome-card">
           <section className="welcome-panel">
