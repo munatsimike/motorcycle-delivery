@@ -97,6 +97,10 @@ export function createHomeMap(element: HTMLElement, iconUrl: string, onAuthFailu
   let programmatic = false;
   let gestured = false;
   let locked = false;
+  let framedCustomer: MapPoint | null = null;
+  let framedCard = 0;
+  let framedSpan = NEIGHBORHOOD_SPAN;
+  let shownPoints: readonly NearbyMarker[] = [];
   const map = createMap(maps, element);
   const releaseTheme = bindMapTheme(map);
   const markers = new Map<string, GoogleMarker>();
@@ -129,13 +133,18 @@ export function createHomeMap(element: HTMLElement, iconUrl: string, onAuthFailu
   resize.observe(element);
 
   const frame = (customer: MapPoint, cardHeight: number) => {
-    show(customer, cardHeight, NEIGHBORHOOD_SPAN, customer);
+    framedCustomer = customer;
+    framedCard = cardHeight;
+    framedSpan = NEIGHBORHOOD_SPAN;
+    show(customer, cardHeight, framedSpan, customer);
     locked = true;
     gestured = false;
+    revealMarkers(shownPoints);
   };
 
   return {
     showMarkers(points) {
+      shownPoints = points;
       const seen = new Set<string>();
       for (const point of points) {
         seen.add(point.id);
@@ -150,6 +159,7 @@ export function createHomeMap(element: HTMLElement, iconUrl: string, onAuthFailu
           position,
           title: 'Available rider',
           clickable: false,
+          optimized: false,
           zIndex: 3,
           icon: {
             url: iconUrl,
@@ -163,11 +173,11 @@ export function createHomeMap(element: HTMLElement, iconUrl: string, onAuthFailu
         marker.setMap(null);
         markers.delete(id);
       }
+      revealMarkers(points);
     },
     tryInitialFrame(customer, cardHeight) {
       if (!customer || !shouldAutoFrame({ gestured, locked, customer, cardHeight })) return;
-      show(customer, cardHeight, NEIGHBORHOOD_SPAN, customer);
-      locked = true;
+      frame(customer, cardHeight);
     },
     recenter(customer, cardHeight) {
       if (cardHeight <= 0) return;
@@ -188,6 +198,21 @@ export function createHomeMap(element: HTMLElement, iconUrl: string, onAuthFailu
       googleWindow.gm_authFailure = previousAuthFailure;
     },
   };
+
+  function revealMarkers(points: readonly NearbyMarker[]) {
+    if (!framedCustomer || framedCard <= 0 || points.length === 0 || gestured) return;
+    let span = NEIGHBORHOOD_SPAN;
+    for (const point of points) {
+      span = Math.max(
+        span,
+        Math.abs(point.latitude - framedCustomer.latitude) * 2.6,
+        Math.abs(point.longitude - framedCustomer.longitude) * 2.6,
+      );
+    }
+    if (span <= framedSpan + 0.00001) return;
+    framedSpan = span;
+    show(framedCustomer, framedCard, framedSpan, framedCustomer);
+  }
 
   function show(center: MapPoint, cardHeight: number, span: number, pin: MapPoint | null) {
     const rect = element.getBoundingClientRect();

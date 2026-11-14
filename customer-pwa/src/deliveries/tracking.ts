@@ -118,10 +118,22 @@ export function trackingMapView(delivery: CustomerDeliveryDetail, now: number): 
   return { kind: 'awaiting', deliveryId: delivery.id, stop, headingToDropoff };
 }
 
-export function deliveryScreen(delivery: CustomerDeliveryDetail): 'offers' | 'tracking' | 'outcome' {
+export function deliveryScreen(delivery: CustomerDeliveryDetail): 'offers' | 'tracking' | 'outcome' | 'status' {
   if (showsRiderOffers(delivery)) return 'offers';
   if (showsLiveTrackingMap(delivery)) return 'tracking';
+  if (usesStatusBand(delivery)) return 'status';
   return 'outcome';
+}
+
+export function usesStatusBand(delivery: { status: DeliveryStatus; serviceClass: string | null }): boolean {
+  if (delivery.status === 'SEARCHING' || delivery.status === 'ASSIGNED' || delivery.status === 'ARRIVED_AT_PICKUP') return true;
+  return delivery.status === 'CREATED' && delivery.serviceClass !== 'EXPRESS' && delivery.serviceClass !== 'FLEXIBLE';
+}
+
+export function statusBandCopy(status: DeliveryStatus): { title: string; support: string } {
+  if (status === 'ASSIGNED') return { title: 'Rider coming', support: 'A rider accepted this delivery.' };
+  const title = status === 'SEARCHING' ? 'Finding a rider' : status === 'ARRIVED_AT_PICKUP' ? 'Rider at pickup' : status === 'CREATED' ? 'Pending' : 'Track Delivery';
+  return { title, support: 'This is the latest status from your delivery.' };
 }
 
 export function detailViewState(input: { isLoading: boolean; error: string | null; hasDelivery: boolean }): 'loading' | 'error' | 'ready' {

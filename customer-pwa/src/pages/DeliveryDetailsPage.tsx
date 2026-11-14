@@ -13,7 +13,6 @@ import {
   deliveryActions,
   deliveryScreen,
   detailViewState,
-  locationAgeLabel,
   acceptanceKeyFor,
   bidCanAccept,
   clearAcceptanceKey,
@@ -29,13 +28,13 @@ import {
   riderClassLabel,
   riderRatingLine,
   riderDialUrl,
-  riderFixIsFresh,
   riderWhatsAppUrl,
   roadDistanceLabel,
   shouldPollDelivery,
   shouldShowRiderConfirmed,
   showsCompletedRoute,
   showsDeliveredDestination,
+  statusBandCopy,
   showsRiderOffers,
   sortRiderOffers,
   trackingHeadline,
@@ -79,6 +78,8 @@ export function DeliveryDetailsPage() {
   const [priceOpen, setPriceOpen] = useState(false);
   const [priceText, setPriceText] = useState('');
   const [priceError, setPriceError] = useState<string | null>(null);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
+  const [searching, setSearching] = useState(false);
   const [acceptedId, setAcceptedId] = useState<string | null>(null);
   const [confirmedDismissed, setConfirmedDismissed] = useState(false);
   const [offersLoaded, setOffersLoaded] = useState(false);
@@ -195,6 +196,12 @@ export function DeliveryDetailsPage() {
     };
   }, [accessToken, delivery]);
 
+  useEffect(() => {
+    if (acceptedId !== id || confirmedDismissed) return undefined;
+    const timer = window.setTimeout(() => setConfirmedDismissed(true), 2400);
+    return () => window.clearTimeout(timer);
+  }, [acceptedId, confirmedDismissed, id]);
+
   const trackingClock = delivery !== null && keepsRiderLocation(delivery.status);
   useEffect(() => {
     if (!trackingClock) return undefined;
@@ -211,7 +218,11 @@ export function DeliveryDetailsPage() {
   if (view === 'error' || !delivery) {
     return (
       <div className="track">
-        <Link className="fullscreen-back" to="/deliveries">Back to deliveries</Link>
+        <Link className="fullscreen-back" to="/deliveries" aria-label="Back">
+          <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z" fill="currentColor" />
+          </svg>
+        </Link>
         <ErrorMessage>{error ?? 'Delivery details are unavailable.'}</ErrorMessage>
         <button type="button" className="deliveries-retry" onClick={() => setAttempt((value) => value + 1)}>Try again</button>
       </div>
@@ -234,10 +245,7 @@ export function DeliveryDetailsPage() {
   const distance = approach ? roadDistanceLabel(approach.metres) : null;
   const eta = approach ? arrivalLabel(approach.seconds) : null;
   const summary = [distance, eta].filter((part): part is string => Boolean(part)).join(' · ') || null;
-  const updated = delivery.riderLocation && riderFixIsFresh(delivery.riderLocation.updatedAt, now)
-    ? locationAgeLabel(delivery.riderLocation.updatedAt, now)
-    : null;
-
+  const currentDelivery = delivery;
   async function withToken(task: (token: string) => Promise<void>) {
     if (busyRef.current) return;
     busyRef.current = true;
@@ -256,9 +264,93 @@ export function DeliveryDetailsPage() {
     }
   }
 
+  function openPrice() {
+    if (busyRef.current) return;
+    setPriceText(currentDelivery.customerOffer ?? currentDelivery.suggestedPrice);
+    setPriceError(null);
+    setPriceOpen(true);
+  }
+
+  async function savePrice() {
+    const submitted = customerOfferForBooking(priceText);
+    if ('error' in submitted) {
+      setPriceError(submitted.error);
+      return;
+    }
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    setPriceError(null);
+    try {
+      const sessionToken = await accessToken();
+      if (!sessionToken) throw new Error('Sign in again.');
+      await adjustOffer(sessionToken, currentDelivery.id, submitted.offeredPrice);
+      try {
+        setDelivery(await loadDelivery(sessionToken, currentDelivery.id));
+      } catch {
+        setPriceError('Your price was saved, but this delivery could not be refreshed.');
+        return;
+      }
+      setPriceOpen(false);
+    } catch (caught) {
+      setPriceError(deliveryErrorMessage(caught, 'This offer could not be saved.'));
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  }
+
+  async function deleteRequest() {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    setConfirmError(null);
+    try {
+      const sessionToken = await accessToken();
+      if (!sessionToken) throw new Error('Sign in again.');
+      await cancelDelivery(sessionToken, currentDelivery.id);
+      navigate('/deliveries', { replace: true });
+    } catch (caught) {
+      setConfirmError(deliveryErrorMessage(caught, 'This delivery could not be deleted.'));
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  }
+
+  async function searchAgain() {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    setSearching(true);
+    setActionError(null);
+    try {
+      const sessionToken = await accessToken();
+      if (!sessionToken) throw new Error('Sign in again.');
+      await searchForRider(sessionToken, currentDelivery.id);
+      try {
+        setDelivery(await loadDelivery(sessionToken, currentDelivery.id));
+      } catch {
+        setActionError('The search started, but this delivery could not be refreshed.');
+        return;
+      }
+    } catch (caught) {
+      setActionError(deliveryErrorMessage(caught, 'The search could not be started.'));
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+      setSearching(false);
+    }
+  }
+
   return (
     <div className={screen === 'tracking' ? 'track track-live' : showsMap ? 'track' : 'track track-plain'}>
-      <Link className="fullscreen-back" to="/deliveries">Back to deliveries</Link>
+      {showsMap ? null : <div className="track-wash" aria-hidden="true" />}
+      <Link className="fullscreen-back" to="/deliveries" aria-label="Back">
+        <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z" fill="currentColor" />
+        </svg>
+      </Link>
       {showsCompletedRoute(delivery) ? (
         <TrackingMap
           deliveryId={delivery.id}
@@ -284,6 +376,11 @@ export function DeliveryDetailsPage() {
           headingToDropoff
           line={[]}
           summary={null}
+          deliveredCallout={{
+            name: delivery.recipientName?.trim() ?? '',
+            address: deliveryCardAddress(delivery.dropoffAddress),
+            when: delivery.completedAt ? deliveryWhenLabel(delivery.completedAt) : '',
+          }}
         />
       ) : null}
       {screen === 'offers' && delivery.pickupLatitude !== null && delivery.pickupLongitude !== null ? (
@@ -299,6 +396,7 @@ export function DeliveryDetailsPage() {
             ...orderedOffers.flatMap((bid) => bid.mapPoint ? [{ ...bid.mapPoint, title: bid.riderName }] : []),
             ...nearby.map((point) => ({ ...point, title: 'Available rider' })),
           ]}
+          neighborhood
           interactive={false}
         />
       ) : null}
@@ -313,7 +411,18 @@ export function DeliveryDetailsPage() {
           summary={summary}
         />
       ) : null}
-      <section className="track-sheet" aria-label="Delivery details">
+      {screen === 'status' ? (
+        <section className="status-band" aria-label="Delivery status">
+          <div className="status-hero">
+            <span className="status-hero-icon" aria-hidden="true">{delivery.status === 'ASSIGNED' ? <BikeMark /> : <ContentMark kind="parcel" />}</span>
+            <h1>{statusBandCopy(delivery.status).title}</h1>
+            <p>{statusBandCopy(delivery.status).support}</p>
+          </div>
+          <DeliveryFacts delivery={delivery} />
+        </section>
+      ) : null}
+      {screen === 'status' ? null : <section className={screen === 'offers' ? 'track-sheet track-offers-sheet' : 'track-sheet'} aria-label="Delivery details">
+        {screen === 'offers' ? <div className="offers-handle" aria-hidden="true" /> : null}
         {screen === 'outcome' && delivery.status === 'DELIVERED' ? (
           <DeliveredSummary delivery={delivery} />
         ) : screen === 'outcome' ? (
@@ -321,24 +430,33 @@ export function DeliveryDetailsPage() {
             delivery={delivery}
             accessToken={token}
             onParcel={() => setParcelOpen(true)}
-            onAdjust={() => {
-              setPriceText(delivery.customerOffer ?? delivery.suggestedPrice);
-              setPriceError(null);
-              setPriceOpen(true);
-            }}
+            onAdjust={openPrice}
           />
         ) : (
           <>
+            {confirmed && screen === 'tracking' ? (
+              <div className="rider-confirmed-note">
+                <span className="rider-confirmed-mark" aria-hidden="true"><CheckMark /></span>
+                <span>
+                  <strong>Rider confirmed!</strong>
+                  <p>Your rider has been assigned to your delivery.</p>
+                </span>
+              </div>
+            ) : null}
             {delivery.serviceClass === 'EXPRESS' ? <p className="track-kicker">Urgent</p> : null}
-            <h1>{headline ?? deliveryCardStatusLabel({ status: delivery.status, serviceClass: delivery.serviceClass, deliverBy: delivery.deliverBy, openBidCount: offers.length })}</h1>
+            <div className="track-title-row">
+              <h1>{headline ?? deliveryCardStatusLabel({ status: delivery.status, serviceClass: delivery.serviceClass, deliverBy: delivery.deliverBy, openBidCount: offers.length })}</h1>
+              {live ? <p className="track-live-pill">Live</p> : null}
+            </div>
             {subtitle ? <p>{subtitle}</p> : null}
-            {updated ? <p className="track-meta">{updated}</p> : null}
-            {live ? <p className="track-live">Live</p> : null}
+            {screen === 'tracking' && deadlineLabel(delivery.deliverBy) ? <p className="track-note">Deliver by {deadlineLabel(delivery.deliverBy)}</p> : null}
+            {screen === 'tracking' && !delivery.offeredPrice ? <p className="track-note">Riders offer their own price. This suggestion is not the agreed price.</p> : null}
           </>
         )}
         {screen !== 'outcome' && delivery.rider && headline ? (
           <div className="track-rider">
             <RiderPhoto
+              tile
               name={delivery.rider.name}
               hasProfilePhoto={delivery.rider.hasProfilePhoto}
               path={delivery.rider.hasProfilePhoto ? `/customers/me/deliveries/${encodeURIComponent(delivery.id)}/rider-profile-photo` : null}
@@ -350,18 +468,24 @@ export function DeliveryDetailsPage() {
               {delivery.rider.colour ? <p>{delivery.rider.colour}</p> : null}
             </div>
             {actions.contact ? (
-              <div className="track-contact">
-                <a href={riderDialUrl(delivery.rider.phone) ?? undefined} aria-label={`Call ${delivery.rider.name}`}>Call</a>
-                <a href={riderWhatsAppUrl(delivery.rider.phone) ?? undefined} aria-label={`WhatsApp ${delivery.rider.name}`}>WhatsApp</a>
-              </div>
+              <ContactLinks
+                phone={delivery.rider.phone}
+                callLabel={`Call ${delivery.rider.name}`}
+                whatsAppLabel={`WhatsApp ${delivery.rider.name}`}
+              />
             ) : null}
           </div>
         ) : null}
         {screen === 'offers' ? (
           <div className="track-offers">
             <div className="track-offer-head">
-              <h2>{receivedOfferCountLabel(orderedOffers.length)}</h2>
-              <button type="button" aria-label={`Sort offers, ${offerSortLabel(offerSort)}`} onClick={() => setSortOpen(true)}>{offerSortShortLabel(offerSort)}</button>
+              <h2 className="offer-count">{receivedOfferCountLabel(orderedOffers.length)}</h2>
+              <button type="button" className="offer-sort" aria-label={`Sort offers, ${offerSortLabel(offerSort)}`} onClick={() => setSortOpen(true)}>
+                <SwapIcon />
+                <span>{offerSortShortLabel(offerSort)}</span>
+                <SortIcon descending={offerSort.endsWith('high')} />
+                <ChevronDown />
+              </button>
             </div>
             {offerNotice ? <p className="track-meta">{offerNotice}</p> : null}
             {!offersLoaded && orderedOffers.length === 0 ? (
@@ -375,10 +499,11 @@ export function DeliveryDetailsPage() {
               <button type="button" className="deliveries-retry" onClick={() => setAttempt((value) => value + 1)}>Retry</button>
             ) : null}
             {offersLoaded && !offersError && orderedOffers.length === 0 ? (
-              <>
+              <div className="offers-empty">
+                <div className="offers-check" aria-hidden="true"><CheckMark /></div>
                 <h2>Looking for your rider</h2>
                 <p>Your request is live. Offers will appear here as riders respond.</p>
-              </>
+              </div>
             ) : null}
             {orderedOffers.map((bid) => {
               const rating = riderRatingLine(bid);
@@ -408,7 +533,7 @@ export function DeliveryDetailsPage() {
                 </div>
                 <div className="offer-price">
                   <span>${bid.amount}</span>
-                  <p>{pickupEtaLabel(bid.pickupEtaSeconds)}</p>
+                  <p className="offer-eta">{pickupEtaLabel(bid.pickupEtaSeconds) === 'ETA unavailable' ? null : <ClockMark />}<span>{pickupEtaLabel(bid.pickupEtaSeconds)}</span></p>
                 </div>
                 </div>
                 {canAccept ? (
@@ -426,12 +551,13 @@ export function DeliveryDetailsPage() {
             })}
           </div>
         ) : null}
-        <div className={screen === 'tracking' ? 'track-actions track-footer' : 'track-actions'}>
-          {actions.cancel || actions.offers ? <button type="button" onClick={() => setConfirm('cancel')}>{busy ? 'Cancelling' : actions.offers ? 'Cancel search' : 'Cancel delivery'}</button> : null}
-          {actions.searchAgain ? <button type="button" onClick={() => void withToken(async (token) => { await searchForRider(token, delivery.id); setDelivery(await loadDelivery(token, delivery.id)); })}>Search again</button> : null}
-          {actions.deleteRequest ? <button type="button" onClick={() => setConfirm('delete')}>Delete</button> : null}
-          {actions.adjustPrice && screen !== 'outcome' ? <button type="button" onClick={() => { setPriceText(delivery.customerOffer ?? delivery.suggestedPrice); setPriceError(null); setPriceOpen(true); }}>Adjust price</button> : null}
-          {actions.parcel && screen !== 'outcome' ? <button type="button" onClick={() => setParcelOpen(true)}>Parcel details</button> : null}
+        {screen === 'tracking' ? <div className="facts-divider" /> : null}
+        <div className={screen === 'outcome' ? 'outcome-actions' : screen === 'tracking' || screen === 'offers' ? 'track-actions track-footer' : 'track-actions'}>
+          {actions.cancel || actions.offers ? <button type="button" onClick={() => setConfirm('cancel')}>{busy ? 'Cancelling' : actions.offers ? 'Cancel request' : 'Cancel delivery'}</button> : null}
+          {actions.searchAgain ? <button type="button" className="outcome-search" disabled={busy} onClick={() => void searchAgain()}><SearchIcon />{searching ? 'Searching…' : 'Search again'}</button> : null}
+          {actions.deleteRequest ? <button type="button" className="outcome-delete" disabled={busy} onClick={() => { if (busyRef.current) return; setConfirmError(null); setConfirm('delete'); }}>Delete</button> : null}
+          {actions.adjustPrice && screen !== 'outcome' ? <button type="button" disabled={busy} onClick={openPrice}>Adjust price</button> : null}
+          {actions.parcel && screen !== 'outcome' ? <button type="button" className="track-parcel" onClick={() => setParcelOpen(true)}>Parcel details<ChevronUp /></button> : null}
         </div>
         {actions.rate ? (
           <div className="track-rating" aria-label="Rate rider">
@@ -441,7 +567,7 @@ export function DeliveryDetailsPage() {
           </div>
         ) : null}
         {actionError ? <ErrorMessage>{actionError}</ErrorMessage> : null}
-      </section>
+      </section>}
       {parcelOpen ? (
         <div className="deliveries-sheet-backdrop" onClick={() => setParcelOpen(false)}>
           <div className="deliveries-sheet" role="dialog" aria-label="Parcel details" onClick={(event) => event.stopPropagation()}>
@@ -452,14 +578,20 @@ export function DeliveryDetailsPage() {
         </div>
       ) : null}
       {confirm ? (
-        <div className="deliveries-sheet-backdrop" onClick={() => setConfirm(null)}>
+        <div className="deliveries-sheet-backdrop" onClick={() => { if (busy && confirm === 'delete') return; setConfirmError(null); setConfirm(null); }}>
           <div className="deliveries-sheet" role="dialog" aria-label="Confirm" onClick={(event) => event.stopPropagation()}>
             <h2>{confirm === 'cancel' ? (actions.offers ? 'Cancel this request?' : 'Cancel delivery?') : confirm === 'delete' ? 'Delete this delivery?' : 'Choose rider'}</h2>
             <p>{confirm === 'cancel' ? (actions.offers ? 'We will stop looking for a rider.' : 'Cancelling closes this delivery request.') : confirm === 'delete' ? 'This cannot be undone.' : confirm.riderName}</p>
             {confirm !== 'cancel' && confirm !== 'delete' ? <p>${confirm.amount}</p> : null}
-            <button type="button" disabled={busy && confirm !== 'cancel' && confirm !== 'delete'} onClick={() => { if (!busy) setConfirm(null); }}>{confirm === 'delete' ? 'Cancel' : confirm === 'cancel' && actions.offers ? 'Keep request' : confirm === 'cancel' ? 'Keep delivery' : 'Keep comparing'}</button>
-            <button type="button" disabled={busy} onClick={() => void withToken(async (token) => {
-              if (confirm === 'cancel' || confirm === 'delete') {
+            {confirm === 'delete' && confirmError ? <ErrorMessage>{confirmError}</ErrorMessage> : null}
+            <button type="button" disabled={busy && confirm !== 'cancel' && confirm !== 'delete'} onClick={() => { if (!busy) { setConfirmError(null); setConfirm(null); } }}>{confirm === 'delete' ? 'Cancel' : confirm === 'cancel' && actions.offers ? 'Keep request' : confirm === 'cancel' ? 'Keep delivery' : 'Keep comparing'}</button>
+            <button type="button" disabled={busy} onClick={() => {
+              if (confirm === 'delete') {
+                void deleteRequest();
+                return;
+              }
+              void withToken(async (token) => {
+              if (confirm === 'cancel') {
                 await cancelDelivery(token, delivery.id);
                 navigate('/deliveries', { replace: true });
                 return;
@@ -499,7 +631,8 @@ export function DeliveryDetailsPage() {
               } finally {
                 accepting.current.end();
               }
-            })}>{busy ? 'Confirming' : confirm === 'delete' ? 'Delete' : confirm === 'cancel' ? (actions.offers ? 'Cancel request' : 'Cancel delivery') : 'Confirm rider'}</button>
+            });
+            }}>{busy ? 'Confirming' : confirm === 'delete' ? 'Delete' : confirm === 'cancel' ? (actions.offers ? 'Cancel request' : 'Cancel delivery') : 'Confirm rider'}</button>
           </div>
         </div>
       ) : null}
@@ -508,12 +641,16 @@ export function DeliveryDetailsPage() {
           <div className="deliveries-sheet" role="dialog" aria-label="Sort by" onClick={(event) => event.stopPropagation()}>
             <h2>Sort by</h2>
             {([
-              ['price', 'Price: lowest to highest'],
-              ['price-high', 'Price: highest to lowest'],
-              ['rides-low', 'Rides: lowest to highest'],
-              ['rides-high', 'Rides: highest to lowest'],
-            ] as const).map(([id, label]) => (
-              <button key={id} type="button" className={offerSort === id ? 'is-selected' : undefined} onClick={() => { setOfferSort(id); setSortOpen(false); }}>{label}</button>
+              ['price', 'Price: lowest to highest', false],
+              ['price-high', 'Price: highest to lowest', true],
+              ['rides-low', 'Rides: lowest to highest', false],
+              ['rides-high', 'Rides: highest to lowest', true],
+            ] as const).map(([id, label, descending]) => (
+              <button key={id} type="button" className={offerSort === id ? 'sort-option is-selected' : 'sort-option'} onClick={() => { setOfferSort(id); setSortOpen(false); }}>
+                <SortIcon descending={descending} />
+                {label}
+                <span className="sort-radio">{offerSort === id ? <CheckMark /> : null}</span>
+              </button>
             ))}
           </div>
         </div>
@@ -525,27 +662,7 @@ export function DeliveryDetailsPage() {
             <input inputMode="decimal" maxLength={7} value={priceText} onChange={(event) => { setPriceText(offerFieldText(event.target.value)); setPriceError(null); }} />
             {priceError ? <ErrorMessage>{priceError}</ErrorMessage> : null}
             <button type="button" disabled={busy} onClick={() => setPriceOpen(false)}>Cancel</button>
-            <button type="button" disabled={busy} onClick={() => {
-              const submitted = customerOfferForBooking(priceText);
-              if ('error' in submitted) {
-                setPriceError(submitted.error);
-                return;
-              }
-              void withToken(async (token) => {
-                await adjustOffer(token, delivery.id, submitted.offeredPrice);
-                setDelivery(await loadDelivery(token, delivery.id));
-                setPriceOpen(false);
-              });
-            }}>{busy ? 'Saving' : 'Save price'}</button>
-          </div>
-        </div>
-      ) : null}
-      {confirmed ? (
-        <div className="rider-confirmed-backdrop">
-          <div className="rider-confirmed" role="dialog" aria-label="Rider confirmed">
-            <h2>Rider confirmed!</h2>
-            <p>Your rider has been assigned to your delivery.</p>
-            <button type="button" onClick={() => setConfirmedDismissed(true)}>Continue</button>
+            <button type="button" disabled={busy} onClick={() => void savePrice()}>{busy ? 'Saving' : 'Save price'}</button>
           </div>
         </div>
       ) : null}
@@ -571,13 +688,16 @@ function OutcomeSummary({
   return (
     <div className="outcome">
       <div className="outcome-status">
-        <span className="outcome-icon" style={{ background: tone.background, color: tone.color }} aria-hidden="true" />
+        <span className={customerOffer ? 'outcome-icon outcome-icon-no-rider' : 'outcome-icon'} style={customerOffer ? undefined : { background: tone.background, color: tone.color }} aria-hidden="true">
+          <StatusGlyph status={delivery.status} />
+        </span>
         <h1 style={{ color: tone.color, fontWeight: delivery.status === 'CANCELLED' ? 500 : 700 }}>{deliveryOutcomeTitle(delivery.status)}</h1>
         <p>{deliveryOutcomeSupport(delivery.status)}</p>
       </div>
       {rider ? (
         <div className="track-rider">
           <RiderPhoto
+            tile
             name={rider.name}
             hasProfilePhoto={rider.hasProfilePhoto}
             path={rider.hasProfilePhoto ? `/customers/me/deliveries/${encodeURIComponent(delivery.id)}/rider-profile-photo` : null}
@@ -588,15 +708,12 @@ function OutcomeSummary({
             {rider.motorcycle ? <p>{rider.motorcycle}</p> : null}
           </div>
           {riderDialUrl(rider.phone) ? (
-            <div className="track-contact">
-              <a href={riderDialUrl(rider.phone) ?? undefined} aria-label={`Call ${rider.name}`}>Call</a>
-              <a href={riderWhatsAppUrl(rider.phone) ?? undefined} aria-label={`WhatsApp ${rider.name}`}>WhatsApp</a>
-            </div>
+            <ContactLinks phone={rider.phone} callLabel={`Call ${rider.name}`} whatsAppLabel={`WhatsApp ${rider.name}`} />
           ) : null}
         </div>
       ) : null}
       {inTransit ? (
-        <button type="button" className="outcome-parcel" onClick={onParcel}>Parcel details</button>
+        <button type="button" className="outcome-parcel" onClick={onParcel}>Parcel details<ChevronUp /></button>
       ) : (
         <DeliveryFacts delivery={delivery} customerOffer={customerOffer} onAdjust={customerOffer ? onAdjust : undefined} />
       )}
@@ -612,25 +729,34 @@ function DeliveredSummary({ delivery }: { delivery: CustomerDeliveryDetail }) {
   const message = `Hello, I have a question or complaint about delivery #${reference}.`;
   return (
     <div className="delivered-summary">
-      <div className="delivery-badge">
-        <span>{contentLabel(kind)}</span>
-        {delivery.serviceClass ? <span className="delivery-class">{delivery.serviceClass === 'EXPRESS' ? 'Urgent' : 'Flexible'}</span> : null}
+      <div className="facts-badge">
+        <span className="facts-kind"><ContentMark kind={kind} />{contentLabel(kind)}</span>
+        {delivery.serviceClass ? (
+          <span className="delivery-class">{delivery.serviceClass === 'EXPRESS' ? <FlashMark /> : <MessageMark />}{delivery.serviceClass === 'EXPRESS' ? 'Urgent' : 'Flexible'}</span>
+        ) : null}
       </div>
       <div className="delivery-facts">
         <p><span>Delivery</span><strong>{shortDeliveryReference(delivery.id)}</strong></p>
         {when ? <p><span>Requested</span><strong>{when}</strong></p> : null}
       </div>
-      <p className="delivery-stop"><span>{[delivery.senderName, deliveryCardAddress(delivery.pickupAddress)].filter(Boolean).join(', ')}</span></p>
-      <div className="delivery-facts">
+      {delivery.senderName?.trim() || delivery.pickupAddress ? (
+        <p className="delivery-stop">
+          <PinMark dropoff={false} />
+          <span className="stop-copy">
+            {delivery.senderName?.trim() ? <strong>{delivery.senderName.trim()}</strong> : null}
+            {delivery.pickupAddress ? <span>{deliveryCardAddress(delivery.pickupAddress)}</span> : null}
+          </span>
+        </p>
+      ) : null}
+      <div className="facts-divider" />
+      <div className="delivery-facts delivery-price">
         <p><span>Distance</span><strong>{deliveryDistanceLabel(delivery.distanceMeters)}</strong></p>
         <p><span>Price</span><strong>{amount ? moneyLabel(delivery.currency, amount) : 'Unavailable'}</strong></p>
       </div>
+      <div className="facts-divider" />
       <div className="support-row">
         <p>Questions or complaints?</p>
-        <div className="track-contact">
-          <a href={supportDialUrl()} aria-label="Call support">Call</a>
-          <a href={supportWhatsAppUrl(message)} aria-label="WhatsApp support">WhatsApp</a>
-        </div>
+        <ContactLinks phone={SUPPORT_PHONE} message={message} callLabel="Call support" whatsAppLabel="WhatsApp support" />
       </div>
     </div>
   );
@@ -651,23 +777,152 @@ function DeliveryFacts({
   const amount = customerOffer
     ? (delivery.customerOffer?.trim() || delivery.suggestedPrice)
     : (delivery.offeredPrice ?? delivery.suggestedPrice);
+  const kind = deliveryContentKind(delivery.parcelDescription);
+  const urgent = delivery.serviceClass === 'EXPRESS';
   return (
     <div className="delivery-facts-card">
-      <div className="delivery-badge">
-        <span>{contentLabel(deliveryContentKind(delivery.parcelDescription))}</span>
-        {delivery.serviceClass ? <span className="delivery-class">{delivery.serviceClass === 'EXPRESS' ? 'Urgent' : 'Flexible'}</span> : null}
-        <span>{shortDeliveryReference(delivery.id)}</span>
+      <div className="facts-badge">
+        <span className="facts-kind"><ContentMark kind={kind} />{contentLabel(kind)}</span>
+        {delivery.serviceClass ? (
+          <span className="delivery-class">{urgent ? <FlashMark /> : <MessageMark />}{urgent ? 'Urgent' : 'Flexible'}</span>
+        ) : null}
+        <strong>{shortDeliveryReference(delivery.id)}</strong>
       </div>
-      {when ? <p className="track-meta">{when}</p> : null}
-      <p className="delivery-stop"><span>{showContacts && delivery.senderName ? `${delivery.senderName}, ` : ''}{deliveryCardAddress(delivery.pickupAddress)}</span></p>
-      <p className="delivery-stop"><span>{showContacts && delivery.recipientName ? `${delivery.recipientName}, ` : ''}{deliveryCardAddress(delivery.dropoffAddress)}</span></p>
+      {when ? <p className="facts-date"><CalendarMark />{when}</p> : null}
+      <p className="delivery-stop"><PinMark dropoff={false} /><span>{showContacts && delivery.senderName ? `${delivery.senderName}, ` : ''}{deliveryCardAddress(delivery.pickupAddress)}</span></p>
+      <p className="delivery-stop"><PinMark dropoff /><span>{showContacts && delivery.recipientName ? `${delivery.recipientName}, ` : ''}{deliveryCardAddress(delivery.dropoffAddress)}</span></p>
+      <div className="facts-divider" />
       <div className="delivery-facts">
         <p><span>Distance</span><strong>{deliveryDistanceLabel(delivery.distanceMeters)}</strong></p>
-        <p><span>{customerOffer ? 'Your offer' : 'Price'}</span><strong>{moneyLabel(delivery.currency, amount)}</strong></p>
+        <p>
+          <span>{customerOffer ? 'Your offer' : 'Price'}</span>
+          <strong>{moneyLabel(delivery.currency, amount)}</strong>
+          {onAdjust ? <button type="button" className="facts-adjust" onClick={onAdjust}><PencilMark />Adjust price</button> : null}
+        </p>
       </div>
-      {onAdjust ? <button type="button" className="outcome-parcel" onClick={onAdjust}>Adjust price</button> : null}
     </div>
   );
+}
+
+function StatusGlyph({ status }: { status: CustomerDeliveryDetail['status'] }) {
+  if (status === 'NO_RIDER_FOUND') {
+    return <svg viewBox="0 0 24 24"><path d="M12 20a8 8 0 1 0-8-8 8 8 0 0 0 8 8m0-18a10 10 0 1 1-10 10A10 10 0 0 1 12 2m.5 5v5.25l4.5 2.67-.75 1.23L11 13V7h1.5Z" /></svg>;
+  }
+  if (status === 'DELIVERED') {
+    return <svg viewBox="0 0 24 24"><path d="M21 7 9 19l-5.5-5.5 1.41-1.41L9 16.17 19.59 5.59 21 7Z" /></svg>;
+  }
+  if (status === 'CANCELLED') {
+    return <svg viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41Z" /></svg>;
+  }
+  if (status === 'FAILED') {
+    return <svg viewBox="0 0 24 24"><path d="M11 15h2v2h-2v-2m0-8h2v6h-2V7m1-5a10 10 0 1 0 10 10A10 10 0 0 0 12 2m0 18a8 8 0 1 1 8-8 8 8 0 0 1-8 8Z" /></svg>;
+  }
+  return <svg viewBox="0 0 24 24"><path d="M12 2 2 7v10l10 5 10-5V7L12 2Zm0 2.2 7.2 3.8L12 11.8 4.8 8 12 4.2ZM4 9.4l7 3.6v7.1l-7-3.6V9.4Zm9 10.7v-7.1l7-3.6v7.1l-7 3.6Z" /></svg>;
+}
+
+function BikeMark() {
+  return <svg viewBox="0 0 24 24"><path d="M19 7a2 2 0 0 0-2-2h-3v2h3v2.65L13.52 14H10V9H6a4 4 0 0 0-4 4v3h2a3 3 0 0 0 6 0h4.48L19 10.35V7M7 17a1 1 0 0 1-1-1h2a1 1 0 0 1-1 1m12-4a3 3 0 1 0 3 3 3 3 0 0 0-3-3m0 4a1 1 0 1 1 1-1 1 1 0 0 1-1 1Z" /></svg>;
+}
+
+function ContentMark({ kind }: { kind: 'parcel' | 'document' | 'food' }) {
+  if (kind === 'food') return <svg viewBox="0 0 24 24"><path d="M8 3v8a2 2 0 0 1-2 2H5v8h2v-6h1a4 4 0 0 0 4-4V3H8Zm8 0c-1.2 2.2-2 4.4-2 7a4 4 0 0 0 2 3.4V21h2v-7.2A6.8 6.8 0 0 0 20 10c0-2.6-1.2-5-4-7Z" /></svg>;
+  if (kind === 'document') return <svg viewBox="0 0 24 24"><path d="M6 2a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6H6Zm0 2h7v5h5v11H6V4Zm2 8v2h8v-2H8Zm0 4v2h5v-2H8Z" /></svg>;
+  return <svg viewBox="0 0 24 24"><path d="M12 2 2 7v10l10 5 10-5V7L12 2Zm0 2.2 7.2 3.8L12 11.8 4.8 8 12 4.2ZM4 9.4l7 3.6v7.1l-7-3.6V9.4Zm9 10.7v-7.1l7-3.6v7.1l-7 3.6Z" /></svg>;
+}
+
+function MessageMark() {
+  return <svg viewBox="0 0 24 24"><path d="M20 2H4a2 2 0 0 0-2 2v18l4-4h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2Zm0 14H6l-2 2V4h16v12ZM6 12h12v2H6v-2Zm0-3h12v2H6V9Zm0-3h12v2H6V6Z" /></svg>;
+}
+
+function FlashMark() {
+  return <svg viewBox="0 0 24 24"><path d="M11.5 20 16.4 10.3H13V4L8.5 13.7h3V20M15 2H9v2h2V2h4m2 0v2h-2V2h2M7 2v2H5V2h2M7 6V4H5v2h2M5 8V6H3v2h2M5 10V8H3v2h2M7 12v-2H5v2h2M9 14v-2H7v2h2M11 16v-2H9v2h2M13 18v-2h-2v2h2M15 20v-2h-2v2h2M17 22v-2h-2v2h2M19 10V8h-2v2h2M17 6V4h2v2h-2M17 8V6h2v2h-2Z" /></svg>;
+}
+
+function CalendarMark() {
+  return <svg viewBox="0 0 24 24"><path d="M19 19H5V8h14m-3-7v2H8V1H6v2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2h-1V1m1 11h-5v5h5v-5Z" /></svg>;
+}
+
+function PinMark({ dropoff }: { dropoff: boolean }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" style={{ color: dropoff ? '#1A73E8' : '#169B62' }}>
+      <path d="M12 2.8a6.2 6.2 0 0 0-6.2 6.2c0 4.7 6.2 12.2 6.2 12.2s6.2-7.5 6.2-12.2A6.2 6.2 0 0 0 12 2.8Zm0 8.4a2.2 2.2 0 1 1 2.2-2.2 2.2 2.2 0 0 1-2.2 2.2Z" />
+    </svg>
+  );
+}
+
+function PencilMark() {
+  return <svg viewBox="0 0 24 24"><path d="M20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.84 1.83 3.75 3.75M3 17.25V21h3.75L17.81 9.93l-3.75-3.75L3 17.25Z" /></svg>;
+}
+
+function SearchIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2A4.5 4.5 0 1 0 14 9.5 4.5 4.5 0 0 0 9.5 5Z" fill="currentColor" /></svg>;
+}
+
+function ChevronUp() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41 15.41 12 10.83l4.59 4.58L18 14l-6-6-6 6 1.41 1.41Z" fill="currentColor" /></svg>;
+}
+
+function ChevronDown() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41Z" fill="currentColor" /></svg>;
+}
+
+function SwapIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3 5 7h3v10H5l4 4 4-4h-3V7h3L9 3m6 0-4 4h3v10h-3l4 4 4-4h-3V7h3l-4-4Z" fill="currentColor" /></svg>;
+}
+
+function SortIcon({ descending }: { descending: boolean }) {
+  return descending
+    ? <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 7h3L18 3l-4 4h3v14h2M11 13H9v8H7v-8H5l4-4 4 4H11Z" fill="currentColor" /></svg>
+    : <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 17h3l-4 4-4-4h3V3h2M11 13H9V3H7v10H5l4 4 4-4H11Z" fill="currentColor" /></svg>;
+}
+
+function ClockMark() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20a8 8 0 1 0-8-8 8 8 0 0 0 8 8m0-18a10 10 0 1 1-10 10A10 10 0 0 1 12 2m.5 5v5.25l4.5 2.67-.75 1.23L11 13V7h1.5Z" fill="currentColor" /></svg>;
+}
+
+function CheckMark() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 7 9 19l-5.5-5.5 1.41-1.41L9 16.17 19.59 5.59 21 7Z" fill="currentColor" /></svg>;
+}
+
+function ContactLinks({
+  phone,
+  message,
+  callLabel,
+  whatsAppLabel,
+}: {
+  phone: string | null;
+  message?: string;
+  callLabel: string;
+  whatsAppLabel: string;
+}) {
+  const call = riderDialUrl(phone);
+  const chat = riderWhatsAppUrl(phone);
+  if (!call || !chat) return null;
+  const whatsApp = message ? `${chat}?text=${encodeURIComponent(message)}` : chat;
+  return (
+    <div className="track-contact">
+      <a className="track-icon-btn" href={call} aria-label={callLabel}><PhoneIcon /></a>
+      <a className="track-icon-btn" href={whatsApp} aria-label={whatsAppLabel}><WhatsAppIcon /></a>
+    </div>
+  );
+}
+
+function PhoneIcon() {
+  return <svg viewBox="0 0 24 24"><path d="M6.62 10.79a15.1 15.1 0 0 0 6.59 6.59l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.59.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1 11.4 11.4 0 0 0 .57 3.59 1 1 0 0 1-.25 1l-2.2 2.2Z" /></svg>;
+}
+
+function WhatsAppIcon() {
+  return <svg viewBox="0 0 24 24"><path d="M12.04 2A9.9 9.9 0 0 0 2.15 11.8c0 1.74.46 3.44 1.34 4.94L2 22l5.39-1.41a10 10 0 0 0 4.65 1.18h.01A9.9 9.9 0 0 0 21.94 11.8 9.9 9.9 0 0 0 12.04 2m5.8 13.86c-.24.68-1.4 1.25-1.94 1.33-.5.07-1.12.1-1.81-.11-.41-.13-.95-.31-1.63-.61-2.87-1.24-4.74-4.13-4.88-4.32-.14-.19-1.16-1.54-1.16-2.94s.73-2.09 1-2.37c.26-.28.64-.41 1.02-.41h.33c.3 0 .44.02.64.5.24.57.82 2 .89 2.14.07.15.12.33.02.53-.1.19-.14.31-.28.48-.14.16-.29.36-.42.48-.13.14-.28.29-.12.55.16.27.71 1.16 1.51 1.88 1.04.93 1.91 1.21 2.18 1.35.27.14.42.12.58-.07.16-.19.67-.77.84-1.03.18-.26.35-.22.59-.13.23.09 1.5.71 1.76.84.26.13.44.19.5.3.07.1.07.6-.18 1.28Z" /></svg>;
+}
+
+function deadlineLabel(value: string | null): string | null {
+  if (!value) return null;
+  const deadline = new Date(value);
+  if (Number.isNaN(deadline.getTime())) return null;
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const hours = String(deadline.getHours()).padStart(2, '0');
+  const minutes = String(deadline.getMinutes()).padStart(2, '0');
+  return `${deadline.getDate()} ${months[deadline.getMonth()]} ${deadline.getFullYear()}, ${hours}:${minutes}`;
 }
 
 function offerSortLabel(sort: OfferSort): string {
@@ -682,11 +937,3 @@ function offerSortShortLabel(sort: OfferSort): string {
 }
 
 const SUPPORT_PHONE = '+263772569226';
-
-function supportDialUrl(): string {
-  return `tel:${SUPPORT_PHONE}`;
-}
-
-function supportWhatsAppUrl(message: string): string {
-  return `https://wa.me/${SUPPORT_PHONE.slice(1)}?text=${encodeURIComponent(message)}`;
-}

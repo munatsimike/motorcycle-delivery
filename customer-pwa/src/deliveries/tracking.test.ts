@@ -91,6 +91,10 @@ test('status chooses offers, live tracking, or the outcome screen', () => {
   assert.equal(deliveryScreen(detail()), 'tracking');
   assert.equal(deliveryScreen(detail({ status: 'COLLECTED' })), 'tracking');
   assert.equal(deliveryScreen(detail({ status: 'DELIVERED', serviceClass: null, riderLocation: null, pickupApproach: null })), 'outcome');
+  assert.equal(deliveryScreen(detail({ status: 'SEARCHING', riderLocation: null, pickupApproach: null })), 'status');
+  assert.equal(deliveryScreen(detail({ status: 'ASSIGNED', riderLocation: null, pickupApproach: null })), 'status');
+  assert.equal(deliveryScreen(detail({ status: 'ARRIVED_AT_PICKUP', riderLocation: null, pickupApproach: null })), 'status');
+  assert.equal(deliveryScreen(detail({ status: 'CREATED', serviceClass: null, riderLocation: null, pickupApproach: null })), 'status');
   assert.equal(detailViewState({ isLoading: true, error: null, hasDelivery: false }), 'loading');
   assert.equal(detailViewState({ isLoading: false, error: 'Delivery details are unavailable.', hasDelivery: false }), 'error');
   assert.equal(detailViewState({ isLoading: false, error: 'Saved', hasDelivery: true }), 'ready');
