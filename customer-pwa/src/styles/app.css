@@ -1975,6 +1975,12 @@ button.home-status:disabled {
   font-weight: 700;
 }
 
+/* Keep rider identity readable on every tracking state. */
+.track-rider strong {
+  color: var(--text);
+  font-weight: 700;
+}
+
 .track-rider .track-avatar {
   height: 56px;
   border-radius: var(--radius-md);
