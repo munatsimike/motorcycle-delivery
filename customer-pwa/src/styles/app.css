@@ -252,6 +252,7 @@ input:focus-visible {
 
 .brand-logo .caption {
   margin-top: 8px;
+  margin-left: 6px;
   margin-right: -4px;
   color: var(--text-secondary);
   font-size: 11px;
@@ -1233,6 +1234,36 @@ button.home-status:disabled {
   border: 0;
   background: #d92d20;
   color: #ffffff;
+}
+
+.confirm-accept {
+  border: 0;
+  background: var(--primary);
+  color: #ffffff;
+}
+
+.confirm-rider {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin-top: var(--space-lg);
+  padding: var(--space-md) var(--space-lg);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.confirm-rider strong {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.confirm-rider span {
+  flex: 0 0 auto;
+  font-weight: 700;
 }
 
 [data-theme="dark"] .confirm-dialog-backdrop {
@@ -3008,6 +3039,7 @@ html.is-page-transition .page-stage {
 .deliveries-fab:active,
 .profile-row:active:not(:disabled),
 .confirm-keep:active:not(:disabled),
+.confirm-accept:active:not(:disabled),
 .sort-option:active:not(:disabled),
 .book-squares button:active:not(:disabled),
 .profile-dialog-card button:first-child:active:not(:disabled) {
@@ -3040,6 +3072,7 @@ html.is-page-transition .page-stage {
   .deliveries-fab:active,
   .profile-row:active:not(:disabled),
   .confirm-keep:active:not(:disabled),
+.confirm-accept:active:not(:disabled),
   .sort-option:active:not(:disabled),
   .book-squares button:active:not(:disabled),
   .profile-dialog-card button:first-child:active:not(:disabled) {
