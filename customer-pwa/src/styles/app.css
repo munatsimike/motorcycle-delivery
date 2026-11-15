@@ -483,7 +483,6 @@ input:focus-visible {
   top: 0;
   right: 0;
   left: 0;
-  display: flex;
   height: var(--radius-xl);
   pointer-events: none;
 }
