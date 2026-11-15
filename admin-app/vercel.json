@@ -1,8 +1,17 @@
+
 {
-    "rewrites": [
-      {
-        "source": "/(.*)",
-        "destination": "/index.html"
-      }
-    ]
-  }
+  "rewrites": [
+    {
+      "source": "/auth/:path*",
+      "destination": "https://motorcycle-delivery-production.up.railway.app/auth/:path*"
+    },
+    {
+      "source": "/admin/:path*",
+      "destination": "https://motorcycle-delivery-production.up.railway.app/admin/:path*"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}
