@@ -12,6 +12,7 @@
     "test": "node --experimental-strip-types --test src/auth/auth.test.ts src/app/navigation.test.ts src/home/home.test.ts src/deliveries/deliveries.test.ts src/deliveries/tracking.test.ts src/deliveries/searchPulse.test.ts src/booking/booking.test.ts src/theme/appearance.test.ts src/account/profile.test.ts src/pwa/navigationFallback.test.ts"
   },
   "dependencies": {
+    "lucide-react": "^1.73.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.9.4"
