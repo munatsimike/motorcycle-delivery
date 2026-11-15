@@ -177,7 +177,8 @@ export function arrivalLabel(seconds: number): string | null {
 
 export function trackingHeadline(status: DeliveryStatus, distanceMetres?: number | null): string | null {
   if (status === 'ASSIGNED' || status === 'ARRIVED_AT_PICKUP' || status === 'RIDER_ASSIGNED' || status === 'COLLECTING') {
-    if (distanceMetres != null && Number.isFinite(distanceMetres) && Math.round(distanceMetres) === 0) return 'Rider arrived';
+    if (status === 'ARRIVED_AT_PICKUP') return 'Rider arrived';
+    if (distanceMetres != null && Number.isFinite(distanceMetres) && distanceMetres >= 0 && distanceMetres <= 100) return 'Rider arrived';
     return status === 'RIDER_ASSIGNED' || status === 'COLLECTING' ? 'Rider coming' : 'Rider on the way';
   }
   if (status === 'PICKED_UP' || status === 'COLLECTED' || status === 'OUT_FOR_DELIVERY') return 'Parcel collected';
