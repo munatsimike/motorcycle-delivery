@@ -3281,6 +3281,21 @@ button.home-status:disabled {
   animation: page-enter 220ms ease;
 }
 
+/* Give Welcome -> Sign in/Create account a more perceptible, gentle entrance. */
+.auth-screen.page-stage.is-entering {
+  animation: auth-page-enter 340ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes auth-page-enter {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Native view transitions handle the animation; avoid stacking two entrances. */
+html.is-page-transition .auth-screen.page-stage.is-entering {
+  animation: none;
+}
+
 html.is-page-transition .page-stage {
   view-transition-name: customer-page;
 }
@@ -3296,6 +3311,11 @@ html.is-page-transition .page-stage {
 
 ::view-transition-new(customer-page) {
   animation: page-enter 220ms ease both;
+}
+
+/* A slightly longer native transition for the auth screens. */
+::view-transition-new(customer-page) {
+  animation: auth-page-enter 340ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 @keyframes page-enter {
