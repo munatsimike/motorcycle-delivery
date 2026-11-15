@@ -16,7 +16,6 @@ import {
 
 export function DeliveryCard({
   delivery,
-  cached = false,
   onSearchAgain,
 }: {
   delivery: CustomerDelivery;
