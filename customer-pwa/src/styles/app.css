@@ -478,6 +478,7 @@ input:focus-visible {
 }
 
 .home-card-outline {
+  display: none;
   position: absolute;
   top: 0;
   right: 0;
@@ -1655,7 +1656,7 @@ button.home-status:disabled {
   z-index: 2;
   margin-top: -72px;
   padding: var(--space-lg) var(--space-lg) calc(var(--space-xl) + env(safe-area-inset-bottom));
-  border-top: 3px solid #bcebd3;
+  border-top: 0;
   border-top-left-radius: var(--radius-xl);
   border-top-right-radius: var(--radius-xl);
   background: var(--background);
