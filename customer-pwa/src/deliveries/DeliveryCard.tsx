@@ -30,7 +30,6 @@ export function DeliveryCard({
   const offers = showsViewBids(delivery);
   const tone = deliveryStatusTone(delivery.status, offers);
   const canSearch = deliveryCanSearchAgain(delivery);
-  const pulse = !cached && delivery.serviceClass != null && delivery.status === 'CREATED';
 
   async function searchAgain() {
     if (searching) return;
@@ -54,7 +53,7 @@ export function DeliveryCard({
           <span>{contentLabel(kind)}</span>
           {delivery.serviceClass ? <ServiceBadge serviceClass={delivery.serviceClass} /> : null}
         </span>
-        <span className="delivery-status" style={{ background: tone.background, color: tone.color }} data-pulse={pulse ? 'true' : 'false'}>
+        <span className="delivery-status" style={{ background: tone.background, color: tone.color }}>
           {deliveryCardStatusLabel(delivery)}
         </span>
         <span className="delivery-stop">
