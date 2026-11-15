@@ -874,7 +874,7 @@ export function DeliveryDetailsPage() {
         ) : null}
         {screen === 'tracking' ? <div className="facts-divider" /> : null}
         <div className={screen === 'outcome' ? 'outcome-actions' : screen === 'tracking' || screen === 'offers' ? 'track-actions track-footer' : 'track-actions'}>
-          {actions.cancel || actions.offers ? <button ref={cancelTriggerRef} type="button" onClick={() => { if (busyRef.current) return; setConfirmError(null); setConfirm('cancel'); }}>{busy ? 'Cancelling' : actions.offers ? 'Cancel request' : 'Cancel delivery'}</button> : null}
+          {actions.cancel || actions.offers ? <button className="track-cancel-action" ref={cancelTriggerRef} type="button" onClick={() => { if (busyRef.current) return; setConfirmError(null); setConfirm('cancel'); }}>{busy ? 'Cancelling' : actions.offers ? 'Cancel request' : 'Cancel delivery'}</button> : null}
           {actions.searchAgain ? <button type="button" className="outcome-search" disabled={busy} onClick={() => void searchAgain()}><SearchIcon />{searching ? 'Searching…' : 'Search again'}</button> : null}
           {actions.deleteRequest ? <button type="button" className="outcome-delete" disabled={busy} onClick={() => { if (busyRef.current) return; setConfirmError(null); setConfirm('delete'); }}>Delete</button> : null}
           {actions.adjustPrice && screen !== 'outcome' ? <button type="button" disabled={busy} onClick={openPrice}>Adjust price</button> : null}

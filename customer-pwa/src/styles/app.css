@@ -3415,3 +3415,22 @@ html.is-page-transition .page-stage {
     animation: none;
   }
 }
+
+/* Borderless text actions for cancellation and parcel details. */
+.track-actions .track-cancel-action,
+.track-actions .track-parcel,
+.outcome-actions .track-cancel-action,
+.outcome-parcel {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  min-height: 44px;
+}
+.track-actions .track-cancel-action {
+  color: var(--error);
+  font-weight: 400;
+}
+.track-actions .track-parcel {
+  color: var(--primary);
+  font-weight: 500;
+}
