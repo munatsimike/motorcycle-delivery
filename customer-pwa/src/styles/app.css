@@ -1273,7 +1273,7 @@ button.home-status:disabled {
 }
 
 .confirm-keep {
-  border: 1.5px solid var(--border);
+  border: 0;
   background: transparent;
   color: var(--text);
 }
@@ -2363,8 +2363,8 @@ button.home-status:disabled {
   border: 0;
   background: transparent;
   color: var(--text-secondary);
-  font-size: var(--button);
-  font-weight: 500;
+  font-size: 16px;
+  font-weight: 600;
 }
 
 .track-offers .offer-choose {
