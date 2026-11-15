@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Phone } from 'lucide-react';
 import { useSession } from '../auth/sessionContext';
 import { ErrorMessage } from '../components/ErrorMessage';
 import { TopSpinner } from '../components/TopSpinner';
@@ -1295,20 +1296,15 @@ function ContactLinks({
   const whatsApp = message ? `${chat}?text=${encodeURIComponent(message)}` : chat;
   return (
     <div className="track-contact">
-      <a className="track-icon-btn" href={call} aria-label={callLabel}><PhoneIcon /></a>
+      <a className="track-icon-btn" href={call} aria-label={callLabel}><Phone size={22} strokeWidth={1.5} aria-hidden="true" /></a>
       <a className="track-icon-btn" href={whatsApp} aria-label={whatsAppLabel}><WhatsAppIcon /></a>
     </div>
   );
 }
 
-// Lucide-style phone outline; kept inline because this source-only archive has no package.json.
-function PhoneIcon() {
-  return <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.37 1.9.7 2.8a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.28-1.27a2 2 0 0 1 2.11-.45c.9.33 1.84.57 2.8.7A2 2 0 0 1 22 16.92Z" /></svg>;
-}
-
-// WhatsApp brand silhouette with a clear outline and handset, no external dependency.
+// WhatsApp is a brand icon (not included in Lucide); use an outlined SVG.
 function WhatsAppIcon() {
-  return <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.4 11.8a8.4 8.4 0 0 1-12.5 7.3L3 20.5l1.4-4.8A8.4 8.4 0 1 1 20.4 11.8Z" /><path d="M8.1 7.7c-.4.4-.6.9-.6 1.6 0 2.6 3.5 6.2 6.3 6.6.7.1 1.4-.2 1.9-.7l.5-.9-2.4-1.1-1 1c-1.3-.6-2.5-1.8-3.1-3.1l1-1-1.1-2.4-1.5 0Z" /></svg>;
+  return <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20.4 11.8a8.4 8.4 0 0 1-12.5 7.3L3 20.5l1.4-4.8A8.4 8.4 0 1 1 20.4 11.8Z" /><path d="M8.1 7.7c-.4.4-.6.9-.6 1.6 0 2.6 3.5 6.2 6.3 6.6.7.1 1.4-.2 1.9-.7l.5-.9-2.4-1.1-1 1c-1.3-.6-2.5-1.8-3.1-3.1l1-1-1.1-2.4-1.5 0Z" /></svg>;
 }
 
 function deadlineLabel(value: string | null): string | null {
