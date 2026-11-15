@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,300,0,0');
 @import './tokens.css';
 
 * { box-sizing: border-box; }
@@ -860,13 +861,13 @@ button.home-status:disabled {
   padding: 0;
 }
 
-.welcome-panel h1 { line-height: 1.15; }
+.welcome-panel h1 { line-height: 1.15; margin-bottom: 8px; }
 .welcome-panel .lede { margin-top: 2px; }
 
 .welcome-actions {
   display: grid;
   gap: var(--space-sm);
-  margin-top: clamp(10px, 2dvh, 20px);
+  margin-top: clamp(18px, 3dvh, 28px);
 }
 
 /* Compress artwork and gaps, not the top safe-area or action buttons. */
@@ -878,14 +879,14 @@ button.home-status:disabled {
   .welcome-stage { gap: 0; }
   .welcome-logo { margin-top: 22px; margin-bottom: 18px; }
   .welcome-hero { height: clamp(120px, 27dvh, 210px); min-height: 0; margin-bottom: 18px; }
-  .welcome-actions { margin-top: 10px; }
+  .welcome-actions { margin-top: 14px; }
 }
 
 @media (max-height: 600px) {
   .welcome-stage { gap: 0; }
   .welcome-logo { margin-top: 14px; margin-bottom: 10px; }
   .welcome-hero { height: clamp(75px, 20dvh, 125px); min-height: 0; margin-bottom: 10px; }
-  .welcome-actions { margin-top: 8px; }
+  .welcome-actions { margin-top: 10px; }
 }
 
 .welcome .button {
@@ -1928,6 +1929,14 @@ button.home-status:disabled {
   padding: 0;
   border: 0;
   background: transparent;
+}
+
+.track-contact .track-icon-btn .material-symbols-outlined {
+  font-family: "Material Symbols Outlined";
+  font-size: 24px;
+  font-weight: 300;
+  line-height: 1;
+  font-variation-settings: "FILL" 0, "wght" 300, "GRAD" 0, "opsz" 24;
 }
 
 .track-contact .track-icon-btn svg {

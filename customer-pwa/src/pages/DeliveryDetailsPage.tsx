@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { Phone } from 'lucide-react';
 import { useSession } from '../auth/sessionContext';
 import { ErrorMessage } from '../components/ErrorMessage';
 import { TopSpinner } from '../components/TopSpinner';
@@ -1296,7 +1295,7 @@ function ContactLinks({
   const whatsApp = message ? `${chat}?text=${encodeURIComponent(message)}` : chat;
   return (
     <div className="track-contact">
-      <a className="track-icon-btn" href={call} aria-label={callLabel}><Phone size={22} strokeWidth={1.5} aria-hidden="true" /></a>
+      <a className="track-icon-btn" href={call} aria-label={callLabel}><span className="material-symbols-outlined" aria-hidden="true">call</span></a>
       <a className="track-icon-btn" href={whatsApp} aria-label={whatsAppLabel}><WhatsAppIcon /></a>
     </div>
   );
