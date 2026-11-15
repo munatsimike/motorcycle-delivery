@@ -3012,6 +3012,8 @@ button.home-status:disabled {
 .profile-sheet {
   position: relative;
   display: grid;
+  align-content: start;
+  flex: 1 0 auto;
   gap: var(--space-lg);
   width: min(100%, var(--max-width));
   margin: 72px auto 0;
