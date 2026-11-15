@@ -927,11 +927,7 @@ export function DeliveryDetailsPage() {
             onClick={(event) => event.stopPropagation()}
           >
             <h2 id="choose-rider-title">Choose rider?</h2>
-            <p id="choose-rider-copy">Confirm that you want this rider to handle your delivery.</p>
-            <div className="confirm-rider">
-              <strong>{shownRider.riderName}</strong>
-              <span>${shownRider.amount}</span>
-            </div>
+            <p id="choose-rider-copy">Confirm {shownRider.riderName} as your rider for ${shownRider.amount}?</p>
             {confirmError ? <ErrorMessage>{confirmError}</ErrorMessage> : null}
             <div className="confirm-dialog-actions">
               <button ref={keepComparingRef} type="button" className="confirm-keep" disabled={busy} onClick={() => { if (busy) return; setConfirmError(null); setConfirm(null); }}>Keep comparing</button>
@@ -953,11 +949,7 @@ export function DeliveryDetailsPage() {
             onClick={(event) => event.stopPropagation()}
           >
             <h2 id="decline-offer-title">Decline this offer?</h2>
-            <p id="decline-offer-copy">Are you sure you want to decline this rider&apos;s offer?</p>
-            <div className="confirm-rider">
-              <strong>{offerRiderName(shownDecline.riderName)}</strong>
-              <span>${shownDecline.amount}</span>
-            </div>
+            <p id="decline-offer-copy">Are you sure you want to decline {offerRiderName(shownDecline.riderName)}&apos;s offer?</p>
             {declineError ? <ErrorMessage>{declineError}</ErrorMessage> : null}
             <div className="confirm-dialog-actions">
               <button ref={keepOfferRef} type="button" className="confirm-keep" disabled={busy} onClick={() => { if (busy) return; setDeclineError(null); setDecline(null); }}>Keep offer</button>
