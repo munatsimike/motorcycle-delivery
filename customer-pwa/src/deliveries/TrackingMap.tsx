@@ -249,7 +249,7 @@ export function TrackingMap({
     drawPin(maps, map, pickupMarker, current.pickup, 'Pickup', '#169B62');
     const callout = current.deliveredCallout;
     const pickupStop = !current.headingToDropoff;
-    const stopIcon = pickupStop ? pickupPinIcon(maps, current.pickupLabel) : pinIcon('#1A73E8');
+    const stopIcon = pickupStop ? pickupPinIcon(maps, null) : pinIcon('#1A73E8');
     if (!current.stop || callout) {
       stopMarkerRef.current?.setMap(null);
       stopMarkerRef.current = null;

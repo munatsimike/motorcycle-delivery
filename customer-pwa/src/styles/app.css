@@ -1142,6 +1142,11 @@ button.home-status:disabled {
   fill: currentColor;
 }
 
+.delivery-card .delivery-stop svg {
+  width: 27px;
+  height: 27px;
+}
+
 .delivery-badge svg {
   width: 15px;
   height: 15px;
