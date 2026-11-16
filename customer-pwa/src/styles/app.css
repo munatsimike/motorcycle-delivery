@@ -3515,3 +3515,9 @@ html.is-page-transition .page-stage {
 .book-actions .button {
   border-radius: 999px;
 }
+
+/* Authentication action loading indicator. */
+.auth-button-spinner { width: 18px; height: 18px; flex: 0 0 18px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: auth-button-spin .7s linear infinite; }
+.auth-screen .button:has(.auth-button-spinner) { gap: 10px; }
+@keyframes auth-button-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .auth-button-spinner { animation-duration: 1.5s; } }

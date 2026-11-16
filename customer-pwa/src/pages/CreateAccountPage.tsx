@@ -13,6 +13,7 @@ import { useSession } from '../auth/sessionContext';
 import { VerificationForm } from './VerificationForm';
 import { AuthBack } from '../components/AuthBack';
 import { Button } from '../components/Button';
+import { ButtonSpinner } from '../components/ButtonSpinner';
 import { ErrorMessage } from '../components/ErrorMessage';
 import { Input } from '../components/Input';
 import { Page } from '../components/Page';
@@ -121,7 +122,7 @@ function RegistrationDetails() {
             />
           </label>
           <Button type="submit" disabled={isLoading}>
-            {isLoading ? 'Creating account' : 'Create account'}
+            {isLoading ? <><ButtonSpinner />Creating account</> : 'Create account'}
           </Button>
         </form>
       </Page>

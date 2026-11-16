@@ -18,6 +18,7 @@ import { useSession } from '../auth/sessionContext';
 import { AuthBack } from '../components/AuthBack';
 import { BrandMark } from '../components/BrandMark';
 import { Button } from '../components/Button';
+import { ButtonSpinner } from '../components/ButtonSpinner';
 import { ErrorMessage } from '../components/ErrorMessage';
 import { OtpCodeBoxes } from '../components/OtpCodeBoxes';
 import { ZimbabwePhoneField } from '../components/ZimbabwePhoneField';
@@ -128,7 +129,7 @@ function PhoneStep({ flow, title, notice }: { flow: AuthFlow; title: string; not
           required
         />
         <Button type="submit" disabled={isLoading}>
-          {isLoading ? 'Sending code' : 'Send code'}
+          {isLoading ? <><ButtonSpinner />Sending code</> : 'Send code'}
         </Button>
         <p className="auth-switch">
           {flow === 'whatsapp_login' ? (
@@ -261,11 +262,11 @@ function CodeStep({
           invalid={Boolean(error)}
         />
         <Button type="submit" disabled={isLoading || code.length !== 6}>
-          {isLoading ? 'Checking code' : 'Verify code'}
+          {isLoading ? <><ButtonSpinner />Checking code</> : 'Verify code'}
         </Button>
       </form>
       <Button type="button" variant="secondary" disabled={isLoading || secondsRemaining > 0} onClick={() => { void resend(); }}>
-        {secondsRemaining > 0 ? `Resend code in ${secondsRemaining}s` : 'Resend code'}
+        {isLoading ? <><ButtonSpinner />Processing</> : secondsRemaining > 0 ? `Resend code in ${secondsRemaining}s` : 'Resend code'}
       </Button>
       <Button
         type="button"
