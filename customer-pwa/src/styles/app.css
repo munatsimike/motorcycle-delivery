@@ -1103,7 +1103,7 @@ button.home-status:disabled {
 .delivery-card {
   display: grid;
   gap: var(--space-sm);
-  padding: var(--space-md) var(--space-sm);
+  padding: 14px var(--space-sm);
   border: 1px solid var(--list-card-border);
   border-radius: var(--radius-lg);
   background: var(--background);
@@ -1113,7 +1113,7 @@ button.home-status:disabled {
 .delivery-card-open {
   position: relative;
   display: grid;
-  gap: var(--space-md);
+  gap: 12px;
   width: 100%;
   padding: 0;
   border: 0;
