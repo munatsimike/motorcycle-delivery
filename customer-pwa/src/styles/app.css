@@ -724,6 +724,11 @@ button.home-status:disabled {
   cursor: pointer;
 }
 
+.banner-update-refresh:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+
 .banner-update-refresh:focus-visible {
   outline: 3px solid #e67e22;
   outline-offset: 2px;
@@ -1103,7 +1108,7 @@ button.home-status:disabled {
 .delivery-card {
   display: grid;
   gap: var(--space-sm);
-  padding: 14px var(--space-sm);
+  padding: 12px var(--space-sm);
   border: 1px solid var(--list-card-border);
   border-radius: var(--radius-lg);
   background: var(--background);
@@ -1113,7 +1118,7 @@ button.home-status:disabled {
 .delivery-card-open {
   position: relative;
   display: grid;
-  gap: 12px;
+  gap: 8px;
   width: 100%;
   padding: 0;
   border: 0;
@@ -1143,8 +1148,8 @@ button.home-status:disabled {
 }
 
 .delivery-card .delivery-stop svg {
-  width: 27px;
-  height: 27px;
+  width: 30px;
+  height: 30px;
 }
 
 .delivery-badge svg {
