@@ -438,7 +438,7 @@ function deliveredMarkerIcon(maps: Maps, callout: DeliveredCallout) {
     text.push(`<path d="M${padX + 6} ${y - 7}v3.2l2.2 1.3" fill="none" stroke="#ffffff" stroke-width="1.2" stroke-linecap="round"/>`);
     text.push(`<text x="${padX + 16}" y="${y}" font-family="Arial, sans-serif" font-size="13" font-weight="500" fill="#ffffff">${escapeXml(callout.when)}</text>`);
   }
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect x="2" y="3" width="${width - 4}" height="${cardH}" rx="16" fill="rgba(23,33,29,0.2)"/><rect width="${width}" height="${cardH}" rx="16" fill="#16845B"/>${text.join('')}<svg x="${(width - pin) / 2}" y="${cardH + 5}" width="${pin}" height="${pin}" viewBox="0 0 24 24"><path fill="#1A73E8" d="M12 2.2a6.2 6.2 0 0 0-6.2 6.2c0 4.7 6.2 12.2 6.2 12.2s6.2-7.5 6.2-12.2A6.2 6.2 0 0 0 12 2.2z"/></svg></svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect x="2" y="3" width="${width - 4}" height="${cardH}" rx="16" fill="rgba(23,33,29,0.2)"/><rect width="${width}" height="${cardH}" rx="16" fill="#16845B"/>${text.join('')}<svg x="${(width - pin) / 2}" y="${cardH + 5}" width="${pin}" height="${pin}" viewBox="0 0 24 24"><path fill="#1A73E8" d="M12 2.2a6.2 6.2 0 0 0-6.2 6.2c0 4.7 6.2 12.2 6.2 12.2s6.2-7.5 6.2-12.2A6.2 6.2 0 0 0 12 2.2z"/><text x="12" y="11.7" text-anchor="middle" font-family="Arial, sans-serif" font-size="8.5" font-weight="700" fill="#ffffff">2</text></svg></svg>`;
   return {
     url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
     scaledSize: new maps.Size(width, height),
@@ -499,10 +499,9 @@ function escapeXml(value: string): string {
 }
 
 const PICKUP_PIN = 36;
-const PICKUP_PIN_PATH = 'M12 11.5A2.5 2.5 0 0 1 9.5 9 2.5 2.5 0 0 1 12 6.5 2.5 2.5 0 0 1 14.5 9 2.5 2.5 0 0 1 12 11.5M12 2A7 7 0 0 0 5 9C5 14.25 12 22 12 22 12 22 19 14.25 19 9A7 7 0 0 0 12 2Z';
 
 function pickupPinMarkup(): string {
-  return `<path fill="#169B62" fill-rule="evenodd" d="${PICKUP_PIN_PATH}"/><circle cx="12" cy="9" r="3.33" fill="#ffffff"/>`;
+  return `<path fill="#169B62" d="M12 2.2a6.2 6.2 0 0 0-6.2 6.2c0 4.7 6.2 12.2 6.2 12.2s6.2-7.5 6.2-12.2A6.2 6.2 0 0 0 12 2.2z"/><text x="12" y="11.7" text-anchor="middle" font-family="Arial, sans-serif" font-size="8.5" font-weight="700" fill="#ffffff">1</text>`;
 }
 
 function pickupPinIcon(maps: Maps, label: string | null) {
@@ -531,6 +530,6 @@ function pickupPinIcon(maps: Maps, label: string | null) {
 }
 
 function pinIcon(color: string) {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24"><path fill="${color}" d="M12 2.2a6.2 6.2 0 0 0-6.2 6.2c0 4.7 6.2 12.2 6.2 12.2s6.2-7.5 6.2-12.2A6.2 6.2 0 0 0 12 2.2z"/></svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24"><path fill="${color}" d="M12 2.2a6.2 6.2 0 0 0-6.2 6.2c0 4.7 6.2 12.2 6.2 12.2s6.2-7.5 6.2-12.2A6.2 6.2 0 0 0 12 2.2z"/><text x="12" y="11.7" text-anchor="middle" font-family="Arial, sans-serif" font-size="8.5" font-weight="700" fill="#ffffff">2</text></svg>`;
   return { url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}` };
 }
