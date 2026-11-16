@@ -1108,7 +1108,7 @@ button.home-status:disabled {
 .delivery-card {
   display: grid;
   gap: var(--space-sm);
-  padding: 12px var(--space-sm);
+  padding: 12px var(--space-sm) 8px;
   border: 1px solid var(--list-card-border);
   border-radius: var(--radius-lg);
   background: var(--background);
@@ -1118,7 +1118,7 @@ button.home-status:disabled {
 .delivery-card-open {
   position: relative;
   display: grid;
-  gap: 8px;
+  gap: 5px;
   width: 100%;
   padding: 0;
   border: 0;
