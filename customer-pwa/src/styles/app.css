@@ -2144,7 +2144,7 @@ button.home-status:disabled {
 
 .track-offers article {
   display: grid;
-  gap: var(--space-sm);
+  gap: 2px;
   width: 100%;
   margin: 0;
   padding: 12px 12px;
