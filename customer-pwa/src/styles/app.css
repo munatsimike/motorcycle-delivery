@@ -1148,8 +1148,10 @@ button.home-status:disabled {
 }
 
 .delivery-card .delivery-stop svg {
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
+  margin-left: -8px;
+  margin-right: -6px;
 }
 
 .delivery-badge svg {
@@ -1185,8 +1187,8 @@ button.home-status:disabled {
 
 .delivery-stop {
   display: flex;
-  align-items: flex-start;
-  gap: var(--space-sm);
+  align-items: center;
+  gap: 6px;
   color: var(--text);
   font-size: 16px;
   line-height: 21px;

@@ -114,7 +114,7 @@ function FlashIcon() {
 
 function Pin({ dropoff }: { dropoff: boolean }) {
   return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" style={{ color: dropoff ? '#1A73E8' : '#169B62' }}>
+    <svg viewBox="4 1 16 22" aria-hidden="true" style={{ color: dropoff ? '#1A73E8' : '#169B62' }}>
       <path fill={dropoff ? '#1A73E8' : '#169B62'} d="M12 2.2a6.2 6.2 0 0 0-6.2 6.2c0 4.7 6.2 12.2 6.2 12.2s6.2-7.5 6.2-12.2A6.2 6.2 0 0 0 12 2.2z" /><text x="12" y="11.7" textAnchor="middle" fontSize="8.5" fontWeight="700" fill="#ffffff">{dropoff ? '2' : '1'}</text>
     </svg>
   );
