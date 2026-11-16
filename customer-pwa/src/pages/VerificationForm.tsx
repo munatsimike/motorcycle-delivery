@@ -160,6 +160,7 @@ function CodeStep({
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isResending, setIsResending] = useState(false);
   const [resendAvailableAt, setResendAvailableAt] = useState(() => Date.now() + RESEND_COOLDOWN_MS);
   const [now, setNow] = useState(() => Date.now());
 
@@ -223,10 +224,10 @@ function CodeStep({
   }
 
   async function resend() {
-    if (isLoading || secondsRemaining > 0) {
+    if (isLoading || isResending || secondsRemaining > 0) {
       return;
     }
-    setIsLoading(true);
+    setIsResending(true);
     setError(null);
     try {
       if (flow === 'whatsapp_login') {
@@ -242,7 +243,7 @@ function CodeStep({
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'A new code could not be sent.');
     } finally {
-      setIsLoading(false);
+      setIsResending(false);
     }
   }
 
@@ -261,12 +262,12 @@ function CodeStep({
           disabled={isLoading}
           invalid={Boolean(error)}
         />
-        <Button type="submit" disabled={isLoading || code.length !== 6}>
+        <Button type="submit" disabled={isLoading || isResending || code.length !== 6}>
           {isLoading ? <><ButtonSpinner />Checking code</> : 'Verify code'}
         </Button>
       </form>
-      <Button type="button" variant="secondary" disabled={isLoading || secondsRemaining > 0} onClick={() => { void resend(); }}>
-        {isLoading ? <><ButtonSpinner />Processing</> : secondsRemaining > 0 ? `Resend code in ${secondsRemaining}s` : 'Resend code'}
+      <Button type="button" variant="secondary" disabled={isLoading || isResending || secondsRemaining > 0} onClick={() => { void resend(); }}>
+        {isResending ? <><ButtonSpinner />Processing</> : secondsRemaining > 0 ? `Resend code in ${secondsRemaining}s` : 'Resend code'}
       </Button>
       <Button
         type="button"
