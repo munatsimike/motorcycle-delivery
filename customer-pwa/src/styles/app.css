@@ -3489,3 +3489,29 @@ html.is-page-transition .page-stage {
   color: var(--primary);
   font-weight: 500;
 }
+
+/* Rider bid: name/tier, rating/rides, then arrival time. */
+.offer-copy .offer-eta-line {
+  margin: 0;
+  color: var(--primary-dark);
+  font-size: var(--caption);
+  font-weight: 600;
+  line-height: 18px;
+}
+.offer-copy .offer-eta-line.is-unavailable {
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+/* Match numbered pins in Parcel details sheet to the Deliveries cards. */
+.deliveries-sheet .delivery-facts-card .delivery-stop svg {
+  width: 32px;
+  height: 32px;
+  margin-left: -8px;
+  margin-right: -6px;
+}
+
+/* Send Parcel form actions use the same pill treatment as other primary actions. */
+.book-actions .button {
+  border-radius: 999px;
+}

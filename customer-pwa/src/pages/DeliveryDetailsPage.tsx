@@ -848,16 +848,14 @@ export function DeliveryDetailsPage() {
                     <strong>{offerRiderName(bid.riderName)}</strong>
                     <span className={`offer-class offer-class-${bid.riderClass.toLowerCase()}`}>{riderClassLabel(bid.riderClass)}</span>
                   </div>
-                  {bid.motorcycle ? <p>{bid.motorcycle}</p> : null}
                   <p className="offer-rating-row">
                     <span className="offer-star" aria-hidden="true">★</span>
                     {rating.rating ? <span className="offer-rating">{rating.rating}</span> : null}
                     {rating.rating ? <span aria-hidden="true">·</span> : null}
                     <span>{rating.rides}</span>
-                    <span className="offer-eta-divider" aria-hidden="true">·</span>
-                    <span className={`offer-eta-inline${pickupEtaLabel(bid.pickupEtaSeconds) === 'ETA unavailable' ? ' is-unavailable' : ''}`}>
-                      {pickupEtaLabel(bid.pickupEtaSeconds) === 'ETA unavailable' ? 'ETA unavailable' : `${pickupEtaLabel(bid.pickupEtaSeconds)} away`}
-                    </span>
+                  </p>
+                  <p className={`offer-eta-line${pickupEtaLabel(bid.pickupEtaSeconds) === 'ETA unavailable' ? ' is-unavailable' : ''}`}>
+                    {pickupEtaLabel(bid.pickupEtaSeconds) === 'ETA unavailable' ? 'ETA unavailable' : `${pickupEtaLabel(bid.pickupEtaSeconds)} away`}
                   </p>
                 </div>
                 <div className="offer-price">
