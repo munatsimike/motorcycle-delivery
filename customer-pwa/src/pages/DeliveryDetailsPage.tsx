@@ -854,11 +854,14 @@ export function DeliveryDetailsPage() {
                     {rating.rating ? <span className="offer-rating">{rating.rating}</span> : null}
                     {rating.rating ? <span aria-hidden="true">·</span> : null}
                     <span>{rating.rides}</span>
+                    <span className="offer-eta-divider" aria-hidden="true">·</span>
+                    <span className={`offer-eta-inline${pickupEtaLabel(bid.pickupEtaSeconds) === 'ETA unavailable' ? ' is-unavailable' : ''}`}>
+                      {pickupEtaLabel(bid.pickupEtaSeconds) === 'ETA unavailable' ? 'ETA unavailable' : `${pickupEtaLabel(bid.pickupEtaSeconds)} away`}
+                    </span>
                   </p>
                 </div>
                 <div className="offer-price">
                   <span>${bid.amount}</span>
-                  <p className="offer-eta">{pickupEtaLabel(bid.pickupEtaSeconds) === 'ETA unavailable' ? null : <ClockMark />}<span>{pickupEtaLabel(bid.pickupEtaSeconds)}</span></p>
                 </div>
                 </div>
                 {canAccept ? (
@@ -1262,9 +1265,7 @@ function SortIcon({ descending }: { descending: boolean }) {
     : <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 17h3l-4 4-4-4h3V3h2M11 13H9V3H7v10H5l4 4 4-4H11Z" fill="currentColor" /></svg>;
 }
 
-function ClockMark() {
-  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20a8 8 0 1 0-8-8 8 8 0 0 0 8 8m0-18a10 10 0 1 1-10 10A10 10 0 0 1 12 2m.5 5v5.25l4.5 2.67-.75 1.23L11 13V7h1.5Z" fill="currentColor" /></svg>;
-}
+
 
 function CheckMark() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 7 9 19l-5.5-5.5 1.41-1.41L9 16.17 19.59 5.59 21 7Z" fill="currentColor" /></svg>;

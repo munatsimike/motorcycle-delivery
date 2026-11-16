@@ -2079,8 +2079,8 @@ button.home-status:disabled {
 }
 
 .track-offers-sheet {
-  padding-right: 16px;
-  padding-left: 16px;
+  padding-right: 12px;
+  padding-left: 12px;
   background: var(--list-background);
 }
 
@@ -2135,7 +2135,7 @@ button.home-status:disabled {
   gap: var(--space-sm);
   width: 100%;
   margin: 0;
-  padding: 12px 16px;
+  padding: 12px 12px;
   border: 1px solid var(--list-card-border);
   border-radius: var(--radius-lg);
   background: var(--background);
@@ -2251,6 +2251,25 @@ button.home-status:disabled {
   display: flex;
   align-items: center;
   gap: var(--space-xs);
+}
+
+/* Keep rider arrival time on the existing rides line, without increasing card height. */
+.offer-rating-row .offer-eta-divider {
+  color: var(--text-secondary);
+}
+
+.offer-rating-row .offer-eta-inline {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--primary-dark);
+  font-weight: 600;
+}
+
+.offer-rating-row .offer-eta-inline.is-unavailable {
+  color: var(--text-secondary);
+  font-weight: 400;
 }
 
 .offer-star {
