@@ -3968,16 +3968,13 @@ html.is-page-transition .page-stage {
 .address-book-page .address-empty { background: transparent; border: 0; box-shadow: none; }
 .address-book-page .address-empty img { width: 64px; height: 64px; }
 
-/* Soft mint / white visual preview (light theme only).
-   Keep data-heavy cards, editable inputs, and map controls white for clarity. */
+/* Soft mint theme correction: keep the original green action controls and
+   original home/map surfaces. Apply mint only to information panels. */
 :root:not([data-theme="dark"]) {
   --canvas: #ffffff;
   --list-background: #ffffff;
-  --surface: #eaf7f0;
-  --primary-light: #e5f6ec;
-  --list-card-border: #dbeae1;
+  --primary-light: #e9f8ef;
 }
-
 :root:not([data-theme="dark"]) .profile-screen,
 :root:not([data-theme="dark"]) .profile-sheet,
 :root:not([data-theme="dark"]) .address-book-page,
@@ -3985,39 +3982,22 @@ html.is-page-transition .page-stage {
 :root:not([data-theme="dark"]) .address-book-page .book-scroll {
   background: #ffffff;
 }
-:root:not([data-theme="dark"]) .profile-wash {
-  background: linear-gradient(180deg, #eaf7f0 0%, #f5fbf7 75%, #ffffff 100%);
-}
-:root:not([data-theme="dark"]) .profile-settings {
-  background: #eaf7f0;
-  border-color: #eaf7f0;
-}
-:root:not([data-theme="dark"]) .profile-divider {
-  background: #d2e5da;
-}
-:root:not([data-theme="dark"]) .home-card {
-  background: #eaf7f0;
-  box-shadow: 0 -3px 18px rgba(21, 61, 40, 0.10);
-}
-:root:not([data-theme="dark"]) .confirm-dialog,
-:root:not([data-theme="dark"]) .profile-dialog-card,
-:root:not([data-theme="dark"]) .profile-appearance {
-  background: #f3faf6;
-}
-:root:not([data-theme="dark"]) .book-squares button.is-selected,
-:root:not([data-theme="dark"]) .book-choices label:has(input:checked) {
-  background: #e5f6ec;
-}
+:root:not([data-theme="dark"]) .profile-settings,
 :root:not([data-theme="dark"]) .address-book-page .address-card {
-  background: #f3faf6;
-  border-color: #dbeae1;
+  background: #eaf7f0;
+  border-color: #d4e9dc;
 }
+:root:not([data-theme="dark"]) .profile-divider { background: #d2e5da; }
 :root:not([data-theme="dark"]) .address-book-page .address-empty {
   background: transparent;
+  border: 0;
+  box-shadow: none;
 }
-:root:not([data-theme="dark"]) .delivery-card,
-:root:not([data-theme="dark"]) .book-fields .field input,
-:root:not([data-theme="dark"]) .book-fields .field textarea,
-:root:not([data-theme="dark"]) .book-fields .phone-field {
-  background: #ffffff;
+/* Never wash out green CTAs or checked states. */
+:root:not([data-theme="dark"]) .button:not(.button-outline):not(.button-secondary) {
+  background: var(--primary);
+  color: #ffffff;
+}
+:root:not([data-theme="dark"]) .button:not(.button-outline):not(.button-secondary):hover {
+  background: var(--primary-dark);
 }
