@@ -779,7 +779,6 @@ export function DeliveryDetailsPage() {
                 <button type="button" className="offer-sort" aria-label={`Sort offers, ${offerSortLabel(offerSort)}`} onClick={() => setSortOpen(true)}>
                   <SwapIcon />
                   <span>{offerSortShortLabel(offerSort)}</span>
-                  <SortIcon descending={offerSort.endsWith('high')} />
                   <ChevronDown />
                 </button>
               ) : null}

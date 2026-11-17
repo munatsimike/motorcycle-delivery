@@ -4044,3 +4044,14 @@ html.is-page-transition .page-stage {
   color: var(--primary-dark);
   box-shadow: none;
 }
+
+/* More page: borderless details, restrained typography. */
+:root:not([data-theme="dark"]) .profile-settings {
+  border: 0;
+}
+.profile-settings .profile-row:not(.profile-addresses) strong {
+  font-size: calc(var(--body) - 1px);
+}
+.profile-logout {
+  font-weight: 400;
+}

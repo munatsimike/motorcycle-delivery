@@ -164,7 +164,6 @@ export function ProfilePage() {
               {phase === 'uploading' ? <p className="profile-photo-status">Uploading {progress}%</p> : null}
               {phase === 'removing' ? <p className="profile-photo-status">Removing photo</p> : null}
               <h1>{account.name}</h1>
-              <p className="profile-kind">{profileKindLabel(account.kind)}</p>
             </div>
             <div className="profile-avatar-slot">
               <button type="button" className="profile-avatar" aria-label="Change profile photo" disabled={phase !== 'idle'} onClick={() => fileInput.current?.click()}>
