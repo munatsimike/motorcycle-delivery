@@ -3948,3 +3948,7 @@ html.is-page-transition .page-stage {
   border-color: var(--list-card-border);
 }
 .address-book-page .book-header { justify-content: flex-start; }
+
+/* Keep the future ZiG option visible without enabling unsupported bookings. */
+.book-choices label:has(input:disabled) { opacity: .55; cursor: not-allowed; }
+.book-currency-unavailable { font-size: .75em; white-space: nowrap; }

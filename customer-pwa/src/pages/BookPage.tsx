@@ -83,7 +83,6 @@ import {
   type DeliveryQuote,
 } from '../booking/quote';
 
-const INSTRUCTION_LIMIT = 200;
 const LOCATION_DENIED = 'Location permission is needed to detect your pickup point.';
 const LOCATION_UNAVAILABLE = 'We couldn\'t detect your location. Try again or search for your pickup address.';
 const LOCATION_STREET = 'Enter the street address.';
@@ -820,7 +819,7 @@ function ParcelForm({ draft, onChange }: { draft: BookingDraft; onChange: (patch
   ];
   const currencies: { value: 'USD' | 'ZWG'; label: string }[] = [
     { value: 'USD', label: 'USD' },
-    ...(requestBookingCurrency('ZWG') === 'ZWG' ? [{ value: 'ZWG' as const, label: 'ZiG' }] : []),
+    { value: 'ZWG', label: 'ZiG' },
   ];
   return (
     <div className="book-fields">
@@ -838,17 +837,6 @@ function ParcelForm({ draft, onChange }: { draft: BookingDraft; onChange: (patch
           })}
         </div>
       </fieldset>
-      <label className="field">
-        Description (optional)
-        <span className="book-hint">Describe what you are sending.</span>
-        <textarea
-          value={draft.instructions}
-          maxLength={INSTRUCTION_LIMIT}
-          placeholder="E.g. motor spares, clothes"
-          onChange={(event) => onChange({ instructions: event.target.value.slice(0, INSTRUCTION_LIMIT) })}
-        />
-        <span className="book-counter">{draft.instructions.length}/{INSTRUCTION_LIMIT}</span>
-      </label>
       <fieldset className="book-block">
         <legend>Delivery type</legend>
         <div className="book-choices">
@@ -865,8 +853,8 @@ function ParcelForm({ draft, onChange }: { draft: BookingDraft; onChange: (patch
         <div className="book-choices">
           {currencies.map((option) => (
             <label key={option.value}>
-              <input type="radio" name="booking-currency" checked={requestBookingCurrency(draft.currency) === option.value} onChange={() => onChange({ currency: option.value })} />
-              {option.label}
+              <input type="radio" name="booking-currency" checked={requestBookingCurrency(draft.currency) === option.value} disabled={option.value === 'ZWG' && requestBookingCurrency('ZWG') !== 'ZWG'} onChange={() => onChange({ currency: option.value })} />
+              {option.label}{option.value === 'ZWG' && requestBookingCurrency('ZWG') !== 'ZWG' ? <span className="book-currency-unavailable">Coming soon</span> : null}
             </label>
           ))}
         </div>
