@@ -4001,3 +4001,20 @@ html.is-page-transition .page-stage {
 :root:not([data-theme="dark"]) .button:not(.button-outline):not(.button-secondary):hover {
   background: var(--primary-dark);
 }
+
+
+/* Deliveries and More page refinements — light theme only. */
+:root:not([data-theme="dark"]) .deliveries-header {
+  border-bottom: 0;
+}
+:root:not([data-theme="dark"]) .deliveries-tool {
+  border: 0;
+  background: transparent;
+}
+:root:not([data-theme="dark"]) .profile-settings {
+  background: #ffffff;
+  border-color: #e4eae6;
+}
+:root:not([data-theme="dark"]) .profile-divider {
+  background: linear-gradient(90deg, #d2e5da 0%, #eaf5ed 55%, #ffffff 100%);
+}
