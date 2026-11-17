@@ -3690,9 +3690,49 @@ html.is-page-transition .page-stage {
   color: var(--text);
 }
 
+.book-save-side {
+  display: grid;
+  gap: 8px;
+}
+
+.book-save-side p,
+.book-save-labels {
+  margin: 0;
+}
+
+.book-save-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.book-save-labels button.is-selected {
+  outline: 2px solid currentColor;
+}
+
+.book-save-side input {
+  min-height: 44px;
+  padding: 0 var(--space-md);
+  border: 0;
+  border-radius: 999px;
+  background: var(--background);
+  color: var(--text);
+}
+
 .book-confirmed-card .book-save-actions + p {
   max-width: 20rem;
   color: var(--background);
   font-size: var(--body);
   text-align: center;
 }
+
+/* More tab and inline saved-address picker */
+.profile-addresses { justify-content: space-between; }
+.profile-addresses span { color: var(--text-secondary); font-size: 24px; }
+.book-address-control input { padding-right: 88px; }
+.book-address-book-button { position: absolute; right: 42px; top: 50%; transform: translateY(-50%); display: grid; place-items: center; width: 36px; height: 36px; padding: 7px; border: 0; border-radius: 50%; background: transparent; color: var(--primary); cursor: pointer; }
+.book-address-book-button svg { width: 21px; height: 21px; }
+.book-address-book-picker { position: relative; display: grid; gap: 6px; padding: 12px; margin-top: 6px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--background); }
+.book-address-book-picker > strong { font-size: var(--caption); }
+.book-address-book-picker button { display: grid; gap: 2px; padding: 10px; border: 0; border-radius: 8px; text-align: left; background: var(--sheet); color: var(--text); }
+.book-address-book-picker button span, .book-address-book-picker p { font-size: var(--caption); color: var(--text-secondary); }

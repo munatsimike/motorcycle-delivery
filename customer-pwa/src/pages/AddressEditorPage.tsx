@@ -46,6 +46,7 @@ export function AddressEditorPage() {
         if (!entry) throw new Error('Saved address not found.');
         if (!active) return;
         const full = readSavedAddress(entry);
+        if (!full) throw new Error('Saved address not found.');
         setLabel(full.label);
         setCustomLabel(full.customLabel ?? '');
         setIsDefaultPickup(full.isDefaultPickup);
@@ -57,7 +58,8 @@ export function AddressEditorPage() {
           longitude: full.longitude,
           contactName: full.contactName,
           contactPhone: full.contactPhone,
-          coordinateSource: 'DEVICE_GEOCODER',
+          placeId: full.placeId,
+          coordinateSource: full.coordinateSource,
           precision: 'exact',
         });
       } catch (caught) {

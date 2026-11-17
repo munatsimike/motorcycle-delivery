@@ -1,6 +1,9 @@
 import type { StopDraft } from './draft';
 
 export type SavedAddressLabel = 'HOME' | 'WORK' | 'CUSTOM';
+export type SavedCoordinateSource = 'GOOGLE_PLACES' | 'DEVICE_GEOCODER';
+
+const PLACE_ID = /^[A-Za-z0-9_-]{8,255}$/;
 
 export type SavedAddress = {
   id: string;
@@ -9,12 +12,19 @@ export type SavedAddress = {
   address: string;
   latitude: string;
   longitude: string;
+  placeId: string | null;
+  coordinateSource: SavedCoordinateSource;
   contactName: string;
   contactPhone: string;
   isDefaultPickup: boolean;
 };
 
 export type SaveState = 'idle' | 'saving' | 'saved';
+
+export type BookingSaveChoice = {
+  label: SavedAddressLabel | null;
+  customLabel: string;
+};
 
 export function savedAddressLabel(entry: { label: SavedAddressLabel; customLabel: string | null }): string {
   if (entry.label === 'HOME') return 'Home';
@@ -26,6 +36,10 @@ export function emptyAddressList(addresses: readonly SavedAddress[]): boolean {
   return addresses.length === 0;
 }
 
+export function skipsPlacesLookup(stop: { latitude: string; longitude: string }): boolean {
+  return stop.latitude.trim() !== '' && stop.longitude.trim() !== '';
+}
+
 export function stopFromSavedAddress(current: StopDraft, entry: SavedAddress): StopDraft {
   return {
     ...current,
@@ -35,8 +49,8 @@ export function stopFromSavedAddress(current: StopDraft, entry: SavedAddress): S
     longitude: entry.longitude,
     approximate: false,
     precision: 'exact',
-    placeId: null,
-    coordinateSource: 'DEVICE_GEOCODER',
+    placeId: entry.placeId,
+    coordinateSource: entry.coordinateSource,
     contactName: entry.contactName,
     contactPhone: entry.contactPhone,
   };
@@ -50,8 +64,35 @@ export function canApplyDefaultPickup(input: {
   return input.pickup.address.trim() === '' && input.pickup.latitude.trim() === '' && input.pickup.longitude.trim() === '';
 }
 
+export function applyDefaultPickup(input: {
+  rebook: boolean;
+  pickup: StopDraft;
+  saved: readonly SavedAddress[];
+}): { pickup: StopDraft; applied: boolean } {
+  const fallback = input.saved.find((entry) => entry.isDefaultPickup);
+  if (!fallback || !canApplyDefaultPickup({ rebook: input.rebook, pickup: input.pickup })) {
+    return { pickup: input.pickup, applied: false };
+  }
+  return { pickup: stopFromSavedAddress(input.pickup, fallback), applied: true };
+}
+
+export function automaticGpsMayApply(input: {
+  addressEdited: boolean;
+  pickup: Pick<StopDraft, 'address' | 'latitude'>;
+}): boolean {
+  if (input.addressEdited) return false;
+  return input.pickup.address.trim() === '' && input.pickup.latitude.trim() === '';
+}
+
 export function isRebookState(state: unknown): boolean {
   return typeof state === 'object' && state !== null && 'rebook' in state;
+}
+
+export function bookingSaveLabel(choice: BookingSaveChoice): { label: SavedAddressLabel; customLabel: string | null } | null {
+  if (choice.label === 'HOME' || choice.label === 'WORK') return { label: choice.label, customLabel: null };
+  const customLabel = choice.customLabel.trim().slice(0, 40);
+  if (choice.label === 'CUSTOM' && customLabel) return { label: 'CUSTOM', customLabel };
+  return null;
 }
 
 export function bookingSaveBody(stop: {
@@ -60,15 +101,18 @@ export function bookingSaveBody(stop: {
   longitude: number;
   contactName: string;
   contactPhone: string;
-}, customLabel: 'Pickup' | 'Delivery') {
+  placeId: string | null;
+  coordinateSource: SavedCoordinateSource;
+}, choice: { label: SavedAddressLabel; customLabel: string | null }) {
+  const google = stop.coordinateSource === 'GOOGLE_PLACES' && stop.placeId !== null && PLACE_ID.test(stop.placeId);
   return {
-    label: 'CUSTOM' as const,
-    customLabel,
+    label: choice.label,
+    customLabel: choice.customLabel,
     address: stop.address,
     latitude: stop.latitude.toFixed(7),
     longitude: stop.longitude.toFixed(7),
-    placeId: null,
-    coordinateSource: 'DEVICE_GEOCODER' as const,
+    placeId: google ? stop.placeId : null,
+    coordinateSource: google ? 'GOOGLE_PLACES' as const : 'DEVICE_GEOCODER' as const,
     contactName: stop.contactName,
     contactPhone: stop.contactPhone,
     isDefaultPickup: false,
@@ -76,26 +120,47 @@ export function bookingSaveBody(stop: {
   };
 }
 
-export function readSavedAddresses(value: unknown): SavedAddress[] {
-  if (!Array.isArray(value)) throw new Error('Saved addresses are unavailable.');
-  return value.map(readSavedAddress);
+export function saveRequest(
+  stop: {
+    address: string;
+    latitude: number;
+    longitude: number;
+    contactName: string;
+    contactPhone: string;
+    placeId: string | null;
+    coordinateSource: SavedCoordinateSource;
+  } | null,
+  choice: BookingSaveChoice,
+) {
+  if (!stop) return null;
+  const label = bookingSaveLabel(choice);
+  if (!label) return null;
+  return bookingSaveBody(stop, label);
 }
 
-export function readSavedAddress(value: unknown): SavedAddress {
-  if (!isRecord(value) || typeof value.id !== 'string' || !value.id.trim()) {
-    throw new Error('Saved addresses are unavailable.');
-  }
+export function readSavedAddresses(value: unknown): SavedAddress[] {
+  if (!Array.isArray(value)) throw new Error('Saved addresses are unavailable.');
+  return value.flatMap((item) => {
+    const address = readSavedAddress(item);
+    return address ? [address] : [];
+  });
+}
+
+export function readSavedAddress(value: unknown): SavedAddress | null {
+  if (!isRecord(value) || typeof value.id !== 'string' || !value.id.trim()) return null;
   const label = value.label === 'HOME' || value.label === 'WORK' || value.label === 'CUSTOM' ? value.label : null;
   const address = text(value.address);
   const latitude = coordinate(value.latitude, 90);
   const longitude = coordinate(value.longitude, 180);
   const contactName = text(value.contactName);
   const contactPhone = text(value.contactPhone);
-  if (!label || !address || !latitude || !longitude || !contactName || !contactPhone || typeof value.isDefaultPickup !== 'boolean') {
-    throw new Error('Saved addresses are unavailable.');
+  const source = readStoredSource(value.placeId, value.coordinateSource);
+  if (!label || !address || !latitude || !longitude || !contactName || !contactPhone || !source || typeof value.isDefaultPickup !== 'boolean') {
+    return null;
   }
   const customLabel = value.customLabel == null ? null : text(value.customLabel);
-  if (label === 'CUSTOM' && !customLabel) throw new Error('Saved addresses are unavailable.');
+  if (label === 'CUSTOM' && !customLabel) return null;
+  if (label !== 'CUSTOM' && value.customLabel != null && value.customLabel !== '') return null;
   return {
     id: value.id,
     label,
@@ -103,6 +168,8 @@ export function readSavedAddress(value: unknown): SavedAddress {
     address,
     latitude,
     longitude,
+    placeId: source.placeId,
+    coordinateSource: source.coordinateSource,
     contactName,
     contactPhone,
     isDefaultPickup: value.isDefaultPickup,
@@ -115,6 +182,17 @@ export function withoutSavedAddress(addresses: readonly SavedAddress[], id: stri
 
 export function withDefaultPickup(addresses: readonly SavedAddress[], id: string): SavedAddress[] {
   return addresses.map((entry) => ({ ...entry, isDefaultPickup: entry.id === id }));
+}
+
+function readStoredSource(placeId: unknown, source: unknown): { placeId: string | null; coordinateSource: SavedCoordinateSource } | null {
+  const id = typeof placeId === 'string' && PLACE_ID.test(placeId.trim()) ? placeId.trim() : null;
+  if (placeId != null && placeId !== '' && !id) return null;
+  if (source === 'GOOGLE_PLACES') return id ? { placeId: id, coordinateSource: 'GOOGLE_PLACES' } : null;
+  if (source === 'DEVICE_GEOCODER') return id ? null : { placeId: null, coordinateSource: 'DEVICE_GEOCODER' };
+  if (source != null) return null;
+  return id
+    ? { placeId: id, coordinateSource: 'GOOGLE_PLACES' }
+    : { placeId: null, coordinateSource: 'DEVICE_GEOCODER' };
 }
 
 function coordinate(value: unknown, limit: number): string | null {

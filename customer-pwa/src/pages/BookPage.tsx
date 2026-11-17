@@ -61,13 +61,17 @@ import {
   type PlaceSuggestion,
 } from '../booking/places';
 import {
-  bookingSaveBody,
-  canApplyDefaultPickup,
+  applyDefaultPickup,
+  automaticGpsMayApply,
+  bookingSaveLabel,
   isRebookState,
   readSavedAddresses,
   savedAddressLabel,
+  saveRequest,
   stopFromSavedAddress,
+  type BookingSaveChoice,
   type SavedAddress,
+  type SavedAddressLabel,
   type SaveState,
 } from '../booking/savedAddress';
 import { createSavedAddress, listSavedAddresses } from '../booking/addressApi';
@@ -104,8 +108,13 @@ export function BookPage() {
   const [busy, setBusy] = useState<BookingBusy>(null);
   const [booked, setBooked] = useState<null | { deliveryId: string; pickup: PreparedStop; dropoff: PreparedStop }>(null);
   const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>([]);
+  const [addressesSettled, setAddressesSettled] = useState(false);
   const [savedError, setSavedError] = useState<string | null>(null);
-  const [saveStatus, setSaveStatus] = useState({ pickup: 'idle' as SaveState, dropoff: 'idle' as SaveState, error: null as string | null });
+  const [saveChoice, setSaveChoice] = useState({
+    pickup: emptySaveChoice(),
+    dropoff: emptySaveChoice(),
+    error: null as string | null,
+  });
   const [keyboardInset, setKeyboardInset] = useState(0);
   const creating = useRef(false);
   const quoteRequest = useRef(0);
@@ -169,38 +178,45 @@ export function BookPage() {
   useEffect(() => {
     let active = true;
     void accessToken().then(async (token) => {
-      if (!active || !token) return;
+      if (!active || !token) {
+        if (active) setAddressesSettled(true);
+        return;
+      }
       try {
         const rows = readSavedAddresses(await listSavedAddresses(token));
         if (!active) return;
         setSavedAddresses(rows);
-        const fallback = rows.find((row) => row.isDefaultPickup);
-        if (!fallback) return;
         setDraft((current) => {
-          if (!canApplyDefaultPickup({
+          const next = applyDefaultPickup({
             rebook: fromRebook.current,
             pickup: current.pickup,
-          })) return current;
-          addressEdited.current = true;
-          return { ...current, pickup: stopFromSavedAddress(current.pickup, fallback) };
+            saved: rows,
+          });
+          if (next.applied) addressEdited.current = true;
+          return next.applied ? { ...current, pickup: next.pickup } : current;
         });
       } catch (caught) {
         if (active) setSavedError(deliveryErrorMessage(caught, 'Saved addresses are unavailable.'));
+      } finally {
+        if (active) setAddressesSettled(true);
       }
     }).catch(() => {
-      if (active) setSavedError('Saved addresses are unavailable.');
+      if (active) {
+        setSavedError('Saved addresses are unavailable.');
+        setAddressesSettled(true);
+      }
     });
     return () => { active = false; };
   }, [accessToken]);
 
   useEffect(() => {
-    if (mode !== 'v2') return undefined;
+    if (mode !== 'v2' || !addressesSettled) return undefined;
     const attemptId = ++pickupAttempt.current;
     void detectPickup(false, attemptId);
     return () => {
       pickupAttempt.current += 1;
     };
-  }, [mode]);
+  }, [addressesSettled, mode]);
 
   useEffect(() => {
     function holdBack() {
@@ -242,7 +258,7 @@ export function BookPage() {
     const stale = () => !manual && attemptId !== pickupAttempt.current;
     if (locatingRef.current) return;
     const pickup = draftRef.current.pickup;
-    if (pickup.address.trim() || pickup.latitude) return;
+    if (!manual && !automaticGpsMayApply({ addressEdited: addressEdited.current, pickup })) return;
     if (!manual) {
       const permission = await geolocationPermission();
       if (stale() || permission === 'denied') return;
@@ -253,7 +269,7 @@ export function BookPage() {
     setLocateError(null);
     try {
       const position = await readCurrentPosition();
-      if (stale() || addressEdited.current) return;
+      if (stale() || (!manual && !automaticGpsMayApply({ addressEdited: addressEdited.current, pickup: draftRef.current.pickup }))) return;
       const fix = pickupAutofillFix({
         permission: 'granted',
         latitude: position.coords.latitude,
@@ -267,8 +283,8 @@ export function BookPage() {
         return;
       }
       const found = await lookupAddress(Number(fix.latitude), Number(fix.longitude));
-      if (stale() || addressEdited.current) return;
-      const decision = decideAddressAutofill(addressEdited.current, found);
+      if (stale() || (!manual && !automaticGpsMayApply({ addressEdited: addressEdited.current, pickup: draftRef.current.pickup }))) return;
+      const decision = decideAddressAutofill(manual ? false : addressEdited.current, found);
       if (decision.status === 'needs-street') {
         setLocateError(LOCATION_STREET);
         return;
@@ -278,7 +294,8 @@ export function BookPage() {
         return;
       }
       setDraft((current) => {
-        if (current.pickup.address.trim() || current.pickup.latitude) return current;
+        if (!manual && !automaticGpsMayApply({ addressEdited: addressEdited.current, pickup: current.pickup })) return current;
+        if (manual) addressEdited.current = true;
         return {
           ...current,
           pickup: {
@@ -471,17 +488,27 @@ export function BookPage() {
   }
 
   async function saveBookedStop(side: 'pickup' | 'dropoff') {
-    if (!booked || saveStatus[side] === 'saving' || saveStatus[side] === 'saved') return;
-    setSaveStatus((current) => ({ ...current, [side]: 'saving', error: null }));
+    if (!booked) return;
+    const choice = saveChoice[side];
+    const body = saveRequest(booked[side], choice);
+    if (!body || choice.status !== 'idle') return;
+    setSaveChoice((current) => ({
+      ...current,
+      [side]: { ...current[side], status: 'saving' },
+      error: null,
+    }));
     try {
       const token = await accessToken();
       if (!token) throw new Error('The address could not be saved.');
-      await createSavedAddress(token, bookingSaveBody(booked[side], side === 'pickup' ? 'Pickup' : 'Delivery'));
-      setSaveStatus((current) => ({ ...current, [side]: 'saved' }));
-    } catch (caught) {
-      setSaveStatus((current) => ({
+      await createSavedAddress(token, body);
+      setSaveChoice((current) => ({
         ...current,
-        [side]: 'idle',
+        [side]: { ...current[side], status: 'saved' },
+      }));
+    } catch (caught) {
+      setSaveChoice((current) => ({
+        ...current,
+        [side]: { ...current[side], status: 'idle' },
         error: deliveryErrorMessage(caught, 'The address could not be saved. The delivery is still booked.'),
       }));
     }
@@ -541,7 +568,7 @@ export function BookPage() {
           </div>
           {step === 'pickup' || step === 'destination' ? (
             <>
-            {savedAddresses.length > 0 ? (
+            {false && savedAddresses.length > 0 ? (
               <div className="book-saved">
                 <p>{step === 'pickup' ? 'Saved pickup addresses' : 'Saved delivery addresses'}</p>
                 <div>
@@ -556,6 +583,8 @@ export function BookPage() {
             ) : null}
             {savedError ? <p className="book-search-status" role="status">{savedError}</p> : null}
             <StopForm
+              savedAddresses={savedAddresses}
+              onSelectSaved={(entry) => chooseSaved(step === 'pickup' ? 'pickup' : 'dropoff', entry)}
               phoneId={step === 'pickup' ? 'pickup-phone' : 'dropoff-phone'}
               stop={step === 'pickup' ? draft.pickup : draft.dropoff}
               onChange={(patch) => updateStop(step === 'pickup' ? 'pickup' : 'dropoff', patch)}
@@ -602,15 +631,21 @@ export function BookPage() {
             <span aria-hidden="true">✓</span>
             <p>Delivery booked</p>
             <div className="book-save-actions">
-              <button type="button" disabled={saveStatus.pickup !== 'idle'} onClick={() => { void saveBookedStop('pickup'); }}>
-                {saveStatus.pickup === 'saved' ? 'Pickup saved' : saveStatus.pickup === 'saving' ? 'Saving pickup' : 'Save pickup address'}
-              </button>
-              <button type="button" disabled={saveStatus.dropoff !== 'idle'} onClick={() => { void saveBookedStop('dropoff'); }}>
-                {saveStatus.dropoff === 'saved' ? 'Delivery saved' : saveStatus.dropoff === 'saving' ? 'Saving delivery' : 'Save delivery address'}
-              </button>
               <button type="button" onClick={openBookedDelivery}>Continue</button>
+              <SaveAddressChoice
+                title="Save pickup"
+                choice={saveChoice.pickup}
+                onChange={(choice) => setSaveChoice((current) => ({ ...current, pickup: choice, error: null }))}
+                onSave={() => { void saveBookedStop('pickup'); }}
+              />
+              <SaveAddressChoice
+                title="Save delivery"
+                choice={saveChoice.dropoff}
+                onChange={(choice) => setSaveChoice((current) => ({ ...current, dropoff: choice, error: null }))}
+                onSave={() => { void saveBookedStop('dropoff'); }}
+              />
             </div>
-            {saveStatus.error ? <p>{saveStatus.error}</p> : null}
+            {saveChoice.error ? <p>{saveChoice.error}</p> : null}
           </div>
         </div>
       ) : null}
@@ -618,8 +653,60 @@ export function BookPage() {
   );
 }
 
+function emptySaveChoice(): BookingSaveChoice & { status: SaveState } {
+  return { label: null, customLabel: '', status: 'idle' };
+}
+
+function SaveAddressChoice({
+  title,
+  choice,
+  onChange,
+  onSave,
+}: {
+  title: string;
+  choice: BookingSaveChoice & { status: SaveState };
+  onChange: (choice: BookingSaveChoice & { status: SaveState }) => void;
+  onSave: () => void;
+}) {
+  const ready = choice.status === 'idle' && bookingSaveLabel(choice) !== null;
+  const labels: SavedAddressLabel[] = ['HOME', 'WORK', 'CUSTOM'];
+  return (
+    <div className="book-save-side">
+      <p>{title}</p>
+      <div className="book-save-labels" role="group" aria-label={title}>
+        {labels.map((label) => (
+          <button
+            key={label}
+            type="button"
+            aria-pressed={choice.label === label}
+            className={choice.label === label ? 'is-selected' : undefined}
+            disabled={choice.status !== 'idle'}
+            onClick={() => onChange({ ...choice, label })}
+          >
+            {label === 'HOME' ? 'Home' : label === 'WORK' ? 'Work' : 'Custom'}
+          </button>
+        ))}
+      </div>
+      {choice.label === 'CUSTOM' ? (
+        <input
+          aria-label={`${title} label`}
+          value={choice.customLabel}
+          maxLength={40}
+          disabled={choice.status !== 'idle'}
+          onChange={(event) => onChange({ ...choice, customLabel: event.target.value })}
+        />
+      ) : null}
+      <button type="button" disabled={!ready} onClick={onSave}>
+        {choice.status === 'saved' ? 'Saved' : choice.status === 'saving' ? 'Saving' : 'Save to Address Book'}
+      </button>
+    </div>
+  );
+}
+
 function StopForm({
   phoneId,
+  savedAddresses,
+  onSelectSaved,
   stop,
   onChange,
   onManualInput,
@@ -630,6 +717,8 @@ function StopForm({
   resolve,
 }: {
   phoneId: string;
+  savedAddresses: SavedAddress[];
+  onSelectSaved: (entry: SavedAddress) => void;
   stop: StopDraft;
   onChange: (patch: Partial<StopDraft>) => void;
   onManualInput: () => void;
@@ -641,7 +730,7 @@ function StopForm({
 }) {
   return (
     <div className="book-fields">
-      <AddressField stop={stop} onChange={onChange} onManualInput={onManualInput} locating={locating} onLocate={onLocate} locateError={locateError} searchPlaces={search} resolvePlace={resolve} />
+      <AddressField savedAddresses={savedAddresses} onSelectSaved={onSelectSaved} stop={stop} onChange={onChange} onManualInput={onManualInput} locating={locating} onLocate={onLocate} locateError={locateError} searchPlaces={search} resolvePlace={resolve} />
       <label className="field">
         Contact name
         <input value={stop.contactName} maxLength={200} autoComplete="off" onChange={(event) => onChange({ contactName: event.target.value })} />

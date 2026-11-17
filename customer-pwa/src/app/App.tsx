@@ -100,7 +100,8 @@ function SignedInRoutes() {
       <Route element={<Shell />}>
         <Route path="/home" element={<HomePage />} />
         <Route path="/deliveries" element={<DeliveriesPage />} />
-        <Route path="/profile" element={<ProfilePage />} />
+        <Route path="/more" element={<ProfilePage />} />
+        <Route path="/profile" element={<Navigate to="/more" replace />} />
       </Route>
       <Route path="/book" element={<><ConsumedReturnPath /><BookPage /></>} />
       <Route path="/addresses" element={<><ConsumedReturnPath /><AddressesPage /></>} />

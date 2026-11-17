@@ -24,8 +24,8 @@ export function Shell() {
         <TabLink to="/deliveries" label="Deliveries" end>
           {(active) => <PackageIcon filled={active} />}
         </TabLink>
-        <TabLink to="/profile" label="Profile" end>
-          {(active) => <AccountIcon filled={active} />}
+        <TabLink to="/more" label="More" end>
+          {(active) => <MoreIcon filled={active} />}
         </TabLink>
       </nav>
     </div>
@@ -79,14 +79,6 @@ function PackageIcon({ filled }: { filled: boolean }) {
   );
 }
 
-function AccountIcon({ filled }: { filled: boolean }) {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      {filled ? (
-        <path d="M12 12.2a4.1 4.1 0 1 0-4.1-4.1 4.1 4.1 0 0 0 4.1 4.1Zm0 2.1c-3.4 0-7.2 1.7-7.2 4.2v1.3h14.4v-1.3c0-2.5-3.8-4.2-7.2-4.2Z" />
-      ) : (
-        <path d="M12 12.4a3.6 3.6 0 1 0-3.6-3.6 3.6 3.6 0 0 0 3.6 3.6Zm0-8.7a5.1 5.1 0 1 1-5.1 5.1A5.1 5.1 0 0 1 12 3.7ZM5.2 20.2v-.6c0-2.2 3-3.8 6.8-3.8s6.8 1.6 6.8 3.8v.6H5.2Zm1.6-1.5h10.4c-.4-1-2.4-2.1-5.2-2.1s-4.8 1.1-5.2 2.1Z" />
-      )}
-    </svg>
-  );
+function MoreIcon({ filled }: { filled: boolean }) {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z" opacity={filled ? 1 : 0.7} /></svg>;
 }

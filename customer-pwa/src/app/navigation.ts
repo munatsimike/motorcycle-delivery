@@ -1,4 +1,4 @@
-export const TAB_PATHS = ['/home', '/deliveries', '/profile'] as const;
+export const TAB_PATHS = ['/home', '/deliveries', '/more'] as const;
 
 const AUTH_PATHS = new Set(['/', '/sign-in', '/create-account']);
 
@@ -11,6 +11,7 @@ export function isProtectedPath(pathname: string): boolean {
   return path === '/home'
     || path === '/book'
     || path === '/profile'
+    || path === '/more'
     || path === '/addresses'
     || path.startsWith('/addresses/')
     || path === '/deliveries'

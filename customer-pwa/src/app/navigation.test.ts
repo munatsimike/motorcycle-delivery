@@ -9,7 +9,7 @@ import {
 } from './navigation.ts';
 
 test('signed-out customers cannot open protected pages', () => {
-  for (const path of ['/home', '/deliveries', '/deliveries/parcel-1', '/profile', '/book', '/addresses', '/addresses/new']) {
+  for (const path of ['/home', '/deliveries', '/deliveries/parcel-1', '/profile', '/more', '/book', '/addresses', '/addresses/new']) {
     assert.equal(isProtectedPath(path), true);
     assert.equal(signedOutDestination(path), '/sign-in');
     assert.equal(showsTabBar(path) && signedOutDestination(path) === null, false);
@@ -22,6 +22,7 @@ test('signed-out customers cannot open protected pages', () => {
 test('an unauthenticated booking visit returns to Send a Parcel after sign-in', () => {
   assert.equal(isProtectedPath('/book'), true);
   assert.equal(signedOutDestination('/book'), '/sign-in');
+  assert.equal(showsTabBar('/profile'), false);
   assert.equal(showsTabBar('/book'), false);
   assert.equal(signedInDestination('/book'), null);
 });
@@ -36,7 +37,8 @@ test('a signed-in customer opening the welcome address reaches Home', () => {
 test('bottom navigation is only on the three main tabs', () => {
   assert.equal(showsTabBar('/home'), true);
   assert.equal(showsTabBar('/deliveries'), true);
-  assert.equal(showsTabBar('/profile'), true);
+  assert.equal(showsTabBar('/more'), true);
+  assert.equal(showsTabBar('/profile'), false);
   assert.equal(showsTabBar('/book'), false);
   assert.equal(showsTabBar('/addresses'), false);
   assert.equal(showsTabBar('/deliveries/parcel-1'), false);

@@ -43,8 +43,8 @@ export function ProfilePage() {
         const token = await accessToken();
         if (!active) return;
         if (!token) {
-          rememberReturnPath('/profile');
-          navigate('/sign-in', { replace: true, state: { from: '/profile' } });
+          rememberReturnPath('/more');
+          navigate('/sign-in', { replace: true, state: { from: '/more' } });
           return;
         }
         const next = await loadAccount(token);
@@ -58,9 +58,9 @@ export function ProfilePage() {
       } catch (caught) {
         if (!active) return;
         if (isSessionRejection(caught)) {
-          rememberReturnPath('/profile');
+          rememberReturnPath('/more');
           await signOut();
-          navigate('/sign-in', { replace: true, state: { from: '/profile', notice: 'Your session ended. Sign in again.' } });
+          navigate('/sign-in', { replace: true, state: { from: '/more', notice: 'Your session ended. Sign in again.' } });
           return;
         }
         setError(caught instanceof Error ? caught.message : 'Account details are unavailable.');
@@ -186,9 +186,9 @@ export function ProfilePage() {
                 </div>
               ))}
             </div>
-            <Link className="profile-addresses" to="/addresses">My addresses</Link>
+            <Link className="profile-addresses" to="/addresses">Address Book <span aria-hidden="true">›</span></Link>
           </>
-        ) : isLoading ? null : <h1>Profile</h1>}
+        ) : isLoading ? null : <h1>More</h1>}
         {error ? <ErrorMessage>{error}</ErrorMessage> : null}
         {photoError ? <ErrorMessage>{photoError}</ErrorMessage> : null}
         <button type="button" className="profile-logout" disabled={isSigningOut} onClick={() => { void handleSignOut(); }}>
