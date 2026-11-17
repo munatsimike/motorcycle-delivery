@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ApiError } from '../api/client';
 import { deleteProfilePhoto, loadCustomerAccount, loadProfilePhoto, uploadProfilePhoto } from '../account/profileApi';
@@ -11,6 +11,16 @@ import { TopSpinner } from '../components/TopSpinner';
 import { appearanceLabel, profileSignOutRequest, type AppearanceMode } from '../theme/appearance';
 import { useAppearance } from '../theme/appearanceContext';
 import { motionClass, usePresence } from '../motion/usePresence';
+
+function MoreRowIcon({ kind }: { kind: string }) {
+  const paths: Record<string, ReactNode> = {
+    phone: <path d="M6.6 3.5 9 6.8 7.5 9c1.4 3 3.5 5.1 6.5 6.5l2.2-1.5 3.3 2.4-.7 3c-.2.8-1 1.3-1.8 1.2C9.8 19.4 4.6 14.2 3.4 7c-.1-.8.4-1.6 1.2-1.8l2-.7Z" />,
+    appearance: <><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 0 0 16V4Z"/></>,
+    address: <><path d="M4 4h16v16H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/><path d="M4 17h16"/><circle cx="12" cy="9" r="2"/><path d="M8.5 14c.3-1.7 1.5-2.5 3.5-2.5s3.2.8 3.5 2.5"/></>,
+    logout: <><path d="M10 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5"/><path d="M14 8l4 4-4 4m4-4H8"/></>,
+  };
+  return <svg className="more-row-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[kind] ?? paths.phone}</svg>;
+}
 
 const APPEARANCE_OPTIONS: AppearanceMode[] = ['system', 'light', 'dark'];
 
@@ -171,7 +181,7 @@ export function ProfilePage() {
                   {index > 0 ? <div className="profile-divider" /> : null}
                   {row.action === 'appearance' ? (
                     <button type="button" className="profile-row" onClick={() => setAppearanceOpen(true)}>
-                      <span><small>{row.label}</small><strong>{row.value}</strong></span>
+                      <MoreRowIcon kind="appearance" /><span><small>{row.label}</small><strong>{row.value}</strong></span>
                       <span aria-hidden="true" className="profile-chevron">
                         <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
                           <path fill="currentColor" d="M7.41 15.41 12 10.83l4.59 4.58L18 14l-6-6-6 6 1.41 1.41Z" />
@@ -180,19 +190,20 @@ export function ProfilePage() {
                     </button>
                   ) : (
                     <div className="profile-row">
-                      <span><small>{row.label}</small><strong>{row.value}</strong></span>
+                      <MoreRowIcon kind="phone" /><span><small>{row.label}</small><strong>{row.value}</strong></span>
                     </div>
                   )}
                 </div>
               ))}
+              <div className="profile-divider" />
+              <Link className="profile-row profile-addresses" to="/addresses"><MoreRowIcon kind="address" /><span><strong>Address Book</strong></span><span aria-hidden="true" className="more-address-chevron">›</span></Link>
             </div>
-            <Link className="profile-addresses" to="/addresses">Address Book <span aria-hidden="true">›</span></Link>
           </>
         ) : isLoading ? null : <h1>More</h1>}
         {error ? <ErrorMessage>{error}</ErrorMessage> : null}
         {photoError ? <ErrorMessage>{photoError}</ErrorMessage> : null}
         <button type="button" className="profile-logout" disabled={isSigningOut} onClick={() => { void handleSignOut(); }}>
-          {isSigningOut ? 'Signing out' : 'Log out'}
+          <MoreRowIcon kind="logout" />{isSigningOut ? 'Signing out' : 'Log out'}
         </button>
       </div>
       {removeMotion.mounted ? (

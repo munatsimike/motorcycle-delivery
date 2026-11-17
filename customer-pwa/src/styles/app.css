@@ -3187,7 +3187,7 @@ button.home-status:disabled {
   text-align: left;
 }
 
-.profile-row span:first-child {
+.profile-row > span:not(.profile-chevron):not(.more-address-chevron) {
   display: grid;
   flex: 1;
   min-width: 0;
@@ -3736,3 +3736,21 @@ html.is-page-transition .page-stage {
 .book-address-book-picker > strong { font-size: var(--caption); }
 .book-address-book-picker button { display: grid; gap: 2px; padding: 10px; border: 0; border-radius: 8px; text-align: left; background: var(--sheet); color: var(--text); }
 .book-address-book-picker button span, .book-address-book-picker p { font-size: var(--caption); color: var(--text-secondary); }
+
+/* Customer PWA: More and booking polish */
+.profile-settings .profile-addresses { min-height: 60px; margin: 0; padding: var(--space-md) 0; border: 0; border-radius: 0; background: transparent; font-weight: 400; text-decoration: none; }
+.profile-settings .profile-addresses span:nth-child(2) { flex: 1; }
+.profile-settings .profile-addresses .more-address-chevron { flex: none; color: var(--text-secondary); font-size: 26px; }
+.more-row-icon { flex: none; color: var(--text-secondary); }
+.profile-logout { display: inline-flex; align-items: center; justify-content: center; gap: 9px; }
+.profile-logout .more-row-icon { color: inherit; }
+.book-address-book-button { right: 10px; color: var(--text); }
+.book-address-book-button svg { width: 24px; height: 24px; }
+.book-address-control input { padding-right: 56px; }
+.book-address-spinner { right: 48px; }
+.book-scroll { padding-left: max(var(--space-lg), 24px); padding-right: max(var(--space-lg), 24px); }
+.centered-loading { min-height: 48vh; width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; color: var(--text-secondary); font-size: var(--body); text-align: center; }
+.centered-loading-spinner { width: 32px; height: 32px; border: 3px solid var(--primary-light); border-top-color: var(--primary); border-radius: 50%; animation: top-spin .8s linear infinite; }
+.auth-screen:has(> .centered-loading) { display: flex; flex-direction: column; justify-content: center; }
+.auth-screen > .centered-loading { min-height: 65vh; }
+@media (prefers-reduced-motion: reduce) { .centered-loading-spinner { animation-duration: 1.6s; } }

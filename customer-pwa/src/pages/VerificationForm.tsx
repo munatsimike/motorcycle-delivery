@@ -266,7 +266,7 @@ function CodeStep({
           {isLoading ? <><ButtonSpinner />Checking code</> : 'Verify code'}
         </Button>
       </form>
-      <Button type="button" variant="secondary" disabled={isLoading || isResending || secondsRemaining > 0} onClick={() => { void resend(); }}>
+      <Button type="button" variant="outline" disabled={isLoading || isResending || secondsRemaining > 0} onClick={() => { void resend(); }}>
         {isResending ? <><ButtonSpinner />Processing</> : secondsRemaining > 0 ? `Resend code in ${secondsRemaining}s` : 'Resend code'}
       </Button>
       <Button

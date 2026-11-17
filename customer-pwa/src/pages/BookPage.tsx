@@ -61,10 +61,8 @@ import {
   type PlaceSuggestion,
 } from '../booking/places';
 import {
-  applyDefaultPickup,
   automaticGpsMayApply,
   bookingSaveLabel,
-  isRebookState,
   readSavedAddresses,
   savedAddressLabel,
   saveRequest,
@@ -123,8 +121,7 @@ export function BookPage() {
   stepRef.current = step;
   busyRef.current = busy;
   const prefilled = useRef(false);
-  const addressEdited = useRef(false);
-  const fromRebook = useRef(isRebookState(location.state));
+  const addressEdited = useRef(draft.pickup.address.trim() !== '' || draft.pickup.latitude.trim() !== '');
   const draftRef = useRef(draft);
   const locatingRef = useRef(false);
   const pickupAttempt = useRef(0);
@@ -186,15 +183,9 @@ export function BookPage() {
         const rows = readSavedAddresses(await listSavedAddresses(token));
         if (!active) return;
         setSavedAddresses(rows);
-        setDraft((current) => {
-          const next = applyDefaultPickup({
-            rebook: fromRebook.current,
-            pickup: current.pickup,
-            saved: rows,
-          });
-          if (next.applied) addressEdited.current = true;
-          return next.applied ? { ...current, pickup: next.pickup } : current;
-        });
+        // New bookings use the device location by default. Saved addresses remain
+        // available through the picker; an explicit selection is never overwritten.
+
       } catch (caught) {
         if (active) setSavedError(deliveryErrorMessage(caught, 'Saved addresses are unavailable.'));
       } finally {
@@ -590,7 +581,6 @@ export function BookPage() {
               onChange={(patch) => updateStop(step === 'pickup' ? 'pickup' : 'dropoff', patch)}
               onManualInput={() => { if (step === 'pickup') { addressEdited.current = true; setLocateError(null); } }}
               locating={step === 'pickup' && locating}
-              onLocate={step === 'pickup' ? () => { void detectPickup(true); } : undefined}
               locateError={step === 'pickup' ? locateError : null}
               search={(text, sessionToken) => searchWithToken(accessToken, text, step === 'destination' ? placeBias(draft.pickup.latitude, draft.pickup.longitude) : null, sessionToken)}
               resolve={(placeId, sessionToken) => resolveWithToken(accessToken, placeId, sessionToken)}
@@ -711,7 +701,6 @@ function StopForm({
   onChange,
   onManualInput,
   locating = false,
-  onLocate,
   locateError = null,
   search,
   resolve,
@@ -723,14 +712,13 @@ function StopForm({
   onChange: (patch: Partial<StopDraft>) => void;
   onManualInput: () => void;
   locating?: boolean;
-  onLocate?: () => void;
   locateError?: string | null;
   search: (text: string, sessionToken: string) => Promise<PlaceSuggestion[]>;
   resolve: (placeId: string, sessionToken: string) => Promise<{ label: string; latitude: string; longitude: string; suburb?: string; locality?: string }>;
 }) {
   return (
     <div className="book-fields">
-      <AddressField savedAddresses={savedAddresses} onSelectSaved={onSelectSaved} stop={stop} onChange={onChange} onManualInput={onManualInput} locating={locating} onLocate={onLocate} locateError={locateError} searchPlaces={search} resolvePlace={resolve} />
+      <AddressField savedAddresses={savedAddresses} onSelectSaved={onSelectSaved} stop={stop} onChange={onChange} onManualInput={onManualInput} locating={locating} locateError={locateError} searchPlaces={search} resolvePlace={resolve} />
       <label className="field">
         Contact name
         <input value={stop.contactName} maxLength={200} autoComplete="off" onChange={(event) => onChange({ contactName: event.target.value })} />

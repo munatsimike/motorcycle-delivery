@@ -18,7 +18,6 @@ export function AddressField({
   onChange,
   onManualInput,
   locating = false,
-  onLocate,
   locateError = null,
   searchPlaces,
   resolvePlace,
@@ -31,7 +30,6 @@ export function AddressField({
   onChange: (patch: Partial<StopDraft>) => void;
   onManualInput: () => void;
   locating?: boolean;
-  onLocate?: () => void;
   locateError?: string | null;
   searchPlaces: (text: string, sessionToken: string) => Promise<PlaceSuggestion[]>;
   resolvePlace: (placeId: string, sessionToken: string) => Promise<{ label: string; latitude: string; longitude: string; suburb?: string; locality?: string }>;
@@ -147,12 +145,8 @@ export function AddressField({
               onChange(clearStopLocation(event.target.value));
             }}
           />
-          {onSelectSaved ? <button type="button" className="book-address-book-button" aria-label="Choose from Address Book" aria-expanded={savedOpen} onClick={() => setSavedOpen((value) => !value)}><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M5 3h13a2 2 0 0 1 2 2v16H6a3 3 0 0 1-3-3V5a2 2 0 0 1 2-2Zm1 2v11.2c.32-.13.66-.2 1-.2h11V5H6Zm1 13a1 1 0 0 0 0 2h11v-2H7Z" /></svg></button> : null}
-          {searching || locating ? <span className="book-address-spinner" role="status" aria-label={locating ? 'Finding your location' : 'Searching addresses'} /> : onLocate ? (
-            <button type="button" className="book-locate" aria-label="Use current location" onClick={(event) => { event.preventDefault(); event.stopPropagation(); onLocate(); }}>
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8a4 4 0 1 0 4 4 4 4 0 0 0-4-4Zm8.94 3A8.99 8.99 0 0 0 13 3.06V1h-2v2.06A8.99 8.99 0 0 0 3.06 11H1v2h2.06A8.99 8.99 0 0 0 11 20.94V23h2v-2.06A8.99 8.99 0 0 0 20.94 13H23v-2h-2.06ZM12 19a7 7 0 1 1 7-7 7 7 0 0 1-7 7Z" /></svg>
-            </button>
-          ) : null}
+          {onSelectSaved ? <button type="button" className="book-address-book-button" aria-label="Choose from Address Book" aria-expanded={savedOpen} onClick={() => setSavedOpen((value) => !value)}><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4.5C4 3.7 4.7 3 5.5 3H20v17H5.5A2.5 2.5 0 0 1 3 17.5v-12C3 4.7 3.4 4.5 4 4.5Z"/><path d="M4 17.5c0-.9.7-1.5 1.6-1.5H20"/><circle cx="12" cy="8.5" r="2"/><path d="M8.7 14c.3-1.8 1.5-2.8 3.3-2.8s3 1 3.3 2.8"/></svg></button> : null}
+          {searching || locating ? <span className="book-address-spinner" role="status" aria-label={locating ? 'Finding your location' : 'Searching addresses'} /> : null}
         </span>
       </label>
       {savedOpen ? <div className="book-address-book-picker"><strong>Address Book</strong>{savedAddresses.length ? savedAddresses.map((entry) => <button key={entry.id} type="button" onClick={() => { onSelectSaved?.(entry); setSavedOpen(false); }}><strong>{savedAddressLabel(entry)}</strong><span>{entry.address}</span></button>) : <p>No saved addresses yet. Add one from More → Address Book.</p>}</div> : null}
