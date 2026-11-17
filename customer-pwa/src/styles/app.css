@@ -4028,3 +4028,19 @@ html.is-page-transition .page-stage {
 :root:not([data-theme="dark"]) .profile-sheet {
   background: #ffffff;
 }
+
+/* Flat, softer controls in the light theme. */
+:root:not([data-theme="dark"]) .track-offers-sheet .offer-sort {
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+}
+:root:not([data-theme="dark"]) .deliveries-switch {
+  background: #f1f7f3;
+  box-shadow: none;
+}
+:root:not([data-theme="dark"]) .deliveries-switch button.is-selected {
+  background: #ffffff;
+  color: var(--primary-dark);
+  box-shadow: none;
+}
