@@ -127,7 +127,9 @@ import com.riders.rider.feature.onboarding.domain.RiderReadiness
 import com.riders.rider.feature.onboarding.domain.needsOnboarding
 import com.riders.rider.feature.wallet.domain.WALLET_TOP_UP_REQUIRED
 import com.riders.rider.feature.wallet.domain.signedWalletLabel
+import com.riders.rider.feature.wallet.domain.INSUFFICIENT_WALLET_CAPACITY
 import com.riders.rider.feature.wallet.domain.walletBalanceIsNegative
+import com.riders.rider.feature.wallet.domain.zigTopUpNotice
 import java.util.Calendar
 
 @Composable
@@ -487,6 +489,8 @@ fun HomeDashboard(
                         HomeSummaries(
                             balance = ui.walletBalance,
                             currency = ui.walletCurrency,
+                            insufficient = ui.walletInsufficient,
+                            usdDebtBalance = ui.usdDebtBalance,
                             restricted = ui.walletRestricted,
                             activeCount = ui.activeDeliveryTotal,
                             newRequestCount = ui.activeRequestCount,
@@ -619,6 +623,8 @@ private fun riderAvatarColors(fullName: String): AvatarPalette {
 private fun HomeSummaries(
     balance: String?,
     currency: String?,
+    insufficient: Boolean,
+    usdDebtBalance: String?,
     restricted: Boolean,
     activeCount: Int?,
     newRequestCount: Int?,
@@ -660,7 +666,24 @@ private fun HomeSummaries(
                 modifier = Modifier.weight(1.25f),
             )
         }
-        if (restricted) {
+        if (insufficient) {
+            Text(
+                INSUFFICIENT_WALLET_CAPACITY,
+                style = RidersType.caption,
+                color = RidersColors.error,
+            )
+        } else if (currency.equals("ZWG", ignoreCase = true) && usdDebtBalance != null) {
+            Text(
+                "USD debt ${signedWalletLabel("USD", usdDebtBalance)}",
+                style = RidersType.caption,
+                color = RidersColors.error,
+            )
+            Text(
+                zigTopUpNotice(usdDebtBalance),
+                style = RidersType.caption,
+                color = RidersColors.error,
+            )
+        } else if (restricted) {
             Text(
                 WALLET_TOP_UP_REQUIRED,
                 style = RidersType.caption,

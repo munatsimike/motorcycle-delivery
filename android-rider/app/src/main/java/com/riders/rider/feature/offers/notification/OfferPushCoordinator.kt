@@ -57,6 +57,8 @@ class OfferPushCoordinator @Inject constructor(
         }
         shown.clear()
         pending.clear()
+        pending.clearAccepted()
+        pending.clearCustomerCancelled()
         pending.clearApproval()
     }
 

@@ -1,6 +1,6 @@
 import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { ServiceUnavailableException } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
+import { SELF_DECLARED_DEPS_METADATA } from '@nestjs/common/constants.js';
 import { afterEach, describe, expect, it } from 'vitest';
 import { isMissingObject, S3_CLIENT_FACTORY, s3ClientOptions, S3ObjectStorage } from './s3-object-storage.js';
 
@@ -77,14 +77,22 @@ describe('S3ObjectStorage', () => {
   });
 
   it('resolves the S3 client factory from its injection token', async () => {
-    const moduleRef = await Test.createTestingModule({
-      providers: [
-        { provide: S3_CLIENT_FACTORY, useValue: () => ({ send: async () => undefined }) },
-        S3ObjectStorage,
-      ],
-    }).compile();
+    // Nest's TestingModule.compile() always dynamic-imports the optional
+    // @nestjs/microservices package. That import is not part of this storage
+    // contract, and under a full parallel run it exceeds the test limit
+    // without calling S3. The token below is the metadata Nest reads.
+    const declared = Reflect.getMetadata(SELF_DECLARED_DEPS_METADATA, S3ObjectStorage);
+    expect(declared).toEqual([expect.objectContaining({ index: 0, param: S3_CLIENT_FACTORY })]);
 
-    expect(moduleRef.get(S3ObjectStorage)).toBeInstanceOf(S3ObjectStorage);
+    configure();
+    let used = false;
+    const storage = new S3ObjectStorage(() => {
+      used = true;
+      return { send: async () => undefined };
+    });
+    await storage.put('riders/profile/licences/image', Buffer.from('x'), 'image/jpeg');
+    expect(used).toBe(true);
+    expect(storage).toBeInstanceOf(S3ObjectStorage);
   });
 });
 

@@ -47,6 +47,9 @@ describe('EcoCash credit evidence', () => {
   it('rejects contradictory provider evidence', () => {
     expect(ecocashCreditAllowed(payment, transaction({ amountCents: 251 }))).toBe(false);
     expect(ecocashCreditAllowed(payment, transaction({ currency: 'ZWL' }))).toBe(false);
+    expect(ecocashCreditAllowed(payment, transaction({ currency: 'ZWG' }))).toBe(false);
+    expect(ecocashCreditAllowed({ ...payment, currency: Currency.ZWG }, transaction({ currency: 'ZWG' }))).toBe(true);
+    expect(ecocashCreditAllowed({ ...payment, currency: Currency.ZWG }, transaction({ currency: 'USD' }))).toBe(false);
     expect(ecocashCreditAllowed(payment, transaction({ clientCorrelator: '0000000000000000' }))).toBe(false);
     expect(ecocashCreditAllowed(payment, transaction({ referenceCode: 'RDR0000000000000000' }))).toBe(false);
     expect(ecocashCreditAllowed(payment, transaction({ endUserId: '771111111' }))).toBe(false);

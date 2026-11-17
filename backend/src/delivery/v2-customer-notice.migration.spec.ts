@@ -25,7 +25,9 @@ describe('V2 customer notice migration', () => {
     expect(sql.split('\n').some((line) => line.trimStart().startsWith('UPDATE'))).toBe(false);
     expect(schema).toContain('model CustomerFcmDevice');
     expect(schema).toContain('DEADLINE_REMINDER');
-    expect(reminder).toContain('ON CONFLICT ("assignment_id", "event_type") DO NOTHING');
+    expect(reminder).toContain('ON CONFLICT DO NOTHING');
+    expect(reminder).not.toContain('ON CONFLICT ("assignment_id", "event_type")');
+    expect(reminder).toContain("'assignment:' || assignment.\"id\"::text || ':DEADLINE_REMINDER'");
     expect(reminder).not.toContain('UPDATE "deliveries"');
     expect(sender).toContain('FOR UPDATE SKIP LOCKED');
     expect(sender).not.toContain('rider_offer');

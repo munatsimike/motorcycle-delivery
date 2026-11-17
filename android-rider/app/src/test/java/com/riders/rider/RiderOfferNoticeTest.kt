@@ -6,7 +6,11 @@ import com.riders.rider.feature.offers.domain.REQUEST_UNAVAILABLE
 import com.riders.rider.feature.offers.domain.notificationRequestCanOpen
 import com.riders.rider.feature.offers.domain.notificationTapCanOpen
 import com.riders.rider.feature.offers.domain.offerNotificationId
+import com.riders.rider.feature.offers.domain.CUSTOMER_CANCELLED_BODY
+import com.riders.rider.feature.offers.domain.RiderNoticeAction
+import com.riders.rider.feature.offers.domain.parseRiderNotice
 import com.riders.rider.feature.offers.domain.parseRiderOffer
+import com.riders.rider.feature.offers.domain.riderNoticeAction
 import com.riders.rider.feature.offers.domain.rememberShownOffer
 import com.riders.rider.feature.offers.domain.shouldAskNotificationPermission
 import com.riders.rider.feature.offers.domain.shouldHoldOfferTap
@@ -67,5 +71,21 @@ class RiderOfferNoticeTest {
         assertEquals("New delivery request", OFFER_NOTICE_TITLE)
         assertEquals("Open the app to respond. This request expires soon.", OFFER_NOTICE_BODY)
         assertEquals("Offer no longer available", REQUEST_UNAVAILABLE)
+    }
+
+    @Test
+    fun showsACustomerCancellationForTheAssignedDeliveryAndIgnoresOtherTypes() {
+        val notice = parseRiderNotice(mapOf(
+            "type" to "v2_customer_cancelled",
+            "deliveryId" to " delivery-9 ",
+        ))
+        assertEquals(RiderNoticeAction.ShowCustomerCancelled("delivery-9"), riderNoticeAction(notice))
+        assertEquals(RiderNoticeAction.Ignore, riderNoticeAction(parseRiderNotice(mapOf(
+            "type" to "v2_rider_cancelled",
+            "deliveryId" to "delivery-9",
+        ))))
+        assertEquals(RiderNoticeAction.Ignore, riderNoticeAction(parseRiderNotice(mapOf("type" to "unknown"))))
+        assertEquals(RiderNoticeAction.Ignore, riderNoticeAction(null))
+        assertEquals("The customer cancelled the delivery.", CUSTOMER_CANCELLED_BODY)
     }
 }

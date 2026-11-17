@@ -2,6 +2,17 @@ export const SERVICE_CLASSES = ['EXPRESS', 'FLEXIBLE'] as const;
 export type ServiceClass = (typeof SERVICE_CLASSES)[number];
 export type ParcelSize = 'SMALL' | 'MEDIUM' | 'LARGE';
 export type PaymentMethod = 'CASH' | 'ECOCASH' | 'ONEMONEY' | 'INNBUCKS' | 'ZIPIT';
+export type BookingCurrency = 'USD' | 'ZWG';
+
+// Customer booking follows RIDER_ZWG_OFFERS_ENABLED. That flag defaults off,
+// so a new booking is USD until the same flag is enabled on the server.
+export function requestBookingCurrency(currency: BookingCurrency | null | undefined): BookingCurrency {
+  return currency === 'ZWG' && zigBookingOpen() ? 'ZWG' : 'USD';
+}
+
+function zigBookingOpen(): boolean {
+  return false;
+}
 
 export type StopDraft = {
   address: string;
@@ -26,6 +37,7 @@ export type BookingDraft = {
   instructions: string;
   paymentMethod: PaymentMethod | null;
   serviceClass: ServiceClass | null;
+  currency: BookingCurrency;
 };
 
 export type PreparedStop = {
@@ -46,6 +58,7 @@ export type PreparedBooking = {
   parcel: { description: string; size: ParcelSize; instructions: string | null };
   paymentMethod: PaymentMethod | null;
   serviceClass: ServiceClass;
+  currency: BookingCurrency;
   pinKey: string;
 };
 
@@ -69,6 +82,107 @@ export function emptyStop(): StopDraft {
   };
 }
 
+export function bookingDraftFromDelivery(source: {
+  pickupAddress: string;
+  pickupLatitude: number | null;
+  pickupLongitude: number | null;
+  senderName: string | null;
+  pickupContactPhone: string | null;
+  pickupLandmark: string | null;
+  pickupInstructions: string | null;
+  dropoffAddress: string;
+  dropoffLatitude: number | null;
+  dropoffLongitude: number | null;
+  recipientName: string | null;
+  recipientPhone: string | null;
+  dropoffLandmark: string | null;
+  dropoffInstructions: string | null;
+  parcelDescription: string;
+  parcelSize: ParcelSize | null;
+  parcelInstructions: string | null;
+  paymentMethod: PaymentMethod | null;
+  serviceClass: ServiceClass | null;
+  currency?: string | null;
+}): BookingDraft {
+  return {
+    pickup: rebookStop(source.pickupAddress, source.pickupLatitude, source.pickupLongitude, source.senderName, source.pickupContactPhone, source.pickupLandmark, source.pickupInstructions),
+    dropoff: rebookStop(source.dropoffAddress, source.dropoffLatitude, source.dropoffLongitude, source.recipientName, source.recipientPhone, source.dropoffLandmark, source.dropoffInstructions),
+    description: source.parcelDescription.trim() || 'Parcel',
+    size: source.parcelSize ?? 'SMALL',
+    instructions: source.parcelInstructions ?? '',
+    paymentMethod: source.paymentMethod ?? 'CASH',
+    serviceClass: source.serviceClass ?? 'FLEXIBLE',
+    currency: source.currency === 'ZWG' ? 'ZWG' : 'USD',
+  };
+}
+
+export function bookingDraftFromLocation(state: unknown): BookingDraft {
+  if (!isDraftRecord(state) || !isDraftRecord(state.rebook)) return emptyBookingDraft();
+  const draft = state.rebook;
+  if (!isStopDraft(draft.pickup) || !isStopDraft(draft.dropoff)) return emptyBookingDraft();
+  const empty = emptyBookingDraft();
+  return {
+    ...empty,
+    description: typeof draft.description === 'string' ? draft.description : empty.description,
+    size: draft.size === 'SMALL' || draft.size === 'MEDIUM' || draft.size === 'LARGE' ? draft.size : empty.size,
+    instructions: typeof draft.instructions === 'string' ? draft.instructions : '',
+    paymentMethod: isPaymentMethod(draft.paymentMethod) ? draft.paymentMethod : empty.paymentMethod,
+    serviceClass: draft.serviceClass === 'EXPRESS' || draft.serviceClass === 'FLEXIBLE' ? draft.serviceClass : empty.serviceClass,
+    currency: draft.currency === 'ZWG' ? 'ZWG' : 'USD',
+    pickup: { ...emptyStop(), ...draft.pickup },
+    dropoff: { ...emptyStop(), ...draft.dropoff },
+  };
+}
+
+function rebookStop(
+  address: string,
+  latitude: number | null,
+  longitude: number | null,
+  contactName: string | null,
+  contactPhone: string | null,
+  landmark: string | null,
+  instructions: string | null,
+): StopDraft {
+  const latitudeText = coordinateText(latitude);
+  const longitudeText = coordinateText(longitude);
+  const located = latitudeText !== '' && longitudeText !== '';
+  return {
+    address,
+    resolvedAddress: address,
+    landmark: landmark ?? '',
+    instructions: instructions ?? '',
+    contactName: contactName ?? '',
+    contactPhone: contactPhone ?? '',
+    latitude: latitudeText,
+    longitude: longitudeText,
+    approximate: false,
+    precision: located ? 'exact' : null,
+    placeId: null,
+    coordinateSource: located ? 'DEVICE_GEOCODER' : null,
+  };
+}
+
+function coordinateText(value: number | null): string {
+  return value != null && Number.isFinite(value) ? String(value) : '';
+}
+
+function isDraftRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isStopDraft(value: unknown): value is StopDraft {
+  if (!isDraftRecord(value)) return false;
+  return typeof value.address === 'string'
+    && typeof value.latitude === 'string'
+    && typeof value.longitude === 'string'
+    && typeof value.contactName === 'string'
+    && typeof value.contactPhone === 'string';
+}
+
+function isPaymentMethod(value: unknown): value is PaymentMethod {
+  return value === 'CASH' || value === 'ECOCASH' || value === 'ONEMONEY' || value === 'INNBUCKS' || value === 'ZIPIT';
+}
+
 export function emptyBookingDraft(): BookingDraft {
   return {
     pickup: emptyStop(),
@@ -78,6 +192,7 @@ export function emptyBookingDraft(): BookingDraft {
     instructions: '',
     paymentMethod: 'CASH',
     serviceClass: 'FLEXIBLE',
+    currency: 'USD',
   };
 }
 
@@ -176,13 +291,15 @@ export function prepareBooking(draft: BookingDraft): { ok: true; booking: Prepar
       parcel: { description, size: draft.size, instructions },
       paymentMethod: draft.paymentMethod,
       serviceClass: draft.serviceClass,
+      currency: requestBookingCurrency(draft.currency),
       pinKey: `${pickup.stop.latitude},${pickup.stop.longitude}|${dropoff.stop.latitude},${dropoff.stop.longitude}`,
     },
   };
 }
 
-export function quoteIdentity(pinKey: string, serviceClass: ServiceClass | null): string {
-  return serviceClass ? `${pinKey}|${serviceClass}` : pinKey;
+export function quoteIdentity(pinKey: string, serviceClass: ServiceClass | null, currency: BookingCurrency = 'USD'): string {
+  const route = serviceClass ? `${pinKey}|${serviceClass}` : pinKey;
+  return `${route}|${currency}`;
 }
 
 export function quoteBody(booking: PreparedBooking) {
@@ -190,6 +307,7 @@ export function quoteBody(booking: PreparedBooking) {
     pickup: { latitude: booking.pickup.latitude, longitude: booking.pickup.longitude },
     dropoff: { latitude: booking.dropoff.latitude, longitude: booking.dropoff.longitude },
     serviceClass: booking.serviceClass,
+    currency: requestBookingCurrency(booking.currency),
   };
 }
 
@@ -200,7 +318,7 @@ export function v2CreateBody(booking: PreparedBooking, offeredPrice: string) {
     parcel: booking.parcel,
     serviceClass: booking.serviceClass,
     offeredPrice,
-    currency: 'USD' as const,
+    currency: requestBookingCurrency(booking.currency),
   };
   if (!booking.paymentMethod) return body;
   return { ...body, paymentMethod: booking.paymentMethod };

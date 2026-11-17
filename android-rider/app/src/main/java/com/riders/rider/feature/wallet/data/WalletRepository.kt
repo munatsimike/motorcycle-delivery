@@ -20,8 +20,8 @@ class WalletRepository @Inject constructor(
 ) {
     suspend fun summary(): ApiResult<WalletSummaryResponse> = apiCall { riders.wallet() }
 
-    suspend fun transactions(cursor: String?): ApiResult<WalletPage> {
-        return when (val result = apiCall { riders.walletTransactions(limit = PAGE_SIZE, cursor = cursor) }) {
+    suspend fun transactions(cursor: String?, currency: String = "USD"): ApiResult<WalletPage> {
+        return when (val result = apiCall { riders.walletTransactions(limit = PAGE_SIZE, cursor = cursor, currency = currency) }) {
             is ApiResult.Ok -> ApiResult.Ok(
                 WalletPage(
                     entries = result.value.transactions.map { row ->

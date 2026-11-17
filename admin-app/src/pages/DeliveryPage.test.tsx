@@ -172,12 +172,12 @@ describe('DeliveryPage', () => {
     expect(await screen.findByRole('heading', { name: 'Marketplace booking' })).toBeTruthy();
     expect(screen.getByText('Flexible')).toBeTruthy();
     const booking = screen.getByRole('heading', { name: 'Marketplace booking' }).closest('section');
-    expect(booking?.textContent).toContain('USD 8.00');
+    expect(booking?.textContent).toContain('US$ 8.00');
     expect(booking?.textContent).toContain('Agreed price.');
-    expect(booking?.textContent).toContain('USD 9.50');
+    expect(booking?.textContent).toContain('US$ 9.50');
     const amounts = screen.getAllByRole('cell').map((cell) => cell.textContent);
-    expect(amounts).toContain('USD 9.50');
-    expect(amounts.indexOf('USD 11.00')).toBeLessThan(amounts.indexOf('USD 9.50'));
+    expect(amounts).toContain('US$ 9.50');
+    expect(amounts.indexOf('US$ 11.00')).toBeLessThan(amounts.indexOf('US$ 9.50'));
     expect(screen.getAllByText(/Accepted bid/).length).toBeGreaterThan(0);
     expect(screen.getByText(/Reserved at acceptance/)).toBeTruthy();
     expect(screen.getAllByText('Rider assigned').length).toBeGreaterThan(0);

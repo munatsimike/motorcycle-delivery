@@ -6,10 +6,12 @@ import { CustomerAccountController } from './customer-account.controller.js';
 import { CustomerAccountService } from './customer-account.service.js';
 import { CustomerFcmDeviceController } from './customer-fcm-device.controller.js';
 import { CustomerFcmDeviceService } from './customer-fcm-device.service.js';
+import { CustomerSavedAddressController } from './customer-saved-address.controller.js';
+import { CustomerSavedAddressService } from './customer-saved-address.service.js';
 
 @Module({
   imports: [AuthModule],
-  controllers: [CustomerAccountController, CustomerFcmDeviceController, AdminCustomerController],
-  providers: [CustomerAccountService, CustomerFcmDeviceService, AdminCustomerListService],
+  controllers: [CustomerAccountController, CustomerSavedAddressController, CustomerFcmDeviceController, AdminCustomerController],
+  providers: [CustomerAccountService, CustomerSavedAddressService, CustomerFcmDeviceService, AdminCustomerListService],
 })
 export class CustomerModule {}

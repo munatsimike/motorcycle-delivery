@@ -2,12 +2,21 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { fitOtpDigits, isVerificationCode } from './code.ts';
 import {
+  canRefreshAfterUnauthorized,
+  clearPersistedSession,
+  isRefreshTransportFailure,
+  nextAccessAfterBlockedRefresh,
   planSessionRestore,
   readCustomerAccount,
   readLoginStart,
+  readPersistedSession,
   readSession,
   readVerification,
+  sameSession,
+  sessionFromStorageValue,
+  writePersistedSession,
   type AuthSession,
+  type KeyValueStore,
 } from './contracts.ts';
 import { registrationDetailsIssue } from './name.ts';
 import { localPhoneEntry, normalizePhone } from './phone.ts';
@@ -95,6 +104,53 @@ test('restores a session only while the refresh token is still valid', () => {
   }, now), { action: 'signed-out' });
 });
 
+test('a customer session survives in persistent storage and logout removes it', () => {
+  const persistent = memoryStore();
+  const legacy = memoryStore();
+  const session: AuthSession = {
+    accessToken: 'access',
+    refreshToken: 'refresh',
+    accessTokenExpiresAt: '2026-11-12T12:20:00.000Z',
+    refreshTokenExpiresAt: '2026-12-12T12:00:00.000Z',
+  };
+  writePersistedSession(session, legacy);
+  assert.deepEqual(readPersistedSession(persistent, legacy), session);
+  assert.equal(legacy.getItem('riders.customer.session'), null);
+  assert.deepEqual(readPersistedSession(persistent, legacy), session);
+  assert.equal(sameSession(session, sessionFromStorageValue(persistent.getItem('riders.customer.session'))), true);
+  const stored = persistent.getItem('riders.customer.session') ?? '';
+  assert.equal(stored.includes('http://') || stored.includes('https://'), false);
+  assert.equal(stored.includes('refresh'), true);
+  clearPersistedSession(persistent, legacy);
+  assert.equal(readPersistedSession(persistent, legacy), null);
+  persistent.setItem('riders.customer.session', '{');
+  assert.equal(readPersistedSession(persistent), null);
+  assert.equal(persistent.getItem('riders.customer.session'), null);
+});
+
+test('an unexpected 401 can refresh once, and a lost refresh is not sent again after access expiry', () => {
+  const now = Date.parse('2026-11-12T12:00:00.000Z');
+  const session: AuthSession = {
+    accessToken: 'access',
+    refreshToken: 'refresh',
+    accessTokenExpiresAt: '2026-11-12T12:10:00.000Z',
+    refreshTokenExpiresAt: '2026-12-12T12:00:00.000Z',
+  };
+  assert.equal(canRefreshAfterUnauthorized('/customers/me/deliveries', 401, false), true);
+  assert.equal(canRefreshAfterUnauthorized('/customers/me/deliveries', 401, true), false);
+  assert.equal(canRefreshAfterUnauthorized('/auth/session/refresh', 401, false), false);
+  assert.equal(canRefreshAfterUnauthorized('/auth/session/logout', 401, false), false);
+  assert.equal(canRefreshAfterUnauthorized('/customers/me/deliveries', 403, false), false);
+  assert.equal(nextAccessAfterBlockedRefresh(session, now), 'use');
+  assert.equal(nextAccessAfterBlockedRefresh({
+    ...session,
+    accessTokenExpiresAt: '2026-11-12T11:59:00.000Z',
+  }, now), 'sign-out');
+  assert.equal(isRefreshTransportFailure(new Error('The request timed out. Check your connection and try again.')), true);
+  assert.equal(isRefreshTransportFailure(new Error('Network request failed. Check your connection and try again.')), true);
+  assert.equal(isRefreshTransportFailure(new Error('Authentication failed.')), false);
+});
+
 test('return paths stay inside the customer site', () => {
   assert.equal(safeReturnPath('/home'), '/home');
   assert.equal(safeReturnPath('/book'), '/book');
@@ -151,6 +207,16 @@ test('reads the customer profile fields the website displays', () => {
   assert.equal(account.marketplaceEnabled, true);
   assert.throws(() => readCustomerAccount({ ...account, marketplaceEnabled: undefined }), /Account details are unavailable/);
 });
+
+function memoryStore(): KeyValueStore & { values: Map<string, string> } {
+  const values = new Map<string, string>();
+  return {
+    values,
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => { values.set(key, value); },
+    removeItem: (key) => { values.delete(key); },
+  };
+}
 
 function proofToken(payload: unknown): string {
   const body = btoa(JSON.stringify(payload)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');

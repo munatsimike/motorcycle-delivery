@@ -30,7 +30,9 @@ import { createGeoapifyClient, sampleRoadLine } from './geoapify.js';
 import { PICKUP_APPROACH, type PickupApproachLookup } from './pickup-approach.js';
 import { motorcycleForAcceptance } from '../rider/motorcycle-eligibility.js';
 import { lockWalletOwner } from '../rider/wallet-lock.js';
-import { assertV2CommissionCapacity } from '../rider/wallet-ledger.js';
+import { marketplaceRateIsPositive } from '../rider/promotional-credit.js';
+import { assertV2CommissionCapacity, currencyFeeCapacityOpen } from '../rider/wallet-ledger.js';
+import { assertZwgOffersOpen, riderZwgOffersEnabled } from './exchange-rate.js';
 import { commissionCents } from './commission-calculator.js';
 import { closeUnassignedV2Deliveries, v2RequestRemainsOpen } from './v2-deadline.js';
 import { expireDueV2Searches, expireLockedV2Search, v2SearchWindowElapsed } from './v2-search.js';
@@ -195,11 +197,21 @@ export class BidService {
       if (!(await riderCanReceiveRequests(tx, rider.riderProfileId))) {
         return [];
       }
+      const feeRequired = await marketplaceRateIsPositive(tx);
+      const usdOpen = !feeRequired || await currencyFeeCapacityOpen(tx, rider.riderProfileId, Currency.USD);
+      const zigOpen = riderZwgOffersEnabled() && (!feeRequired || await currencyFeeCapacityOpen(tx, rider.riderProfileId, Currency.ZWG));
+      if (!usdOpen && !zigOpen) {
+        return [];
+      }
+      const currency = usdOpen && zigOpen
+        ? {}
+        : { currency: usdOpen ? Currency.USD : Currency.ZWG };
       const rows = await tx.delivery.findMany({
         where: {
           status: DeliveryStatus.CREATED,
           serviceClass: { not: null },
           searchGeneration: 0,
+          ...currency,
           OR: [{ deliverBy: null }, { deliverBy: { gt: now } }],
         },
         orderBy: [{ deliverBy: { sort: 'asc', nulls: 'last' } }, { id: 'asc' }],
@@ -245,10 +257,9 @@ export class BidService {
     this.requireMarketplace();
     const input = readBidSubmission(body);
     const key = readIdempotencyKey(idempotencyKey);
-    const hash = bidHash(input.deliveryId, rider.riderProfileId, input.amountCents);
     try {
       await this.prisma.$transaction((tx) => expireClosedBids(tx, now, input.deliveryId), BID_TX);
-      const outcome = await this.prisma.$transaction((tx) => this.submitLocked(tx, rider, input, key, hash, now), BID_TX);
+      const outcome = await this.prisma.$transaction((tx) => this.submitLocked(tx, rider, input, key, now), BID_TX);
       if ('closed' in outcome) {
         throw new ConflictException('The bidding window has closed');
       }
@@ -493,9 +504,8 @@ export class BidService {
   private async submitLocked(
     tx: Prisma.TransactionClient,
     rider: RiderContext,
-    input: { deliveryId: string; amountCents: number },
+    input: { deliveryId: string; amountCents: number; currency?: Currency },
     key: string,
-    hash: string,
     now: Date,
   ): Promise<{ closed: true } | { bid: PublicBid }> {
     await lockDelivery(tx, input.deliveryId);
@@ -522,7 +532,7 @@ export class BidService {
       openForBids.status !== DeliveryStatus.CREATED
       || openForBids.serviceClass == null
       || openForBids.searchGeneration !== 0
-      || openForBids.currency !== Currency.USD
+      || (openForBids.currency !== Currency.USD && openForBids.currency !== Currency.ZWG)
     ) {
       throw new ConflictException('This delivery is not open for bids');
     }
@@ -534,6 +544,10 @@ export class BidService {
     if (!user) {
       throw new NotFoundException('Rider profile not found');
     }
+    if (input.currency && input.currency !== openForBids.currency) {
+      throw new ConflictException('This bid currency does not match the delivery');
+    }
+    const hash = bidHash(input.deliveryId, rider.riderProfileId, input.amountCents, openForBids.currency);
     const saved = await tx.bid.findUnique({ where: { idempotencyKey: key } });
     if (saved) {
       if (saved.riderProfileId !== rider.riderProfileId || saved.payloadHash !== hash || saved.deliveryId !== input.deliveryId) {
@@ -541,6 +555,7 @@ export class BidService {
       }
       return { bid: toPublicBid(saved, user.fullName) };
     }
+    assertZwgOffersOpen(openForBids.currency);
     const motorcycles = await tx.motorcycle.findMany({
       where: { riderProfileId: profile.id },
       select: { id: true, verificationStatus: true, isActive: true },
@@ -568,13 +583,14 @@ export class BidService {
     if (!rate) {
       throw new ConflictException('A commission percentage has not been published');
     }
-    await assertV2CommissionCapacity(tx, profile.id, commissionCents(input.amountCents, rate.basisPoints));
+    const bidCurrency = openForBids.currency;
+    await assertV2CommissionCapacity(tx, profile.id, commissionCents(input.amountCents, rate.basisPoints), bidCurrency);
     const created = await tx.bid.create({
       data: {
         deliveryId: delivery.id,
         riderProfileId: profile.id,
         amount: formatCents(input.amountCents),
-        currency: Currency.USD,
+        currency: bidCurrency,
         status: BidStatus.OPEN,
         idempotencyKey: key,
         payloadHash: hash,
@@ -762,7 +778,7 @@ function encodeBidCursor(createdAt: Date, id: string): string {
   return Buffer.from(`${createdAt.toISOString()}\n${id}`, 'utf8').toString('base64url');
 }
 
-function readBidSubmission(body: unknown): { deliveryId: string; amountCents: number } {
+function readBidSubmission(body: unknown): { deliveryId: string; amountCents: number; currency?: Currency } {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     throw new BadRequestException('Enter the bid');
   }
@@ -770,13 +786,17 @@ function readBidSubmission(body: unknown): { deliveryId: string; amountCents: nu
   if (typeof record.deliveryId !== 'string' || !UUID_TEXT.test(record.deliveryId)) {
     throw new BadRequestException('Enter the delivery');
   }
-  if (record.currency !== undefined && record.currency !== Currency.USD) {
+  if (record.currency !== undefined && record.currency !== Currency.USD && record.currency !== Currency.ZWG) {
     throw new BadRequestException('USD is the only supported currency');
   }
   if (typeof record.amountCents !== 'number' || !Number.isSafeInteger(record.amountCents) || record.amountCents < 0 || record.amountCents > MAX_BID_CENTS) {
     throw new BadRequestException('Enter the bid in cents');
   }
-  return { deliveryId: record.deliveryId, amountCents: record.amountCents };
+  return {
+    deliveryId: record.deliveryId,
+    amountCents: record.amountCents,
+    currency: record.currency === Currency.ZWG ? Currency.ZWG : record.currency === Currency.USD ? Currency.USD : undefined,
+  };
 }
 
 function readIdempotencyKey(value: string): string {
@@ -787,8 +807,8 @@ function readIdempotencyKey(value: string): string {
   return key;
 }
 
-function bidHash(deliveryId: string, riderProfileId: string, amountCents: number): string {
-  return createHash('sha256').update(JSON.stringify({ deliveryId, riderProfileId, amountCents, currency: Currency.USD })).digest('hex');
+function bidHash(deliveryId: string, riderProfileId: string, amountCents: number, currency: Currency): string {
+  return createHash('sha256').update(JSON.stringify({ deliveryId, riderProfileId, amountCents, currency })).digest('hex');
 }
 
 async function lockDelivery(tx: Prisma.TransactionClient, deliveryId: string) {

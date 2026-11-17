@@ -16,6 +16,7 @@ export type QuotePins = {
 export type QuoteRequest = QuotePins & {
   serviceClass: ServiceClass | null;
   serviceClassRejected: boolean;
+  currency: Currency;
 };
 
 export type V2DeliveryDraft = QuotePins & {
@@ -40,6 +41,7 @@ export type V2DeliveryDraft = QuotePins & {
   deliverBy: Date | null;
   paymentMethod: PaymentMethod | null;
   offeredPriceCents: number;
+  currency: Currency;
 };
 
 export type DeliveryDraft = QuotePins & {
@@ -98,13 +100,14 @@ export function readQuoteRequest(body: unknown): QuoteRequest {
   const pins = readQuotePins(body);
   const record = recordOf(body, 'Enter the pickup and drop-off');
   const serviceClass = record.serviceClass;
+  const currency = readBookingCurrency(record.currency);
   if (serviceClass === undefined || serviceClass === null || serviceClass === '') {
-    return { ...pins, serviceClass: null, serviceClassRejected: false };
+    return { ...pins, serviceClass: null, serviceClassRejected: false, currency };
   }
   if (serviceClass === ServiceClass.EXPRESS || serviceClass === ServiceClass.FLEXIBLE) {
-    return { ...pins, serviceClass, serviceClassRejected: false };
+    return { ...pins, serviceClass, serviceClassRejected: false, currency };
   }
-  return { ...pins, serviceClass: null, serviceClassRejected: true };
+  return { ...pins, serviceClass: null, serviceClassRejected: true, currency };
 }
 
 export function readV2DeliveryDraft(body: unknown, now: Date): V2DeliveryDraft {
@@ -112,9 +115,7 @@ export function readV2DeliveryDraft(body: unknown, now: Date): V2DeliveryDraft {
   const pickup = readStop(record.pickup, 'pickup');
   const dropoff = readStop(record.dropoff, 'drop-off');
   const parcel = recordOf(record.parcel, 'Enter the parcel');
-  if (record.currency !== undefined && record.currency !== Currency.USD) {
-    throw new BadRequestException('USD is the only supported currency');
-  }
+  const currency = readBookingCurrency(record.currency);
   return {
     pickupLatitude: pickup.latitude,
     pickupLongitude: pickup.longitude,
@@ -141,7 +142,18 @@ export function readV2DeliveryDraft(body: unknown, now: Date): V2DeliveryDraft {
     deliverBy: readDeliverBy(record.deliverBy, now),
     paymentMethod: readOptionalPaymentMethod(record.paymentMethod),
     offeredPriceCents: readCustomerOfferCents(record.offeredPrice),
+    currency,
   };
+}
+
+function readBookingCurrency(value: unknown): Currency {
+  if (value === undefined || value === null || value === '') {
+    return Currency.USD;
+  }
+  if (value === Currency.USD || value === Currency.ZWG) {
+    return value;
+  }
+  throw new BadRequestException('Choose USD or ZiG');
 }
 
 function readOptionalServiceClass(value: unknown): ServiceClass | null {

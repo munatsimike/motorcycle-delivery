@@ -1,3 +1,4 @@
+import { canRefreshAfterUnauthorized } from '../auth/contracts';
 import { apiBaseUrl } from '../config/env';
 
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -29,7 +30,19 @@ type RequestOptions = {
   timeoutMs?: number;
 };
 
+type UnauthorizedRecovery = () => Promise<string | null>;
+
+let recoverUnauthorized: UnauthorizedRecovery | null = null;
+
+export function setUnauthorizedRecovery(recovery: UnauthorizedRecovery | null): void {
+  recoverUnauthorized = recovery;
+}
+
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  return requestOnce(path, options, false);
+}
+
+async function requestOnce<T>(path: string, options: RequestOptions, retried: boolean): Promise<T> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? REQUEST_TIMEOUT_MS);
   const headers = new Headers(options.headers);
@@ -56,6 +69,16 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     }
     const payload = await readBody(response);
     if (!response.ok) {
+      if (
+        options.accessToken
+        && recoverUnauthorized
+        && canRefreshAfterUnauthorized(path, response.status, retried)
+      ) {
+        const replacement = await recoverUnauthorized();
+        if (replacement) {
+          return requestOnce(path, { ...options, accessToken: replacement }, true);
+        }
+      }
       throw new ApiError(messageFrom(payload, response.status), response.status);
     }
     return payload as T;

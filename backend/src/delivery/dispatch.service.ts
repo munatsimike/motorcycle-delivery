@@ -23,7 +23,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { shouldWithholdCoordinates } from './coordinate-retention.js';
 import { v2MarketplaceEnabled } from '../auth/v2-flags.js';
 import { v2RequestRemainsOpen } from './v2-deadline.js';
-import { expireDueV2Searches, restartV2Search, v2SearchStartData } from './v2-search.js';
+import { expireDueV2Searches, restartV2Search } from './v2-search.js';
 import { lockRiderProfile } from '../rider/motorcycle-lock.js';
 import {
   IDEMPOTENCY_CONFLICT,
@@ -31,7 +31,7 @@ import {
   releasePlatformFeeReservation,
   captureV2CommissionReservation,
 } from '../rider/wallet-ledger.js';
-import { recordDeliveryOpportunity, recordRequestReopened, recordV2CustomerStatus } from './v2-outbox.js';
+import { recordCustomerCancelled, recordRiderCancelled, recordV2CustomerStatus } from './v2-outbox.js';
 import { recordSuccessfulDelivery } from './rider-stats.js';
 import { offerIsOpen } from './dispatch.constants.js';
 import { centsFromDecimal, formatCents } from './money.js';
@@ -175,6 +175,7 @@ export type ActiveAssignment = {
   serviceClass: 'EXPRESS' | 'FLEXIBLE' | null;
   deliverBy: string | null;
   agreedPrice: string | null;
+  currency: Currency;
   distanceMeters: number | null;
   createdAt: string | null;
 };
@@ -599,9 +600,6 @@ async function cancelBeforePickup(
   }
   const released = await releaseMatchingV2Reservation(tx, assignment, now);
   await closeAcceptedBid(tx, delivery.id, profile.id, assignment.acceptedBidId, now);
-  const nextStatus = v2RequestRemainsOpen(delivery.deliverBy, now)
-    ? DeliveryStatus.CREATED
-    : DeliveryStatus.CANCELLED;
   await tx.deliveryAssignment.update({
     where: { id: assignment.id },
     data: {
@@ -617,24 +615,19 @@ async function cancelBeforePickup(
   const availability = profile.availability;
   await tx.delivery.update({
     where: { id: delivery.id },
-    data: nextStatus === DeliveryStatus.CREATED
-      ? { status: nextStatus, price: null, updatedAt: now, ...v2SearchStartData(now) }
-      : { status: nextStatus, price: null, nextRetryAt: null, updatedAt: now },
+    data: { status: DeliveryStatus.CANCELLED, price: null, nextRetryAt: null, updatedAt: now },
   });
-  await recordStatus(tx, delivery.id, delivery.status, nextStatus, rider.userId, DeliveryActorType.RIDER, now);
-  if (nextStatus === DeliveryStatus.CREATED) {
-    await recordRequestReopened(tx, {
-      deliveryId: delivery.id,
-      assignmentId: assignment.id,
-      customerAccountId: delivery.customerId,
-    });
-    await recordDeliveryOpportunity(tx, { deliveryId: delivery.id, openedAt: now });
-  }
+  await recordStatus(tx, delivery.id, delivery.status, DeliveryStatus.CANCELLED, rider.userId, DeliveryActorType.RIDER, now);
+  await recordRiderCancelled(tx, {
+    deliveryId: delivery.id,
+    assignmentId: assignment.id,
+    customerAccountId: delivery.customerId,
+  });
   return {
     assignmentId: assignment.id,
     deliveryId: delivery.id,
-    status: nextStatus,
-    reopened: nextStatus === DeliveryStatus.CREATED,
+    status: DeliveryStatus.CANCELLED,
+    reopened: false,
     released,
     availability,
     replayed: false,
@@ -656,12 +649,11 @@ async function cancellationReplay(
   if (!delivery || !profile || assignment.releasedAt == null) {
     throw new ConflictException(IDEMPOTENCY_CONFLICT);
   }
-  const reopened = v2RequestRemainsOpen(delivery.deliverBy, assignment.releasedAt);
   return {
     assignmentId: assignment.id,
     deliveryId: delivery.id,
-    status: reopened ? DeliveryStatus.CREATED : DeliveryStatus.CANCELLED,
-    reopened,
+    status: delivery.status,
+    reopened: false,
     released: reservation?.status === 'RELEASED',
     availability: profile.availability,
     replayed,
@@ -845,6 +837,11 @@ async function cancelV2DeliveryByCustomer(
     data: { status: DeliveryStatus.CANCELLED, updatedAt: now },
   });
   await recordStatus(tx, delivery.id, delivery.status, DeliveryStatus.CANCELLED, customer.userId, DeliveryActorType.CUSTOMER, now);
+  await recordCustomerCancelled(tx, {
+    deliveryId: delivery.id,
+    assignmentId: assignment.id,
+    riderProfileId: assignment.riderProfileId,
+  });
   return { deliveryId: delivery.id, status: DeliveryStatus.CANCELLED };
 }
 
@@ -1011,6 +1008,7 @@ export function activeAssignmentFromRows(
     serviceClass,
     deliverBy: match.delivery.deliverBy instanceof Date ? match.delivery.deliverBy.toISOString() : null,
     agreedPrice: match.acceptedBidAmount == null ? null : moneyText(match.acceptedBidAmount),
+    currency: match.delivery.currency,
     distanceMeters: typeof match.delivery.distanceMeters === 'number' ? match.delivery.distanceMeters : null,
     createdAt: match.delivery.createdAt instanceof Date ? match.delivery.createdAt.toISOString() : null,
   };
@@ -1047,6 +1045,7 @@ export function completedAssignmentFromRow(
     serviceClass,
     deliverBy: row.delivery.deliverBy instanceof Date ? row.delivery.deliverBy.toISOString() : null,
     agreedPrice: row.acceptedBidAmount == null ? null : moneyText(row.acceptedBidAmount),
+    currency: row.delivery.currency,
     distanceMeters: typeof row.delivery.distanceMeters === 'number' ? row.delivery.distanceMeters : null,
     createdAt: row.delivery.createdAt instanceof Date ? row.delivery.createdAt.toISOString() : null,
     completedAt: completedAt.toISOString(),

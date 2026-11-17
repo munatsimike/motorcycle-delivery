@@ -156,11 +156,11 @@ export class RiderAssignmentController {
 
   @Post(':assignmentId/cancellation')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Cancel an assigned V2 delivery before pickup and reopen the original request' })
+  @ApiOperation({ summary: 'Cancel an assigned V2 delivery. The delivery stays closed.' })
   @ApiParam({ name: 'assignmentId', format: 'uuid' })
   @ApiHeader({ name: 'Idempotency-Key', required: true })
   @ApiBody({ schema: { type: 'object', required: ['reason'], properties: { reason: { type: 'string' }, note: { type: 'string' } } } })
-  @ApiOkResponse({ description: 'The assignment ended. The original delivery reopens when the deadline remains.' })
+  @ApiOkResponse({ description: 'The assignment ended and the delivery is cancelled.' })
   cancel(@Req() request: AssignmentRequest, @Param('assignmentId') assignmentId: string, @Body() body: unknown) {
     return this.dispatch.cancelBeforePickup(requiredRider(request), assignmentId, readIdempotencyKey(request), body);
   }

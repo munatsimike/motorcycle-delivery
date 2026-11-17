@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { WalletActorType, WalletEntryType } from '../generated/prisma/client.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import { WalletService } from './wallet.service.js';
+import { sameWallet, walletLookup, type WalletLookup } from './wallet-test-doubles.js';
 import { formatSignedCents, signedCentsFromDecimal } from './wallet-money.js';
 
 const ADMIN = { userId: 'admin-1' };
@@ -237,9 +238,10 @@ function context(options: { pauseFirstLock?: boolean } = {}) {
       },
     },
     riderWallet: {
-      async findUnique({ where }: { where: { id?: string; riderProfileId?: string } }) {
-        if (where.riderProfileId) return wallets.find((wallet) => wallet.riderProfileId === where.riderProfileId) ?? null;
-        return wallets.find((wallet) => wallet.id === where.id) ?? null;
+      async findUnique({ where }: { where: WalletLookup }) {
+        const lookup = walletLookup(where);
+        if (lookup.riderProfileId) return wallets.find((wallet) => sameWallet(wallet, lookup)) ?? null;
+        return wallets.find((wallet) => wallet.id === lookup.id) ?? null;
       },
       async create({ data }: { data: Record<string, unknown> }) {
         const row = { id: `wallet-${wallets.length + 1}`, borrowingLimitOverride: null, welcomeBonusAwardedAt: null, ...data };

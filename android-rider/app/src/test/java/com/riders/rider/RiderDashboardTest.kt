@@ -206,7 +206,7 @@ class RiderDashboardTest {
     @Test
     fun offeredPriceShowsCurrencyWithoutCallingItEarnings() {
         val label = offerPriceLabel("USD", "2.00")
-        assertEquals("$2.00", label)
+        assertEquals("US$2.00", label)
         assertEquals("Accept", acceptOfferLabel())
         assertEquals("Your offer", OFFER_YOUR_PRICE)
         assertEquals("Awaiting customer", AWAITING_CUSTOMER)

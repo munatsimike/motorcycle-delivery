@@ -20,9 +20,9 @@ export async function recordBidAccepted(
   });
 }
 
-// Writes the customer notice when a rider cancellation reopens the original
-// request. A cancellation that closes the request after the deadline writes
-// nothing. Call this in that same cancellation transaction.
+// Historical customer notice for a reopened request. Rider cancellation no
+// longer writes this event. The function remains so an existing row can still
+// be recorded by hand in tests.
 export async function recordRequestReopened(
   tx: Prisma.TransactionClient,
   input: { deliveryId: string; assignmentId: string; customerAccountId: string },
@@ -107,6 +107,53 @@ export async function recordCustomerBidNotice(
     createdAt: input.createdAt,
     dedupeKey: bidNoticeDedupe(input.bidId, eventType),
   });
+}
+
+const CANCELLATION_NOTICE = `INSERT INTO "v2_outbox_events" (
+  "id", "event_type", "status", "dedupe_key", "delivery_id", "assignment_id",
+  "rider_profile_id", "customer_account_id", "attempt_count", "created_at"
+) VALUES (
+  gen_random_uuid(),
+  $1::"v2_outbox_event_type",
+  'PENDING'::"v2_outbox_status",
+  $2,
+  $3::uuid,
+  $4::uuid,
+  $5::uuid,
+  $6::uuid,
+  0,
+  now()
+)
+ON CONFLICT ("dedupe_key") DO NOTHING`;
+
+export async function recordRiderCancelled(
+  tx: Prisma.TransactionClient,
+  input: { deliveryId: string; assignmentId: string; customerAccountId: string },
+): Promise<void> {
+  await tx.$executeRawUnsafe(
+    CANCELLATION_NOTICE,
+    'RIDER_CANCELLED',
+    assignmentNoticeDedupe(input.assignmentId, 'RIDER_CANCELLED'),
+    input.deliveryId,
+    input.assignmentId,
+    null,
+    input.customerAccountId,
+  );
+}
+
+export async function recordCustomerCancelled(
+  tx: Prisma.TransactionClient,
+  input: { deliveryId: string; assignmentId: string; riderProfileId: string },
+): Promise<void> {
+  await tx.$executeRawUnsafe(
+    CANCELLATION_NOTICE,
+    'CUSTOMER_CANCELLED',
+    assignmentNoticeDedupe(input.assignmentId, 'CUSTOMER_CANCELLED'),
+    input.deliveryId,
+    input.assignmentId,
+    input.riderProfileId,
+    null,
+  );
 }
 
 export async function recordRiderApproved(

@@ -51,7 +51,9 @@ import {
   type OfferSort,
   type RoutePoint,
 } from '../deliveries/tracking';
+import { bookingDraftFromDelivery } from '../booking/draft';
 import {
+  cancelledDeliveryCopy,
   contentLabel,
   deliveryCardAddress,
   deliveryCardStatusLabel,
@@ -859,7 +861,7 @@ export function DeliveryDetailsPage() {
                   </p>
                 </div>
                 <div className="offer-price">
-                  <span>${bid.amount}</span>
+                  <span>{moneyLabel(bid.currency, bid.amount)}</span>
                 </div>
                 </div>
                 {canAccept ? (
@@ -928,7 +930,7 @@ export function DeliveryDetailsPage() {
             onClick={(event) => event.stopPropagation()}
           >
             <h2 id="choose-rider-title">Choose rider?</h2>
-            <p id="choose-rider-copy">Confirm {shownRider.riderName} as your rider for ${shownRider.amount}?</p>
+            <p id="choose-rider-copy">Confirm {shownRider.riderName} as your rider for {moneyLabel(shownRider.currency, shownRider.amount)}?</p>
             {confirmError ? <ErrorMessage>{confirmError}</ErrorMessage> : null}
             <div className="confirm-dialog-actions">
               <button ref={keepComparingRef} type="button" className="confirm-keep" disabled={busy} onClick={() => { if (busy) return; setConfirmError(null); setConfirm(null); }}>Keep comparing</button>
@@ -992,7 +994,7 @@ export function DeliveryDetailsPage() {
       {priceMotion.mounted ? (
         <div className={motionClass('deliveries-sheet-backdrop', 'dialog', priceMotion.visible)}>
           <div className="deliveries-sheet" role="dialog" aria-label="Adjust price">
-            <h2>Your offer ($)</h2>
+            <h2>Your offer ({delivery.currency === 'ZWG' ? 'ZiG' : 'US$'})</h2>
             <input inputMode="decimal" maxLength={7} value={priceText} onChange={(event) => { setPriceText(offerFieldText(event.target.value)); setPriceError(null); }} />
             {priceError ? <ErrorMessage>{priceError}</ErrorMessage> : null}
             <button type="button" disabled={busy} onClick={() => setPriceOpen(false)}>Cancel</button>
@@ -1072,15 +1074,26 @@ function OutcomeSummary({
   const rider = outcomeShowsRider(delivery.status) ? delivery.rider : null;
   const inTransit = deliveryOutcomeTitle(delivery.status) === 'In transit';
   const customerOffer = delivery.status === 'NO_RIDER_FOUND';
+  const cancelled = delivery.status === 'CANCELLED' ? cancelledDeliveryCopy(delivery.cancellation) : null;
+  const reference = shortDeliveryReference(delivery.id).replace(/^#/, '');
   return (
     <div className="outcome">
       <div className="outcome-status">
         <span className={customerOffer ? 'outcome-icon outcome-icon-no-rider' : 'outcome-icon'} style={customerOffer ? undefined : { background: tone.background, color: tone.color }} aria-hidden="true">
           <StatusGlyph status={delivery.status} />
         </span>
-        <h1 style={{ color: tone.color, fontWeight: delivery.status === 'CANCELLED' ? 500 : 700 }}>{deliveryOutcomeTitle(delivery.status)}</h1>
-        <p>{deliveryOutcomeSupport(delivery.status)}</p>
+        <h1 style={{ color: tone.color, fontWeight: delivery.status === 'CANCELLED' ? 500 : 700 }}>{cancelled ? cancelled.title : deliveryOutcomeTitle(delivery.status)}</h1>
+        <p>{cancelled ? cancelled.support : deliveryOutcomeSupport(delivery.status)}</p>
       </div>
+      {cancelled?.bookAgain ? (
+        <Link className="outcome-search" to="/book" state={{ rebook: bookingDraftFromDelivery(delivery) }}>Book another rider</Link>
+      ) : null}
+      {cancelled?.contactSupport ? (
+        <div className="support-row">
+          <p>Contact support about this parcel.</p>
+          <ContactLinks phone={SUPPORT_PHONE} message={`Hello, my rider cancelled delivery #${reference} after collecting the parcel.`} callLabel="Call support" whatsAppLabel="WhatsApp support" />
+        </div>
+      ) : null}
       {rider ? (
         <div className="track-rider">
           <RiderPhoto

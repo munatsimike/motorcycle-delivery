@@ -9,6 +9,8 @@ import { BidService } from './bid.service.js';
 import { CustomerBidController } from './customer-bid.controller.js';
 import { RiderRatingService } from './rider-rating.service.js';
 import { DeliveryController } from './delivery.controller.js';
+import { ExchangeRateController } from './exchange-rate.controller.js';
+import { ExchangeRateService } from './exchange-rate.service.js';
 import { DeliveryPricingController } from './delivery-pricing.controller.js';
 import { ClassPricingService } from './class-pricing.service.js';
 import { DeliveryService } from './delivery.service.js';
@@ -34,7 +36,7 @@ import { RiderDeliveryController } from './rider-delivery.controller.js';
 
 @Module({
   imports: [AuthModule],
-  controllers: [AdminDeliveryController, AdminNoticeController, CustomerBidController, DeliveryController, DeliveryPricingController, NearbyRidersController, PlacesController, RegistrationAddressController, RegistrationPlacesController, RiderAssignmentController, RiderAvailabilityAlertController, RiderBidController, RiderDeliveryController],
+  controllers: [AdminDeliveryController, AdminNoticeController, CustomerBidController, DeliveryController, DeliveryPricingController, ExchangeRateController, NearbyRidersController, PlacesController, RegistrationAddressController, RegistrationPlacesController, RiderAssignmentController, RiderAvailabilityAlertController, RiderBidController, RiderDeliveryController],
   providers: [
     AdminDeliveryListService,
     AdminNoticeService,
@@ -42,6 +44,7 @@ import { RiderDeliveryController } from './rider-delivery.controller.js';
     BidService,
     RiderRatingService,
     DeliveryService,
+    ExchangeRateService,
     ClassPricingService,
     DispatchService,
     FcmV2PushSender,

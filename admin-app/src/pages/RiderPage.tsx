@@ -3,7 +3,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { adminApi, recordTopUp, type TopUpResult } from '../lib/client';
 import { label, when } from '../lib/labels';
-import { moneyValue, newTopUpKey, type TopUpDraft, type TopUpMethod } from '../lib/money';
+import { deliveryMoney, moneyValue, newTopUpKey, type TopUpDraft, type TopUpMethod } from '../lib/money';
 import type {
   Page,
   RiderActivityRow,
@@ -11,6 +11,7 @@ import type {
   RiderDetail,
   RiderLicenceReview,
   RiderWalletSummary,
+  WalletPaymentException,
   WalletTransaction,
   WalletTransactionPage,
 } from '../lib/types';
@@ -50,7 +51,9 @@ export function RiderPage() {
   const [reviewPage, setReviewPage] = useState(1);
   const [approvalPage, setApprovalPage] = useState(1);
   const [ledgerCursors, setLedgerCursors] = useState<Array<string | null>>([null]);
+  const [zigCursors, setZigCursors] = useState<Array<string | null>>([null]);
   const ledgerCursor = ledgerCursors[ledgerCursors.length - 1] ?? null;
+  const zigCursor = zigCursors[zigCursors.length - 1] ?? null;
   const wallet = useQuery({
     queryKey: ['rider-wallet', riderProfileId],
     queryFn: () => adminApi.request<RiderWalletSummary>(`/admin/riders/${riderProfileId}/wallet`),
@@ -61,6 +64,19 @@ export function RiderPage() {
     queryKey: ['rider-wallet-ledger', riderProfileId, ledgerCursor],
     queryFn: () => adminApi.request<WalletTransactionPage>(`/admin/riders/${riderProfileId}/wallet/transactions${ledgerQuery}`),
     enabled: riderProfileId.length > 0 && wallet.isSuccess,
+  });
+  const zigQuery = zigCursor
+    ? `?limit=20&currency=ZWG&cursor=${encodeURIComponent(zigCursor)}`
+    : '?limit=20&currency=ZWG';
+  const zigLedger = useQuery({
+    queryKey: ['rider-wallet-ledger', riderProfileId, 'ZWG', zigCursor],
+    queryFn: () => adminApi.request<WalletTransactionPage>(`/admin/riders/${riderProfileId}/wallet/transactions${zigQuery}`),
+    enabled: riderProfileId.length > 0 && wallet.isSuccess,
+  });
+  const exceptions = useQuery({
+    queryKey: ['rider-wallet-exceptions', riderProfileId],
+    queryFn: () => adminApi.request<{ data: WalletPaymentException[] }>(`/admin/riders/${riderProfileId}/wallet/payment-exceptions`),
+    enabled: riderProfileId.length > 0,
   });
   const activity = useQuery({
     queryKey: ['rider-activity', riderProfileId, activityPage],
@@ -117,7 +133,10 @@ export function RiderPage() {
       setLimitDraft(null);
       setLimitAmount('');
       setSuccess('Negative wallet limit saved.');
-      queryClient.setQueryData(['rider-wallet', riderProfileId], result);
+      queryClient.setQueryData(['rider-wallet', riderProfileId], (current: RiderWalletSummary | undefined) => ({
+        ...result,
+        zig: result.zig ?? current?.zig,
+      }));
     },
   });
 
@@ -252,7 +271,7 @@ export function RiderPage() {
                   <td><Link to={`/deliveries/${row.deliveryId}`}>{label(row.deliveryStatus)}</Link></td>
                   <td><Status value={row.assignmentStatus} /></td>
                   <td>{row.pickupAddress} → {row.dropoffAddress}</td>
-                  <td>{row.acceptedBidAmount ? `${row.currency} ${row.acceptedBidAmount}` : '—'}</td>
+                  <td>{row.acceptedBidAmount ? deliveryMoney(row.currency, row.acceptedBidAmount) : '—'}</td>
                 </tr>
               ))}
             </tbody>
@@ -333,13 +352,20 @@ export function RiderPage() {
                 : 'Not restricted from accepting new deliveries.'}
             </p>
             <div className="facts">
-              <div><span>Balance</span><b>{wallet.data.currency} {wallet.data.balance}</b></div>
+              <div><span>Balance</span><b className={wallet.data.balance.trim().startsWith('-') ? 'error' : undefined}>{wallet.data.currency} {wallet.data.balance}</b></div>
               <div><span>Negative borrowing limit</span><b>{wallet.data.currency} {wallet.data.borrowingLimit}</b></div>
               <div><span>Limit source</span><b>{limitSource(wallet.data.borrowingLimitSource)}</b></div>
               <div><span>Reserved fees</span><b>{wallet.data.currency} {wallet.data.reservedFees}</b></div>
               <div><span>Available capacity</span><b>{wallet.data.currency} {wallet.data.availableCapacity}</b></div>
               <div><span>Promotional credit</span><b>{wallet.data.currency} {wallet.data.promotionalBalance}</b></div>
               <div><span>Available promotional credit</span><b>{wallet.data.currency} {wallet.data.availablePromotionalCredit}</b></div>
+            </div>
+            <h3>ZiG wallet</h3>
+            <div className="facts">
+              <div><span>Prepaid balance</span><b>ZiG {wallet.data.zig?.balance ?? '0.00'}</b></div>
+              <div><span>Promotional credit</span><b>ZiG {wallet.data.zig?.promotionalBalance ?? '0.00'}</b></div>
+              <div><span>Reserved fees</span><b>ZiG {wallet.data.zig?.reservedFees ?? '0.00'}</b></div>
+              <div><span>Available capacity</span><b>ZiG {wallet.data.zig?.availableCapacity ?? '0.00'}</b></div>
             </div>
             <label>Custom limit (USD)
               <input value={limitAmount} onChange={(event) => setLimitAmount(event.target.value)} placeholder="1.00" />
@@ -363,7 +389,7 @@ export function RiderPage() {
         ) : null}
       </section>
       <section className="panel">
-        <h2>Wallet history</h2>
+        <h2>USD wallet history</h2>
         <p className="note">Ledger entries are read only. Amounts stay as the wallet recorded them.</p>
         {ledger.isLoading ? <Loading label="Loading wallet history" /> : null}
         {ledger.error ? <ErrorNote>{textOf(ledger.error)}</ErrorNote> : null}
@@ -403,6 +429,72 @@ export function RiderPage() {
               }}>Next</button>
             </div>
           </>
+        ) : null}
+      </section>
+      <section className="panel">
+        <h2>ZiG wallet history</h2>
+        <p className="note">ZiG entries stay separate from the USD ledger.</p>
+        {zigLedger.isLoading ? <Loading label="Loading ZiG wallet history" /> : null}
+        {zigLedger.error ? <ErrorNote>{textOf(zigLedger.error)}</ErrorNote> : null}
+        {zigLedger.data && zigLedger.data.transactions.length === 0 ? <Empty>No ZiG wallet entries are recorded.</Empty> : null}
+        {zigLedger.data && zigLedger.data.transactions.length > 0 ? (
+          <>
+            <div className="table-scroll">
+              <table>
+                <thead>
+                  <tr><th>Type</th><th>Amount</th><th>Currency</th><th>When</th><th>Reference</th></tr>
+                </thead>
+                <tbody>
+                  {zigLedger.data.transactions.map((entry) => (
+                    <tr key={entry.id}>
+                      <td>{label(entry.type)}</td>
+                      <td>{entry.amount}</td>
+                      <td>{entry.currency}</td>
+                      <td>{when(entry.createdAt)}</td>
+                      <td>{ledgerReference(entry)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="pager">
+              <button className="button-secondary" type="button" disabled={zigCursors.length <= 1} onClick={() => setZigCursors((current) => current.slice(0, -1))}>Previous ZiG</button>
+              <span>ZiG page {zigCursors.length}</span>
+              <button className="button-secondary" type="button" disabled={!zigLedger.data.nextCursor} onClick={() => {
+                const next = zigLedger.data?.nextCursor;
+                if (next) setZigCursors((current) => [...current, next]);
+              }}>Next ZiG</button>
+            </div>
+          </>
+        ) : null}
+      </section>
+      <section className="panel">
+        <h2>Payment exceptions</h2>
+        <p className="note">These records are read only. Opening them does not change a wallet balance.</p>
+        {exceptions.isLoading ? <Loading label="Loading payment exceptions" /> : null}
+        {exceptions.error ? <ErrorNote>{textOf(exceptions.error)}</ErrorNote> : null}
+        {exceptions.data && exceptions.data.data.length === 0 ? <Empty>No payment exceptions are recorded.</Empty> : null}
+        {exceptions.data && exceptions.data.data.length > 0 ? (
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr><th>Rider</th><th>Reference</th><th>Currency</th><th>Amount</th><th>Code</th><th>USD balance</th><th>When</th></tr>
+              </thead>
+              <tbody>
+                {exceptions.data.data.map((row) => (
+                  <tr key={row.id}>
+                    <td>{row.riderName ?? row.riderProfileId}</td>
+                    <td>{row.paymentReference}</td>
+                    <td>{row.currency}</td>
+                    <td>{row.amount}</td>
+                    <td>{row.code}</td>
+                    <td>{row.usdBalance}</td>
+                    <td>{when(row.createdAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         ) : null}
       </section>
       <section className="panel">

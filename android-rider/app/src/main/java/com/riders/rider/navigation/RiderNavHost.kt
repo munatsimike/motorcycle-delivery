@@ -56,10 +56,16 @@ private fun RiderGraph(signedIn: Boolean, notice: String?) {
     if (signedIn) {
         val pending = rememberOfferInbox()
         val acceptedDelivery by pending.acceptedTaps.collectAsStateWithLifecycle()
+        val cancelledDelivery by pending.customerCancelledTaps.collectAsStateWithLifecycle()
         LaunchedEffect(acceptedDelivery) {
             val deliveryId = acceptedDelivery ?: return@LaunchedEffect
             controller.navigate(parcelRoute(deliveryId))
             pending.clearAccepted()
+        }
+        LaunchedEffect(cancelledDelivery) {
+            val deliveryId = cancelledDelivery ?: return@LaunchedEffect
+            controller.navigate(parcelRoute(deliveryId))
+            pending.clearCustomerCancelled()
         }
     }
     NavHost(

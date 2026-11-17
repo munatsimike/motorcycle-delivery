@@ -2,6 +2,7 @@ import { ConflictException } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 import { WalletActorType, WalletEntryType } from '../generated/prisma/client.js';
 import type { Prisma } from '../generated/prisma/client.js';
+import { sameWallet, walletLookup, type WalletLookup } from './wallet-test-doubles.js';
 import {
   newDeliveriesRestricted,
   reservationPortions,
@@ -334,9 +335,10 @@ function ledger() {
       },
     },
     riderWallet: {
-      async findUnique({ where }: { where: { id?: string; riderProfileId?: string } }) {
-        if (where.riderProfileId) return wallets.find((wallet) => wallet.riderProfileId === where.riderProfileId) ?? null;
-        return wallets.find((wallet) => wallet.id === where.id) ?? null;
+      async findUnique({ where }: { where: WalletLookup }) {
+        const lookup = walletLookup(where);
+        if (lookup.riderProfileId) return wallets.find((wallet) => sameWallet(wallet, lookup)) ?? null;
+        return wallets.find((wallet) => wallet.id === lookup.id) ?? null;
       },
       async update({ where, data }: { where: { id: string }; data: Row }) {
         const wallet = wallets.find((row) => row.id === where.id);

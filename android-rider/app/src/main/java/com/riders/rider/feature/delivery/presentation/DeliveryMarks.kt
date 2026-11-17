@@ -256,6 +256,7 @@ fun DeliveryDetailsSummary(
     dropoff: String,
     distanceMeters: Int?,
     price: String?,
+    currency: String = "USD",
     modifier: Modifier = Modifier,
     dateCaption: String = "Date",
     framed: Boolean = true,
@@ -358,13 +359,13 @@ fun DeliveryDetailsSummary(
         if (parcelSheet && !spacious) {
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 SheetDivider()
-                DistancePrice(distanceMeters, price)
+                DistancePrice(distanceMeters, price, currency)
             }
         } else {
             if (customerSender || !spacious) {
                 SheetDivider()
             }
-            DistancePrice(distanceMeters, price)
+            DistancePrice(distanceMeters, price, currency)
         }
     }
 }
@@ -384,7 +385,7 @@ private fun SheetDivider() {
 }
 
 @Composable
-private fun DistancePrice(distanceMeters: Int?, price: String?) {
+private fun DistancePrice(distanceMeters: Int?, price: String?, currency: String) {
     Row(
         Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -404,7 +405,7 @@ private fun DistancePrice(distanceMeters: Int?, price: String?) {
         ) {
             Text("Price", style = RidersType.caption, color = RidersColors.textSecondary)
             Text(
-                deliveryPriceLabel(price) ?: "Unavailable",
+                deliveryPriceLabel(price, currency) ?: "Unavailable",
                 style = RidersType.heading,
                 color = RidersColors.text,
             )

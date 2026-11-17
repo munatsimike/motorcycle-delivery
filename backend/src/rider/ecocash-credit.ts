@@ -9,7 +9,7 @@ import {
 } from '../generated/prisma/client.js';
 import type { EcocashTransaction } from './ecocash-client.js';
 import { ECOCASH_PROVIDER, ecocashAutoCreditEnabled } from './ecocash-config.js';
-import { creditWallet, isUniqueViolation } from './wallet-ledger.js';
+import { creditWallet, isUniqueViolation, usdWalletWhere } from './wallet-ledger.js';
 import { formatSignedCents, signedCentsFromDecimal } from './wallet-money.js';
 
 const CREDIT_BATCH = 20;
@@ -50,13 +50,36 @@ export type EcocashCreditClient = {
 };
 
 const EMPTY: EcocashCreditResult = { credited: false, replayed: false, entryId: null, balance: null };
+export const USD_DEBT_AFTER_ZWG_PAYMENT = 'USD_DEBT_AFTER_ZWG_PAYMENT';
+
+async function recordZigCreditDuringUsdDebt(
+  tx: Prisma.TransactionClient,
+  riderProfileId: string,
+  paymentId: string,
+): Promise<void> {
+  const usd = await tx.riderWallet.findUnique({ where: usdWalletWhere(riderProfileId) });
+  if (!usd || signedCentsFromDecimal(usd.balance) >= 0) {
+    return;
+  }
+  const existing = await tx.walletPaymentException.findUnique({ where: { walletPaymentId: paymentId } });
+  if (existing) {
+    return;
+  }
+  await tx.walletPaymentException.create({
+    data: {
+      walletPaymentId: paymentId,
+      code: USD_DEBT_AFTER_ZWG_PAYMENT,
+      usdBalance: formatSignedCents(signedCentsFromDecimal(usd.balance)),
+    },
+  });
+}
 
 // The provider transaction is the only amount and currency evidence. A missing
 // field is not filled from the amount the rider requested.
 export function ecocashCreditAllowed(payment: CreditPayment, transaction: EcocashTransaction): boolean {
   if (payment.method !== WalletPaymentMethod.GATEWAY || payment.provider !== ECOCASH_PROVIDER) return false;
   if (payment.status !== WalletPaymentStatus.VERIFIED || payment.verifiedAt === null) return false;
-  if (payment.currency !== Currency.USD || payment.lastProviderResponseCode !== '00') return false;
+  if ((payment.currency !== Currency.USD && payment.currency !== Currency.ZWG) || payment.lastProviderResponseCode !== '00') return false;
   if (!payment.clientCorrelator || !payment.referenceCode || !payment.payerMsisdn) return false;
   if (!payment.providerTransactionId || payment.providerTransactionId !== payment.ecocashReference) return false;
   if (transaction.transactionOperationStatus !== 'Charged' || transaction.responseCode !== '00') return false;
@@ -65,7 +88,7 @@ export function ecocashCreditAllowed(payment: CreditPayment, transaction: Ecocas
   if (transaction.endUserId !== payment.payerMsisdn) return false;
   if (!transaction.ecocashReference || transaction.ecocashReference !== payment.providerTransactionId) return false;
   if (transaction.amountCents === null || transaction.currency === null) return false;
-  if (transaction.currency !== Currency.USD) return false;
+  if (transaction.currency !== payment.currency) return false;
   if (!Number.isSafeInteger(transaction.amountCents) || transaction.amountCents <= 0) return false;
   return transaction.amountCents === signedCentsFromDecimal(payment.amount);
 }
@@ -107,7 +130,11 @@ export async function postEcocashCredit(
         actorType: WalletActorType.SYSTEM,
         actorId: null,
         now,
+        currency: payment.currency,
       });
+      if (payment.currency === Currency.ZWG) {
+        await recordZigCreditDuringUsdDebt(tx, payment.riderWallet.riderProfileId, payment.id);
+      }
       return { credited: true, replayed: posting.replayed, entryId: posting.entryId, balance: posting.balance };
     });
   } catch (error) {

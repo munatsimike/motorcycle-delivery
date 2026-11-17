@@ -359,6 +359,8 @@ model User {
   riderApprovalAudits   RiderApprovalAudit[]  @relation("RiderApprovalAuditor")
   pricingAudits         PricingConfigAudit[]  @relation("PricingAuditActor")
   authoredV2CommissionRates V2CommissionRate[] @relation("V2CommissionRateAuthor")
+  authoredExchangeRates ExchangeRate[] @relation("ExchangeRateAuthor")
+  authoredExchangeRateAudits ExchangeRateAudit[] @relation("ExchangeRateAuditor")
   v2CommissionRateAudits V2CommissionRateAudit[] @relation("V2CommissionRateAuditor")
 
   @@index([role, accountStatus])
@@ -400,7 +402,7 @@ model RiderProfile {
   licenceReviews RiderLicenceReview[]
   approvalAudits RiderApprovalAudit[]
   profilePhotos  RiderProfilePhoto[]
-  wallet         RiderWallet?
+  wallets        RiderWallet[]
   location       RiderLocation?
   pushDevices    RiderPushDevice[]
   bids               Bid[]
@@ -529,6 +531,9 @@ model Delivery {
   pricingModel         PricingModel?  @map("pricing_model")
   pricingBasisPoints   Int?           @map("pricing_basis_points")
   pricingWindowId      String?        @map("pricing_window_id") @db.Uuid
+  // Null when no internal rate existed. A later rate publication does not change these.
+  exchangeRateVersion    Int?     @map("exchange_rate_version")
+  exchangeRateZigPerUsd  Decimal? @map("exchange_rate_zig_per_usd") @db.Decimal(12, 4)
   // Unused while V2 marketplace is disabled. Existing rows stay null.
   serviceClass      ServiceClass?  @map("service_class")
   deliverBy         DateTime?      @map("deliver_by") @db.Timestamptz(6)
@@ -713,6 +718,7 @@ model CustomerAccount {
   v2OutboxEvents V2OutboxEvent[]
   riderAvailabilityAlerts RiderAvailabilityAlert[]
   profilePhotos CustomerProfilePhoto[]
+  savedAddresses CustomerSavedAddress[]
 
   @@map("customer_accounts")
 }
@@ -915,6 +921,41 @@ model RiderProfilePhoto {
   @@index([status, createdAt])
   @@index([status, purgeAfter])
   @@map("rider_profile_photos")
+}
+
+// Saved stops belong to one customer account. Prisma 7.1.0 cannot represent
+// the partial unique indexes in the migration. Do not drop them:
+//   customer_saved_addresses_one_home_idx
+//   customer_saved_addresses_one_work_idx
+//   customer_saved_addresses_one_default_pickup_idx
+enum CustomerSavedAddressLabel {
+  HOME
+  WORK
+  CUSTOM
+
+  @@map("customer_saved_address_label")
+}
+
+model CustomerSavedAddress {
+  id                String                     @id @default(uuid(7)) @db.Uuid
+  customerAccountId String                     @map("customer_account_id") @db.Uuid
+  label             CustomerSavedAddressLabel
+  customLabel       String?                    @map("custom_label") @db.VarChar(40)
+  address           String                     @db.VarChar(500)
+  latitude          Decimal                    @db.Decimal(10, 7)
+  longitude         Decimal                    @db.Decimal(10, 7)
+  placeId           String?                    @map("place_id") @db.VarChar(255)
+  coordinateSource  CoordinateSource           @map("coordinate_source")
+  contactName       String                     @map("contact_name") @db.VarChar(200)
+  contactPhone      String                     @map("contact_phone") @db.VarChar(20)
+  isDefaultPickup   Boolean                    @default(false) @map("is_default_pickup")
+  createdAt         DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  customerAccount CustomerAccount @relation(fields: [customerAccountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([customerAccountId, createdAt])
+  @@map("customer_saved_addresses")
 }
 
 // Private customer profile photos. Bytes live in object storage under a prefix
@@ -1154,15 +1195,18 @@ model WalletConfigAudit {
   @@map("wallet_config_audits")
 }
 
-// One wallet per rider. welcome_bonus_awarded_at is the one-time entitlement
-// marker. It is set without a credit for riders already APPROVED or SUSPENDED
-// before this feature, and a later approval must not award that bonus again.
-// balance is the cash and debt ledger sum and may be negative.
+// One wallet per rider and currency. The USD row is the existing operating
+// wallet. The ZWG row starts empty and is not used for bids, fees, or top-ups.
+// welcome_bonus_awarded_at is the one-time entitlement marker. It is set
+// without a credit for riders already APPROVED or SUSPENDED before this
+// feature, and a later approval must not award that bonus again. The empty
+// ZWG row is marked awarded so it cannot receive a second bonus.
+// balance is the cash and debt ledger sum and may be negative on USD.
 // promotional_balance is separate, non-withdrawable, and starts at zero.
 // Historical welcome and promotional rows already mixed into balance stay there.
 model RiderWallet {
   id                      String    @id @default(uuid(7)) @db.Uuid
-  riderProfileId          String    @unique @map("rider_profile_id") @db.Uuid
+  riderProfileId          String    @map("rider_profile_id") @db.Uuid
   currency                Currency
   balance                 Decimal   @db.Decimal(12, 2)
   promotionalBalance      Decimal   @default(0) @map("promotional_balance") @db.Decimal(12, 2)
@@ -1179,6 +1223,7 @@ model RiderWallet {
   borrowingLimitAudits WalletBorrowingLimitAudit[]
   feeReservations      WalletFeeReservation[]
 
+  @@unique([riderProfileId, currency], map: "rider_wallets_rider_profile_id_currency_key")
   @@map("rider_wallets")
 }
 
@@ -1275,11 +1320,26 @@ model WalletPayment {
   confirmedBy User?               @relation("WalletPaymentConfirmer", fields: [confirmedById], references: [id], onDelete: Restrict, onUpdate: Cascade)
   topUpRequest WalletTopUpRequest? @relation(fields: [topUpRequestId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   entry       RiderWalletEntry?
+  exception   WalletPaymentException?
 
   @@unique([provider, providerTransactionId])
   @@index([riderWalletId, createdAt])
   @@index([confirmedById])
   @@map("wallet_payments")
+}
+
+// A verified ZiG top-up that is credited after the USD cash balance has
+// become negative. The ZiG funds stay in the ZiG wallet. Admin reviews the row.
+model WalletPaymentException {
+  id              String   @id @default(uuid(7)) @db.Uuid
+  walletPaymentId String   @unique @map("wallet_payment_id") @db.Uuid
+  code            String   @db.VarChar(64)
+  usdBalance      Decimal  @map("usd_balance") @db.Decimal(12, 2)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  walletPayment WalletPayment @relation(fields: [walletPaymentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@map("wallet_payment_exceptions")
 }
 
 // A request does not credit a wallet. Approval is a later verified payment.
@@ -1537,6 +1597,38 @@ model CommissionPolicy {
   @@map("commission_policies")
 }
 
+// Internal ZiG per 1 USD. Not a market feed and not part of wallet_configs.
+// exchange_rates_one_active_idx and exchange_rates_zig_per_usd_chk are SQL-only.
+model ExchangeRate {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  rateVersion Int      @unique @map("rate_version")
+  zigPerUsd   Decimal  @map("zig_per_usd") @db.Decimal(12, 4)
+  isActive    Boolean  @default(false) @map("is_active")
+  createdById String?  @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  createdBy User? @relation("ExchangeRateAuthor", fields: [createdById], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([createdById])
+  @@map("exchange_rates")
+}
+
+model ExchangeRateAudit {
+  id              String   @id @default(uuid(7)) @db.Uuid
+  actorId         String   @map("actor_id") @db.Uuid
+  previousVersion Int?     @map("previous_version")
+  nextVersion     Int      @unique @map("next_version")
+  previousZigPerUsd Decimal? @map("previous_zig_per_usd") @db.Decimal(12, 4)
+  nextZigPerUsd     Decimal  @map("next_zig_per_usd") @db.Decimal(12, 4)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  actor User @relation("ExchangeRateAuditor", fields: [actorId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([actorId])
+  @@index([createdAt])
+  @@map("exchange_rate_audits")
+}
+
 // One global percentage for Express and Flexible. Versions stay after a later publish.
 // v2_commission_rates_one_active_idx and v2_commission_rates_basis_points_chk are
 // SQL-only. Prisma 7.1.0 cannot represent them. Do not drop them in a later migration.
@@ -1585,6 +1677,8 @@ enum V2OutboxEventType {
   BID_RECEIVED
   COUNTEROFFER
   ACCOUNT_APPROVED
+  RIDER_CANCELLED
+  CUSTOMER_CANCELLED
 
   @@map("v2_outbox_event_type")
 }
@@ -1601,8 +1695,9 @@ enum V2OutboxStatus {
 // Marketplace events that have no assignment use dedupe_key.
 // v2_outbox_events_assign_dedupe_key fills dedupe_key for an assignment notice
 // inserted by the previous API. Keep that trigger until that API is retired.
-// BID_ACCEPTED, RIDER_OPPORTUNITY, and ACCOUNT_APPROVED are rider notices.
-// Bid, counteroffer, and delivery-status events are customer notices.
+// BID_ACCEPTED, RIDER_OPPORTUNITY, ACCOUNT_APPROVED, and CUSTOMER_CANCELLED
+// are rider notices. Bid, counteroffer, delivery-status, and RIDER_CANCELLED
+// events are customer notices.
 // v2_outbox_events_recipient_chk is SQL-only. A worker claims due PENDING rows
 // with FOR UPDATE SKIP LOCKED and prefers a row that has a live device token.
 // Success sets SENT and sent_at. A genuine send failure increments

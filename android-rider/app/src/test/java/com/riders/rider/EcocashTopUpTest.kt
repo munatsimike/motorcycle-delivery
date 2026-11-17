@@ -41,7 +41,7 @@ class EcocashTopUpTest {
         assertEquals(listOf(500L, 1_000L, 2_000L, 5_000L, 10_000L), ECOCASH_QUICK_AMOUNTS_CENTS)
         state = selectQuickAmount(state, 1_000L)
         assertEquals(1_000L, state.amountCents)
-        assertEquals("$10.00", ecocashAmountLabel(state.amountCents!!))
+        assertEquals("US$10.00", ecocashAmountLabel(state.amountCents!!))
         assertEquals("10.00", formatEcocashCents(state.amountCents!!))
         assertFalse(state.customSelected)
     }
@@ -50,7 +50,7 @@ class EcocashTopUpTest {
     fun customAmountAcceptsDollarsAndCentsWithoutFloatingPoint() {
         val state = editCustomAmount(ecocashIdle("$0.00"), "10.50")
         assertEquals(1_050L, state.amountCents)
-        assertEquals("$10.50", ecocashAmountLabel(1_050L))
+        assertEquals("US$10.50", ecocashAmountLabel(1_050L))
         assertEquals(1L, parseEcocashAmount("0.01").cents)
         assertEquals(ECOCASH_MAX_CENTS, parseEcocashAmount("9999999999.99").cents)
     }

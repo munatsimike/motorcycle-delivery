@@ -22,7 +22,12 @@ export type PromotionalWallet = {
   riderProfileId: string;
   balance: Money;
   promotionalBalance?: Money | null;
+  currency?: Currency | string | null;
 };
+
+function entryCurrency(wallet: PromotionalWallet): Currency {
+  return wallet.currency === Currency.ZWG ? Currency.ZWG : Currency.USD;
+}
 
 export type ReservationPortions = {
   total: number;
@@ -138,7 +143,7 @@ export async function issuePromotionalCredit(
       entryType: PromotionalEntryType.ISSUED,
       amount: formatSignedCents(command.amountCents),
       balanceAfter: formatSignedCents(next),
-      currency: Currency.USD,
+      currency: entryCurrency(wallet),
       configVersion: command.configVersion,
       idempotencyKey: command.idempotencyKey,
       payloadHash: hash,
@@ -205,7 +210,7 @@ export async function consumeReservedPromotional(
       entryType: PromotionalEntryType.CONSUMED,
       amount: formatSignedCents(-promoCents),
       balanceAfter: formatSignedCents(next),
-      currency: Currency.USD,
+      currency: entryCurrency(wallet),
       configVersion: reservation.configVersion,
       idempotencyKey: key,
       payloadHash: hash,
@@ -267,7 +272,7 @@ export async function restoreConsumedPromotional(
       entryType: PromotionalEntryType.ISSUED,
       amount: formatSignedCents(promoCents),
       balanceAfter: formatSignedCents(next),
-      currency: Currency.USD,
+      currency: entryCurrency(wallet),
       configVersion,
       idempotencyKey: key,
       payloadHash: hash,

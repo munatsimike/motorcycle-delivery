@@ -1,16 +1,21 @@
-import { readFileSync } from 'node:fs';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   AccountStatus,
   AssignmentStatus,
+  BidStatus,
+  Currency,
+  DeliveryStatus,
   MotorcycleVerificationStatus,
   RiderApprovalStatus,
   RiderAvailability,
   RiderVerificationStatus,
 } from '../generated/prisma/client.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
+import type { CustomerContext } from '../auth/customer-access.service.js';
 import type { RiderContext } from '../auth/rider-access.service.js';
+import { BidAcceptanceService } from '../delivery/bid-acceptance.service.js';
+import { DispatchService } from '../delivery/dispatch.service.js';
 import { MotorcycleService } from './motorcycle.service.js';
 import {
   AVAILABILITY_NO_LONGER_ELIGIBLE_MESSAGE,
@@ -399,27 +404,256 @@ describe('rider availability', () => {
     expect(ctx.profile.receivingRequests).toBe(true);
   });
 
-  it('does not change rider availability when a marketplace delivery is accepted, progressed, or cancelled', () => {
-    const acceptance = readFileSync(new URL('../delivery/bid-acceptance.service.ts', import.meta.url), 'utf8');
-    expect(acceptance).not.toContain('riderProfile.update');
-    expect(acceptance).not.toContain('receivingRequests:');
-    const dispatch = readFileSync(new URL('../delivery/dispatch.service.ts', import.meta.url), 'utf8');
-    expect(dispatch).not.toContain('riderProfile.update');
-    const bids = readFileSync(new URL('../delivery/bid.service.ts', import.meta.url), 'utf8');
-    expect(bids).not.toContain('riderProfile.update');
-    expect(bids).not.toContain('receivingRequests:');
-    const progress = dispatch.slice(dispatch.indexOf('async function progressDelivery'), dispatch.indexOf('function progressReplay'));
-    expect(progress).toContain('const availability = profile.availability');
-    expect(progress).not.toContain('OFFLINE');
-    expect(progress).not.toContain('receivingRequests');
-    const riderCancel = dispatch.slice(dispatch.indexOf('async function cancelBeforePickup'), dispatch.indexOf('async function cancellationReplay'));
-    expect(riderCancel).not.toContain('restoreAvailability');
-    expect(riderCancel).not.toContain('riderProfile.update');
-    const customerCancel = dispatch.slice(dispatch.indexOf('async function cancelV2DeliveryByCustomer'), dispatch.indexOf('async function cancelDelivery'));
-    expect(customerCancel).not.toContain('restoreAvailability');
-    expect(customerCancel).not.toContain('riderProfile.update');
+  it('does not change rider availability when a marketplace delivery is accepted, progressed, or cancelled', async () => {
+    process.env.V2_MARKETPLACE_ENABLED = 'true';
+    const world = marketplaceWorld();
+    const acceptance = new BidAcceptanceService(world.prisma);
+    const dispatch = new DispatchService(world.prisma);
+    const accepted = await acceptance.accept(world.customer, world.deliveryId, world.bidId, 'accept-availability', NOW);
+    expect(accepted.availability).toBe(RiderAvailability.AVAILABLE);
+    const progressed = await dispatch.progress(
+      world.rider,
+      world.deliveryId,
+      { status: 'COLLECTED' },
+      NOW,
+      'progress-availability',
+    );
+    expect(progressed.availability).toBe(RiderAvailability.AVAILABLE);
+    const riderCancelled = await dispatch.cancelBeforePickup(
+      world.rider,
+      accepted.assignmentId,
+      'rider-cancel-availability',
+      { reason: 'PARCEL_TOO_LARGE' },
+      NOW,
+    );
+    expect(riderCancelled.availability).toBe(RiderAvailability.AVAILABLE);
+    const second = await acceptance.accept(world.customer, world.secondDeliveryId, world.secondBidId, 'accept-customer-cancel', NOW);
+    const customerCancelled = await dispatch.cancel(world.customer, world.secondDeliveryId, NOW);
+    expect(customerCancelled.status).toBe(DeliveryStatus.CANCELLED);
+    expect(second.availability).toBe(RiderAvailability.AVAILABLE);
+    expect(world.profile.availability).toBe(RiderAvailability.AVAILABLE);
+    expect(world.profile.receivingRequests).toBe(true);
+    expect(world.profileWrites).toBe(0);
   });
 });
+
+const MARKET_RIDER = '33333333-3333-4333-8333-333333333333';
+const MARKET_USER = 'user-market';
+const MARKET_CUSTOMER = '44444444-4444-4444-8444-444444444444';
+const MARKET_DELIVERY = '11111111-1111-4111-8111-111111111111';
+const MARKET_BID = '22222222-2222-4222-8222-222222222222';
+const MARKET_DELIVERY_2 = '11111111-1111-4111-8111-111111111112';
+const MARKET_BID_2 = '22222222-2222-4222-8222-222222222223';
+const MARKET_WALLET = '55555555-5555-4555-8555-555555555555';
+
+function marketplaceWorld() {
+  let profileWrites = 0;
+  let nextAssignment = 1;
+  const profile = {
+    id: MARKET_RIDER,
+    userId: MARKET_USER,
+    approvalStatus: RiderApprovalStatus.APPROVED,
+    verificationStatus: RiderVerificationStatus.VERIFIED,
+    availability: RiderAvailability.AVAILABLE,
+    receivingRequests: true as boolean | null,
+  };
+  const deliveries = [deliveryRow(MARKET_DELIVERY), deliveryRow(MARKET_DELIVERY_2)];
+  const bids = [bidRow(MARKET_BID, MARKET_DELIVERY), bidRow(MARKET_BID_2, MARKET_DELIVERY_2)];
+  const assignments: Array<Record<string, unknown> & { id: string }> = [];
+  const wallet = {
+    id: MARKET_WALLET,
+    riderProfileId: MARKET_RIDER,
+    currency: Currency.USD,
+    balance: '0.00',
+    promotionalBalance: '0.00',
+    borrowingLimitOverride: '50.00',
+  };
+  const prisma = {
+    $transaction(work: (tx: typeof prisma) => Promise<unknown>) {
+      return work(prisma);
+    },
+    $queryRaw(strings: TemplateStringsArray) {
+      const sql = strings.join(' ');
+      if (sql.includes('v2_commission_rates')) {
+        return [{ rate_version: 1, basis_points: 0 }];
+      }
+      return [];
+    },
+    $executeRawUnsafe() {
+      return 1;
+    },
+    delivery: {
+      findUnique({ where }: { where: { id: string } }) {
+        return deliveries.find((row) => row.id === where.id) ?? null;
+      },
+      findFirst({ where }: { where: { id: string; customerId: string } }) {
+        return deliveries.find((row) => row.id === where.id && row.customerId === where.customerId) ?? null;
+      },
+      findMany() {
+        return [];
+      },
+      update({ where, data }: { where: { id: string }; data: Record<string, unknown> }) {
+        const row = deliveries.find((item) => item.id === where.id);
+        if (!row) throw new Error('missing delivery');
+        Object.assign(row, data);
+        return row;
+      },
+    },
+    bid: {
+      findUnique({ where }: { where: { id: string } }) {
+        return bids.find((row) => row.id === where.id) ?? null;
+      },
+      findFirst({ where }: { where: { id?: string; deliveryId?: string; riderProfileId?: string; status?: BidStatus } }) {
+        return bids.find((row) => (
+          (where.id == null || row.id === where.id)
+          && (where.deliveryId == null || row.deliveryId === where.deliveryId)
+          && (where.riderProfileId == null || row.riderProfileId === where.riderProfileId)
+          && (where.status == null || row.status === where.status)
+        )) ?? null;
+      },
+      updateMany() {
+        return { count: 0 };
+      },
+      update({ where, data }: { where: { id: string }; data: Record<string, unknown> }) {
+        const row = bids.find((item) => item.id === where.id);
+        if (!row) throw new Error('missing bid');
+        Object.assign(row, data);
+        return row;
+      },
+    },
+    deliveryAssignment: {
+      findUnique({ where }: { where: { id?: string; idempotencyKey?: string; cancellationIdempotencyKey?: string } }) {
+        return assignments.find((row) => (
+          (where.id != null && row.id === where.id)
+          || (where.idempotencyKey != null && row.idempotencyKey === where.idempotencyKey)
+          || (where.cancellationIdempotencyKey != null && row.cancellationIdempotencyKey === where.cancellationIdempotencyKey)
+        )) ?? null;
+      },
+      findFirst({ where }: { where: { deliveryId?: string; riderProfileId?: string; status?: AssignmentStatus } }) {
+        return assignments.find((row) => (
+          (where.deliveryId == null || row.deliveryId === where.deliveryId)
+          && (where.riderProfileId == null || row.riderProfileId === where.riderProfileId)
+          && (where.status == null || row.status === where.status)
+        )) ?? null;
+      },
+      create({ data }: { data: Record<string, unknown> }) {
+        const row = { id: `77777777-7777-4777-8777-${String(nextAssignment).padStart(12, '0')}`, ...data };
+        nextAssignment += 1;
+        assignments.push(row);
+        return row;
+      },
+      update({ where, data }: { where: { id: string }; data: Record<string, unknown> }) {
+        const row = assignments.find((item) => item.id === where.id);
+        if (!row) throw new Error('missing assignment');
+        Object.assign(row, data);
+        return row;
+      },
+    },
+    riderProfile: {
+      findUnique() {
+        return profile;
+      },
+      update() {
+        profileWrites += 1;
+        throw new Error('rider availability was changed');
+      },
+    },
+    user: {
+      findUnique() {
+        return { id: MARKET_USER, accountStatus: AccountStatus.ACTIVE, phoneVerifiedAt: NOW };
+      },
+    },
+    motorcycle: {
+      findMany() {
+        return [{ id: '66666666-6666-4666-8666-666666666666', riderProfileId: MARKET_RIDER, verificationStatus: MotorcycleVerificationStatus.VERIFIED, isActive: true }];
+      },
+    },
+    riderWallet: {
+      findUnique({ where }: { where: { id?: string; riderProfileId_currency?: { riderProfileId: string; currency: Currency } } }) {
+        if (where.id) return where.id === wallet.id ? wallet : null;
+        const key = where.riderProfileId_currency;
+        if (key && key.riderProfileId === wallet.riderProfileId && key.currency === wallet.currency) return wallet;
+        return null;
+      },
+    },
+    riderWalletEntry: {
+      aggregate() {
+        return { _sum: { amount: '0.00' } };
+      },
+    },
+    walletConfig: {
+      findFirst() {
+        return { configVersion: 1, defaultBorrowingLimit: '1.00', platformFee: '0.30', welcomeBonus: '0.00', isActive: true };
+      },
+    },
+    walletFeeReservation: {
+      findFirst() {
+        return null;
+      },
+      findMany() {
+        return [];
+      },
+    },
+    deliveryStatusEvent: {
+      create({ data }: { data: Record<string, unknown> }) {
+        return data;
+      },
+    },
+    deliveryProgressCommand: {
+      findUnique() {
+        return null;
+      },
+      create({ data }: { data: Record<string, unknown> }) {
+        return data;
+      },
+    },
+    v2OutboxEvent: {
+      create({ data }: { data: Record<string, unknown> }) {
+        return data;
+      },
+    },
+  };
+  return {
+    prisma: prisma as unknown as PrismaService,
+    profile,
+    get profileWrites() {
+      return profileWrites;
+    },
+    customer: { userId: 'customer-user', customerAccountId: MARKET_CUSTOMER } satisfies CustomerContext,
+    rider: { userId: MARKET_USER, riderProfileId: MARKET_RIDER } satisfies RiderContext,
+    deliveryId: MARKET_DELIVERY,
+    bidId: MARKET_BID,
+    secondDeliveryId: MARKET_DELIVERY_2,
+    secondBidId: MARKET_BID_2,
+  };
+}
+
+function deliveryRow(id: string) {
+  return {
+    id,
+    customerId: MARKET_CUSTOMER,
+    status: DeliveryStatus.CREATED,
+    serviceClass: 'EXPRESS' as const,
+    searchGeneration: 0,
+    currency: Currency.USD,
+    deliverBy: new Date('2026-10-13T18:00:00.000Z'),
+    price: null as string | null,
+    customerOffer: null as string | null,
+    suggestedPrice: '9.00',
+  };
+}
+
+function bidRow(id: string, deliveryId: string) {
+  return {
+    id,
+    deliveryId,
+    riderProfileId: MARKET_RIDER,
+    amount: '10.00',
+    currency: Currency.USD,
+    status: BidStatus.OPEN,
+    closedAt: null as Date | null,
+  };
+}
 
 type ProfileRow = {
   id: string;

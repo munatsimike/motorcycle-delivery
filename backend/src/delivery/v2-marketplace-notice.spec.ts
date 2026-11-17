@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { customerDeliveryNotification, v2FcmBody } from './fcm-v2-sender.js';
+import { v2FcmBody } from './fcm-v2-sender.js';
 import {
   approvalDedupe,
+  assignmentNoticeDedupe,
   bidNoticeDedupe,
   customerBidNoticeType,
   hasActiveVerifiedMotorcycle,
@@ -10,6 +11,7 @@ import {
   mayReceiveDeliveryOpportunity,
   noticeDisposition,
   opportunityDedupe,
+  v2PushAudience,
   v2PushCollapseKey,
   v2PushTtlSeconds,
 } from './v2-marketplace-notice.js';
@@ -110,8 +112,13 @@ describe('marketplace notice policy', () => {
       ttlSeconds: v2PushTtlSeconds('v2_bid_received'),
       collapseKey: v2PushCollapseKey('v2_bid_received', DELIVERY),
     });
-    expect(offer.message.data).toEqual({ type: 'v2_bid_received', deliveryId: DELIVERY });
-    expect(offer.message.notification).toEqual(customerDeliveryNotification('v2_bid_received'));
+    expect(offer.message.data).toEqual({
+      type: 'v2_bid_received',
+      title: 'New offer',
+      body: 'A rider sent an offer on your delivery.',
+      deliveryId: DELIVERY,
+    });
+    expect(offer.message).not.toHaveProperty('notification');
     expect(offer.message.android.ttl).toBe('3600s');
     expect(offer.message.android.collapse_key).toBe(`v2_bid_received:${DELIVERY}`);
     const encoded = JSON.stringify(offer);
@@ -146,6 +153,97 @@ describe('marketplace notice policy', () => {
       approvedAt: OPENED.toISOString(),
     });
     expect(JSON.stringify(approved)).not.toContain(RIDER);
+    const delivered = v2FcmBody({
+      token: 'device-token',
+      type: 'v2_delivered',
+      deliveryId: DELIVERY,
+      assignmentId: 'assignment-1',
+      audience: 'customer',
+      ttlSeconds: v2PushTtlSeconds('v2_delivered'),
+    });
+    expect(delivered.message).not.toHaveProperty('notification');
+    expect(delivered.message.data).toMatchObject({
+      title: 'Delivered',
+      body: 'Your parcel has been delivered.',
+      deliveryId: DELIVERY,
+    });
+    const collected = v2FcmBody({
+      token: 'device-token',
+      type: 'v2_collected',
+      deliveryId: DELIVERY,
+      assignmentId: 'assignment-1',
+      audience: 'customer',
+      accountId: 'customer-1',
+    });
+    expect(collected.message.data.body).toBe('Your parcel has been collected.');
+    expect(collected.message.data.accountId).toBe('customer-1');
+    const riderCancelled = v2FcmBody({
+      token: 'device-token',
+      type: 'v2_rider_cancelled',
+      deliveryId: DELIVERY,
+      assignmentId: 'assignment-1',
+      audience: 'customer',
+      accountId: 'customer-1',
+    });
+    expect(riderCancelled.message).not.toHaveProperty('notification');
+    expect(riderCancelled.message.data).toMatchObject({
+      title: 'Rider cancelled',
+      body: 'Your rider cancelled the delivery.',
+      accountId: 'customer-1',
+      deliveryId: DELIVERY,
+    });
+    const customerCancelled = v2FcmBody({
+      token: 'device-token',
+      type: 'v2_customer_cancelled',
+      deliveryId: DELIVERY,
+      assignmentId: 'assignment-1',
+      audience: 'rider',
+    });
+    expect(customerCancelled.message).not.toHaveProperty('notification');
+    expect(customerCancelled.message.data).toEqual({
+      type: 'v2_customer_cancelled',
+      deliveryId: DELIVERY,
+      assignmentId: 'assignment-1',
+    });
+  });
+
+  it('routes cancellation notices to the owner or the accepted rider only', () => {
+    expect(v2PushAudience('RIDER_CANCELLED')).toBe('customer');
+    expect(v2PushAudience('CUSTOMER_CANCELLED')).toBe('rider');
+    expect(v2PushAudience('BID_RECEIVED')).toBe('customer');
+    expect(v2PushAudience('BID_ACCEPTED')).toBe('rider');
+    expect(v2PushAudience('COLLECTED')).toBe('customer');
+    expect(v2PushAudience('DELIVERED')).toBe('customer');
+    const assignment = '55555555-5555-4555-8555-555555555555';
+    expect(assignmentNoticeDedupe(assignment, 'RIDER_CANCELLED')).toBe(`assignment:${assignment}:RIDER_CANCELLED`);
+    expect(assignmentNoticeDedupe(assignment, 'CUSTOMER_CANCELLED')).toBe(`assignment:${assignment}:CUSTOMER_CANCELLED`);
+    expect(assignmentNoticeDedupe(assignment, 'RIDER_CANCELLED'))
+      .not.toBe(assignmentNoticeDedupe(assignment, 'CUSTOMER_CANCELLED'));
+    const dispatch = readFileSync(new URL('./dispatch.service.ts', import.meta.url), 'utf8');
+    const riderCancel = dispatch.slice(
+      dispatch.indexOf('async function cancelBeforePickup'),
+      dispatch.indexOf('async function cancellationReplay'),
+    );
+    const customerCancel = dispatch.slice(
+      dispatch.indexOf('async function cancelV2DeliveryByCustomer'),
+      dispatch.indexOf('async function cancelDelivery'),
+    );
+    expect(riderCancel).toContain('recordRiderCancelled');
+    expect(riderCancel).not.toContain('recordCustomerCancelled');
+    expect(customerCancel).toContain('recordCustomerCancelled');
+    expect(customerCancel).not.toContain('NO_RIDER_FOUND');
+    expect(noticeDisposition({
+      configured: true,
+      knownType: true,
+      deviceCount: 1,
+      outcomes: ['invalid'],
+    })).toEqual({ disposition: 'defer', failure: null });
+    expect(noticeDisposition({
+      configured: true,
+      knownType: true,
+      deviceCount: 1,
+      outcomes: ['temporary'],
+    }).disposition).toBe('retry');
   });
 
   it('writes one marketplace row when the same event is recorded twice', async () => {

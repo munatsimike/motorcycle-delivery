@@ -205,6 +205,7 @@ interface RiderService {
     suspend fun walletTransactions(
         @Query("limit") limit: Int,
         @Query("cursor") cursor: String? = null,
+        @Query("currency") currency: String? = null,
     ): WalletTransactionsResponse
 }
 

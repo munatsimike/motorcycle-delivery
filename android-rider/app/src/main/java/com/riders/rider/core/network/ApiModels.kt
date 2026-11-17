@@ -244,6 +244,7 @@ data class ActiveAssignmentBody(
     val serviceClass: String? = null,
     val deliverBy: String? = null,
     val agreedPrice: String? = null,
+    val currency: String = "USD",
     val distanceMeters: Int? = null,
     val createdAt: String? = null,
     val completedAt: String? = null,
@@ -363,6 +364,7 @@ data class BidRequestBody(
 data class BidSubmissionRequest(
     val deliveryId: String,
     val amountCents: Int,
+    val currency: String,
 )
 
 @Serializable
@@ -429,6 +431,18 @@ data class WalletSummaryResponse(
     val promotionalBalance: String = "0.00",
     val availablePromotionalCredit: String = "0.00",
     val newDeliveriesRestricted: Boolean = false,
+    val zig: ZigWalletResponse? = null,
+    val activeWallet: String? = "USD",
+)
+
+@Serializable
+data class ZigWalletResponse(
+    val balance: String = "0.00",
+    val promotionalBalance: String = "0.00",
+    val reservedFees: String = "0.00",
+    val availableCapacity: String = "0.00",
+    val availablePromotionalCredit: String = "0.00",
+    val currency: String = "ZWG",
 )
 
 @Serializable

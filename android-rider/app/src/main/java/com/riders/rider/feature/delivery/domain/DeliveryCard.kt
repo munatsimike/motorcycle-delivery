@@ -140,10 +140,10 @@ fun deliveryWhenLabel(createdAt: String?, zone: ZoneId = ZoneId.systemDefault())
     return "${date.dayOfMonth} ${whenMonths[date.monthValue - 1]} ${date.year} • $hours:$minutes"
 }
 
-fun deliveryPriceLabel(amount: String?): String? {
+fun deliveryPriceLabel(amount: String?, currency: String = "USD"): String? {
     val value = amount?.trim().orEmpty()
     if (value.isEmpty()) {
         return null
     }
-    return "\$$value"
+    return com.riders.rider.core.money.moneyLabel(currency, value)
 }

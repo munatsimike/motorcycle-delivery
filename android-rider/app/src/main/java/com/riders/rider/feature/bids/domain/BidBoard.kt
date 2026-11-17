@@ -11,7 +11,7 @@ import com.riders.rider.feature.offers.domain.offerSentConfirmation
 import kotlinx.serialization.Serializable
 
 const val EXPRESS_BIDS_UNAVAILABLE = "New offers are unavailable while an Urgent delivery is active."
-const val BID_AMOUNT_INVALID = "Enter an offer amount ($)."
+const val BID_AMOUNT_INVALID = "Enter an offer amount."
 const val MARKETPLACE_DISABLED = "Bidding is not available"
 const val OFFERS_NOT_AVAILABLE = "Offers are not available"
 const val BID_LIST_UNAVAILABLE = "Your existing offers could not be loaded. Try again before sending another offer."
@@ -296,12 +296,12 @@ fun requestDistanceLabel(meters: Int?): String? {
     return "Distance $whole.$tenth km"
 }
 
-fun suggestedPriceLabel(amount: String?): String? {
+fun suggestedPriceLabel(amount: String?, currency: String = "USD"): String? {
     val value = amount?.trim().orEmpty()
     if (value.isEmpty()) {
         return null
     }
-    return "Suggested price \$$value"
+    return "Suggested price ${com.riders.rider.core.money.moneyLabel(currency, value)}"
 }
 
 fun openBidFor(bids: List<OwnBid>, deliveryId: String): OwnBid? {

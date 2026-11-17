@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../lib/client';
 import { when } from '../lib/labels';
-import type { ClassTariff, Page, PricingAudit, V2CommissionAudit, V2CommissionRate } from '../lib/types';
+import type { ClassTariff, ExchangeRate, ExchangeRateAudit, Page, PricingAudit, V2CommissionAudit, V2CommissionRate } from '../lib/types';
 import { SettingsPage } from './SettingsPage';
 
 const request = vi.hoisted(() => vi.fn());
@@ -19,6 +19,8 @@ type Call = { path: string; body?: unknown };
 const wallet = { configVersion: 1, currency: 'USD', welcomeBonus: '0.00', defaultBorrowingLimit: '0.00', platformFee: '0.00' };
 const emptyAudits: Page<PricingAudit> = { data: [], pagination: { page: 1, limit: 20, total: 0, totalPages: 0 } };
 const emptyV2Audits: Page<V2CommissionAudit> = { data: [], pagination: { page: 1, limit: 20, total: 0, totalPages: 0 } };
+const openingRate: ExchangeRate = { rateVersion: 1, zigPerUsd: '33.0000', usd: '1.00', createdById: null, createdAt: '2026-11-16T22:00:00.000Z' };
+const emptyRateAudits: Page<ExchangeRateAudit> = { data: [], pagination: { page: 1, limit: 20, total: 0, totalPages: 0 } };
 
 const world = {
   express: null as ClassTariff | null,
@@ -99,6 +101,11 @@ beforeEach(() => {
     }
     if (path === '/admin/v2-commission-rate') return world.v2Rate;
     if (path.startsWith('/admin/v2-commission-rate/audits')) return world.v2Audits;
+    if (method === 'POST' && path === '/admin/exchange-rate') {
+      return { ...openingRate, zigPerUsd: '34.0000', rateVersion: 2, createdById: 'admin-1' };
+    }
+    if (path === '/admin/exchange-rate') return openingRate;
+    if (path.startsWith('/admin/exchange-rate/audits')) return emptyRateAudits;
     if (path.startsWith('/admin/delivery-pricing/audits')) {
       if (world.auditError) throw world.auditError;
       const page = new URL(path, 'http://local').searchParams.get('page');
@@ -502,6 +509,17 @@ describe('admin pricing settings', () => {
     expect(history.textContent).not.toContain('admin-9');
     expect(history.textContent).toContain('None');
     expect(history.textContent).toContain('10% · version 1');
+  });
+
+  it('asks before publishing a new internal exchange rate', async () => {
+    await renderReady();
+    const section = screen.getByRole('heading', { name: 'Exchange rate' }).closest('section') as HTMLElement;
+    expect(section.textContent).toContain('1 USD = 33.0000 ZiG');
+    fireEvent.change(within(section).getByLabelText('ZiG per 1 USD'), { target: { value: '34.5' } });
+    fireEvent.click(within(section).getByRole('button', { name: 'Review exchange rate' }));
+    expect(screen.getByRole('dialog').textContent).toContain('1 USD = 34.5 ZiG');
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(request).toHaveBeenCalledWith('/admin/exchange-rate', expect.objectContaining({ method: 'POST', body: { zigPerUsd: '34.5' } })));
   });
 });
 

@@ -191,7 +191,8 @@ it('rejects a missing key, an invalid number, and a non-positive amount before a
   expect(missing.status).toBe(400);
   expect(invalidNumber.status).toBe(400);
   expect(zero.status).toBe(400);
-  expect(wrongCurrency.status).toBe(400);
+  expect(wrongCurrency.status).toBe(503);
+  expect(wrongCurrency.body.code).toBe('PAYMENT_METHOD_UNAVAILABLE');
   expect(provider.charges).toBe(0);
   expect(JSON.stringify([missing.body, invalidNumber.body, zero.body, wrongCurrency.body])).not.toContain('sandbox-pass');
 });
@@ -461,7 +462,7 @@ it('keeps admin receipts unchanged and enforces the payment unique indexes', asy
   provider.reset(charged());
   const created = await postTopUp(USER_A, SESSION_A, 'RIDER', 'unique-1', { amount: '1.00', endUserId: '0771234567' });
   const stored = await prisma.walletPayment.findUniqueOrThrow({ where: { id: created.body.paymentId } });
-  const walletB = await prisma.riderWallet.findUniqueOrThrow({ where: { riderProfileId: PROFILE_B } });
+  const walletB = await prisma.riderWallet.findUniqueOrThrow({ where: { riderProfileId_currency: { riderProfileId: PROFILE_B, currency: 'USD' } } });
   await expect(observer.query(duplicatePaymentSql('client'), [
     walletB.id, 'unique-correlator', 'b'.repeat(64), stored.clientCorrelator, 'RDR3234567890123456',
   ])).rejects.toMatchObject({ code: '23505', constraint: 'wallet_payments_client_correlator_key' });
@@ -497,7 +498,7 @@ it('credits one verified payment from provider evidence and does not credit unre
     .post(`/riders/me/wallet/ecocash-top-ups/${storedUnresolved.id}/lookup`)
     .set('authorization', await token(USER_A, 'RIDER', SESSION_A));
   expect(lookedUp.body).toMatchObject({ status: 'UNRESOLVED', credited: false });
-  const walletBefore = await prisma.riderWallet.findUniqueOrThrow({ where: { riderProfileId: PROFILE_A } });
+  const walletBefore = await prisma.riderWallet.findUniqueOrThrow({ where: { riderProfileId_currency: { riderProfileId: PROFILE_A, currency: 'USD' } } });
   const refused = await postEcocashCredit(
     prisma as unknown as EcocashCreditClient,
     storedUnresolved.id,
@@ -531,7 +532,7 @@ it('credits one verified payment from provider evidence and does not credit unre
   expect(entries[0]?.actorType).toBe('SYSTEM');
   expect(entries[0]?.actorId).toBeNull();
   expect(signedCentsFromDecimal(entries[0]?.amount ?? '0')).toBe(200);
-  const walletAfter = await prisma.riderWallet.findUniqueOrThrow({ where: { riderProfileId: PROFILE_A } });
+  const walletAfter = await prisma.riderWallet.findUniqueOrThrow({ where: { riderProfileId_currency: { riderProfileId: PROFILE_A, currency: 'USD' } } });
   expect(walletAfter.balance.toFixed(2)).toBe(expectedBalance);
   expect(walletAfter.promotionalBalance.toFixed(2)).toBe(walletBefore.promotionalBalance.toFixed(2));
   expect(walletAfter.borrowingLimitOverride?.toFixed(2)).toBe(walletBefore.borrowingLimitOverride?.toFixed(2));
@@ -546,7 +547,7 @@ it('posts one credit when lookup is explicitly allowed and a later lookup does n
   provider.reset(charged());
   const started = await postTopUp(USER_A, SESSION_A, 'RIDER', 'credit-lookup', { amount: '1.50', endUserId: '0771234567' });
   const pending = await prisma.walletPayment.findUniqueOrThrow({ where: { id: started.body.paymentId } });
-  const before = await prisma.riderWallet.findUniqueOrThrow({ where: { riderProfileId: PROFILE_A } });
+  const before = await prisma.riderWallet.findUniqueOrThrow({ where: { riderProfileId_currency: { riderProfileId: PROFILE_A, currency: 'USD' } } });
   provider.use(charged(pending.clientCorrelator ?? '', pending.referenceCode ?? '', null, 150, 'USD'));
   const credited = await lookupEcocashTopUp(
     prisma as unknown as PrismaClientLike,
@@ -567,7 +568,7 @@ it('posts one credit when lookup is explicitly allowed and a later lookup does n
   expect(credited).toMatchObject({ status: 'VERIFIED', credited: true, replayed: false });
   expect(again).toMatchObject({ status: 'VERIFIED', credited: true, replayed: true });
   expect(await prisma.riderWalletEntry.count({ where: { walletPaymentId: pending.id } })).toBe(1);
-  const after = await prisma.riderWallet.findUniqueOrThrow({ where: { riderProfileId: PROFILE_A } });
+  const after = await prisma.riderWallet.findUniqueOrThrow({ where: { riderProfileId_currency: { riderProfileId: PROFILE_A, currency: 'USD' } } });
   expect(signedDifference(before.balance, after.balance)).toBe(150);
   expect(provider.charges).toBe(1);
   expect(await ledgerMatchesBalance(after.id)).toBe(true);
@@ -604,7 +605,7 @@ it('recovers a verified uncredited payment once and never sends another charge',
   expect(recovered.reduce((sum, count) => sum + count, 0)).toBe(1);
   expect(await prisma.riderWalletEntry.count({ where: { walletPaymentId: pending.id } })).toBe(1);
   expect(provider.charges).toBe(charges);
-  const wallet = await prisma.riderWallet.findUniqueOrThrow({ where: { riderProfileId: PROFILE_A } });
+  const wallet = await prisma.riderWallet.findUniqueOrThrow({ where: { riderProfileId_currency: { riderProfileId: PROFILE_A, currency: 'USD' } } });
   expect(await ledgerMatchesBalance(wallet.id)).toBe(true);
 });
 
@@ -627,7 +628,7 @@ it('lets only one of two concurrent credit workers post the ledger entry', async
   expect(posted.filter((result) => result.credited)).toHaveLength(2);
   expect(posted.filter((result) => !result.replayed)).toHaveLength(1);
   expect(await prisma.riderWalletEntry.count({ where: { walletPaymentId: row.id } })).toBe(1);
-  const wallet = await prisma.riderWallet.findUniqueOrThrow({ where: { riderProfileId: PROFILE_A } });
+  const wallet = await prisma.riderWallet.findUniqueOrThrow({ where: { riderProfileId_currency: { riderProfileId: PROFILE_A, currency: 'USD' } } });
   expect(await ledgerMatchesBalance(wallet.id)).toBe(true);
 });
 
@@ -652,7 +653,7 @@ it('uses the credit switch only after provider amount and currency evidence', as
   provider.reset(charged());
   const started = await postTopUp(USER_A, SESSION_A, 'RIDER', 'flag-verified', { amount: '0.70', endUserId: '0771234567' });
   const pending = await prisma.walletPayment.findUniqueOrThrow({ where: { id: started.body.paymentId } });
-  const before = await prisma.riderWallet.findUniqueOrThrow({ where: { riderProfileId: PROFILE_A } });
+  const before = await prisma.riderWallet.findUniqueOrThrow({ where: { riderProfileId_currency: { riderProfileId: PROFILE_A, currency: 'USD' } } });
   provider.lookupQueue.push(charged(pending.clientCorrelator ?? '', pending.referenceCode ?? '', null, 70, 'USD'));
   const held = await request(app.getHttpServer())
     .post(`/riders/me/wallet/ecocash-top-ups/${pending.id}/lookup`)
@@ -671,7 +672,7 @@ it('uses the credit switch only after provider amount and currency evidence', as
     expect(credited.body).toMatchObject({ status: 'VERIFIED', credited: true });
     expect(replayed.body).toMatchObject({ status: 'VERIFIED', credited: true });
     expect(await prisma.riderWalletEntry.count({ where: { walletPaymentId: pending.id } })).toBe(1);
-    const after = await prisma.riderWallet.findUniqueOrThrow({ where: { riderProfileId: PROFILE_A } });
+    const after = await prisma.riderWallet.findUniqueOrThrow({ where: { riderProfileId_currency: { riderProfileId: PROFILE_A, currency: 'USD' } } });
     expect(signedDifference(before.balance, after.balance)).toBe(70);
     expect(await ledgerMatchesBalance(after.id)).toBe(true);
     expect(provider.charges).toBe(1);

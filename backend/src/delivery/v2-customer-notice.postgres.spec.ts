@@ -39,12 +39,27 @@ ALTER TABLE "v2_outbox_events"
         "attempt_count" >= 0
         AND (
             (
-                "event_type" = 'BID_ACCEPTED'::"v2_outbox_event_type"
+                "event_type" IN (
+                    'BID_ACCEPTED'::"v2_outbox_event_type",
+                    'ACCOUNT_APPROVED'::"v2_outbox_event_type",
+                    'CUSTOMER_CANCELLED'::"v2_outbox_event_type"
+                )
                 AND "rider_profile_id" IS NOT NULL
                 AND "customer_account_id" IS NULL
             )
             OR (
-                "event_type" <> 'BID_ACCEPTED'::"v2_outbox_event_type"
+                "event_type" = 'RIDER_OPPORTUNITY'::"v2_outbox_event_type"
+                AND "rider_profile_id" IS NULL
+                AND "customer_account_id" IS NULL
+                AND "delivery_id" IS NOT NULL
+            )
+            OR (
+                "event_type" NOT IN (
+                    'BID_ACCEPTED'::"v2_outbox_event_type",
+                    'ACCOUNT_APPROVED'::"v2_outbox_event_type",
+                    'CUSTOMER_CANCELLED'::"v2_outbox_event_type",
+                    'RIDER_OPPORTUNITY'::"v2_outbox_event_type"
+                )
                 AND "customer_account_id" IS NOT NULL
                 AND "rider_profile_id" IS NULL
             )
@@ -287,21 +302,23 @@ it('does not write a V2 status event when a stored legacy assignment stays assig
   expect(await prisma.v2OutboxEvent.count({ where: { deliveryId: delivery.id } })).toBe(0);
 }, 60_000);
 
-it('keeps bid acceptance and request reopened notices and sends them with new payload types', async () => {
+it('sends the accepted-bid notice and does not reopen the request after cancellation', async () => {
   const hired = await hire();
   const opened = await acceptJob(hired, '10.00');
   await acceptance.accept(customer, opened.deliveryId, opened.bidId, opened.acceptKey, NOW);
   expect(await prisma.v2OutboxEvent.count({ where: { assignmentId: opened.assignmentId, eventType: 'BID_ACCEPTED' } })).toBe(1);
-  const reopened = await dispatch.cancelBeforePickup(
+  const closed = await dispatch.cancelBeforePickup(
     hired.rider,
     opened.assignmentId,
     `cancel-${opened.assignmentId}`,
     { reason: 'BREAKDOWN' },
     NOW,
   );
-  expect(reopened).toMatchObject({ status: 'CREATED', reopened: true });
-  await dispatch.cancelBeforePickup(hired.rider, opened.assignmentId, `cancel-${opened.assignmentId}`, { reason: 'BREAKDOWN' }, NOW);
-  expect(await prisma.v2OutboxEvent.count({ where: { assignmentId: opened.assignmentId, eventType: 'REQUEST_REOPENED' } })).toBe(1);
+  expect(closed).toMatchObject({ status: 'CANCELLED', reopened: false });
+  const replay = await dispatch.cancelBeforePickup(hired.rider, opened.assignmentId, `cancel-${opened.assignmentId}`, { reason: 'BREAKDOWN' }, NOW);
+  expect(replay).toMatchObject({ status: 'CANCELLED', reopened: false, replayed: true });
+  expect(await prisma.v2OutboxEvent.count({ where: { assignmentId: opened.assignmentId, eventType: 'REQUEST_REOPENED' } })).toBe(0);
+  expect(await prisma.v2OutboxEvent.count({ where: { deliveryId: opened.deliveryId, eventType: 'RIDER_OPPORTUNITY' } })).toBe(0);
   const ledgerBefore = await prisma.riderWalletEntry.count({ where: { riderWalletId: hired.walletId } });
   await riderDevices.register(hired.rider, 'rider-device-token');
   await devices.register(customer, 'customer-reopen-token');
@@ -310,16 +327,14 @@ it('keeps bid acceptance and request reopened notices and sends them with new pa
   push.outcome = 'accepted';
   await notices.drain(NOW);
   const types = push.messages.map((message) => message.type).sort();
-  expect(types).toEqual(['v2_bid_accepted', 'v2_request_reopened']);
+  expect(types).toEqual(['v2_bid_accepted', 'v2_rider_cancelled']);
+  expect(types).not.toContain('v2_request_reopened');
   expect(types).not.toContain('rider_offer');
-  expect((await prisma.delivery.findUniqueOrThrow({ where: { id: opened.deliveryId } })).status).toBe('CREATED');
+  expect((await prisma.delivery.findUniqueOrThrow({ where: { id: opened.deliveryId } })).status).toBe('CANCELLED');
   expect(await prisma.riderWalletEntry.count({ where: { riderWalletId: hired.walletId } })).toBe(ledgerBefore);
   expect((await prisma.v2OutboxEvent.findFirstOrThrow({
     where: { assignmentId: opened.assignmentId, eventType: 'BID_ACCEPTED' },
   })).status).toBe('SENT');
-  expect((await prisma.v2OutboxEvent.findFirstOrThrow({
-    where: { assignmentId: opened.assignmentId, eventType: 'REQUEST_REOPENED' },
-  })).sentAt).toBeTruthy();
 }, 60_000);
 
 it('writes one deadline reminder for a late active parcel and none for a finished parcel', async () => {
@@ -361,6 +376,17 @@ it('writes one deadline reminder for a late active parcel and none for a finishe
   } finally {
     process.env.V2_MARKETPLACE_ENABLED = 'true';
   }
+}, 60_000);
+
+it('lets concurrent reminder passes collide on either unique key and still write one event', async () => {
+  const hired = await hire();
+  const parcel = await lateParcel(hired, DeliveryStatus.COLLECTING);
+  const results = await Promise.all(
+    Array.from({ length: 8 }, () => remindLateV2Deliveries(prisma, NOW)),
+  );
+  expect(results.reduce((sum, count) => sum + count, 0)).toBe(1);
+  expect(await prisma.v2OutboxEvent.count({ where: { assignmentId: parcel.assignmentId, eventType: 'DEADLINE_REMINDER' } })).toBe(1);
+  expect((await prisma.delivery.findUniqueOrThrow({ where: { id: parcel.deliveryId } })).status).toBe('COLLECTING');
 }, 60_000);
 
 it('lets concurrent reminder passes write one event and leaves the parcel active', async () => {

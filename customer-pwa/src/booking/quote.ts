@@ -6,13 +6,13 @@ const MONEY = /^(\d{1,10})\.(\d{2})$/;
 export type DeliveryQuote = {
   distanceMeters: number;
   pricingVersion: number;
-  currency: 'USD';
+  currency: 'USD' | 'ZWG';
   suggestedPrice: string;
   serviceClass: ServiceClass | null;
 };
 
 export function readDeliveryQuote(value: unknown): DeliveryQuote {
-  if (!isRecord(value) || value.currency !== 'USD') throw new Error('The quote could not be read.');
+  if (!isRecord(value) || (value.currency !== 'USD' && value.currency !== 'ZWG')) throw new Error('The quote could not be read.');
   if (typeof value.suggestedPrice !== 'string' || !MONEY.test(value.suggestedPrice)) throw new Error('The quote could not be read.');
   if (!isWholeNumber(value.distanceMeters) || !isWholeNumber(value.pricingVersion)) throw new Error('The quote could not be read.');
   const serviceClass = value.serviceClass === undefined || value.serviceClass === null || value.serviceClass === ''
@@ -24,7 +24,7 @@ export function readDeliveryQuote(value: unknown): DeliveryQuote {
   return {
     distanceMeters: value.distanceMeters,
     pricingVersion: value.pricingVersion,
-    currency: 'USD',
+    currency: value.currency,
     suggestedPrice: value.suggestedPrice,
     serviceClass,
   };
@@ -77,8 +77,8 @@ export function formatDistance(meters: number): string {
   return `${text} km`;
 }
 
-export function moneyLabel(amount: string): string {
-  return `$${amount}`;
+export function moneyLabel(amount: string, currency: 'USD' | 'ZWG' = 'USD'): string {
+  return currency === 'ZWG' ? `ZiG ${amount}` : `US$${amount}`;
 }
 
 export type OpenBidRequest = {
@@ -87,7 +87,7 @@ export type OpenBidRequest = {
   serviceClass: ServiceClass;
   deliverBy: string | null;
   suggestedPrice: string;
-  currency: 'USD';
+  currency: 'USD' | 'ZWG';
 };
 
 export function readOpenBidRequest(value: unknown): OpenBidRequest {
@@ -99,7 +99,7 @@ export function readOpenBidRequest(value: unknown): OpenBidRequest {
   if (deliverBy !== null && (typeof deliverBy !== 'string' || Number.isNaN(new Date(deliverBy).getTime()))) {
     throw new Error('Delivery details are unavailable.');
   }
-  if (value.currency !== 'USD' || typeof value.suggestedPrice !== 'string' || !MONEY.test(value.suggestedPrice)) {
+  if ((value.currency !== 'USD' && value.currency !== 'ZWG') || typeof value.suggestedPrice !== 'string' || !MONEY.test(value.suggestedPrice)) {
     throw new Error('Delivery details are unavailable.');
   }
   return {
@@ -108,7 +108,7 @@ export function readOpenBidRequest(value: unknown): OpenBidRequest {
     serviceClass: value.serviceClass,
     deliverBy,
     suggestedPrice: value.suggestedPrice,
-    currency: 'USD',
+    currency: value.currency,
   };
 }
 

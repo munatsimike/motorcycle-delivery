@@ -18,7 +18,7 @@ import { v2MarketplaceEnabled } from '../auth/v2-flags.js';
 import { recordDeliveryOpportunity } from './v2-outbox.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { readDeliveryDraft, readQuoteRequest, readV2DeliveryDraft, type QuotePins, type QuoteRequest, type V2DeliveryDraft } from './delivery-request.js';
-import { assignedRiderStatus, customerRoutesToDropoff, customerSharesRiderLocation, freshRiderPoint, toCustomerDelivery, toCustomerDeliverySummary, withAssignedRider, withCollectingRiderLocation, withCustomerRating, withPickupApproach, type AssignedRiderView, type PickupApproachView, type RiderPoint, type StoredDelivery } from './delivery-view.js';
+import { assignedRiderStatus, customerCancellationView, customerRoutesToDropoff, customerSharesRiderLocation, freshRiderPoint, toCustomerDelivery, toCustomerDeliverySummary, withAssignedRider, withCollectingRiderLocation, withCustomerCancellation, withCustomerRating, withPickupApproach, type AssignedRiderView, type PickupApproachView, type RiderPoint, type StoredDelivery } from './delivery-view.js';
 import { PICKUP_APPROACH, type PickupApproachLookup } from './pickup-approach.js';
 import { centsFromDecimal, formatCents } from './money.js';
 import { lockActiveClassPricing } from './pricing-lock.js';
@@ -26,6 +26,7 @@ import { calculateTariffPrice, PricingCalculationError, type TariffSnapshot } fr
 import { ROAD_DISTANCE, geoapifyRoadDistance, type RoadDistance } from './geoapify.js';
 import { V2_SEARCH_WINDOW_MS } from './v2-search.js';
 import { IDEMPOTENCY_CONFLICT } from '../rider/wallet-ledger.js';
+import { assertZwgOffersOpen, readActiveExchangeRate, suggestedCentsForCurrency } from './exchange-rate.js';
 
 export const PRICING_CLOCK = Symbol('PRICING_CLOCK');
 
@@ -83,10 +84,39 @@ export class DeliveryService {
     const destination = customerRoutesToDropoff(delivery.status) ? view.dropoff : view.pickup;
     const approach = await this.pickupApproachFor(point, destination.latitude, destination.longitude);
     const rating = await this.customerRating(delivery.id, delivery.status, rider != null);
-    return withCustomerRating(
+    const rated = withCustomerRating(
       withAssignedRider(withPickupApproach(withCollectingRiderLocation(view, point), approach), rider),
       rating,
     );
+    if (delivery.status !== DeliveryStatus.CANCELLED) {
+      return rated;
+    }
+    return withCustomerCancellation(rated, await this.customerCancellation(delivery.id));
+  }
+
+  private async customerCancellation(deliveryId: string) {
+    const assignments = this.prisma.deliveryAssignment;
+    if (!assignments || typeof assignments.findFirst !== 'function') {
+      return null;
+    }
+    const assignment = await assignments.findFirst({
+      where: { deliveryId, status: AssignmentStatus.RELEASED },
+      orderBy: { releasedAt: 'desc' },
+      select: { releaseReason: true, cancellationStage: true },
+    });
+    const events = this.prisma.deliveryStatusEvent;
+    const event = events && typeof events.findFirst === 'function'
+      ? await events.findFirst({
+        where: { deliveryId, newStatus: DeliveryStatus.CANCELLED },
+        orderBy: { occurredAt: 'desc' },
+        select: { actorType: true },
+      })
+      : null;
+    return customerCancellationView({
+      actorType: event?.actorType ?? null,
+      releaseReason: assignment?.releaseReason ?? null,
+      cancellationStage: assignment?.cancellationStage ?? null,
+    });
   }
 
   private async customerRating(
@@ -257,6 +287,7 @@ export class DeliveryService {
     if (!v2MarketplaceEnabled()) {
       throw new NotFoundException('Bidding is not available');
     }
+    assertZwgOffersOpen(request.currency);
     return this.quoteServiceClass(request);
   }
 
@@ -276,6 +307,7 @@ export class DeliveryService {
     if (replayed) {
       return replayed;
     }
+    assertZwgOffersOpen(draft.currency);
     const metres = await this.roadMetres(draft);
     try {
       return await this.prisma.$transaction(async (tx) => {
@@ -283,6 +315,7 @@ export class DeliveryService {
         if (raced) {
           return raced;
         }
+        assertZwgOffersOpen(draft.currency);
         await lockActiveClassPricing(tx, draft.serviceClass);
         const active = await tx.deliveryPricingConfig.findFirst({
           where: { isActive: true, serviceClass: draft.serviceClass },
@@ -300,6 +333,8 @@ export class DeliveryService {
         } catch (error) {
           throw quotedPriceError(error);
         }
+        const rate = await readActiveExchangeRate(tx);
+        const suggestedCents = suggestedCentsForCurrency(priced.suggestedPriceCents, draft.currency, rate);
         const retrievedAt = new Date();
         const created = await tx.delivery.create({
           data: {
@@ -329,7 +364,7 @@ export class DeliveryService {
             recipientName: draft.dropoffContactName,
             recipientPhone: draft.dropoffContactPhone,
             price: null,
-            suggestedPrice: formatCents(priced.suggestedPriceCents),
+            suggestedPrice: formatCents(suggestedCents),
             customerOffer: formatCents(draft.offeredPriceCents),
             distanceMeters: priced.distanceMetres,
             pricingVersion: priced.pricingVersion,
@@ -337,7 +372,9 @@ export class DeliveryService {
             pricingBasisPoints: priced.basisPoints,
             pricingWindowId: priced.pricingWindow?.id ?? null,
             payer: null,
-            currency: Currency.USD,
+            currency: draft.currency,
+            exchangeRateVersion: rate?.rateVersion ?? null,
+            exchangeRateZigPerUsd: rate?.zigPerUsd ?? null,
             paymentMethod: draft.paymentMethod,
             serviceClass: draft.serviceClass,
             deliverBy: draft.deliverBy,
@@ -412,6 +449,8 @@ export class DeliveryService {
     } catch (error) {
       throw quotedPriceError(error);
     }
+    const rate = await readActiveExchangeRate(this.prisma);
+    const suggestedCents = suggestedCentsForCurrency(priced.suggestedPriceCents, request.currency, rate);
     return {
       distanceMeters: priced.distanceMetres,
       pricingVersion: priced.pricingVersion,
@@ -419,8 +458,8 @@ export class DeliveryService {
       serviceClass: priced.serviceClass,
       pricingWindow: priced.pricingWindow,
       basisPoints: priced.basisPoints,
-      currency: Currency.USD,
-      suggestedPrice: formatCents(priced.suggestedPriceCents),
+      currency: request.currency,
+      suggestedPrice: formatCents(suggestedCents),
     };
   }
 
@@ -636,7 +675,7 @@ function creationHash(customerAccountId: string, draft: V2DeliveryDraft): string
       deliverBy: draft.deliverBy?.toISOString() ?? null,
       paymentMethod: draft.paymentMethod,
       offeredPriceCents: draft.offeredPriceCents,
-      currency: Currency.USD,
+      currency: draft.currency,
     }))
     .digest('hex');
 }

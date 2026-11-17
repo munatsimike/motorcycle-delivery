@@ -12,7 +12,7 @@ import { readMoneyCents } from '../delivery/money.js';
 import { EcocashConfigurationError, ECOCASH_PROVIDER, readEcocashSandboxConfig } from './ecocash-config.js';
 import type { EcocashPaymentProvider, EcocashProviderResult, EcocashTransaction } from './ecocash-client.js';
 import { postEcocashCredit, type EcocashCreditClient } from './ecocash-credit.js';
-import { ensureRiderWallet } from './wallet-ledger.js';
+import { assertNoUsdCashDebt, ensureRiderWallet, usdWalletWhere } from './wallet-ledger.js';
 import { formatSignedCents, signedCentsFromDecimal } from './wallet-money.js';
 
 const PENDING_TTL_MS = 15 * 60 * 1000;
@@ -26,6 +26,7 @@ const RECONCILE_BATCH = 20;
 // undocumented report, and it does not copy the requested amount into the
 // provider result. Without both fields the payment stays unresolved.
 const AMOUNT_CURRENCY_UNVERIFIED = 'AMOUNT_CURRENCY_UNVERIFIED';
+export const PAYMENT_METHOD_UNAVAILABLE = 'PAYMENT_METHOD_UNAVAILABLE';
 const UNRESOLVED = [WalletPaymentStatus.PENDING, WalletPaymentStatus.UNRESOLVED];
 const LOOKUP_STATUSES: WalletPaymentStatus[] = [WalletPaymentStatus.PENDING, WalletPaymentStatus.UNRESOLVED, WalletPaymentStatus.EXPIRED, WalletPaymentStatus.FAILED];
 const RECOVERABLE_STATUSES: WalletPaymentStatus[] = [WalletPaymentStatus.PENDING, WalletPaymentStatus.UNRESOLVED, WalletPaymentStatus.EXPIRED, WalletPaymentStatus.FAILED];
@@ -37,7 +38,7 @@ export type EcocashTopUpView = {
   status: WalletPaymentStatus;
   amountCents: number;
   amount: string;
-  currency: 'USD';
+  currency: Currency;
   payerMsisdn: string;
   clientCorrelator: string;
   referenceCode: string;
@@ -50,6 +51,7 @@ type TopUpInput = {
   riderProfileId: string;
   amountCents: number;
   payerMsisdn: string;
+  currency: Currency;
   idempotencyKey: string;
   payloadHash: string;
 };
@@ -114,8 +116,18 @@ export async function initiateEcocashTopUp(
   idempotencyKey: string,
   now = new Date(),
 ): Promise<EcocashTopUpView> {
+  const requested = readEcocashTopUp(body, idempotencyKey, rider.riderProfileId);
+  if (requested.currency === Currency.ZWG) {
+    await prisma.$transaction((tx) => assertNoUsdCashDebt(tx, rider.riderProfileId));
+    throw new ServiceUnavailableException({
+      statusCode: 503,
+      code: PAYMENT_METHOD_UNAVAILABLE,
+      message: 'ZiG EcoCash top-up is unavailable',
+      error: 'Service Unavailable',
+    });
+  }
   requireEcocashSandbox();
-  const input = readEcocashTopUp(body, idempotencyKey, rider.riderProfileId);
+  const input = requested;
   const saved = await savePending(prisma, input, now);
   if (saved.payment.chargeAttemptedAt) {
     return toView(saved.payment, true);
@@ -235,15 +247,17 @@ export function readEcocashTopUp(body: unknown, idempotencyKey: string, riderPro
       throw new BadRequestException('Enter the top-up amount and EcoCash number');
     }
   }
-  if (record.currency !== undefined && record.currency !== Currency.USD) {
+  if (record.currency !== undefined && record.currency !== Currency.USD && record.currency !== Currency.ZWG) {
     throw new BadRequestException('USD is the only supported currency');
   }
+  const currency = record.currency === Currency.ZWG ? Currency.ZWG : Currency.USD;
   const amountCents = readMoneyCents(record.amount, false, 'Enter a top-up amount');
   const payerMsisdn = normalizeEcocashMsisdn(record.endUserId);
   return {
     riderProfileId,
     amountCents,
     payerMsisdn,
+    currency,
     idempotencyKey: key,
     payloadHash: topUpHash({ riderProfileId, amountCents, payerMsisdn, idempotencyKey: key }),
   };
@@ -346,7 +360,7 @@ export type PrismaClientLike = {
   $transaction<T>(work: (tx: Prisma.TransactionClient) => Promise<T>, options?: { timeout?: number; maxWait?: number }): Promise<T>;
   walletPayment: Prisma.TransactionClient['walletPayment'];
   riderWallet: {
-    findUnique(args: { where: { riderProfileId: string } }): Promise<{ id: string } | null>;
+    findUnique(args: { where: ReturnType<typeof usdWalletWhere> }): Promise<{ id: string } | null>;
   };
 };
 
@@ -364,6 +378,14 @@ async function savePending(prisma: PrismaClientLike, input: TopUpInput, now: Dat
 }
 
 async function persistPending(tx: Prisma.TransactionClient, input: TopUpInput, now: Date): Promise<Persisted> {
+  if (input.currency !== Currency.USD) {
+    throw new ServiceUnavailableException({
+      statusCode: 503,
+      code: PAYMENT_METHOD_UNAVAILABLE,
+      message: 'ZiG EcoCash top-up is unavailable',
+      error: 'Service Unavailable',
+    });
+  }
   const wallet = await ensureRiderWallet(tx, input.riderProfileId, now);
   const existing = await tx.walletPayment.findUnique({ where: { idempotencyKey: input.idempotencyKey } });
   if (existing) {
@@ -407,11 +429,11 @@ async function persistPending(tx: Prisma.TransactionClient, input: TopUpInput, n
 async function loadAfterUniqueConflict(prisma: PrismaClientLike, input: TopUpInput): Promise<Persisted> {
   const existing = await prisma.walletPayment.findUnique({ where: { idempotencyKey: input.idempotencyKey } });
   if (existing) {
-    const wallet = await prisma.riderWallet.findUnique({ where: { riderProfileId: input.riderProfileId } });
+    const wallet = await prisma.riderWallet.findUnique({ where: usdWalletWhere(input.riderProfileId) });
     if (!wallet) throw new ConflictException('This idempotency key was already used');
     return { payment: replay(existing, wallet.id, input.payloadHash), replayed: true };
   }
-  const wallet = await prisma.riderWallet.findUnique({ where: { riderProfileId: input.riderProfileId } });
+  const wallet = await prisma.riderWallet.findUnique({ where: usdWalletWhere(input.riderProfileId) });
   if (wallet) {
     const unresolved = await prisma.walletPayment.findFirst({
       where: { riderWalletId: wallet.id, status: { in: UNRESOLVED } },
@@ -535,12 +557,12 @@ function payerIdentityMatches(payment: PaymentRow, transaction: EcocashTransacti
 function chargeIdentityMatches(payment: PaymentRow, transaction: EcocashTransaction): boolean {
   return payerIdentityMatches(payment, transaction)
     && (transaction.amountCents === null || transaction.amountCents === signedCentsFromDecimal(payment.amount))
-    && (transaction.currency === null || transaction.currency === Currency.USD);
+    && (transaction.currency === null || transaction.currency === payment.currency);
 }
 
 function authoritativeAmount(payment: PaymentRow, transaction: EcocashTransaction): 'match' | 'missing' | 'mismatch' {
   if (transaction.amountCents === null || transaction.currency === null) return 'missing';
-  if (transaction.amountCents !== signedCentsFromDecimal(payment.amount) || transaction.currency !== Currency.USD) return 'mismatch';
+  if (transaction.amountCents !== signedCentsFromDecimal(payment.amount) || transaction.currency !== payment.currency) return 'mismatch';
   return 'match';
 }
 
@@ -589,7 +611,7 @@ function toView(payment: PaymentRow, replayed: boolean): EcocashTopUpView {
     status: payment.status,
     amountCents: signedCentsFromDecimal(payment.amount),
     amount: formatSignedCents(signedCentsFromDecimal(payment.amount)),
-    currency: Currency.USD,
+    currency: payment.currency === Currency.ZWG ? Currency.ZWG : Currency.USD,
     payerMsisdn: requiredText(payment.payerMsisdn),
     clientCorrelator: requiredText(payment.clientCorrelator),
     referenceCode: requiredText(payment.referenceCode),

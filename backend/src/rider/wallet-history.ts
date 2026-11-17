@@ -1,6 +1,6 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Currency, Prisma, WalletEntryType, WalletPaymentMethod } from '../generated/prisma/client.js';
-import { readWalletSummary } from './wallet-ledger.js';
+import { readWalletSummary, walletWhere } from './wallet-ledger.js';
 import { formatSignedCents, signedCentsFromDecimal } from './wallet-money.js';
 
 const DEFAULT_LIMIT = 20;
@@ -22,7 +22,7 @@ export type WalletTransactionView = {
   type: WalletEntryType;
   amount: string;
   balanceAfter: string;
-  currency: 'USD';
+  currency: Currency;
   createdAt: Date;
   reason: string | null;
   payment: WalletPaymentView | null;
@@ -55,17 +55,37 @@ type HistoryRow = {
 
 // Read-only history. A missing wallet stays missing: this does not create a
 // wallet, post a ledger row, or award a welcome bonus.
+export function readHistoryCurrency(query: unknown): Currency {
+  if (query === undefined || query === null || typeof query !== 'object' || Array.isArray(query)) {
+    return Currency.USD;
+  }
+  const value = (query as { currency?: unknown }).currency;
+  if (value === undefined || value === null || value === '' || value === Currency.USD) {
+    return Currency.USD;
+  }
+  if (value === Currency.ZWG) {
+    return Currency.ZWG;
+  }
+  throw new BadRequestException('Choose USD or ZiG');
+}
+
 export async function readWalletTransactions(
   tx: Prisma.TransactionClient,
   riderProfileId: string,
   page: TransactionPageRequest,
+  currency: Currency = Currency.USD,
 ): Promise<WalletTransactionPage> {
-  await readWalletSummary(tx, riderProfileId);
+  if (currency === Currency.USD) {
+    await readWalletSummary(tx, riderProfileId);
+  }
   const wallet = await tx.riderWallet.findUnique({
-    where: { riderProfileId },
+    where: walletWhere(riderProfileId, currency),
     select: { id: true },
   });
   if (!wallet) {
+    if (currency === Currency.ZWG) {
+      return { transactions: [], nextCursor: null };
+    }
     throw new NotFoundException('Rider wallet not found');
   }
   const rows = await tx.riderWalletEntry.findMany({
@@ -100,7 +120,7 @@ export async function readWalletTransactions(
   const visible = rows.slice(0, page.limit);
   const last = visible[visible.length - 1];
   return {
-    transactions: visible.map(toTransaction),
+    transactions: visible.map((row) => toTransaction(row, currency)),
     nextCursor: rows.length > page.limit && last ? encodeCursor(last.createdAt, last.id) : null,
   };
 }
@@ -157,13 +177,13 @@ function encodeCursor(createdAt: Date, id: string): string {
   return Buffer.from(`${createdAt.toISOString()}\n${id}`, 'utf8').toString('base64url');
 }
 
-function toTransaction(row: HistoryRow): WalletTransactionView {
+function toTransaction(row: HistoryRow, currency: Currency): WalletTransactionView {
   return {
     id: row.id,
     type: row.entryType,
     amount: formatSignedCents(signedCentsFromDecimal(row.amount)),
     balanceAfter: formatSignedCents(signedCentsFromDecimal(row.balanceAfter)),
-    currency: Currency.USD,
+    currency,
     createdAt: row.createdAt,
     reason: VISIBLE_REASONS.has(row.entryType) ? row.reason : null,
     payment: row.payment

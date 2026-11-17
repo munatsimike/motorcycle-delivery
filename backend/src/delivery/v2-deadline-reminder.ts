@@ -5,9 +5,12 @@ type ReminderDb = {
 };
 
 // One customer reminder for an accepted V2 parcel that is still active after
-// deliverBy. The unique (assignment, event type) key makes a second writer a
-// no-op. This statement does not cancel the delivery, release a reservation,
-// or post a ledger entry.
+// deliverBy. The same row is unique on (assignment, event type) and on
+// dedupe_key. Naming only one of those indexes lets a concurrent second
+// writer fail on the other index. ON CONFLICT DO NOTHING treats either
+// collision as a no-op, so one reminder is still written and a second pass
+// sends nothing. This statement does not cancel the delivery, release a
+// reservation, or post a ledger entry.
 const REMINDER_SQL = `INSERT INTO "v2_outbox_events" (
   "id", "event_type", "status", "delivery_id", "assignment_id",
   "customer_account_id", "attempt_count", "created_at", "dedupe_key"
@@ -33,7 +36,7 @@ WHERE assignment."status" = 'ACCEPTED'::"assignment_status"
     'COLLECTED'::"delivery_status",
     'OUT_FOR_DELIVERY'::"delivery_status"
   )
-ON CONFLICT ("assignment_id", "event_type") DO NOTHING`;
+ON CONFLICT DO NOTHING`;
 
 export async function remindLateV2Deliveries(db: ReminderDb, now: Date): Promise<number> {
   if (!v2MarketplaceEnabled()) {

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { WalletEntryType } from '../generated/prisma/client.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import { WalletService } from './wallet.service.js';
+import { sameWallet, walletLookup, type WalletLookup } from './wallet-test-doubles.js';
 import { formatSignedCents, signedCentsFromDecimal } from './wallet-money.js';
 
 const PROFILE = 'profile-1';
@@ -26,6 +27,16 @@ describe('rider wallet reads', () => {
       availablePromotionalCredit: '0.00',
       newDeliveriesRestricted: false,
       currency: 'USD',
+      activeWallet: 'USD',
+      zig: {
+        riderProfileId: PROFILE,
+        balance: '0.00',
+        promotionalBalance: '0.00',
+        reservedFees: '0.00',
+        availableCapacity: '0.00',
+        availablePromotionalCredit: '0.00',
+        currency: 'ZWG',
+      },
     });
     expect(ctx.writes).toBe(0);
     expect(ctx.wallets[0]?.welcomeBonusAwardedAt).toBeNull();
@@ -293,11 +304,10 @@ function context() {
       },
     },
     riderWallet: {
-      async findUnique({ where }: { where: { id?: string; riderProfileId?: string } }) {
-        if (where.riderProfileId) {
-          return wallets.find((wallet) => wallet.riderProfileId === where.riderProfileId) ?? null;
-        }
-        return wallets.find((wallet) => wallet.id === where.id) ?? null;
+      async findUnique({ where }: { where: WalletLookup }) {
+        const lookup = walletLookup(where);
+        if (lookup.riderProfileId) return wallets.find((wallet) => sameWallet(wallet, lookup)) ?? null;
+        return wallets.find((wallet) => wallet.id === lookup.id) ?? null;
       },
       async create() {
         return refuseWrite();

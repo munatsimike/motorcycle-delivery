@@ -4,13 +4,14 @@ import { describe, expect, it } from 'vitest';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import { walletPayloadHash, type CreditCommand, type LedgerCommand } from './wallet-ledger.js';
 import { WalletService } from './wallet.service.js';
+import { sameWallet, walletLookup, type WalletLookup } from './wallet-test-doubles.js';
 import { formatSignedCents, signedCentsFromDecimal } from './wallet-money.js';
 
 const ADMIN = { userId: 'admin-1' };
 const NOW = new Date('2026-10-14T09:00:00.000Z');
 
 describe('WalletService', () => {
-  it('creates one wallet for a rider and returns the same wallet again', async () => {
+  it('creates a USD wallet and an empty ZiG wallet, then returns the USD wallet again', async () => {
     const ctx = context();
     const created = await ctx.service.ensureWallet('profile-1', NOW);
     const again = await ctx.service.ensureWallet('profile-1', NOW);
@@ -24,7 +25,17 @@ describe('WalletService', () => {
       welcomeBonusAwardedAt: null,
     });
     expect(again.id).toBe(created.id);
-    expect(ctx.wallets).toHaveLength(1);
+    expect(ctx.wallets).toEqual([
+      expect.objectContaining({ id: 'wallet-1', currency: 'USD', balance: '0.00', welcomeBonusAwardedAt: null }),
+      expect.objectContaining({
+        id: 'wallet-2',
+        currency: 'ZWG',
+        balance: '0.00',
+        promotionalBalance: '0.00',
+        borrowingLimitOverride: null,
+        welcomeBonusAwardedAt: NOW,
+      }),
+    ]);
     expect(ctx.locks).toEqual(['profile', 'wallet', 'profile', 'wallet']);
   });
 
@@ -48,7 +59,7 @@ describe('WalletService', () => {
     const [postedFirst, postedSecond] = await Promise.all([first, second]);
     expect(postedFirst).toMatchObject({ amount: '1.00', balance: '1.00', replayed: false, configVersion: 1 });
     expect(postedSecond).toMatchObject({ amount: '2.50', balance: '3.50', replayed: false });
-    expect(ctx.wallets).toHaveLength(1);
+    expect(ctx.wallets.map((wallet) => wallet.currency)).toEqual(['USD', 'ZWG']);
     expect(ctx.entries).toHaveLength(0);
     expect(ctx.promotionalEntries).toHaveLength(2);
     expect(ctx.locks).toEqual(['profile', 'wallet', 'profile', 'wallet']);
@@ -211,7 +222,8 @@ describe('WalletService', () => {
       amountCents: 100,
       idempotencyKey: 'same-key',
     }))).rejects.toMatchObject({ status: 409 });
-    expect(ctx.wallets.map((wallet) => wallet.riderProfileId)).toEqual(['profile-1']);
+    expect(ctx.wallets.map((wallet) => wallet.riderProfileId)).toEqual(['profile-1', 'profile-1']);
+    expect(ctx.wallets.map((wallet) => wallet.currency)).toEqual(['USD', 'ZWG']);
   });
 
   it('leaves a posted amount in place when configuration changes and refuses fee posting', async () => {
@@ -259,6 +271,16 @@ describe('WalletService', () => {
       availablePromotionalCredit: '0.00',
       newDeliveriesRestricted: false,
       currency: 'USD',
+      activeWallet: 'USD',
+      zig: {
+        riderProfileId: 'profile-1',
+        balance: '0.00',
+        promotionalBalance: '0.00',
+        reservedFees: '0.00',
+        availableCapacity: '0.00',
+        availablePromotionalCredit: '0.00',
+        currency: 'ZWG',
+      },
     });
     expect(ctx.updates).toEqual([]);
 
@@ -469,13 +491,14 @@ function context(options: { pauseFirstLock?: boolean; loseCreateRace?: boolean }
       },
     },
     riderWallet: {
-      async findUnique({ where }: { where: { id?: string; riderProfileId?: string } }) {
-        if (where.riderProfileId) {
+      async findUnique({ where }: { where: WalletLookup }) {
+        const lookup = walletLookup(where);
+        if (lookup.riderProfileId) {
           ownerLookups += 1;
           if (options.loseCreateRace && ownerLookups === 1) return null;
-          return wallets.find((wallet) => wallet.riderProfileId === where.riderProfileId) ?? null;
+          return wallets.find((wallet) => sameWallet(wallet, lookup)) ?? null;
         }
-        return wallets.find((wallet) => wallet.id === where.id) ?? null;
+        return wallets.find((wallet) => wallet.id === lookup.id) ?? null;
       },
       async create({ data }: { data: Record<string, unknown> }) {
         creates += 1;

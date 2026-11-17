@@ -8,6 +8,7 @@ import {
   deliveryContentKind,
   deliveryDistanceLabel,
   deliveryGroup,
+  cancelledDeliveryCopy,
   deliveryOutcomeSupport,
   deliveryOutcomeTitle,
   deliveryWhenLabel,
@@ -60,9 +61,28 @@ test('card status, search again, content, and address follow the native rules', 
   assert.match(deliveryOutcomeSupport('NO_RIDER_FOUND'), /No rider was available/);
   assert.equal(deliveryDistanceLabel(850), '850 m');
   assert.equal(deliveryDistanceLabel(1200), '1.2 km');
-  assert.equal(moneyLabel('USD', '4.50'), '$4.50');
+  assert.equal(moneyLabel('USD', '4.50'), 'US$4.50');
+  assert.equal(moneyLabel('ZWG', '4.50'), 'ZiG 4.50');
   const when = deliveryWhenLabel('2026-11-13T08:05:00.000Z');
   assert.match(when, /13 Nov 2026 • \d{2}:\d{2}/);
+});
+
+test('cancelled deliveries name the actor and only rebook before pickup', () => {
+  const rider = cancelledDeliveryCopy({ actor: 'RIDER', reason: 'BREAKDOWN', afterPickup: false });
+  assert.equal(rider.title, 'Rider cancelled');
+  assert.equal(rider.support, 'Your rider cancelled this delivery. To find another rider, create a new delivery request.');
+  assert.equal(rider.bookAgain, true);
+  assert.equal(rider.contactSupport, false);
+  const collected = cancelledDeliveryCopy({ actor: 'RIDER', reason: 'BREAKDOWN', afterPickup: true });
+  assert.match(collected.support, /after collecting the parcel/);
+  assert.match(collected.support, /Contact support/);
+  assert.equal(collected.bookAgain, false);
+  assert.equal(collected.contactSupport, true);
+  const customer = cancelledDeliveryCopy({ actor: 'CUSTOMER', reason: null, afterPickup: false });
+  assert.equal(customer.title, 'Cancelled');
+  assert.equal(customer.support, 'This delivery was cancelled.');
+  assert.equal(customer.bookAgain, false);
+  assert.equal(deliveryGroup('CANCELLED'), 'history');
 });
 
 test('deliveries sort by newest date and read the list payload', () => {

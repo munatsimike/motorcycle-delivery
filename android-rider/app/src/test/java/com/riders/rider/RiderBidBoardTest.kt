@@ -92,7 +92,7 @@ class RiderBidBoardTest {
         assertNull(bidAmountCents("0.00"))
         assertNull(bidAmountCents("-1"))
         assertNull(bidAmountCents("12.345"))
-        assertEquals(BID_AMOUNT_INVALID, "Enter an offer amount ($).")
+        assertEquals(BID_AMOUNT_INVALID, "Enter an offer amount.")
     }
 
     @Test
@@ -182,12 +182,12 @@ class RiderBidBoardTest {
         try {
             server.enqueue(json("""{"id":"bid-1","deliveryId":"delivery-1","amount":"12.50","amountCents":1250,"currency":"USD","status":"OPEN","createdAt":"2026-10-24T08:00:00.000Z","rider":{"id":"rider-1","name":"Rider"}}"""))
             val bids = BidRepository(server.service())
-            bids.submit("delivery-1", 1250, "key-1")
+            bids.submit("delivery-1", 1250, "key-1", "ZWG")
             val recorded = server.takeRequest()
             assertEquals("/riders/me/bids", recorded.path)
             assertEquals("key-1", recorded.getHeader("Idempotency-Key"))
             assertEquals(
-                ApiJson.encodeToString(BidSubmissionRequest("delivery-1", 1250)),
+                ApiJson.encodeToString(BidSubmissionRequest("delivery-1", 1250, "ZWG")),
                 recorded.body.readUtf8(),
             )
             assertFalse(recorded.path.orEmpty().contains("wallet"))
@@ -206,9 +206,9 @@ class RiderBidBoardTest {
             server.enqueue(json(body))
             val bids = BidRepository(server.service())
             val attempt = nextBidAttempt(null, "delivery-1", 1250, "key-1")
-            bids.submit(attempt.deliveryId, attempt.amountCents, attempt.key)
+            bids.submit(attempt.deliveryId, attempt.amountCents, attempt.key, "USD")
             val retry = nextBidAttempt(attempt, attempt.deliveryId, 9999, "key-2")
-            bids.submit(retry.deliveryId, retry.amountCents, retry.key)
+            bids.submit(retry.deliveryId, retry.amountCents, retry.key, "USD")
             val first = server.takeRequest()
             val second = server.takeRequest()
             assertEquals(first.getHeader("Idempotency-Key"), second.getHeader("Idempotency-Key"))
@@ -303,7 +303,8 @@ class RiderBidBoardTest {
         assertEquals(BidBoardPhase.Failed, bidBoardPhase(loading = false, requestCount = 0, bidCount = 0, error = "Requests unavailable"))
         assertEquals(BidBoardPhase.Ready, bidBoardPhase(loading = false, requestCount = 1, bidCount = 0, error = "Try again"))
         assertNull(suggestedPriceLabel(null))
-        assertEquals("Suggested price $9.00", suggestedPriceLabel("9.00"))
+        assertEquals("Suggested price US$9.00", suggestedPriceLabel("9.00"))
+        assertEquals("Suggested price ZiG 9.00", suggestedPriceLabel("9.00", "ZWG"))
         assertNull(requestDistanceLabel(null))
         assertEquals("Distance 800 m", requestDistanceLabel(800))
         assertEquals("Distance 12.4 km", requestDistanceLabel(12400))

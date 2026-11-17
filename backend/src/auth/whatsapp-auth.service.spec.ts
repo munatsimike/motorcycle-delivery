@@ -89,7 +89,7 @@ describe('WhatsApp verification', () => {
       approvalStatus: RiderApprovalStatus.PENDING,
       address: '12 Samora Machel Avenue',
     });
-    expect(ctx.wallets).toHaveLength(1);
+    expect(ctx.wallets).toHaveLength(2);
     expect(ctx.issued).toEqual([ctx.users[0]?.id]);
   });
 
@@ -477,7 +477,7 @@ describe('WhatsApp verification', () => {
       approvalStatus: RiderApprovalStatus.PENDING,
       address: '9 Rezende Street',
     });
-    expect(ctx.wallets).toHaveLength(1);
+    expect(ctx.wallets).toHaveLength(2);
 
     ctx.now.setTime(NOW.getTime() + 61_000);
     await expect(ctx.service.startLogin(AuthSubjectRole.CUSTOMER, { phone: PHONE, whatsappConsent: true }, '203.0.113.61'))
@@ -565,7 +565,7 @@ describe('WhatsApp verification', () => {
       address: '12 Samora Machel Avenue',
     })).rejects.toBeInstanceOf(UnauthorizedException);
     expect(ctx.users).toHaveLength(1);
-    expect(ctx.wallets).toHaveLength(1);
+    expect(ctx.wallets).toHaveLength(2);
     expect(ctx.issued).toHaveLength(1);
   });
 
@@ -588,7 +588,7 @@ describe('WhatsApp verification', () => {
     const tokens = await ctx.service.completeRiderRegistration(body);
     expect(tokens.accessToken).toBe('access');
     expect(ctx.users).toHaveLength(1);
-    expect(ctx.wallets).toHaveLength(1);
+    expect(ctx.wallets).toHaveLength(2);
     expect(ctx.issued).toHaveLength(1);
     expect(ctx.challenges[0]?.status).toBe(AuthChallengeStatus.SUPERSEDED);
     expect(ctx.users[0]?.phone).toBe(PHONE);
@@ -596,7 +596,7 @@ describe('WhatsApp verification', () => {
 
     await expect(ctx.service.completeRiderRegistration({ ...body })).rejects.toBeInstanceOf(UnauthorizedException);
     expect(ctx.users).toHaveLength(1);
-    expect(ctx.wallets).toHaveLength(1);
+    expect(ctx.wallets).toHaveLength(2);
     expect(ctx.issued).toHaveLength(1);
   });
 
@@ -615,7 +615,7 @@ describe('WhatsApp verification', () => {
     ]);
     expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
     expect(ctx.users).toHaveLength(1);
-    expect(ctx.wallets).toHaveLength(1);
+    expect(ctx.wallets).toHaveLength(2);
     expect(ctx.issued).toHaveLength(1);
     expect(ctx.users[0]?.riderProfile?.approvalStatus).toBe(RiderApprovalStatus.PENDING);
   });
@@ -673,7 +673,7 @@ describe('WhatsApp verification', () => {
       privateTestAccount: true,
     });
     expect(ctx.users[0]?.riderProfile?.approvalStatus).toBe(RiderApprovalStatus.PENDING);
-    expect(ctx.wallets).toHaveLength(1);
+    expect(ctx.wallets).toHaveLength(2);
     expect(ctx.issued).toEqual([ctx.users[0]?.id]);
   });
 
@@ -1097,7 +1097,7 @@ describe('WhatsApp verification', () => {
     expect(ctx.users).toHaveLength(1);
     expect(ctx.users[0]).toMatchObject({ role: UserRole.RIDER, privateTestAccount: true, accountStatus: AccountStatus.ACTIVE });
     expect(ctx.users[0]?.riderProfile?.approvalStatus).toBe(RiderApprovalStatus.PENDING);
-    expect(ctx.wallets).toHaveLength(1);
+    expect(ctx.wallets).toHaveLength(2);
     expect(ctx.sent).toEqual([]);
   });
 
@@ -1565,12 +1565,19 @@ function memory(
       },
     },
     riderWallet: {
-      async create({ data }: { data: { riderProfileId: string } }) {
+      async findUnique({ where }: { where: { riderProfileId_currency?: { riderProfileId: string; currency: string } } }) {
+        const key = where.riderProfileId_currency;
+        if (!key) return null;
+        return wallets.includes(`${key.riderProfileId}:${key.currency}`)
+          ? { riderProfileId: key.riderProfileId, currency: key.currency }
+          : null;
+      },
+      async create({ data }: { data: { riderProfileId: string; currency?: string } }) {
         if (walletFailure.next) {
           walletFailure.next = false;
           throw new Error('wallet write failed');
         }
-        wallets.push(data.riderProfileId);
+        wallets.push(`${data.riderProfileId}:${data.currency ?? 'USD'}`);
         return data;
       },
     },

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { beginPageTransition } from '../motion/pageTransition';
 import { ApiError } from '../api/client';
 import { loadCustomerAccount } from '../account/profileApi';
@@ -12,17 +12,18 @@ import { Button } from '../components/Button';
 import { ErrorMessage } from '../components/ErrorMessage';
 import { ZimbabwePhoneField } from '../components/ZimbabwePhoneField';
 import { Loading } from '../components/Loading';
+import { AddressField } from '../booking/AddressField';
 import { createDelivery, quoteDelivery, resolvePlace, searchPlaces } from '../booking/api';
 import { mapsBrowserKey } from '../config/env';
 import { loadGoogleMaps } from '../home/googleMap';
 import {
-  clearStopLocation,
+  requestBookingCurrency,
   bookingPhoneDisplay,
   bookingPhoneStored,
   deliveryContactPhone,
   describeParcel,
   displayPhone,
-  emptyBookingDraft,
+  bookingDraftFromLocation,
   hasSelectedCoordinates,
   parcelError,
   paymentMethodLabel,
@@ -33,6 +34,7 @@ import {
   v2CreateBody,
   type BookingDraft,
   type PaymentMethod,
+  type PreparedStop,
   type ServiceClass,
   type StopDraft,
 } from '../booking/draft';
@@ -41,7 +43,6 @@ import {
   bookingKeyFor,
   bookingMode,
   persistentAttemptStore,
-  bookingNavigationDelay,
   bookingStepIndex,
   bookingStepTitle,
   BOOKING_STEPS,
@@ -54,15 +55,22 @@ import {
   type BookingStep,
 } from '../booking/flow';
 import {
-  acceptSearchResult,
-  confirmMapPin,
-  createPlaceSessionToken,
   decideAddressAutofill,
   pickupAutofillFix,
   readGeocodedAddress,
-  selectedAddressLabel,
   type PlaceSuggestion,
 } from '../booking/places';
+import {
+  bookingSaveBody,
+  canApplyDefaultPickup,
+  isRebookState,
+  readSavedAddresses,
+  savedAddressLabel,
+  stopFromSavedAddress,
+  type SavedAddress,
+  type SaveState,
+} from '../booking/savedAddress';
+import { createSavedAddress, listSavedAddresses } from '../booking/addressApi';
 import {
   bookingSuccessPath,
   confirmQuoteDecision,
@@ -74,7 +82,6 @@ import {
 } from '../booking/quote';
 
 const INSTRUCTION_LIMIT = 200;
-const SEARCH_DELAY_MS = 500;
 const LOCATION_DENIED = 'Location permission is needed to detect your pickup point.';
 const LOCATION_UNAVAILABLE = 'We couldn\'t detect your location. Try again or search for your pickup address.';
 const LOCATION_STREET = 'Enter the street address.';
@@ -84,17 +91,21 @@ type QuotedPrice = DeliveryQuote & { pinKey: string };
 
 export function BookPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { accessToken } = useSession();
   const [account, setAccount] = useState<CustomerAccount | null>(null);
   const [accountError, setAccountError] = useState<string | null>(null);
   const [accountLoading, setAccountLoading] = useState(true);
-  const [draft, setDraft] = useState<BookingDraft>(emptyBookingDraft);
+  const [draft, setDraft] = useState<BookingDraft>(() => bookingDraftFromLocation(location.state));
   const [step, setStep] = useState<BookingStep>('pickup');
   const [quote, setQuote] = useState<QuotedPrice | null>(null);
   const [offer, setOffer] = useState({ text: '', edited: false, pinKey: null as string | null });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<BookingBusy>(null);
-  const [booked, setBooked] = useState(false);
+  const [booked, setBooked] = useState<null | { deliveryId: string; pickup: PreparedStop; dropoff: PreparedStop }>(null);
+  const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>([]);
+  const [savedError, setSavedError] = useState<string | null>(null);
+  const [saveStatus, setSaveStatus] = useState({ pickup: 'idle' as SaveState, dropoff: 'idle' as SaveState, error: null as string | null });
   const [keyboardInset, setKeyboardInset] = useState(0);
   const creating = useRef(false);
   const quoteRequest = useRef(0);
@@ -104,6 +115,7 @@ export function BookPage() {
   busyRef.current = busy;
   const prefilled = useRef(false);
   const addressEdited = useRef(false);
+  const fromRebook = useRef(isRebookState(location.state));
   const draftRef = useRef(draft);
   const locatingRef = useRef(false);
   const pickupAttempt = useRef(0);
@@ -153,6 +165,33 @@ export function BookPage() {
       },
     }));
   }, [account]);
+
+  useEffect(() => {
+    let active = true;
+    void accessToken().then(async (token) => {
+      if (!active || !token) return;
+      try {
+        const rows = readSavedAddresses(await listSavedAddresses(token));
+        if (!active) return;
+        setSavedAddresses(rows);
+        const fallback = rows.find((row) => row.isDefaultPickup);
+        if (!fallback) return;
+        setDraft((current) => {
+          if (!canApplyDefaultPickup({
+            rebook: fromRebook.current,
+            pickup: current.pickup,
+          })) return current;
+          addressEdited.current = true;
+          return { ...current, pickup: stopFromSavedAddress(current.pickup, fallback) };
+        });
+      } catch (caught) {
+        if (active) setSavedError(deliveryErrorMessage(caught, 'Saved addresses are unavailable.'));
+      }
+    }).catch(() => {
+      if (active) setSavedError('Saved addresses are unavailable.');
+    });
+    return () => { active = false; };
+  }, [accessToken]);
 
   useEffect(() => {
     if (mode !== 'v2') return undefined;
@@ -308,7 +347,7 @@ export function BookPage() {
       const next = await quoteDelivery(token, booking.booking);
       const current = quoteResultForRequest(request, quoteRequest.current, next);
       if (!current) return false;
-      rememberQuote(current, quoteIdentity(booking.booking.pinKey, booking.booking.serviceClass));
+      rememberQuote(current, quoteIdentity(booking.booking.pinKey, booking.booking.serviceClass, booking.booking.currency));
       return true;
     } catch (caught) {
       if (quoteRequest.current === request) {
@@ -356,7 +395,7 @@ export function BookPage() {
       setError(prepared.error);
       return;
     }
-    const identity = quoteIdentity(prepared.booking.pinKey, prepared.booking.serviceClass);
+    const identity = quoteIdentity(prepared.booking.pinKey, prepared.booking.serviceClass, prepared.booking.currency);
     if (step === 'parcel' && (!quote || quote.pinKey !== identity)) {
       const loaded = await loadQuote(prepared);
       if (!loaded) return;
@@ -372,7 +411,7 @@ export function BookPage() {
       setError(prepared.error);
       return;
     }
-    const identity = quoteIdentity(prepared.booking.pinKey, prepared.booking.serviceClass);
+    const identity = quoteIdentity(prepared.booking.pinKey, prepared.booking.serviceClass, prepared.booking.currency);
     if (!quote || quote.pinKey !== identity) {
       setError('Request a price before confirming.');
       return;
@@ -400,7 +439,7 @@ export function BookPage() {
       const idempotencyKey = bookingKeyFor(attempts.current, fingerprint, () => crypto.randomUUID());
       const created = await createDelivery(token, prepared.booking, decision.offeredPrice, idempotencyKey);
       clearBookingAttempt(attempts.current);
-      finish(created.id);
+      finish(created.id, prepared.booking.pickup, prepared.booking.dropoff);
     } catch (caught) {
       if (caught instanceof ApiError && caught.status === 409) clearBookingAttempt(attempts.current);
       setError(deliveryErrorMessage(caught, 'The delivery could not be booked.'));
@@ -410,29 +449,50 @@ export function BookPage() {
     }
   }
 
-  function finish(deliveryId: string) {
+  function finish(deliveryId: string, pickup: PreparedStop, dropoff: PreparedStop) {
     if (leaving.current) return;
+    setBooked({ deliveryId, pickup, dropoff });
+  }
+
+  function openBookedDelivery() {
+    if (!booked || leaving.current) return;
     leaving.current = true;
-    const delay = bookingNavigationDelay(window.matchMedia('(prefers-reduced-motion: reduce)').matches);
-    const openTracking = () => {
-      const path = bookingSuccessPath(deliveryId);
-      if (window.history.state?.bookingHold !== true) {
-        beginPageTransition(() => navigate(path, { replace: true }));
-        return;
-      }
-      const reveal = () => {
-        window.removeEventListener('popstate', reveal);
-        beginPageTransition(() => navigate(path, { replace: true }));
-      };
-      window.addEventListener('popstate', reveal);
-      window.history.back();
-    };
-    if (delay === 0) {
-      openTracking();
+    const path = bookingSuccessPath(booked.deliveryId);
+    if (window.history.state?.bookingHold !== true) {
+      beginPageTransition(() => navigate(path, { replace: true }));
       return;
     }
-    setBooked(true);
-    window.setTimeout(openTracking, delay);
+    const reveal = () => {
+      window.removeEventListener('popstate', reveal);
+      beginPageTransition(() => navigate(path, { replace: true }));
+    };
+    window.addEventListener('popstate', reveal);
+    window.history.back();
+  }
+
+  async function saveBookedStop(side: 'pickup' | 'dropoff') {
+    if (!booked || saveStatus[side] === 'saving' || saveStatus[side] === 'saved') return;
+    setSaveStatus((current) => ({ ...current, [side]: 'saving', error: null }));
+    try {
+      const token = await accessToken();
+      if (!token) throw new Error('The address could not be saved.');
+      await createSavedAddress(token, bookingSaveBody(booked[side], side === 'pickup' ? 'Pickup' : 'Delivery'));
+      setSaveStatus((current) => ({ ...current, [side]: 'saved' }));
+    } catch (caught) {
+      setSaveStatus((current) => ({
+        ...current,
+        [side]: 'idle',
+        error: deliveryErrorMessage(caught, 'The address could not be saved. The delivery is still booked.'),
+      }));
+    }
+  }
+
+  function chooseSaved(which: 'pickup' | 'dropoff', entry: SavedAddress) {
+    if (which === 'pickup') {
+      addressEdited.current = true;
+      setLocateError(null);
+    }
+    updateStop(which, stopFromSavedAddress(draftRef.current[which], entry));
   }
 
   function goBack() {
@@ -462,7 +522,7 @@ export function BookPage() {
   return (
     <section className="book page-stage is-entering">
       <header className="book-header">
-        <button type="button" className="book-back" aria-label="Back" disabled={busy !== null} onClick={goBack}>
+        <button type="button" className="book-back" aria-label="Back" disabled={busy !== null || booked !== null} onClick={goBack}>
           <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" fill="currentColor" />
           </svg>
@@ -480,6 +540,21 @@ export function BookPage() {
             <p>Step {index + 1} of {BOOKING_STEPS.length} · {bookingStepTitle(step)}</p>
           </div>
           {step === 'pickup' || step === 'destination' ? (
+            <>
+            {savedAddresses.length > 0 ? (
+              <div className="book-saved">
+                <p>{step === 'pickup' ? 'Saved pickup addresses' : 'Saved delivery addresses'}</p>
+                <div>
+                  {savedAddresses.map((entry) => (
+                    <button key={entry.id} type="button" onClick={() => chooseSaved(step === 'pickup' ? 'pickup' : 'dropoff', entry)}>
+                      <strong>{savedAddressLabel(entry)}</strong>
+                      <span>{entry.address}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            {savedError ? <p className="book-search-status" role="status">{savedError}</p> : null}
             <StopForm
               phoneId={step === 'pickup' ? 'pickup-phone' : 'dropoff-phone'}
               stop={step === 'pickup' ? draft.pickup : draft.dropoff}
@@ -491,6 +566,7 @@ export function BookPage() {
               search={(text, sessionToken) => searchWithToken(accessToken, text, step === 'destination' ? placeBias(draft.pickup.latitude, draft.pickup.longitude) : null, sessionToken)}
               resolve={(placeId, sessionToken) => resolveWithToken(accessToken, placeId, sessionToken)}
             />
+            </>
           ) : null}
           {step === 'parcel' ? <ParcelForm draft={draft} onChange={updateDraft} /> : null}
           {step === 'review' || step === 'confirm' ? (
@@ -509,7 +585,7 @@ export function BookPage() {
           {error ? <ErrorMessage>{error}</ErrorMessage> : null}
           <div className="book-actions">
             {step === 'review' || step === 'confirm' ? (
-              <Button type="button" disabled={Boolean(busy) || booked || !quote} onClick={() => { void confirm(); }}>
+              <Button type="button" disabled={Boolean(busy) || Boolean(booked) || !quote} onClick={() => { void confirm(); }}>
                 {busy === 'create' ? 'Booking' : 'Confirm'}
               </Button>
             ) : (
@@ -525,6 +601,16 @@ export function BookPage() {
           <div className="book-confirmed-card">
             <span aria-hidden="true">✓</span>
             <p>Delivery booked</p>
+            <div className="book-save-actions">
+              <button type="button" disabled={saveStatus.pickup !== 'idle'} onClick={() => { void saveBookedStop('pickup'); }}>
+                {saveStatus.pickup === 'saved' ? 'Pickup saved' : saveStatus.pickup === 'saving' ? 'Saving pickup' : 'Save pickup address'}
+              </button>
+              <button type="button" disabled={saveStatus.dropoff !== 'idle'} onClick={() => { void saveBookedStop('dropoff'); }}>
+                {saveStatus.dropoff === 'saved' ? 'Delivery saved' : saveStatus.dropoff === 'saving' ? 'Saving delivery' : 'Save delivery address'}
+              </button>
+              <button type="button" onClick={openBookedDelivery}>Continue</button>
+            </div>
+            {saveStatus.error ? <p>{saveStatus.error}</p> : null}
           </div>
         </div>
       ) : null}
@@ -571,159 +657,6 @@ function StopForm({
   );
 }
 
-function AddressField({
-  stop,
-  onChange,
-  onManualInput,
-  locating = false,
-  onLocate,
-  locateError = null,
-  searchPlaces,
-  resolvePlace,
-}: {
-  stop: StopDraft;
-  onChange: (patch: Partial<StopDraft>) => void;
-  onManualInput: () => void;
-  locating?: boolean;
-  onLocate?: () => void;
-  locateError?: string | null;
-  searchPlaces: (text: string, sessionToken: string) => Promise<PlaceSuggestion[]>;
-  resolvePlace: (placeId: string, sessionToken: string) => Promise<{ label: string; latitude: string; longitude: string; suburb?: string; locality?: string }>;
-}) {
-  const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
-  const [searching, setSearching] = useState(false);
-  const [searched, setSearched] = useState(false);
-  const [searchError, setSearchError] = useState<string | null>(null);
-  const typed = useRef(false);
-  const sessionToken = useRef(createPlaceSessionToken());
-  const requestId = useRef(0);
-  const searchRef = useRef(searchPlaces);
-  const resolveRef = useRef(resolvePlace);
-  searchRef.current = searchPlaces;
-  resolveRef.current = resolvePlace;
-
-  useEffect(() => {
-    const text = stop.address.trim();
-    if (!typed.current || (stop.latitude && stop.longitude)) {
-      setSuggestions([]);
-      setSearching(false);
-      setSearched(false);
-      setSearchError(null);
-      return undefined;
-    }
-    if (text.length < 3) {
-      sessionToken.current = createPlaceSessionToken();
-      setSuggestions([]);
-      setSearching(false);
-      setSearched(false);
-      setSearchError(null);
-      return undefined;
-    }
-    const started = requestId.current + 1;
-    requestId.current = started;
-    setSearching(true);
-    const timer = window.setTimeout(() => {
-      void searchRef.current(text, sessionToken.current)
-        .then((next) => {
-          if (!acceptSearchResult(started, requestId.current, next)) return;
-          setSuggestions(next.slice(0, 10));
-          setSearched(true);
-          setSearchError(null);
-        })
-        .catch((caught: unknown) => {
-          if (!acceptSearchResult(started, requestId.current, true)) return;
-          setSuggestions([]);
-          setSearched(false);
-          setSearchError(deliveryErrorMessage(caught, 'Address suggestions are unavailable. You can type the address.'));
-        })
-        .finally(() => {
-          if (acceptSearchResult(started, requestId.current, true)) setSearching(false);
-        });
-    }, SEARCH_DELAY_MS);
-    return () => window.clearTimeout(timer);
-  }, [stop.address, stop.latitude, stop.longitude]);
-
-  async function selectSuggestion(suggestion: PlaceSuggestion) {
-    setSearching(true);
-    setSearchError(null);
-    try {
-      let chosen = suggestion;
-      if (suggestion.placeId && !suggestion.latitude.trim()) {
-        const resolved = await resolveRef.current(suggestion.placeId, suggestion.sessionToken || sessionToken.current);
-        chosen = {
-          ...suggestion,
-          label: selectedAddressLabel(suggestion.label, resolved),
-          latitude: resolved.latitude,
-          longitude: resolved.longitude,
-        };
-      }
-      if (!chosen.latitude.trim() || !chosen.longitude.trim()) {
-        throw new Error('Address suggestions are unavailable. You can type the address.');
-      }
-      const location = confirmMapPin(chosen);
-      sessionToken.current = createPlaceSessionToken();
-      setSuggestions([]);
-      setSearched(false);
-      onChange({
-        address: location.label,
-        landmark: location.precision === 'exact' ? stop.landmark : stop.address.trim().slice(0, 200),
-        latitude: location.latitude,
-        longitude: location.longitude,
-        approximate: location.precision !== 'exact',
-        precision: location.precision,
-        placeId: location.placeId,
-        coordinateSource: 'GOOGLE_PLACES',
-        resolvedAddress: '',
-      });
-    } catch (caught) {
-      setSearchError(deliveryErrorMessage(caught, 'Address suggestions are unavailable. You can type the address.'));
-    } finally {
-      setSearching(false);
-    }
-  }
-
-  return (
-    <div className="book-address">
-      <label className="field">
-        Address
-        <span className="book-address-control">
-          <input
-            value={stop.address}
-            maxLength={500}
-            autoComplete="off"
-            aria-autocomplete="list"
-            aria-expanded={suggestions.length > 0}
-            onChange={(event) => {
-              typed.current = true;
-              onManualInput();
-              onChange(clearStopLocation(event.target.value));
-            }}
-          />
-          {searching || locating ? <span className="book-address-spinner" role="status" aria-label={locating ? 'Finding your location' : 'Searching addresses'} /> : onLocate ? (
-            <button type="button" className="book-locate" aria-label="Use current location" onClick={(event) => { event.preventDefault(); event.stopPropagation(); onLocate(); }}>
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8a4 4 0 1 0 4 4 4 4 0 0 0-4-4Zm8.94 3A8.99 8.99 0 0 0 13 3.06V1h-2v2.06A8.99 8.99 0 0 0 3.06 11H1v2h2.06A8.99 8.99 0 0 0 11 20.94V23h2v-2.06A8.99 8.99 0 0 0 20.94 13H23v-2h-2.06ZM12 19a7 7 0 1 1 7-7 7 7 0 0 1-7 7Z" /></svg>
-            </button>
-          ) : null}
-        </span>
-      </label>
-      {locateError ? <p className="book-locate-error" role="status">{locateError}</p> : null}
-      {searchError ? <ErrorMessage>{searchError}</ErrorMessage> : null}
-      {searched && !searching && suggestions.length === 0 && !searchError ? (
-        <p className="book-search-status" role="status">No matching addresses.</p>
-      ) : null}
-      {suggestions.length > 0 ? (
-        <ul className="book-suggestions" role="listbox" aria-label="Address suggestions">
-          {suggestions.map((suggestion) => (
-            <li key={`${suggestion.placeId ?? suggestion.label}:${suggestion.latitude}`}>
-              <button type="button" role="option" onClick={() => { void selectSuggestion(suggestion); }}>{suggestion.label}</button>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-    </div>
-  );
-}
-
 function ParcelForm({ draft, onChange }: { draft: BookingDraft; onChange: (patch: Partial<BookingDraft>) => void }) {
   const contents = [
     { label: 'Parcel', description: 'Parcel' as const, icon: PARCEL_ICON },
@@ -737,6 +670,10 @@ function ParcelForm({ draft, onChange }: { draft: BookingDraft; onChange: (patch
   const payments: { value: PaymentMethod; label: string }[] = [
     { value: 'CASH', label: 'Cash' },
     { value: 'ECOCASH', label: 'EcoCash' },
+  ];
+  const currencies: { value: 'USD' | 'ZWG'; label: string }[] = [
+    { value: 'USD', label: 'USD' },
+    ...(requestBookingCurrency('ZWG') === 'ZWG' ? [{ value: 'ZWG' as const, label: 'ZiG' }] : []),
   ];
   return (
     <div className="book-fields">
@@ -771,6 +708,17 @@ function ParcelForm({ draft, onChange }: { draft: BookingDraft; onChange: (patch
           {classes.map((option) => (
             <label key={option.value}>
               <input type="radio" name="service-class" checked={draft.serviceClass === option.value} onChange={() => onChange({ serviceClass: option.value })} />
+              {option.label}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      <fieldset className="book-block">
+        <legend>Currency</legend>
+        <div className="book-choices">
+          {currencies.map((option) => (
+            <label key={option.value}>
+              <input type="radio" name="booking-currency" checked={requestBookingCurrency(draft.currency) === option.value} onChange={() => onChange({ currency: option.value })} />
               {option.label}
             </label>
           ))}
@@ -840,7 +788,7 @@ function ReviewForm({
             <div className="book-price-row">
               <div>
                 <p>Suggested price</p>
-                <strong>{moneyLabel(quote.suggestedPrice)}</strong>
+                <strong>{moneyLabel(quote.suggestedPrice, quote.currency)}</strong>
               </div>
               <div className="book-distance">
                 <p>Distance</p>
@@ -848,9 +796,9 @@ function ReviewForm({
               </div>
             </div>
             <label className="book-offer">
-              <span>Your offer ($)</span>
+              <span>Your offer ({quote.currency === 'ZWG' ? 'ZiG' : 'US$'})</span>
               <span className="book-offer-field">
-                <span aria-hidden="true">$</span>
+                <span aria-hidden="true">{quote.currency === 'ZWG' ? 'ZiG' : 'US$'}</span>
                 <input inputMode="decimal" maxLength={7} value={offerText} disabled={!editable} placeholder="0.00" onChange={(event) => onOfferChange(event.target.value)} />
               </span>
             </label>

@@ -22,6 +22,9 @@ import com.riders.rider.feature.offers.domain.ACCOUNT_APPROVED_TITLE
 import com.riders.rider.feature.offers.domain.ACCEPTED_BID_BODY
 import com.riders.rider.feature.offers.domain.ACCEPTED_BID_EXTRA_DELIVERY_ID
 import com.riders.rider.feature.offers.domain.ACCEPTED_BID_TITLE
+import com.riders.rider.feature.offers.domain.CUSTOMER_CANCELLED_BODY
+import com.riders.rider.feature.offers.domain.CUSTOMER_CANCELLED_EXTRA_DELIVERY_ID
+import com.riders.rider.feature.offers.domain.CUSTOMER_CANCELLED_TITLE
 import com.riders.rider.feature.offers.domain.OFFER_CHANNEL_ID
 import com.riders.rider.feature.offers.domain.OFFER_EXTRA_ASSIGNMENT_ID
 import com.riders.rider.feature.offers.domain.OFFER_NOTICE_BODY
@@ -100,6 +103,34 @@ class OfferNotificationPoster @Inject constructor(
             .build()
         context.getSystemService(NotificationManager::class.java)
             .notify(offerNotificationId("accepted:$deliveryId"), notification)
+    }
+
+    fun showCustomerCancelled(deliveryId: String) {
+        if (!prepareChannel()) {
+            return
+        }
+        val open = Intent(context, MainActivity::class.java).apply {
+            putExtra(CUSTOMER_CANCELLED_EXTRA_DELIVERY_ID, deliveryId)
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pending = PendingIntent.getActivity(
+            context,
+            offerNotificationId("cancelled:$deliveryId"),
+            open,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val notification = NotificationCompat.Builder(context, OFFER_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_bell)
+            .setContentTitle(CUSTOMER_CANCELLED_TITLE)
+            .setContentText(CUSTOMER_CANCELLED_BODY)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setAutoCancel(true)
+            .setContentIntent(pending)
+            .build()
+        context.getSystemService(NotificationManager::class.java)
+            .notify(offerNotificationId("cancelled:$deliveryId"), notification)
     }
 
     fun showApproved() {

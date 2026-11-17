@@ -11,6 +11,8 @@ export function isProtectedPath(pathname: string): boolean {
   return path === '/home'
     || path === '/book'
     || path === '/profile'
+    || path === '/addresses'
+    || path.startsWith('/addresses/')
     || path === '/deliveries'
     || path.startsWith('/deliveries/');
 }

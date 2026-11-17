@@ -9,7 +9,7 @@ import {
 } from './navigation.ts';
 
 test('signed-out customers cannot open protected pages', () => {
-  for (const path of ['/home', '/deliveries', '/deliveries/parcel-1', '/profile', '/book']) {
+  for (const path of ['/home', '/deliveries', '/deliveries/parcel-1', '/profile', '/book', '/addresses', '/addresses/new']) {
     assert.equal(isProtectedPath(path), true);
     assert.equal(signedOutDestination(path), '/sign-in');
     assert.equal(showsTabBar(path) && signedOutDestination(path) === null, false);
@@ -38,6 +38,7 @@ test('bottom navigation is only on the three main tabs', () => {
   assert.equal(showsTabBar('/deliveries'), true);
   assert.equal(showsTabBar('/profile'), true);
   assert.equal(showsTabBar('/book'), false);
+  assert.equal(showsTabBar('/addresses'), false);
   assert.equal(showsTabBar('/deliveries/parcel-1'), false);
   assert.equal(showsTabBar('/'), false);
   assert.equal(showsTabBar('/sign-in'), false);

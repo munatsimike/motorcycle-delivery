@@ -1,5 +1,21 @@
 const MONEY = /^\d{1,10}\.\d{2}$/;
 
+export function deliveryMoney(currency: string, amount: string): string {
+  if (currency === 'USD') return `US$ ${amount}`;
+  if (currency === 'ZWG') return `ZiG ${amount}`;
+  return `${currency} ${amount}`;
+}
+
+const EXCHANGE_RATE = /^(?:0|[1-9]\d{0,5})(?:\.\d{1,4})?$/;
+
+export function exchangeRateValue(input: string): string | null {
+  const value = input.trim();
+  if (!EXCHANGE_RATE.test(value)) return null;
+  const rate = Number(value);
+  if (!Number.isFinite(rate) || rate <= 0 || rate > 1_000_000) return null;
+  return value;
+}
+
 export function moneyValue(input: string, allowZero: boolean): string | null {
   const value = input.trim();
   if (!MONEY.test(value)) {

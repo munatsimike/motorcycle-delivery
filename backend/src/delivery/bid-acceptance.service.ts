@@ -24,6 +24,7 @@ import { snapshotCommission } from './commission-calculator.js';
 import { centsFromDecimal, formatCents } from './money.js';
 import { closeUnassignedV2Deliveries, v2RequestRemainsOpen } from './v2-deadline.js';
 import { recordBidAccepted } from './v2-outbox.js';
+import { assertZwgOffersOpen } from './exchange-rate.js';
 
 const UUID_TEXT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const EXPRESS_ASSIGNMENT_INDEX = 'delivery_assignments_one_live_express_per_rider_idx';
@@ -117,6 +118,7 @@ export class BidAcceptanceService {
     if (!delivery) {
       throw new NotFoundException('Delivery not found');
     }
+    assertZwgOffersOpen(delivery.currency);
     const peeked = await tx.bid.findUnique({ where: { id: bidId } });
     if (!peeked || peeked.deliveryId !== delivery.id) {
       throw new NotFoundException('Bid not found');
@@ -139,6 +141,9 @@ export class BidAcceptanceService {
     }
     if (bid.status !== BidStatus.OPEN) {
       throw new ConflictException('This bid is not open');
+    }
+    if (bid.currency !== delivery.currency || (delivery.currency !== Currency.USD && delivery.currency !== Currency.ZWG)) {
+      throw new ConflictException('This bid currency does not match the delivery');
     }
     if (profile.availability === RiderAvailability.OFFLINE) {
       throw new ConflictException('This rider is not available');
@@ -179,7 +184,7 @@ export class BidAcceptanceService {
       basisPoints: rate.basis_points,
       rateVersion: rate.rate_version,
     });
-    await assertV2CommissionCapacity(tx, profile.id, snapshot.commissionCents);
+    await assertV2CommissionCapacity(tx, profile.id, snapshot.commissionCents, delivery.currency);
     const assignment = await tx.deliveryAssignment.create({
       data: {
         deliveryId: delivery.id,
@@ -242,6 +247,7 @@ export class BidAcceptanceService {
       snapshot.commissionCents,
       snapshot.rateVersion,
       now,
+      delivery.currency,
     );
     return {
       assignmentId: assignment.id,

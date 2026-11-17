@@ -18,12 +18,16 @@ class PendingOffer @Inject constructor() {
     private val arrivals = MutableSharedFlow<String>(extraBufferCapacity = 8)
     private val acceptedTap = MutableStateFlow<String?>(null)
     private val acceptedArrivalsFlow = MutableSharedFlow<String>(extraBufferCapacity = 8)
+    private val customerCancelledTap = MutableStateFlow<String?>(null)
+    private val customerCancelledArrivalsFlow = MutableSharedFlow<String>(extraBufferCapacity = 8)
     private val approval = MutableStateFlow(false)
 
     val taps: StateFlow<String?> = tap.asStateFlow()
     val arrived: SharedFlow<String> = arrivals.asSharedFlow()
     val acceptedTaps: StateFlow<String?> = acceptedTap.asStateFlow()
     val acceptedArrivals: SharedFlow<String> = acceptedArrivalsFlow.asSharedFlow()
+    val customerCancelledTaps: StateFlow<String?> = customerCancelledTap.asStateFlow()
+    val customerCancelledArrivals: SharedFlow<String> = customerCancelledArrivalsFlow.asSharedFlow()
     val approvalTaps: StateFlow<Boolean> = approval.asStateFlow()
 
     fun offerArrived(assignmentId: String) {
@@ -56,6 +60,18 @@ class PendingOffer @Inject constructor() {
 
     fun clearAccepted() {
         acceptedTap.value = null
+    }
+
+    fun customerCancelledArrived(deliveryId: String) {
+        customerCancelledArrivalsFlow.tryEmit(deliveryId)
+    }
+
+    fun customerCancelledTapped(deliveryId: String) {
+        customerCancelledTap.value = deliveryId.trim()
+    }
+
+    fun clearCustomerCancelled() {
+        customerCancelledTap.value = null
     }
 }
 

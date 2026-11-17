@@ -3,6 +3,7 @@ import type { Prisma } from '../generated/prisma/client.js';
 import type { AdminContext } from '../auth/admin-access.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { readMoneyCents } from '../delivery/money.js';
+import { riderZwgOffersEnabled } from '../delivery/exchange-rate.js';
 import {
   applyBorrowingLimit,
   creditWallet,
@@ -10,13 +11,20 @@ import {
   isUniqueViolation,
   postLedgerEntry,
   readWalletSummary,
+  readZigWalletSummary,
+  selectWorkingWallet,
   type CreditCommand,
   type LedgerCommand,
   type LedgerPosting,
   type WalletSummary,
 } from './wallet-ledger.js';
-import { readTransactionPage, readWalletTransactions, type WalletTransactionPage } from './wallet-history.js';
+import { readHistoryCurrency, readTransactionPage, readWalletTransactions, type WalletTransactionPage } from './wallet-history.js';
 import { formatSignedCents, signedCentsFromDecimal } from './wallet-money.js';
+
+export type RiderWalletSummary = WalletSummary & {
+  zig: Awaited<ReturnType<typeof readZigWalletSummary>>;
+  activeWallet: 'USD' | 'ZWG' | null;
+};
 import { adminPage, readAdminPage, readOptionalUuid } from '../http/admin-query.js';
 import { readManualTopUp, recordManualTopUp } from './wallet-top-up.js';
 
@@ -38,13 +46,69 @@ export class WalletService {
     return toWalletView(wallet);
   }
 
-  summary(riderProfileId: string): Promise<WalletSummary> {
-    return this.prisma.$transaction((tx) => readWalletSummary(tx, riderProfileId));
+  summary(riderProfileId: string): Promise<RiderWalletSummary> {
+    return this.prisma.$transaction(async (tx) => {
+      const usd = await readWalletSummary(tx, riderProfileId);
+      const zig = await readZigWalletSummary(tx, riderProfileId);
+      const activeWallet = selectWorkingWallet({
+        usdUsableCents: signedCentsFromDecimal(usd.availableCapacity) + signedCentsFromDecimal(usd.availablePromotionalCredit),
+        zigUsableCents: signedCentsFromDecimal(zig.availableCapacity) + signedCentsFromDecimal(zig.availablePromotionalCredit),
+        zigOffersEnabled: riderZwgOffersEnabled(),
+      });
+      return { ...usd, zig, activeWallet };
+    });
   }
 
   async transactions(riderProfileId: string, query: unknown): Promise<WalletTransactionPage> {
     const page = readTransactionPage(query);
-    return this.prisma.$transaction((tx) => readWalletTransactions(tx, riderProfileId, page));
+    const currency = readHistoryCurrency(query);
+    return this.prisma.$transaction((tx) => readWalletTransactions(tx, riderProfileId, page, currency));
+  }
+
+  async paymentExceptions(riderProfileId: string) {
+    const rows = await this.prisma.walletPaymentException.findMany({
+      where: { walletPayment: { riderWallet: { riderProfileId } } },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: 50,
+      select: {
+        id: true,
+        code: true,
+        usdBalance: true,
+        createdAt: true,
+        walletPayment: {
+          select: {
+            id: true,
+            amount: true,
+            currency: true,
+            referenceCode: true,
+            clientCorrelator: true,
+            providerTransactionId: true,
+            riderWallet: {
+              select: {
+                riderProfile: { select: { user: { select: { fullName: true } } } },
+              },
+            },
+          },
+        },
+      },
+    });
+    return {
+      data: rows.map((row) => ({
+        id: row.id,
+        riderProfileId,
+        riderName: row.walletPayment.riderWallet.riderProfile.user.fullName,
+        paymentId: row.walletPayment.id,
+        paymentReference: row.walletPayment.referenceCode
+          ?? row.walletPayment.providerTransactionId
+          ?? row.walletPayment.clientCorrelator
+          ?? row.walletPayment.id,
+        currency: row.walletPayment.currency,
+        amount: formatSignedCents(signedCentsFromDecimal(row.walletPayment.amount)),
+        code: row.code,
+        usdBalance: formatSignedCents(signedCentsFromDecimal(row.usdBalance)),
+        createdAt: row.createdAt.toISOString(),
+      })),
+    };
   }
 
   credit(command: CreditCommand): Promise<LedgerPosting> {

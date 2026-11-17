@@ -8,6 +8,8 @@ import {
   bookingPhoneDisplay,
   bookingPhoneStored,
   clearStopLocation,
+  bookingDraftFromDelivery,
+  bookingDraftFromLocation,
   emptyBookingDraft,
   emptyStop,
   parcelError,
@@ -208,6 +210,79 @@ test('the create body carries the resolved stop and offer', () => {
   assert.equal(body.serviceClass, 'FLEXIBLE');
   assert.equal(body.paymentMethod, 'CASH');
   assert.equal(body.pickup.contactPhone, '+263771234567');
+  assert.equal(body.currency, 'USD');
+});
+
+test('booking another rider prefills a new draft and does not reuse the cancelled delivery', () => {
+  const draft = bookingDraftFromDelivery({
+    pickupAddress: '12 Samora Machel Avenue',
+    pickupLatitude: -17.8292,
+    pickupLongitude: 31.0522,
+    senderName: 'Sender',
+    pickupContactPhone: '+263771111111',
+    pickupLandmark: null,
+    pickupInstructions: 'Call on arrival',
+    dropoffAddress: '4 Jason Moyo Street',
+    dropoffLatitude: -17.831,
+    dropoffLongitude: 31.045,
+    recipientName: 'Recipient',
+    recipientPhone: '+263772222222',
+    dropoffLandmark: null,
+    dropoffInstructions: null,
+    parcelDescription: 'Documents',
+    parcelSize: 'MEDIUM',
+    parcelInstructions: 'Keep dry',
+    paymentMethod: 'CASH',
+    serviceClass: 'EXPRESS',
+  });
+  assert.equal(JSON.stringify(draft).includes('delivery-9'), false);
+  assert.equal(draft.pickup.address, '12 Samora Machel Avenue');
+  assert.equal(draft.pickup.latitude, '-17.8292');
+  assert.equal(draft.pickup.contactPhone, '+263771111111');
+  assert.equal(draft.dropoff.contactName, 'Recipient');
+  assert.equal(draft.dropoff.contactPhone, '+263772222222');
+  assert.equal(draft.description, 'Documents');
+  assert.equal(draft.size, 'MEDIUM');
+  assert.equal(draft.serviceClass, 'EXPRESS');
+  const restored = bookingDraftFromLocation({ rebook: draft });
+  const prepared = prepareBooking(restored);
+  assert.equal(prepared.ok, true);
+  if (!prepared.ok) return;
+  const body = v2CreateBody(prepared.booking, '4.50');
+  assert.equal('id' in body, false);
+  assert.equal(body.pickup.address, '12 Samora Machel Avenue');
+  assert.equal(body.dropoff.contactName, 'Recipient');
+  assert.equal(body.parcel.size, 'MEDIUM');
+  assert.equal(body.currency, 'USD');
+  const zig = bookingDraftFromDelivery({
+    pickupAddress: '12 Samora Machel Avenue',
+    pickupLatitude: -17.8292,
+    pickupLongitude: 31.0522,
+    senderName: 'Sender',
+    pickupContactPhone: '+263771111111',
+    pickupLandmark: null,
+    pickupInstructions: null,
+    dropoffAddress: '4 Jason Moyo Street',
+    dropoffLatitude: -17.831,
+    dropoffLongitude: 31.045,
+    recipientName: 'Recipient',
+    recipientPhone: '+263772222222',
+    dropoffLandmark: null,
+    dropoffInstructions: null,
+    parcelDescription: 'Parcel',
+    parcelSize: 'SMALL',
+    parcelInstructions: null,
+    paymentMethod: 'ECOCASH',
+    serviceClass: 'FLEXIBLE',
+    currency: 'ZWG',
+  });
+  assert.equal(zig.currency, 'ZWG');
+  const zigPrepared = prepareBooking(zig);
+  assert.equal(zigPrepared.ok, true);
+  if (!zigPrepared.ok) return;
+  assert.equal(zigPrepared.booking.currency, 'USD');
+  assert.equal(v2CreateBody(zigPrepared.booking, '99.00').currency, 'USD');
+  assert.notEqual(quoteIdentity(zigPrepared.booking.pinKey, 'FLEXIBLE', 'USD'), quoteIdentity(zigPrepared.booking.pinKey, 'FLEXIBLE', 'ZWG'));
 });
 
 function mapStorage(saved: Map<string, string>) {

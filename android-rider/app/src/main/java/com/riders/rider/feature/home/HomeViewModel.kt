@@ -38,6 +38,7 @@ import com.riders.rider.feature.onboarding.domain.RiderReadiness
 import com.riders.rider.feature.onboarding.domain.applicationAwaitingReview
 import com.riders.rider.feature.onboarding.domain.riderReadiness
 import com.riders.rider.feature.wallet.data.WalletRepository
+import com.riders.rider.feature.wallet.domain.dashboardWallet
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -64,6 +65,8 @@ data class HomeUi(
     val fullName: String = "",
     val walletBalance: String? = null,
     val walletCurrency: String? = null,
+    val walletInsufficient: Boolean = false,
+    val usdDebtBalance: String? = null,
     val walletRestricted: Boolean = false,
     val activeRequestCount: Int? = null,
     val activeDeliveryTotal: Int? = null,
@@ -346,8 +349,12 @@ class HomeViewModel @Inject constructor(
                 else -> null
             },
             fullName = profileName ?: previous.fullName,
-            walletBalance = homeWalletAmount(wallet?.balance) ?: previous.walletBalance,
-            walletCurrency = wallet?.currency ?: previous.walletCurrency,
+            walletBalance = if (wallet == null) previous.walletBalance else dashboardWallet(wallet.activeWallet, wallet.balance, wallet.zig?.balance).balance,
+            walletCurrency = if (wallet == null) previous.walletCurrency else dashboardWallet(wallet.activeWallet, wallet.balance, wallet.zig?.balance).currency,
+            walletInsufficient = if (wallet == null) previous.walletInsufficient else dashboardWallet(wallet.activeWallet, wallet.balance, wallet.zig?.balance).insufficient,
+            usdDebtBalance = if (wallet == null) previous.usdDebtBalance else dashboardWallet(wallet.activeWallet, wallet.balance, wallet.zig?.balance).let { shown ->
+                if (shown.showUsdDebt) shown.usdBalance else null
+            },
             walletRestricted = wallet?.newDeliveriesRestricted ?: previous.walletRestricted,
             activeRequestCount = requestCount ?: previous.activeRequestCount,
             activeDeliveryTotal = when {
@@ -396,8 +403,18 @@ class HomeViewModel @Inject constructor(
             return
         }
         val opened = bids.openRequests()
+        val wallet = wallets.summary()
         if (dashboardBusy || opened !is ApiResult.Ok) {
             return
+        }
+        if (wallet is ApiResult.Ok) {
+            val shown = dashboardWallet(wallet.value.activeWallet, wallet.value.balance, wallet.value.zig?.balance)
+            state.value = state.value.copy(
+                walletBalance = shown.balance,
+                walletCurrency = shown.currency,
+                walletInsufficient = shown.insufficient,
+                usdDebtBalance = if (shown.showUsdDebt) shown.usdBalance else null,
+            )
         }
         openRequests = opened.value
         bids.refreshOwnBids(null)

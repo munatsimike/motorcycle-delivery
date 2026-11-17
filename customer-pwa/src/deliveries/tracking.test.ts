@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { moneyLabel } from './rules.ts';
 import { zoomForSpan } from '../home/camera.ts';
 import {
   customerCanCancelDelivery,
@@ -17,6 +18,7 @@ import {
   offersMapCamera,
   offersMissingSince,
   readBidAcceptance,
+  readCustomerBids,
   readCustomerDeliveryDetail,
   activeCustomerBids,
   activeOfferCountLabel,
@@ -59,6 +61,16 @@ function detail(overrides: Partial<CustomerDeliveryDetail> = {}): CustomerDelive
     dropoffLatitude: -17.83,
     dropoffLongitude: 31.06,
     parcelDescription: 'Parcel',
+    pickupContactPhone: null,
+    pickupLandmark: null,
+    pickupInstructions: null,
+    recipientPhone: null,
+    dropoffLandmark: null,
+    dropoffInstructions: null,
+    parcelSize: null,
+    parcelInstructions: null,
+    paymentMethod: null,
+    cancellation: null,
     createdAt: '2026-11-13T11:00:00.000Z',
     completedAt: null,
     riderLocation: { latitude: -17.821, longitude: 31.051, updatedAt: new Date(NOW - 10_000).toISOString() },
@@ -150,6 +162,9 @@ test('actions and camera follow the native tracking rules', () => {
   if (delivering.kind === 'live') assert.equal(delivering.stop?.latitude, -17.83);
   assert.equal(trackingMapView(detail({ status: 'DELIVERED', riderLocation: null, pickupApproach: null }), NOW).kind, 'hidden');
   assert.equal(trackingMapView(detail({ status: 'CANCELLED', riderLocation: null, pickupApproach: null }), NOW).kind, 'hidden');
+  assert.equal(deliveryScreen(detail({ status: 'CANCELLED', riderLocation: null, pickupApproach: null })), 'outcome');
+  assert.equal(deliveryActions(detail({ status: 'CANCELLED', riderLocation: null, pickupApproach: null })).offers, false);
+  assert.equal(deliveryActions(detail({ status: 'CANCELLED', riderLocation: null, pickupApproach: null })).cancel, false);
   assert.equal(shouldPollDelivery(detail({ status: 'COLLECTED' })), true);
   assert.equal(shouldPollDelivery(detail({ status: 'CANCELLED' })), false);
 });
@@ -262,6 +277,57 @@ test('offers camera keeps pickup and riders above a short sheet', () => {
   const nudged = points.map((point) => ({ latitude: point.latitude + 0.00005, longitude: point.longitude }));
   assert.equal(offersFrameHolds(nudged, frame, 360, 280), true);
   assert.equal(offersFrameHolds([{ latitude: -17.9, longitude: 31.05 }], frame, 360, 280), false);
+});
+
+test('a cancelled delivery keeps the actor and omits the rider note', () => {
+  const parsed = readCustomerDeliveryDetail({
+    id: 'delivery-9',
+    status: 'CANCELLED',
+    currency: 'USD',
+    offeredPrice: null,
+    suggestedPrice: '3.00',
+    serviceClass: 'FLEXIBLE',
+    deliverBy: null,
+    distanceMeters: 10,
+    paymentMethod: 'CASH',
+    pickup: { address: 'Pickup road', contactName: 'Sender', contactPhone: '+263771111111', latitude: '-17.8200000', longitude: '31.0500000' },
+    dropoff: { address: 'Dropoff road', contactName: 'Recipient', contactPhone: '+263772222222', latitude: '-17.8300000', longitude: '31.0600000' },
+    parcel: { description: 'Documents', size: 'MEDIUM', instructions: 'Handle gently' },
+    cancellation: { actor: 'RIDER', reason: 'BREAKDOWN', afterPickup: false, note: 'private gate note' },
+  });
+  assert.deepEqual(parsed.cancellation, { actor: 'RIDER', reason: 'BREAKDOWN', afterPickup: false });
+  assert.equal(JSON.stringify(parsed).includes('private gate note'), false);
+  assert.equal(parsed.senderName, 'Sender');
+  assert.equal(parsed.recipientPhone, '+263772222222');
+  assert.equal(parsed.parcelSize, 'MEDIUM');
+  assert.equal(deliveryActions(parsed).offers, false);
+  assert.equal(deliveryScreen(parsed), 'outcome');
+  const zig = readCustomerDeliveryDetail({
+    id: 'delivery-zig',
+    status: 'CREATED',
+    currency: 'ZWG',
+    offeredPrice: '99.00',
+    suggestedPrice: '99.00',
+    serviceClass: 'FLEXIBLE',
+    deliverBy: null,
+    distanceMeters: 10,
+    paymentMethod: 'CASH',
+    pickup: { address: 'Pickup road', contactName: 'Sender', contactPhone: '+263771111111', latitude: '-17.8200000', longitude: '31.0500000' },
+    dropoff: { address: 'Dropoff road', contactName: 'Recipient', contactPhone: '+263772222222', latitude: '-17.8300000', longitude: '31.0600000' },
+    parcel: { description: 'Parcel', size: 'SMALL', instructions: null },
+  });
+  assert.equal(zig.currency, 'ZWG');
+  assert.equal(moneyLabel(zig.currency, zig.offeredPrice ?? ''), 'ZiG 99.00');
+  const offers = readCustomerBids([{
+    id: 'bid-zig',
+    deliveryId: 'delivery-zig',
+    amount: '99.00',
+    currency: 'ZWG',
+    status: 'OPEN',
+    rider: { name: 'Tendai Moyo', completedDeliveries: 2, riderClass: 'SILVER' },
+  }]);
+  assert.equal(offers[0]?.currency, 'ZWG');
+  assert.equal(moneyLabel(offers[0]?.currency, offers[0]?.amount ?? ''), 'ZiG 99.00');
 });
 
 function memoryStore() {

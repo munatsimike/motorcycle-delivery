@@ -263,7 +263,9 @@ function context(options: {
         },
         riderWallet: {
           async findUnique({ where }: { where: Row }) {
-            return clone(wallets.find((row) => matches(row, where)));
+            const nested = where.riderProfileId_currency as Row | undefined;
+            const flat = nested ? { riderProfileId: nested.riderProfileId, currency: nested.currency } : where;
+            return clone(wallets.find((row) => matches(row, flat)));
           },
           async update({ where, data }: { where: Row; data: Row }) {
             const row = wallets.find((item) => matches(item, where));

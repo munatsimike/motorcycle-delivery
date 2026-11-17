@@ -17,7 +17,7 @@ export const V2_NOTICE_IDLE_MS = 60_000;
 const PROVIDER_HOPS = 2;
 const LEASE_MARGIN = 4;
 
-export const V2_PUSH_TYPE: Record<V2OutboxEventType, string> = {
+export const V2_PUSH_TYPE: Record<V2OutboxEventType | 'RIDER_CANCELLED' | 'CUSTOMER_CANCELLED', string> = {
   BID_ACCEPTED: 'v2_bid_accepted',
   REQUEST_REOPENED: 'v2_request_reopened',
   COLLECTING: 'v2_collecting',
@@ -29,6 +29,8 @@ export const V2_PUSH_TYPE: Record<V2OutboxEventType, string> = {
   BID_RECEIVED: 'v2_bid_received',
   COUNTEROFFER: 'v2_counteroffer',
   ACCOUNT_APPROVED: 'rider_account_approved',
+  RIDER_CANCELLED: 'v2_rider_cancelled',
+  CUSTOMER_CANCELLED: 'v2_customer_cancelled',
 };
 
 export type V2NoticeConfig = {

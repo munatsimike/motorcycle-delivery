@@ -26,6 +26,9 @@ data class WalletUi(
     val loading: Boolean = true,
     val refreshing: Boolean = false,
     val paging: Boolean = false,
+    val currency: String = "USD",
+    val usd: WalletSummary? = null,
+    val zig: WalletSummary? = null,
     val board: WalletBoard = WalletBoard(),
 )
 
@@ -36,6 +39,7 @@ class WalletViewModel @Inject constructor(
     private val state = MutableStateFlow(WalletUi())
     val ui: StateFlow<WalletUi> = state.asStateFlow()
     private val gate = WalletLoadGate()
+    private var currencyChosen = false
 
     fun refresh(fromUser: Boolean = false) {
         viewModelScope.launch {
@@ -44,9 +48,25 @@ class WalletViewModel @Inject constructor(
                 state.update { it.copy(refreshing = fromUser && hasSummary, loading = !hasSummary) }
                 try {
                     val summary = wallets.summary()
-                    val page = wallets.transactions(cursor = null)
+                    val serverWallet = (summary as? ApiResult.Ok)?.value?.activeWallet
+                    val selected = if (!currencyChosen && (serverWallet == "USD" || serverWallet == "ZWG")) {
+                        serverWallet
+                    } else {
+                        state.value.currency
+                    }
+                    val page = wallets.transactions(cursor = null, currency = selected)
                     state.update { current ->
-                        current.copy(board = walletAfterRefresh(current.board, walletRefresh(summary, page)))
+                        val refreshed = walletRefresh(summary, page, selected)
+                        if (current.currency != selected && currencyChosen) {
+                            current.copy(usd = refreshed.usd ?: current.usd, zig = refreshed.zig ?: current.zig)
+                        } else {
+                            current.copy(
+                                currency = selected,
+                                usd = refreshed.usd ?: current.usd,
+                                zig = refreshed.zig ?: current.zig,
+                                board = walletAfterRefresh(current.board, refreshed.refresh),
+                            )
+                        }
                     }
                 } finally {
                     state.update { it.copy(loading = false, refreshing = false) }
@@ -64,7 +84,7 @@ class WalletViewModel @Inject constructor(
                 val cursor = state.value.board.nextCursor ?: return@run
                 state.update { it.copy(paging = true) }
                 try {
-                    when (val page = wallets.transactions(cursor)) {
+                    when (val page = wallets.transactions(cursor, state.value.currency)) {
                         is ApiResult.Ok -> state.update { current ->
                             current.copy(
                                 board = walletAfterPage(
@@ -93,15 +113,43 @@ class WalletViewModel @Inject constructor(
         }
     }
 
+    fun selectCurrency(currency: String) {
+        if (currency != "USD" && currency != "ZWG") return
+        currencyChosen = true
+        if (currency == state.value.currency) return
+        state.update { current ->
+            current.copy(
+                currency = currency,
+                board = current.board.copy(
+                    summary = if (currency == "ZWG") current.zig else current.usd,
+                    entries = emptyList(),
+                    nextCursor = null,
+                    error = null,
+                ),
+            )
+        }
+        refresh()
+    }
+
 }
+
+private data class LoadedWallets(
+    val refresh: WalletRefresh,
+    val usd: WalletSummary?,
+    val zig: WalletSummary?,
+)
 
 private fun walletRefresh(
     summary: ApiResult<WalletSummaryResponse>,
     page: ApiResult<WalletPage>,
-): WalletRefresh {
-    val loaded = (summary as? ApiResult.Ok)?.value?.toSummary()
+    selected: String,
+): LoadedWallets {
+    val response = (summary as? ApiResult.Ok)?.value
+    val usd = response?.toSummary()
+    val zig = response?.zig?.toSummary() ?: if (usd != null) emptyZig() else null
+    val loaded = if (selected == "ZWG") zig else usd
     val history = page as? ApiResult.Ok
-    return when {
+    val refresh = when {
         loaded != null && history != null -> WalletRefresh.Ready(
             summary = loaded,
             entries = history.value.entries,
@@ -111,7 +159,30 @@ private fun walletRefresh(
         summary is ApiResult.Err -> WalletRefresh.Failed(summary.error.text())
         else -> WalletRefresh.Failed((page as ApiResult.Err).error.text())
     }
+    return LoadedWallets(refresh, usd, zig)
 }
+
+private fun emptyZig(): WalletSummary = WalletSummary(
+    balance = "0.00",
+    borrowingLimit = "0.00",
+    borrowingLimitSource = "NONE",
+    reservedFees = "0.00",
+    availableCapacity = "0.00",
+    currency = "ZWG",
+    promotionalBalance = "0.00",
+    availablePromotionalCredit = "0.00",
+)
+
+private fun com.riders.rider.core.network.ZigWalletResponse.toSummary(): WalletSummary = WalletSummary(
+    balance = balance,
+    borrowingLimit = "0.00",
+    borrowingLimitSource = "NONE",
+    reservedFees = reservedFees,
+    availableCapacity = availableCapacity,
+    currency = "ZWG",
+    promotionalBalance = promotionalBalance,
+    availablePromotionalCredit = availablePromotionalCredit,
+)
 
 private fun WalletSummaryResponse.toSummary(): WalletSummary = WalletSummary(
     balance = balance,

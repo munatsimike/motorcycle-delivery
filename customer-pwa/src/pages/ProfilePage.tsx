@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { ApiError } from '../api/client';
 import { deleteProfilePhoto, loadCustomerAccount, loadProfilePhoto, uploadProfilePhoto } from '../account/profileApi';
 import { customerAvatarColors, customerInitials, customerPhotoFileIssue, profileKindLabel, profileRows } from '../account/profile';
@@ -186,6 +186,7 @@ export function ProfilePage() {
                 </div>
               ))}
             </div>
+            <Link className="profile-addresses" to="/addresses">My addresses</Link>
           </>
         ) : isLoading ? null : <h1>Profile</h1>}
         {error ? <ErrorMessage>{error}</ErrorMessage> : null}

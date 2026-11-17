@@ -219,7 +219,7 @@ class OfferViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val attempt = bidAttempts.attempt(deliveryId, cents)
-                when (val result = bids.submit(attempt.deliveryId, attempt.amountCents, attempt.key)) {
+                when (val result = bids.submit(attempt.deliveryId, attempt.amountCents, attempt.key, currency)) {
                     is ApiResult.Ok -> {
                         bidAttempts.clear(deliveryId)
                         val outcome = bidSubmissionAfterResult(amountText, null)

@@ -52,7 +52,7 @@ afterEach(() => {
   request.mockReset();
 });
 
-function renderPage(wallet: RiderWalletSummary) {
+function renderPage(wallet: RiderWalletSummary, exceptions: Array<Record<string, string>> = []) {
   const puts: unknown[] = [];
   request.mockImplementation(async (path: string, options?: { method?: string; body?: unknown }) => {
     const method = options?.method ?? 'GET';
@@ -67,6 +67,12 @@ function renderPage(wallet: RiderWalletSummary) {
       return { data: [], pagination: { page: 1, limit: 20, total: 0, totalPages: 0 } };
     }
     if (method === 'GET' && path === `/admin/riders/${RIDER}/wallet`) return wallet;
+    if (method === 'GET' && path.startsWith(`/admin/riders/${RIDER}/wallet/payment-exceptions`)) {
+      return { data: exceptions };
+    }
+    if (method === 'GET' && path.includes('currency=ZWG')) {
+      return { transactions: [], nextCursor: null };
+    }
     if (method === 'GET' && path.startsWith(`/admin/riders/${RIDER}/wallet/transactions`)) {
       return {
         transactions: [
@@ -147,6 +153,9 @@ describe('rider negative wallet limit', () => {
     renderPage(restricted);
     expect(await screen.findByText('Restricted from accepting new deliveries. The server reports the restriction and does not store a separate reason.')).toBeTruthy();
     expect(screen.getByText('USD -0.40')).toBeTruthy();
+    expect(screen.getByText('USD -0.40').className).toContain('error');
+    expect(screen.getAllByText('ZiG 0.00').length).toBeGreaterThan(0);
+    expect(screen.queryByLabelText('Custom limit (ZiG)')).toBeNull();
     expect(screen.getAllByText('USD 0.30')).toHaveLength(2);
     expect(screen.getByText('USD 1.50')).toBeTruthy();
     expect(screen.getByText('USD 1.20')).toBeTruthy();
@@ -157,7 +166,38 @@ describe('rider negative wallet limit', () => {
     expect(screen.getByText('Launch')).toBeTruthy();
     expect(screen.getByText('Platform fee')).toBeTruthy();
     expect(screen.getByText('-0.40')).toBeTruthy();
+    expect(screen.getByText('No payment exceptions are recorded.')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
     await waitFor(() => expect(request.mock.calls.some((call) => String(call[0]).includes('cursor=next-page'))).toBe(true));
+  });
+
+  it('shows a ZiG wallet and a payment exception without a ZiG borrowing editor', async () => {
+    renderPage({
+      ...summary('DEFAULT'),
+      zig: {
+        riderProfileId: RIDER,
+        balance: '12.00',
+        promotionalBalance: '1.00',
+        reservedFees: '0.25',
+        availableCapacity: '11.75',
+        availablePromotionalCredit: '1.00',
+        currency: 'ZWG',
+      },
+    }, [{
+      id: 'exception-1',
+      riderName: 'Sample rider',
+      paymentReference: 'PAY-1',
+      currency: 'ZWG',
+      amount: '5.00',
+      code: 'USD_DEBT_AFTER_ZWG_PAYMENT',
+      usdBalance: '-0.40',
+      createdAt: '2026-10-14T12:00:00.000Z',
+    }]);
+    expect(await screen.findByText('ZiG 12.00')).toBeTruthy();
+    expect(screen.getByText('ZiG 11.75')).toBeTruthy();
+    expect(screen.queryByLabelText('Custom limit (ZiG)')).toBeNull();
+    expect(screen.getByText('USD_DEBT_AFTER_ZWG_PAYMENT')).toBeTruthy();
+    expect(screen.getByText('PAY-1')).toBeTruthy();
+    expect(screen.getByText('USD -0.40')).toBeTruthy();
   });
 });

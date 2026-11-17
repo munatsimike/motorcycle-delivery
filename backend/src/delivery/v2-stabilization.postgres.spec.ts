@@ -79,8 +79,22 @@ beforeAll(async () => {
         CHECK (
           "attempt_count" >= 0
           AND (
-            ("event_type" = 'BID_ACCEPTED' AND "rider_profile_id" IS NOT NULL AND "customer_account_id" IS NULL)
-            OR ("event_type" <> 'BID_ACCEPTED' AND "customer_account_id" IS NOT NULL AND "rider_profile_id" IS NULL)
+            (
+              "event_type" IN ('BID_ACCEPTED', 'ACCOUNT_APPROVED', 'CUSTOMER_CANCELLED')
+              AND "rider_profile_id" IS NOT NULL
+              AND "customer_account_id" IS NULL
+            )
+            OR (
+              "event_type" = 'RIDER_OPPORTUNITY'
+              AND "rider_profile_id" IS NULL
+              AND "customer_account_id" IS NULL
+              AND "delivery_id" IS NOT NULL
+            )
+            OR (
+              "event_type" NOT IN ('BID_ACCEPTED', 'ACCOUNT_APPROVED', 'CUSTOMER_CANCELLED', 'RIDER_OPPORTUNITY')
+              AND "customer_account_id" IS NOT NULL
+              AND "rider_profile_id" IS NULL
+            )
           )
         )
     `);
@@ -161,15 +175,15 @@ it('cancels after arrival and refuses cancellation after pickup', async () => {
   expect((await prisma.bid.findUnique({ where: { id: picked.bidId } }))?.closedAt).toBeNull();
 }, 30_000);
 
-it('reopens on rider cancellation and closes on customer cancellation', async () => {
+it('closes on rider cancellation and on customer cancellation', async () => {
   const riderCancelled = await acceptedJob();
-  const reopened = await dispatch.cancelBeforePickup(riderCancelled.rider, riderCancelled.assignmentId, `rider-${riderCancelled.assignmentId}`, { reason: 'BREAKDOWN' }, NOW);
-  expect(reopened).toMatchObject({ status: 'CREATED', reopened: true });
+  const closed = await dispatch.cancelBeforePickup(riderCancelled.rider, riderCancelled.assignmentId, `rider-${riderCancelled.assignmentId}`, { reason: 'BREAKDOWN' }, NOW);
+  expect(closed).toMatchObject({ status: 'CANCELLED', reopened: false });
   expect((await prisma.delivery.findUnique({ where: { id: riderCancelled.deliveryId } }))?.price).toBeNull();
-  expect(await prisma.v2OutboxEvent.count({ where: { assignmentId: riderCancelled.assignmentId, eventType: 'REQUEST_REOPENED' } })).toBe(1);
+  expect(await prisma.v2OutboxEvent.count({ where: { assignmentId: riderCancelled.assignmentId, eventType: 'REQUEST_REOPENED' } })).toBe(0);
   const replay = await dispatch.cancelBeforePickup(riderCancelled.rider, riderCancelled.assignmentId, `rider-${riderCancelled.assignmentId}`, { reason: 'BREAKDOWN' }, NOW);
-  expect(replay.replayed).toBe(true);
-  expect(await prisma.v2OutboxEvent.count({ where: { assignmentId: riderCancelled.assignmentId, eventType: 'REQUEST_REOPENED' } })).toBe(1);
+  expect(replay).toMatchObject({ replayed: true, status: 'CANCELLED', reopened: false });
+  expect(await prisma.v2OutboxEvent.count({ where: { assignmentId: riderCancelled.assignmentId, eventType: 'REQUEST_REOPENED' } })).toBe(0);
 
   const customerCancelled = await acceptedJob();
   await dispatch.cancel(customer, customerCancelled.deliveryId, NOW);

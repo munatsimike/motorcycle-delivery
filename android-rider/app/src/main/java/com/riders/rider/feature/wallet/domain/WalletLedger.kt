@@ -11,6 +11,24 @@ import java.util.Locale
 const val WALLET_BALANCE_EXPLANATION = "This is the cash balance. A negative amount is owed to the platform."
 const val WALLET_CAPACITY_EXPLANATION = "This is the amount available to cover platform fees."
 const val WALLET_TOP_UP_REQUIRED = "Top up your wallet to take new deliveries."
+const val INSUFFICIENT_WALLET_CAPACITY = "Insufficient wallet capacity"
+
+data class DashboardWallet(
+    val balance: String?,
+    val currency: String?,
+    val insufficient: Boolean,
+    val showUsdDebt: Boolean,
+    val usdBalance: String?,
+)
+
+fun dashboardWallet(activeWallet: String?, usdBalance: String?, zigBalance: String?): DashboardWallet {
+    val debt = walletBalanceIsNegative(usdBalance ?: "0.00")
+    return when (activeWallet) {
+        "USD" -> DashboardWallet(usdBalance, "USD", insufficient = false, showUsdDebt = false, usdBalance = usdBalance)
+        "ZWG" -> DashboardWallet(zigBalance, "ZWG", insufficient = false, showUsdDebt = debt, usdBalance = usdBalance)
+        else -> DashboardWallet(null, null, insufficient = true, showUsdDebt = debt, usdBalance = usdBalance)
+    }
+}
 const val WALLET_BORROWING_EXPLANATION = "Platform fees can be deducted while the balance is below zero."
 const val WALLET_BORROWING_OVERRIDE = "This limit was set for your account."
 const val WALLET_RESERVED_EXPLANATION = "These platform fees are held for accepted deliveries and are not yet deducted."
@@ -159,7 +177,7 @@ fun statementAmount(currency: String, type: String, amount: String): String {
         else -> !amount.trim().startsWith("-")
     }
     val mark = currencyMark(currency)
-    val gap = if (mark == "$") "" else " "
+    val gap = if (mark == "US$") "" else " "
     return if (credit) "+$mark$gap$digits" else "−$mark$gap$digits"
 }
 
@@ -173,6 +191,18 @@ fun displayedCapacity(summary: WalletSummary): String = walletMoneyLabel(summary
 fun displayedReserved(summary: WalletSummary): String = walletMoneyLabel(summary.currency, summary.reservedFees)
 
 fun displayedBorrowingLimit(summary: WalletSummary): String = walletMoneyLabel(summary.currency, summary.borrowingLimit)
+
+fun showsBorrowingLimit(currency: String): Boolean = !currency.equals("ZWG", ignoreCase = true)
+
+fun zigTopUpNotice(usdBalance: String): String {
+    return if (walletBalanceIsNegative(usdBalance)) {
+        "Repay the USD wallet before adding ZiG. The USD balance is ${signedWalletLabel("USD", usdBalance)}."
+    } else {
+        "ZiG EcoCash is not available yet."
+    }
+}
+
+fun zigTopUpEnabled(): Boolean = false
 
 class WalletLoadGate {
     private val lock = Mutex()

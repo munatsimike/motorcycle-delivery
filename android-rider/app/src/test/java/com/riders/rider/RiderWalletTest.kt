@@ -14,6 +14,8 @@ import com.riders.rider.feature.wallet.domain.WalletEntry
 import com.riders.rider.feature.wallet.domain.WalletLoadGate
 import com.riders.rider.feature.wallet.domain.WalletRefresh
 import com.riders.rider.feature.wallet.domain.WalletSummary
+import com.riders.rider.feature.wallet.domain.INSUFFICIENT_WALLET_CAPACITY
+import com.riders.rider.feature.wallet.domain.dashboardWallet
 import com.riders.rider.feature.wallet.domain.displayedBalance
 import com.riders.rider.feature.wallet.domain.displayedBorrowingLimit
 import com.riders.rider.feature.wallet.domain.displayedCapacity
@@ -46,6 +48,22 @@ import org.junit.Test
 
 class RiderWalletTest {
     @Test
+    fun dashboardShowsTheWalletSelectedByTheServer() {
+        val usd = dashboardWallet("USD", "-2.00", "20.00")
+        assertEquals("USD", usd.currency)
+        assertEquals("-2.00", usd.balance)
+        assertFalse(usd.insufficient)
+        val zig = dashboardWallet("ZWG", "-2.00", "20.00")
+        assertEquals("ZWG", zig.currency)
+        assertEquals("20.00", zig.balance)
+        assertTrue(zig.showUsdDebt)
+        val none = dashboardWallet(null, "-5.00", "0.00")
+        assertTrue(none.insufficient)
+        assertNull(none.currency)
+        assertEquals(INSUFFICIENT_WALLET_CAPACITY, "Insufficient wallet capacity")
+    }
+
+    @Test
     fun creditAndDeductionLabelsStayWithTheServerType() {
         assertEquals("Platform fee", walletEntryLabel("PLATFORM_FEE"))
         assertEquals("Platform fee released", walletEntryLabel("PLATFORM_FEE_RELEASE"))
@@ -64,8 +82,8 @@ class RiderWalletTest {
         )
         val fee = decoded.transactions[0]
         val credit = decoded.transactions[1]
-        assertEquals("−$0.30", walletMoneyLabel(fee.currency, fee.amount))
-        assertEquals("$1.40", walletMoneyLabel(credit.currency, credit.amount))
+        assertEquals("−US$0.30", walletMoneyLabel(fee.currency, fee.amount))
+        assertEquals("US$1.40", walletMoneyLabel(credit.currency, credit.amount))
         assertTrue(fee.amount.startsWith("-"))
         assertFalse(credit.amount.startsWith("-"))
         assertEquals("Launch credit", credit.reason)
@@ -76,24 +94,24 @@ class RiderWalletTest {
     fun walletBalanceShowsTheSignedBalanceAndCapacityStaysSeparate() {
         val negative = sampleSummary(balance = "-200.00", availableCapacity = "300.00", borrowingLimit = "500.00", reservedFees = "0.00", promotionalBalance = "1.00")
         assertTrue(walletBalanceIsNegative(negative.balance))
-        assertEquals("−$200.00", displayedBalance(negative))
-        assertEquals("−$200.00", signedWalletLabel("USD", "-200.00"))
-        assertEquals("$0.00", signedWalletLabel("USD", "0.00"))
-        assertEquals("$100.00", signedWalletLabel("USD", "100.00"))
+        assertEquals("−US$200.00", displayedBalance(negative))
+        assertEquals("−US$200.00", signedWalletLabel("USD", "-200.00"))
+        assertEquals("US$0.00", signedWalletLabel("USD", "0.00"))
+        assertEquals("US$100.00", signedWalletLabel("USD", "100.00"))
         assertFalse(walletBalanceIsNegative("0.00"))
         assertFalse(walletBalanceIsNegative("100.00"))
-        assertEquals("$300.00", displayedCapacity(negative))
+        assertEquals("US$300.00", displayedCapacity(negative))
         assertTrue(WALLET_BALANCE_EXPLANATION.contains("cash balance"))
         assertTrue(WALLET_TOP_UP_REQUIRED.contains("Top up"))
         val zero = sampleSummary(balance = "0.00", availableCapacity = "500.00")
-        assertEquals("$0.00", displayedBalance(zero))
-        assertEquals("$500.00", displayedCapacity(zero))
+        assertEquals("US$0.00", displayedBalance(zero))
+        assertEquals("US$500.00", displayedCapacity(zero))
     }
 
     @Test
     fun negativeWalletLimitShowsTheEffectiveAmountAndSource() {
         val standard = sampleSummary()
-        assertEquals("$2.00", displayedBorrowingLimit(standard))
+        assertEquals("US$2.00", displayedBorrowingLimit(standard))
         assertEquals("Standard limit", walletBorrowingSourceLabel("DEFAULT"))
         assertEquals(
             "Standard limit. Platform fees can be deducted while the balance is below zero.",
@@ -113,8 +131,8 @@ class RiderWalletTest {
             reservedFees = "0.50",
             availableCapacity = "9.99",
         )
-        assertEquals("$9.99", displayedCapacity(summary))
-        assertEquals("$0.50", displayedReserved(summary))
+        assertEquals("US$9.99", displayedCapacity(summary))
+        assertEquals("US$0.50", displayedReserved(summary))
         assertTrue(WALLET_CAPACITY_EXPLANATION.contains("platform fees"))
         assertTrue(WALLET_RESERVED_EXPLANATION.contains("not yet deducted"))
         assertTrue(WALLET_CUSTOMER_PAYMENT.contains("pay you directly"))
@@ -174,8 +192,8 @@ class RiderWalletTest {
         )
         assertEquals(listOf("fee", "credit"), loaded.entries.map { it.id })
         assertNull(loaded.nextCursor)
-        assertEquals("−$0.30", walletMoneyLabel(loaded.entries[0].currency, loaded.entries[0].amount))
-        assertEquals("$1.00", walletMoneyLabel(loaded.entries[1].currency, loaded.entries[1].amount))
+        assertEquals("−US$0.30", walletMoneyLabel(loaded.entries[0].currency, loaded.entries[0].amount))
+        assertEquals("US$1.00", walletMoneyLabel(loaded.entries[1].currency, loaded.entries[1].amount))
     }
 
     @Test
@@ -203,7 +221,7 @@ class RiderWalletTest {
         assertEquals(current.summary, kept.summary)
         assertEquals(current.entries, kept.entries)
         assertEquals("page-2", kept.nextCursor)
-        assertEquals("$1.40", displayedBalance(kept.summary!!))
+        assertEquals("US$1.40", displayedBalance(kept.summary!!))
     }
 
     @Test
@@ -216,9 +234,10 @@ class RiderWalletTest {
         )
         assertNull(walletEarningsTotal(history))
         assertEquals("EcoCash MP-1", walletReceiptLabel("MP-1", "EXT-1", "INT-1"))
-        assertEquals("+$2.00", statementAmount("USD", "TOP_UP", "2.00"))
-        assertEquals("−$0.30", statementAmount("USD", "PLATFORM_FEE", "-0.30"))
-        assertEquals("+$0.30", statementAmount("USD", "PLATFORM_FEE_REFUND", "0.30"))
+        assertEquals("+US$2.00", statementAmount("USD", "TOP_UP", "2.00"))
+        assertEquals("+ZiG 2.00", statementAmount("ZWG", "TOP_UP", "2.00"))
+        assertEquals("−US$0.30", statementAmount("USD", "PLATFORM_FEE", "-0.30"))
+        assertEquals("+US$0.30", statementAmount("USD", "PLATFORM_FEE_REFUND", "0.30"))
         assertEquals("Receipt 44", statementReference("Receipt 44", "Cash top-up"))
         assertNull(walletEarningsTotal(history + entry("topup", "TOP_UP", "2.00")))
     }

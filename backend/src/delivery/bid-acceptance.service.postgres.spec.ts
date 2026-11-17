@@ -268,12 +268,15 @@ it('keeps the commission snapshot consistent with the rate version committed dur
   expect(published.basisPoints).toBe(4_000);
 });
 
-it('accepts a published 0% rate without a wallet or a reservation', async () => {
+it('accepts a published 0% rate without a reservation or a ledger entry', async () => {
   await setRate(0);
-  const world = await scenario({ wallet: false });
+  const world = await scenario();
+  const before = await prisma.riderWallet.findUniqueOrThrow({ where: { id: world.walletId } });
   const accepted = await acceptance.accept(customer, world.deliveryId, world.bidId, `zero-${world.deliveryId}`, NOW);
   expect(accepted).toMatchObject({ commissionAmount: '0.00', basisPoints: 0, reserved: false, replayed: false });
-  expect(await prisma.riderWallet.count({ where: { riderProfileId: world.riderId } })).toBe(0);
+  const after = await prisma.riderWallet.findUniqueOrThrow({ where: { id: world.walletId } });
+  expect(after.balance.toFixed(2)).toBe(before.balance.toFixed(2));
+  expect(await prisma.riderWallet.count({ where: { riderProfileId: world.riderId, currency: 'USD' } })).toBe(1);
   expect(await prisma.walletFeeReservation.count({ where: { deliveryId: world.deliveryId } })).toBe(0);
   expect(await prisma.riderWalletEntry.count()).toBe(0);
   expect(await prisma.deliveryAssignment.count({ where: { deliveryId: world.deliveryId, status: 'ACCEPTED' } })).toBe(1);
@@ -464,7 +467,7 @@ async function scenario(options?: {
     });
     walletId = wallet.id;
   } else if (options?.riderId) {
-    const wallet = await prisma.riderWallet.findUniqueOrThrow({ where: { riderProfileId: riderId } });
+    const wallet = await prisma.riderWallet.findUniqueOrThrow({ where: { riderProfileId_currency: { riderProfileId: riderId, currency: 'USD' } } });
     walletId = wallet.id;
     if (options.borrowingLimit) {
       await prisma.riderWallet.update({

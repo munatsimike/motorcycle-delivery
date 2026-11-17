@@ -3,9 +3,11 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { adminApi } from '../lib/client';
 import { when } from '../lib/labels';
-import { moneyValue } from '../lib/money';
+import { exchangeRateValue, moneyValue } from '../lib/money';
 import type {
   BorrowingLimitAudit,
+  ExchangeRate,
+  ExchangeRateAudit,
   Page,
   PricingAudit,
   V2CommissionAudit,
@@ -20,12 +22,14 @@ import { ClassPricingPanel } from './ClassPricingPanel';
 type Draft =
   | { kind: 'wallet'; welcomeBonus: string; defaultBorrowingLimit: string; platformFee: string }
   | { kind: 'v2-commission'; percentage: string }
+  | { kind: 'exchange-rate'; zigPerUsd: string }
   | null;
 
 export function SettingsPage() {
   const queryClient = useQueryClient();
   const wallet = useQuery({ queryKey: ['wallet-config'], queryFn: () => adminApi.request<WalletConfig>('/admin/wallet-config') });
   const v2Commission = useQuery({ queryKey: ['v2-commission'], queryFn: () => adminApi.request<V2CommissionRate>('/admin/v2-commission-rate') });
+  const exchangeRate = useQuery({ queryKey: ['exchange-rate'], queryFn: () => adminApi.request<ExchangeRate>('/admin/exchange-rate') });
   const [draft, setDraft] = useState<Draft>(null);
   const [section, setSection] = useState<'express' | 'flexible'>('express');
   const [error, setError] = useState<string | null>(null);
@@ -43,7 +47,10 @@ export function SettingsPage() {
           },
         });
       }
-      return adminApi.request('/admin/v2-commission-rate', { method: 'POST', body: { percentage: next.percentage } });
+      if (next.kind === 'v2-commission') {
+        return adminApi.request('/admin/v2-commission-rate', { method: 'POST', body: { percentage: next.percentage } });
+      }
+      return adminApi.request('/admin/exchange-rate', { method: 'POST', body: { zigPerUsd: next.zigPerUsd } });
     },
     onSuccess: async () => {
       setDraft(null);
@@ -51,6 +58,8 @@ export function SettingsPage() {
       await queryClient.invalidateQueries({ queryKey: ['wallet-config'] });
       await queryClient.invalidateQueries({ queryKey: ['v2-commission'] });
       await queryClient.invalidateQueries({ queryKey: ['v2-commission-audits'] });
+      await queryClient.invalidateQueries({ queryKey: ['exchange-rate'] });
+      await queryClient.invalidateQueries({ queryKey: ['exchange-rate-audits'] });
     },
   });
 
@@ -149,6 +158,29 @@ export function SettingsPage() {
         ) : null}
       </section>
       <V2CommissionHistory />
+      <section className="panel">
+        <h2>Exchange rate</h2>
+        <p className="muted">Internal rate used to suggest a ZiG delivery price. 1 USD converts to this many ZiG. This is not a live market rate and does not change existing deliveries.</p>
+        {exchangeRate.isLoading ? <Loading label="Loading exchange rate" /> : null}
+        {exchangeRate.error ? <ErrorNote>{textOf(exchangeRate.error)}</ErrorNote> : null}
+        {exchangeRate.data ? (
+          <form key={exchangeRate.data.rateVersion} className="stack" onSubmit={(event) => {
+            event.preventDefault();
+            setError(null);
+            const zigPerUsd = exchangeRateValue(String(new FormData(event.currentTarget).get('zigPerUsd') ?? ''));
+            if (!zigPerUsd) {
+              setError('Enter a positive ZiG amount for 1 USD, with at most four decimal places.');
+              return;
+            }
+            setDraft({ kind: 'exchange-rate', zigPerUsd });
+          }}>
+            <p className="muted">Current rate: 1 USD = {exchangeRate.data.zigPerUsd} ZiG · Version {exchangeRate.data.rateVersion}</p>
+            <label>ZiG per 1 USD<input name="zigPerUsd" inputMode="decimal" defaultValue={exchangeRate.data.zigPerUsd} /></label>
+            <button className="button" type="submit">Review exchange rate</button>
+          </form>
+        ) : null}
+      </section>
+      <ExchangeRateHistory />
       {draft ? (
         <Dialog title="Save settings" busy={save.isPending} confirmLabel="Save" onClose={() => { if (!save.isPending) setDraft(null); }} onConfirm={() => save.mutate(draft)}>
           <DraftSummary draft={draft} />
@@ -369,5 +401,48 @@ function DraftSummary({ draft }: { draft: Exclude<Draft, null> }) {
   if (draft.kind === 'wallet') {
     return <p>Welcome bonus USD {draft.welcomeBonus}, default negative wallet limit USD {draft.defaultBorrowingLimit}, platform fee USD {draft.platformFee}.</p>;
   }
+  if (draft.kind === 'exchange-rate') {
+    return <p>Publish 1 USD = {draft.zigPerUsd} ZiG. Existing deliveries keep the rate already stored on them.</p>;
+  }
   return <p>V2 commission {draft.percentage}% for Express and Flexible deliveries.</p>;
+}
+
+function ExchangeRateHistory() {
+  const [page, setPage] = useState(1);
+  const audits = useQuery({
+    queryKey: ['exchange-rate-audits', page],
+    queryFn: () => adminApi.request<Page<ExchangeRateAudit>>(`/admin/exchange-rate/audits?page=${page}&limit=20`),
+  });
+  return (
+    <section className="panel">
+      <h2>Exchange rate history</h2>
+      <p className="muted">Each row is one published internal rate. The opening rate has no administrator.</p>
+      {audits.isLoading ? <Loading label="Loading exchange rate history" /> : null}
+      {audits.error ? <ErrorNote>{textOf(audits.error)}</ErrorNote> : null}
+      {audits.data && audits.data.data.length === 0 ? <Empty>No exchange rate changes are recorded.</Empty> : null}
+      {audits.data && audits.data.data.length > 0 ? (
+        <>
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr><th>When</th><th>Administrator</th><th>Rate</th></tr>
+              </thead>
+              <tbody>
+                {audits.data.data.map((audit) => (
+                  <tr key={audit.id}>
+                    <td>{when(audit.createdAt)}</td>
+                    <td>{audit.actorName || audit.actorId}</td>
+                    <td>{audit.previousZigPerUsd ?? 'None'} → {audit.nextZigPerUsd} ZiG per USD</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {audits.data.pagination.totalPages > 1 ? (
+            <Pager page={audits.data.pagination.page} totalPages={audits.data.pagination.totalPages} onPage={setPage} />
+          ) : null}
+        </>
+      ) : null}
+    </section>
+  );
 }

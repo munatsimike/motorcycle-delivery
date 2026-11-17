@@ -6,6 +6,7 @@ export type V2PushMessage = {
   deliveryId: string;
   assignmentId: string;
   audience: V2PushAudience;
+  accountId?: string;
   ttlSeconds?: number;
   collapseKey?: string;
   expiresAt?: string;

@@ -703,6 +703,16 @@ button.home-status:disabled {
   color: #9a4d00;
 }
 
+.banner-push {
+  background: var(--primary-light);
+  color: var(--text);
+}
+
+.banner-push-actions {
+  display: flex;
+  gap: var(--space-sm);
+}
+
 .banner-update-refresh,
 .banner-update-refresh:hover,
 .banner-update-refresh:active,
@@ -3521,3 +3531,168 @@ html.is-page-transition .page-stage {
 .auth-screen .button:has(.auth-button-spinner) { gap: 10px; }
 @keyframes auth-button-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .auth-button-spinner { animation-duration: 1.5s; } }
+
+.profile-addresses {
+  display: flex;
+  align-items: center;
+  min-height: 48px;
+  margin-top: var(--space-md);
+  padding: 0 var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--background);
+  color: var(--text);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.address-book {
+  display: grid;
+  gap: var(--space-md);
+  width: min(100%, 40rem);
+  margin-inline: auto;
+}
+
+.address-empty,
+.address-card {
+  display: grid;
+  gap: var(--space-xs);
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--background);
+}
+
+.address-card h2,
+.address-card p,
+.address-empty p {
+  margin: 0;
+}
+
+.address-label {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: center;
+  color: var(--primary-dark);
+  font-weight: 700;
+}
+
+.address-label span,
+.address-card div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.address-label span {
+  padding: 0 var(--space-sm);
+  border-radius: 999px;
+  background: var(--primary-light);
+  font-size: var(--caption);
+  font-weight: 600;
+}
+
+.address-card div button,
+.address-card div a,
+.address-add {
+  min-height: 44px;
+  padding: 0 var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--background);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.address-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  justify-self: start;
+  font-weight: 600;
+}
+
+.address-book .book-choice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.address-book .book-choice button {
+  min-height: 44px;
+  padding: 0 var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--background);
+}
+
+.address-book .book-choice button.is-selected {
+  border-color: var(--primary);
+  background: var(--primary-light);
+}
+
+.address-default {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: center;
+  min-height: 44px;
+}
+
+.book-saved {
+  display: grid;
+  gap: var(--space-sm);
+}
+
+.book-saved p {
+  margin: 0;
+  font-weight: 600;
+}
+
+.book-saved div {
+  display: flex;
+  gap: var(--space-sm);
+  overflow-x: auto;
+}
+
+.book-saved button {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 2px;
+  max-width: 16rem;
+  min-height: 44px;
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--background);
+  text-align: left;
+}
+
+.book-saved button span {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: var(--caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.book-save-actions {
+  display: grid;
+  gap: var(--space-sm);
+  width: min(100%, 20rem);
+}
+
+.book-save-actions button {
+  min-height: 44px;
+  padding: 0 var(--space-md);
+  border: 0;
+  border-radius: 999px;
+  background: var(--background);
+  color: var(--text);
+}
+
+.book-confirmed-card .book-save-actions + p {
+  max-width: 20rem;
+  color: var(--background);
+  font-size: var(--body);
+  text-align: center;
+}

@@ -2,8 +2,11 @@ import { useEffect } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { beginPageTransition, samePageLink } from '../motion/pageTransition';
 import { OfflineNotice } from '../components/OfflineNotice';
+import { CustomerPush } from '../pwa/CustomerPush';
 import { UpdateNotice } from '../components/UpdateNotice';
 import { Loading } from '../components/Loading';
+import { AddressEditorPage } from '../pages/AddressEditorPage';
+import { AddressesPage } from '../pages/AddressesPage';
 import { BookPage } from '../pages/BookPage';
 import { HomePage } from '../pages/HomePage';
 import { CreateAccountPage } from '../pages/CreateAccountPage';
@@ -27,6 +30,7 @@ export function App() {
       <PageTransitionLinks />
       <OfflineNotice />
       <UpdateNotice />
+      <CustomerPush />
       {visibleTree(status) === 'session-check' ? <SessionCheck /> : status === 'signed-in' ? <SignedInRoutes /> : <SignedOutRoutes />}
     </>
   );
@@ -99,6 +103,9 @@ function SignedInRoutes() {
         <Route path="/profile" element={<ProfilePage />} />
       </Route>
       <Route path="/book" element={<><ConsumedReturnPath /><BookPage /></>} />
+      <Route path="/addresses" element={<><ConsumedReturnPath /><AddressesPage /></>} />
+      <Route path="/addresses/new" element={<><ConsumedReturnPath /><AddressEditorPage /></>} />
+      <Route path="/addresses/:id" element={<><ConsumedReturnPath /><AddressEditorPage /></>} />
       <Route path="/deliveries/:id" element={<><ConsumedReturnPath /><DeliveryDetailsPage /></>} />
       <Route path="*" element={<NotFoundPage home />} />
     </Routes>

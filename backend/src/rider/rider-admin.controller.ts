@@ -148,6 +148,15 @@ export class RiderAdminController {
     return this.wallets.summary(riderProfileId);
   }
 
+  @Get(':riderProfileId/wallet/payment-exceptions')
+  @ApiOperation({ summary: 'List wallet payment exceptions for a rider' })
+  @ApiParam({ name: 'riderProfileId', format: 'uuid' })
+  @ApiOkResponse({ description: 'Recorded payment exceptions. Reading them does not change a balance.' })
+  paymentExceptions(@Req() request: AdminRequest, @Param('riderProfileId', new ParseUUIDPipe({ version: '7' })) riderProfileId: string) {
+    requiredAdmin(request);
+    return this.wallets.paymentExceptions(riderProfileId);
+  }
+
   @Get(':riderProfileId/wallet/transactions')
   walletTransactions(
     @Req() request: AdminRequest,

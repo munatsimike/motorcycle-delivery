@@ -13,6 +13,7 @@ import {
   ServiceClass,
 } from '../generated/prisma/client.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
+import { sameWallet, walletLookup, type WalletLookup } from '../rider/wallet-test-doubles.js';
 import { BidService } from './bid.service.js';
 import { createPickupApproachCache } from './pickup-approach.js';
 
@@ -122,6 +123,31 @@ describe('V2 bid lifecycle', () => {
     expect(ctx.bids).toHaveLength(0);
     await expect(bids.submit(RIDER_CONTEXT, { ...bidBody(), amountCents: 1.5 }, 'cents', NOW)).rejects.toBeInstanceOf(BadRequestException);
     await expect(bids.submit(RIDER_CONTEXT, { ...bidBody(), currency: 'ZWL' }, 'currency', NOW)).rejects.toThrow('USD is the only supported currency');
+  });
+
+  it('stores a ZiG bid only when the delivery is ZiG and ZiG offers are enabled', async () => {
+    process.env.V2_MARKETPLACE_ENABLED = 'true';
+    process.env.RIDER_ZWG_OFFERS_ENABLED = 'true';
+    const ctx = store();
+    ctx.deliveries[0]!.currency = Currency.ZWG;
+    ctx.wallets.push({ id: 'wallet-zig', riderProfileId: RIDER, currency: 'ZWG', balance: '20.00', borrowingLimitOverride: null });
+    const bids = new BidService(ctx.prisma);
+    await expect(bids.submit(RIDER_CONTEXT, bidBody(), 'usd-on-zig', NOW)).rejects.toThrow('This bid currency does not match the delivery');
+    const saved = await bids.submit(RIDER_CONTEXT, { ...bidBody(), currency: 'ZWG' }, 'zig', NOW);
+    expect(saved.currency).toBe(Currency.ZWG);
+    expect(ctx.bids).toEqual([expect.objectContaining({ currency: Currency.ZWG, amount: '10.00' })]);
+    delete process.env.RIDER_ZWG_OFFERS_ENABLED;
+  });
+
+  it('rejects a direct ZiG bid while ZiG offers are disabled', async () => {
+    process.env.V2_MARKETPLACE_ENABLED = 'true';
+    delete process.env.RIDER_ZWG_OFFERS_ENABLED;
+    const ctx = store();
+    ctx.deliveries[0]!.currency = Currency.ZWG;
+    ctx.wallets.push({ id: 'wallet-zig', riderProfileId: RIDER, currency: 'ZWG', balance: '20.00', borrowingLimitOverride: null });
+    const bids = new BidService(ctx.prisma);
+    await expect(bids.submit(RIDER_CONTEXT, { ...bidBody(), currency: 'ZWG' }, 'zig-off', NOW)).rejects.toThrow('ZiG deliveries are not available');
+    expect(ctx.bids).toHaveLength(0);
   });
 
   it('expires an open bid when the deadline passes and keeps the row', async () => {
@@ -440,6 +466,21 @@ describe('V2 bid lifecycle', () => {
     expect(open.map((request) => request.id)).toEqual([DELIVERY]);
   });
 
+  it('keeps a ZiG request off the current rider list unless the compatibility flag is on', async () => {
+    process.env.V2_MARKETPLACE_ENABLED = 'true';
+    delete process.env.RIDER_ZWG_OFFERS_ENABLED;
+    const ctx = store();
+    ctx.deliveries[0]!.currency = Currency.ZWG;
+    const bids = new BidService(ctx.prisma);
+    await expect(bids.listOpenRequests(RIDER_CONTEXT, NOW)).resolves.toEqual([]);
+    process.env.RIDER_ZWG_OFFERS_ENABLED = 'true';
+    await expect(bids.listOpenRequests(RIDER_CONTEXT, NOW)).resolves.toEqual([]);
+    ctx.wallets.push({ id: 'wallet-zig', riderProfileId: RIDER, currency: 'ZWG', balance: '20.00', borrowingLimitOverride: null });
+    const open = await bids.listOpenRequests(RIDER_CONTEXT, NOW);
+    expect(open.map((request) => request.id)).toEqual([DELIVERY]);
+    delete process.env.RIDER_ZWG_OFFERS_ENABLED;
+  });
+
   it('records Express interest and a different offer without assigning the rider', async () => {
     process.env.V2_MARKETPLACE_ENABLED = 'true';
     const ctx = store();
@@ -607,8 +648,8 @@ function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?:
     { id: 'bike-2', riderProfileId: OTHER_RIDER, verificationStatus: MotorcycleVerificationStatus.VERIFIED, isActive: true, make: null, model: null, registrationNumber: 'DEF5678' },
   ];
   const wallets = [
-    { id: 'wallet-1', riderProfileId: RIDER, balance: '0.00', borrowingLimitOverride: null },
-    { id: 'wallet-2', riderProfileId: OTHER_RIDER, balance: '0.00', borrowingLimitOverride: null },
+    { id: 'wallet-1', riderProfileId: RIDER, currency: 'USD', balance: '0.00', borrowingLimitOverride: null },
+    { id: 'wallet-2', riderProfileId: OTHER_RIDER, currency: 'USD', balance: '0.00', borrowingLimitOverride: null },
   ];
     const expressRiders = new Set<string>();
     const locations: Array<{ riderProfileId: string; latitude: number | Prisma.Decimal; longitude: number | Prisma.Decimal; updatedAt: Date }> = [];
@@ -664,11 +705,12 @@ function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?:
       async findFirst({ where }: { where: { id: string; customerId: string } }) {
         return deliveries.find((delivery) => delivery.id === where.id && delivery.customerId === where.customerId) ?? null;
       },
-      async findMany({ where }: { where: { status: DeliveryStatus; deliverBy?: { gt?: Date; lte?: Date }; searchGeneration: number; OR?: Array<{ deliverBy: null | { gt?: Date } }> } }) {
+      async findMany({ where }: { where: { status: DeliveryStatus; currency?: Currency; deliverBy?: { gt?: Date; lte?: Date }; searchGeneration: number; OR?: Array<{ deliverBy: null | { gt?: Date } }> } }) {
         return deliveries.filter((delivery) => (
           delivery.status === where.status
           && delivery.serviceClass != null
           && delivery.searchGeneration === where.searchGeneration
+          && (where.currency ? delivery.currency === where.currency : true)
           && (where.deliverBy?.gt ? delivery.deliverBy != null && delivery.deliverBy > where.deliverBy.gt : true)
           && (where.deliverBy?.lte ? delivery.deliverBy != null && delivery.deliverBy.getTime() <= where.deliverBy.lte.getTime() : true)
           && (where.OR ? where.OR.some((clause) => (
@@ -779,13 +821,15 @@ function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?:
       },
     },
     riderWallet: {
-      async findUnique({ where }: { where: { riderProfileId: string } }) {
-        return wallets.find((wallet) => wallet.riderProfileId === where.riderProfileId) ?? null;
+      async findUnique({ where }: { where: WalletLookup }) {
+        const lookup = walletLookup(where);
+        return wallets.find((wallet) => sameWallet(wallet, lookup)) ?? null;
       },
     },
     riderWalletEntry: {
-      async aggregate() {
-        return { _sum: { amount: '0.00' } };
+      async aggregate({ where }: { where?: { riderWalletId?: string } }) {
+        const wallet = wallets.find((item) => item.id === where?.riderWalletId);
+        return { _sum: { amount: wallet?.balance ?? '0.00' } };
       },
       async create() {
         ledgerWrites += 1;

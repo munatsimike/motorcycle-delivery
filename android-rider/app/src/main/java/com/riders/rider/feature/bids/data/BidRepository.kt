@@ -99,9 +99,9 @@ class BidRepository @Inject constructor(
         return result
     }
 
-    suspend fun submit(deliveryId: String, amountCents: Int, idempotencyKey: String): ApiResult<Unit> {
+    suspend fun submit(deliveryId: String, amountCents: Int, idempotencyKey: String, currency: String): ApiResult<Unit> {
         return when (val result = apiCall {
-            riders.submitBid(idempotencyKey, BidSubmissionRequest(deliveryId, amountCents))
+            riders.submitBid(idempotencyKey, BidSubmissionRequest(deliveryId, amountCents, currency))
         }) {
             is ApiResult.Ok -> ApiResult.Ok(Unit)
             is ApiResult.Err -> result

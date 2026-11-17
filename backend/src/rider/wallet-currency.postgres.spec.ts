@@ -1,0 +1,459 @@
+import { execFile } from 'node:child_process';
+import { createRequire } from 'node:module';
+import { promisify } from 'node:util';
+import pg from 'pg';
+import { afterAll, beforeAll, expect, it } from 'vitest';
+import { UserRole, WalletEntryType } from '../generated/prisma/client.js';
+import { PrismaService } from '../prisma/prisma.service.js';
+import { BidAcceptanceService } from '../delivery/bid-acceptance.service.js';
+import { BidService } from '../delivery/bid.service.js';
+import { centsFromDecimal } from '../delivery/money.js';
+import { issuePromotionalCredit } from './promotional-credit.js';
+import {
+  captureV2CommissionReservation,
+  refundAcceptanceCommission,
+  releasePlatformFeeReservation,
+} from './wallet-ledger.js';
+
+const exec = promisify(execFile);
+const require = createRequire(import.meta.url);
+const PRISMA_CLI = require.resolve('prisma/build/index.js');
+const HOST = '127.0.0.1';
+const PORT = 54362;
+const DATABASE = 'wallet_phase2';
+const CONTAINER = 'riders-wallet-phase2-pg';
+const DISPOSABLE_URL = `postgresql://postgres:postgres@${HOST}:${PORT}/${DATABASE}`;
+const NOW = new Date('2026-11-16T08:00:00.000Z');
+const DEADLINE = new Date('2026-11-16T18:00:00.000Z');
+
+let prisma: PrismaService;
+let bids: BidService;
+let acceptance: BidAcceptanceService;
+let customer: { userId: string; role: typeof UserRole.CUSTOMER; customerAccountId: string };
+let adminId = '';
+let phone = 771200000;
+let registration = 4000;
+const previousDatabaseUrl = process.env.DATABASE_URL;
+const previousFlag = process.env.V2_MARKETPLACE_ENABLED;
+const previousSsl = process.env.DATABASE_SSL_CA;
+
+beforeAll(async () => {
+  process.env.RIDER_ZWG_OFFERS_ENABLED = 'true';
+  const parsed = new URL(DISPOSABLE_URL);
+  if (parsed.hostname !== HOST || parsed.port !== String(PORT) || parsed.pathname !== `/${DATABASE}`) {
+    throw new Error('Refusing to use a database that is not the disposable wallet phase 2 database');
+  }
+  if (/supabase|railway|pooler/i.test(DISPOSABLE_URL)) {
+    throw new Error('Refusing a hosted database');
+  }
+  await exec('docker', ['rm', '-f', CONTAINER], { windowsHide: true }).catch(() => undefined);
+  await exec('docker', [
+    'run', '-d', '--name', CONTAINER,
+    '--publish', `${HOST}:${PORT}:5432`,
+    '--env', 'POSTGRES_PASSWORD=postgres',
+    '--env', `POSTGRES_DB=${DATABASE}`,
+    'postgres:17-alpine',
+  ], { windowsHide: true, maxBuffer: 20 * 1024 * 1024 });
+  const observer = await waitForPostgres();
+  const hosted = await observer.query("SELECT nspname FROM pg_namespace WHERE nspname IN ('auth', 'storage', 'supabase_migrations')");
+  if (hosted.rows.length > 0) {
+    await observer.end();
+    throw new Error('Refusing a database that already contains hosted Supabase schemas');
+  }
+  process.env.DATABASE_URL = DISPOSABLE_URL;
+  delete process.env.DATABASE_SSL_CA;
+  process.env.V2_MARKETPLACE_ENABLED = 'true';
+  try {
+    await exec(process.execPath, [PRISMA_CLI, 'db', 'push', '--accept-data-loss'], {
+      cwd: process.cwd(),
+      env: process.env,
+      windowsHide: true,
+      maxBuffer: 20 * 1024 * 1024,
+    });
+  } finally {
+    await observer.end().catch(() => undefined);
+  }
+  prisma = new PrismaService();
+  await prisma.$connect();
+  bids = new BidService(prisma);
+  acceptance = new BidAcceptanceService(prisma);
+  const admin = await prisma.user.create({
+    data: { fullName: 'Admin', phone: nextPhone(), role: UserRole.ADMIN, accountStatus: 'ACTIVE', phoneVerifiedAt: NOW },
+  });
+  adminId = admin.id;
+  const customerUser = await prisma.user.create({
+    data: { fullName: 'Customer', phone: nextPhone(), role: UserRole.CUSTOMER, accountStatus: 'ACTIVE', phoneVerifiedAt: NOW },
+  });
+  const account = await prisma.customerAccount.create({
+    data: { userId: customerUser.id, kind: 'INDIVIDUAL', name: 'Customer', address: 'Harare' },
+  });
+  customer = { userId: customerUser.id, role: UserRole.CUSTOMER, customerAccountId: account.id };
+  await prisma.walletConfig.create({
+    data: {
+      configVersion: 1,
+      currency: 'USD',
+      welcomeBonus: '0.00',
+      defaultBorrowingLimit: '50.00',
+      platformFee: '1.50',
+      isActive: true,
+      createdById: adminId,
+    },
+  });
+  await prisma.v2CommissionRate.create({
+    data: { rateVersion: 1, basisPoints: 1_000, isActive: true, createdById: adminId },
+  });
+}, 180_000);
+
+afterAll(async () => {
+  await prisma?.$disconnect().catch(() => undefined);
+  await exec('docker', ['rm', '-f', CONTAINER], { windowsHide: true }).catch(() => undefined);
+  if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+  else process.env.DATABASE_URL = previousDatabaseUrl;
+  if (previousFlag === undefined) delete process.env.V2_MARKETPLACE_ENABLED;
+  else process.env.V2_MARKETPLACE_ENABLED = previousFlag;
+  if (previousSsl === undefined) delete process.env.DATABASE_SSL_CA;
+  else process.env.DATABASE_SSL_CA = previousSsl;
+  delete process.env.RIDER_ZWG_OFFERS_ENABLED;
+}, 60_000);
+
+it('reserves and captures a USD commission on the USD wallet', async () => {
+  const riderId = await createRider({ usd: '10.00', zig: '10.00', limit: '0.00' });
+  const opened = await openBid(riderId, 'USD', '10.00');
+  const accepted = await acceptance.accept(customer, opened.deliveryId, opened.bidId, `usd-accept-${opened.deliveryId}`, NOW);
+  const captured = await prisma.$transaction((tx) => captureV2CommissionReservation(
+    tx,
+    opened.deliveryId,
+    riderId,
+    accepted.assignmentId,
+    NOW,
+  ));
+  const replayed = await prisma.$transaction((tx) => captureV2CommissionReservation(
+    tx,
+    opened.deliveryId,
+    riderId,
+    accepted.assignmentId,
+    NOW,
+  ));
+  const usd = await wallet(riderId, 'USD');
+  const zig = await wallet(riderId, 'ZWG');
+  expect(captured).toMatchObject({ captured: true, replayed: false, currency: 'USD', amount: '-1.00' });
+  expect(replayed).toMatchObject({ captured: true, replayed: true, currency: 'USD' });
+  expect(usd.balance.toFixed(2)).toBe('9.00');
+  expect(zig.balance.toFixed(2)).toBe('10.00');
+  expect(await prisma.riderWalletEntry.count({ where: { riderWalletId: usd.id, entryType: WalletEntryType.PLATFORM_FEE } })).toBe(1);
+  expect(await prisma.riderWalletEntry.count({ where: { riderWalletId: zig.id, entryType: WalletEntryType.PLATFORM_FEE } })).toBe(0);
+});
+
+it('reserves and captures a ZiG commission on the ZiG wallet', async () => {
+  const riderId = await createRider({ usd: '0.00', zig: '10.00', limit: '50.00' });
+  const opened = await openBid(riderId, 'ZWG', '10.00');
+  const accepted = await acceptance.accept(customer, opened.deliveryId, opened.bidId, `zig-accept-${opened.deliveryId}`, NOW);
+  const reservation = await prisma.walletFeeReservation.findFirstOrThrow({ where: { assignmentId: accepted.assignmentId } });
+  expect(reservation).toMatchObject({ currency: 'ZWG', status: 'OPEN' });
+  expect(reservation.riderWalletId).toBe((await wallet(riderId, 'ZWG')).id);
+  const captured = await prisma.$transaction((tx) => captureV2CommissionReservation(
+    tx,
+    opened.deliveryId,
+    riderId,
+    accepted.assignmentId,
+    NOW,
+  ));
+  expect(captured).toMatchObject({ captured: true, currency: 'ZWG', amount: '-1.00', balance: '9.00' });
+  expect((await wallet(riderId, 'USD')).balance.toFixed(2)).toBe('0.00');
+});
+
+it('rejects a ZiG reservation that exceeds ZiG cash and promotional credit', async () => {
+  const riderId = await createRider({ usd: '0.00', zig: '0.50', limit: '50.00' });
+  const opened = await openBid(riderId, 'ZWG', '10.00');
+  await expect(acceptance.accept(customer, opened.deliveryId, opened.bidId, `zig-short-${opened.deliveryId}`, NOW))
+    .rejects.toThrow('Wallet capacity is not enough for this bid');
+  expect((await wallet(riderId, 'ZWG')).balance.toFixed(2)).toBe('0.50');
+  expect(await prisma.walletFeeReservation.count({ where: { deliveryId: opened.deliveryId } })).toBe(0);
+});
+
+it('does not spend USD promotional credit on a ZiG fee', async () => {
+  const riderId = await createRider({ usd: '0.00', zig: '0.00', limit: '50.00' });
+  const usd = await wallet(riderId, 'USD');
+  await prisma.$transaction((tx) => issuePromotionalCredit(tx, usd, {
+    riderProfileId: riderId,
+    entryType: WalletEntryType.PROMOTIONAL_CREDIT,
+    amountCents: 500,
+    idempotencyKey: `promo-usd-${riderId}`,
+    reason: 'Phase 2 isolation',
+    actorType: 'ADMIN',
+    actorId: adminId,
+    now: NOW,
+    configVersion: 1,
+  }));
+  const usdBid = await openBid(riderId, 'USD', '10.00');
+  const accepted = await acceptance.accept(customer, usdBid.deliveryId, usdBid.bidId, `promo-usd-${usdBid.deliveryId}`, NOW);
+  const reservation = await prisma.walletFeeReservation.findFirstOrThrow({ where: { assignmentId: accepted.assignmentId } });
+  expect(centsFromDecimal(reservation.promotionalAmount!)).toBe(100);
+  expect(centsFromDecimal(reservation.walletAmount!)).toBe(0);
+  expect(reservation.riderWalletId).toBe(usd.id);
+  const zigBid = await openBid(riderId, 'ZWG', '10.00');
+  await expect(acceptance.accept(customer, zigBid.deliveryId, zigBid.bidId, `promo-zig-${zigBid.deliveryId}`, NOW))
+    .rejects.toThrow('Wallet capacity is not enough for this bid');
+  expect((await wallet(riderId, 'USD')).promotionalBalance.toFixed(2)).toBe('5.00');
+});
+
+it('releases only the reservation for the cancelled delivery currency', async () => {
+  const riderId = await createRider({ usd: '10.00', zig: '10.00', limit: '0.00' });
+  const usdBid = await openBid(riderId, 'USD', '10.00');
+  const zigBid = await openBid(riderId, 'ZWG', '10.00');
+  const usdAccepted = await acceptance.accept(customer, usdBid.deliveryId, usdBid.bidId, `rel-usd-${usdBid.deliveryId}`, NOW);
+  const zigAccepted = await acceptance.accept(customer, zigBid.deliveryId, zigBid.bidId, `rel-zig-${zigBid.deliveryId}`, NOW);
+  await prisma.$transaction((tx) => releasePlatformFeeReservation(tx, zigBid.deliveryId, NOW));
+  const usdReservation = await prisma.walletFeeReservation.findFirstOrThrow({ where: { assignmentId: usdAccepted.assignmentId } });
+  const zigReservation = await prisma.walletFeeReservation.findFirstOrThrow({ where: { assignmentId: zigAccepted.assignmentId } });
+  expect(usdReservation).toMatchObject({ currency: 'USD', status: 'OPEN' });
+  expect(zigReservation).toMatchObject({ currency: 'ZWG', status: 'RELEASED' });
+  expect((await wallet(riderId, 'USD')).balance.toFixed(2)).toBe('10.00');
+  expect((await wallet(riderId, 'ZWG')).balance.toFixed(2)).toBe('10.00');
+});
+
+it('refunds a captured fee to the wallet that was charged', async () => {
+  const riderId = await createRider({ usd: '10.00', zig: '10.00', limit: '0.00' });
+  const opened = await openBid(riderId, 'ZWG', '10.00');
+  const accepted = await acceptance.accept(customer, opened.deliveryId, opened.bidId, `refund-${opened.deliveryId}`, NOW);
+  await prisma.$transaction((tx) => captureV2CommissionReservation(tx, opened.deliveryId, riderId, accepted.assignmentId, NOW));
+  const assignment = await prisma.deliveryAssignment.findUniqueOrThrow({ where: { id: accepted.assignmentId } });
+  await prisma.deliveryAssignment.update({
+    where: { id: assignment.id },
+    data: {
+      acceptedCommissionModel: 'ON_ACCEPTANCE',
+      acceptedPlatformFee: assignment.acceptedCommissionAmount,
+      acceptedFeeConfigVersion: assignment.acceptedV2CommissionRateVersion,
+    },
+  });
+  await prisma.$transaction((tx) => refundAcceptanceCommission(tx, assignment.id, NOW));
+  await prisma.$transaction((tx) => refundAcceptanceCommission(tx, assignment.id, NOW));
+  const zig = await wallet(riderId, 'ZWG');
+  expect(zig.balance.toFixed(2)).toBe('10.00');
+  expect((await wallet(riderId, 'USD')).balance.toFixed(2)).toBe('10.00');
+  expect(await prisma.riderWalletEntry.count({
+    where: { riderWalletId: zig.id, entryType: WalletEntryType.PLATFORM_FEE_REFUND },
+  })).toBe(1);
+});
+
+it('stops a second concurrent acceptance from exceeding one dollar of capacity', async () => {
+  const riderId = await createRider({ usd: '0.00', zig: '1.00', limit: '1.00' });
+  const first = await openBid(riderId, 'USD', '10.00');
+  const second = await openBid(riderId, 'USD', '10.00');
+  const results = await Promise.allSettled([
+    acceptance.accept(customer, first.deliveryId, first.bidId, `cap-a-${first.deliveryId}`, NOW),
+    acceptance.accept(customer, second.deliveryId, second.bidId, `cap-b-${second.deliveryId}`, NOW),
+  ]);
+  expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+  expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
+  const open = await prisma.walletFeeReservation.findMany({ where: { riderWalletId: (await wallet(riderId, 'USD')).id, status: 'OPEN' } });
+  expect(open).toHaveLength(1);
+  expect(centsFromDecimal(open[0]!.amount)).toBe(100);
+});
+
+it('uses ZiG when USD borrowing is exhausted and keeps the USD wallet uncharged', async () => {
+  const riderId = await createRider({ usd: '-5.00', zig: '20.00', limit: '5.00' });
+  const rider = { userId: 'unused', riderProfileId: riderId };
+  const usdDelivery = await createDelivery('USD');
+  const zigDelivery = await createDelivery('ZWG');
+  await expect(bids.submit(rider, { deliveryId: usdDelivery, amountCents: 1_000, currency: 'USD' }, `block-usd-${usdDelivery}`, NOW))
+    .rejects.toThrow('Wallet capacity is not enough for this bid');
+  const saved = await bids.submit(rider, { deliveryId: zigDelivery, amountCents: 1_000, currency: 'ZWG' }, `fallback-zig-${zigDelivery}`, NOW);
+  expect(saved.currency).toBe('ZWG');
+  const listed = (await bids.listOpenRequests(rider, NOW)).map((row) => row.id);
+  expect(listed).toContain(zigDelivery);
+  expect(listed).not.toContain(usdDelivery);
+  expect((await wallet(riderId, 'USD')).balance.toFixed(2)).toBe('-5.00');
+});
+
+it('stops a second concurrent ZiG acceptance from exceeding one dollar of ZiG capacity', async () => {
+  const riderId = await createRider({ usd: '-5.00', zig: '1.00', limit: '0.00' });
+  const first = await openBid(riderId, 'ZWG', '10.00');
+  const second = await openBid(riderId, 'ZWG', '10.00');
+  const results = await Promise.allSettled([
+    acceptance.accept(customer, first.deliveryId, first.bidId, `zig-cap-a-${first.deliveryId}`, NOW),
+    acceptance.accept(customer, second.deliveryId, second.bidId, `zig-cap-b-${second.deliveryId}`, NOW),
+  ]);
+  expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+  expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
+  const open = await prisma.walletFeeReservation.findMany({ where: { riderWalletId: (await wallet(riderId, 'ZWG')).id, status: 'OPEN' } });
+  expect(open).toHaveLength(1);
+  expect(centsFromDecimal(open[0]!.amount)).toBe(100);
+  expect((await wallet(riderId, 'USD')).balance.toFixed(2)).toBe('-5.00');
+});
+
+it('allows a ZiG bid while USD is negative and borrowing capacity remains', async () => {
+  const riderId = await createRider({ usd: '-2.00', zig: '20.00', limit: '5.00' });
+  const rider = { userId: 'unused', riderProfileId: riderId };
+  const zigDelivery = await createDelivery('ZWG');
+  const saved = await bids.submit(rider, { deliveryId: zigDelivery, amountCents: 1_000, currency: 'ZWG' }, `room-zig-${zigDelivery}`, NOW);
+  expect(saved.currency).toBe('ZWG');
+  const listed = await bids.listOpenRequests(rider, NOW);
+  expect(listed.map((row) => row.id)).toContain(zigDelivery);
+});
+
+it('rejects a bid whose currency does not match the delivery', async () => {
+  const riderId = await createRider({ usd: '0.00', zig: '20.00', limit: '50.00' });
+  const rider = { userId: 'unused', riderProfileId: riderId };
+  const zigDelivery = await createDelivery('ZWG');
+  await expect(bids.submit(rider, { deliveryId: zigDelivery, amountCents: 1_000, currency: 'USD' }, `mismatch-${zigDelivery}`, NOW))
+    .rejects.toThrow('This bid currency does not match the delivery');
+  expect(await prisma.bid.count({ where: { deliveryId: zigDelivery } })).toBe(0);
+});
+
+it('rejects a direct ZiG bid and acceptance while ZiG offers are disabled', async () => {
+  delete process.env.RIDER_ZWG_OFFERS_ENABLED;
+  try {
+    const riderId = await createRider({ usd: '10.00', zig: '20.00', limit: '50.00' });
+    const rider = { userId: 'unused', riderProfileId: riderId };
+    const zigDelivery = await createDelivery('ZWG');
+    await expect(bids.submit(rider, { deliveryId: zigDelivery, amountCents: 1_000, currency: 'ZWG' }, `off-${zigDelivery}`, NOW))
+      .rejects.toThrow('ZiG deliveries are not available');
+    const opened = await openBid(riderId, 'ZWG', '10.00');
+    await expect(acceptance.accept(customer, opened.deliveryId, opened.bidId, `off-accept-${opened.deliveryId}`, NOW))
+      .rejects.toThrow('ZiG deliveries are not available');
+    expect(await prisma.deliveryAssignment.count({ where: { deliveryId: opened.deliveryId } })).toBe(0);
+  } finally {
+    process.env.RIDER_ZWG_OFFERS_ENABLED = 'true';
+  }
+});
+
+async function openBid(riderId: string, currency: 'USD' | 'ZWG', amount: string) {
+  const delivery = await createDelivery(currency);
+  const bid = await prisma.bid.create({
+    data: {
+      deliveryId: delivery,
+      riderProfileId: riderId,
+      amount,
+      currency,
+      status: 'OPEN',
+    },
+  });
+  return { deliveryId: delivery, bidId: bid.id };
+}
+
+async function createDelivery(currency: 'USD' | 'ZWG') {
+  const delivery = await prisma.delivery.create({
+    data: {
+      customerId: customer.customerAccountId,
+      pickupAddress: 'Pickup',
+      pickupCoordinateSource: 'UNREVIEWED',
+      pickupContactName: 'Sender',
+      pickupContactPhone: '+263770000001',
+      dropoffAddress: 'Dropoff',
+      dropoffCoordinateSource: 'UNREVIEWED',
+      parcelDescription: 'Parcel',
+      parcelSize: 'SMALL',
+      recipientName: 'Recipient',
+      recipientPhone: '+263770000002',
+      suggestedPrice: '9.00',
+      distanceMeters: 1_000,
+      pricingVersion: 1,
+      currency,
+      serviceClass: 'FLEXIBLE',
+      deliverBy: DEADLINE,
+      status: 'CREATED',
+      searchGeneration: 0,
+    },
+  });
+  return delivery.id;
+}
+
+async function createRider(balances: { usd: string; zig: string; limit: string }) {
+  const user = await prisma.user.create({
+    data: { fullName: 'Rider', phone: nextPhone(), role: UserRole.RIDER, accountStatus: 'ACTIVE', phoneVerifiedAt: NOW },
+  });
+  const profile = await prisma.riderProfile.create({
+    data: {
+      userId: user.id,
+      verificationStatus: 'VERIFIED',
+      approvalStatus: 'APPROVED',
+      availability: 'AVAILABLE',
+      receivingRequests: true,
+      licenceNumber: `LIC${nextRegistration()}`,
+      licenceClass: '4',
+      verifiedAt: NOW,
+      reviewerId: adminId,
+    },
+  });
+  await prisma.motorcycle.create({
+    data: {
+      riderProfileId: profile.id,
+      registrationNumber: `R${nextRegistration()}`,
+      make: 'Honda',
+      model: 'Ace',
+      colour: 'Red',
+      verificationStatus: 'VERIFIED',
+      isActive: true,
+      verifiedAt: NOW,
+      verifiedById: adminId,
+    },
+  });
+  const usd = await prisma.riderWallet.create({
+    data: { riderProfileId: profile.id, currency: 'USD', balance: balances.usd, borrowingLimitOverride: balances.limit },
+  });
+  const zig = await prisma.riderWallet.create({
+    data: { riderProfileId: profile.id, currency: 'ZWG', balance: balances.zig, welcomeBonusAwardedAt: NOW },
+  });
+  await openingEntry(usd.id, 'USD', balances.usd);
+  await openingEntry(zig.id, 'ZWG', balances.zig);
+  return profile.id;
+}
+
+async function openingEntry(walletId: string, currency: 'USD' | 'ZWG', amount: string) {
+  if (amount === '0.00' || amount === '0') {
+    return;
+  }
+  await prisma.riderWalletEntry.create({
+    data: {
+      riderWalletId: walletId,
+      entryType: 'ADJUSTMENT',
+      amount,
+      balanceAfter: amount,
+      currency,
+      configVersion: 1,
+      idempotencyKey: `opening-${walletId}`,
+      payloadHash: 'a'.repeat(64),
+      reason: 'Opening test balance',
+      actorType: 'ADMIN',
+      actorId: adminId,
+    },
+  });
+}
+
+function wallet(riderId: string, currency: 'USD' | 'ZWG') {
+  return prisma.riderWallet.findUniqueOrThrow({
+    where: { riderProfileId_currency: { riderProfileId: riderId, currency } },
+  });
+}
+
+function nextPhone(): string {
+  phone += 1;
+  return `+263${phone}`;
+}
+
+function nextRegistration(): string {
+  registration += 1;
+  return String(registration);
+}
+
+async function waitForPostgres() {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    const client = new pg.Client({ connectionString: DISPOSABLE_URL, connectionTimeoutMillis: 1000 });
+    try {
+      await client.connect();
+      await client.query('SELECT 1');
+      return client;
+    } catch (error) {
+      lastError = error;
+      await client.end().catch(() => undefined);
+      await delay(500);
+    }
+  }
+  throw lastError;
+}
+
+function delay(milliseconds: number) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}

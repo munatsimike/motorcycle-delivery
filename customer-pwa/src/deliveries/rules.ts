@@ -30,7 +30,7 @@ export type CustomerDelivery = {
   dropoffAddress: string;
   serviceClass: ServiceClass | null;
   deliverBy: string | null;
-  currency: 'USD' | null;
+  currency: 'USD' | 'ZWG' | null;
   suggestedPrice: string | null;
   offeredPrice: string | null;
   distanceMeters: number | null;
@@ -180,9 +180,11 @@ export function deliveryDistanceLabel(meters: number): string {
   return `${text} km`;
 }
 
-export function moneyLabel(currency: string, amount: string): string {
-  const mark = currency.trim().toUpperCase() === 'USD' ? '$' : currency.trim();
-  return mark === '$' ? `${mark}${amount}` : `${mark} ${amount}`;
+export function moneyLabel(currency: string | null | undefined, amount: string): string {
+  const code = (currency ?? 'USD').trim().toUpperCase();
+  if (code === 'USD') return `US$${amount}`;
+  if (code === 'ZWG') return `ZiG ${amount}`;
+  return `${code} ${amount}`;
 }
 
 export function deliveryOutcomeTitle(status: DeliveryStatus): string {
@@ -197,6 +199,42 @@ export function deliveryOutcomeSupport(status: DeliveryStatus): string {
   if (status === 'CANCELLED') return 'This delivery was cancelled.';
   if (status === 'FAILED') return 'This delivery could not be completed.';
   return 'This is the latest status from your delivery.';
+}
+
+export type DeliveryCancellation = {
+  actor: 'RIDER' | 'CUSTOMER' | 'SYSTEM';
+  reason: string | null;
+  afterPickup: boolean;
+};
+
+export function cancelledDeliveryCopy(cancellation: DeliveryCancellation | null): {
+  title: string;
+  support: string;
+  bookAgain: boolean;
+  contactSupport: boolean;
+} {
+  if (cancellation?.actor === 'RIDER' && cancellation.afterPickup) {
+    return {
+      title: 'Rider cancelled',
+      support: 'Your rider cancelled this delivery after collecting the parcel. Contact support about this delivery.',
+      bookAgain: false,
+      contactSupport: true,
+    };
+  }
+  if (cancellation?.actor === 'RIDER') {
+    return {
+      title: 'Rider cancelled',
+      support: 'Your rider cancelled this delivery. To find another rider, create a new delivery request.',
+      bookAgain: true,
+      contactSupport: false,
+    };
+  }
+  return {
+    title: 'Cancelled',
+    support: 'This delivery was cancelled.',
+    bookAgain: false,
+    contactSupport: false,
+  };
 }
 
 export function outcomeShowsRider(status: DeliveryStatus): boolean {
@@ -338,10 +376,10 @@ function readMoney(value: unknown): string | null | undefined {
   return value;
 }
 
-function readCurrency(value: unknown): 'USD' | null | undefined {
+function readCurrency(value: unknown): 'USD' | 'ZWG' | null | undefined {
   if (value === undefined || value === null || value === '') return null;
-  if (value !== 'USD') return undefined;
-  return 'USD';
+  if (value === 'USD' || value === 'ZWG') return value;
+  return undefined;
 }
 
 function readDistance(value: unknown): number | null {

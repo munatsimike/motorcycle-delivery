@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { adminApi } from '../lib/client';
 import { agreedBidAmount, commissionPercent, commissionStateLabel, commissionStateTime } from '../lib/deliveryDetail';
 import { label, when } from '../lib/labels';
+import { deliveryMoney } from '../lib/money';
 import type { AdminAcceptance, DeliveryDetail } from '../lib/types';
 import { ErrorNote, Loading, Status, textOf } from '../ui';
 
@@ -28,8 +29,8 @@ export function DeliveryPage() {
       <p className="note">This record is read only.</p>
       <section className="kpis">
         <article className="kpi"><span>Status</span><Status value={trip.status} /></article>
-        <article className="kpi"><span>Price</span><b>{trip.price ? `${trip.currency} ${trip.price}` : '—'}</b></article>
-        <article className="kpi"><span>Suggested</span><b>{trip.suggestedPrice ? `${trip.currency} ${trip.suggestedPrice}` : '—'}</b></article>
+        <article className="kpi"><span>Price</span><b>{trip.price ? deliveryMoney(trip.currency, trip.price) : '—'}</b></article>
+        <article className="kpi"><span>Suggested</span><b>{trip.suggestedPrice ? deliveryMoney(trip.currency, trip.suggestedPrice) : '—'}</b></article>
         <article className="kpi"><span>Distance</span><b>{trip.distanceMeters ?? '—'}{trip.distanceMeters === null ? '' : ' m'}</b></article>
       </section>
       <section className="panel">
@@ -79,8 +80,8 @@ function MarketplaceRecord({ delivery }: { delivery: DeliveryDetail }) {
         <p><strong>Service.</strong> {label(delivery.serviceClass ?? '')}</p>
         {delivery.deliverBy ? <p><strong>Deliver by.</strong> {when(delivery.deliverBy)}</p> : null}
         <p><strong>Status.</strong> {label(delivery.status)}</p>
-        <p><strong>Suggested price.</strong> {delivery.suggestedPrice ? `${delivery.currency} ${delivery.suggestedPrice}` : '—'}</p>
-        <p><strong>Agreed price.</strong> {agreed ? `${delivery.currency} ${agreed}` : '—'}</p>
+        <p><strong>Suggested price.</strong> {delivery.suggestedPrice ? deliveryMoney(delivery.currency, delivery.suggestedPrice) : '—'}</p>
+        <p><strong>Agreed price.</strong> {agreed ? deliveryMoney(delivery.currency, agreed) : '—'}</p>
         <p><strong>Rider.</strong> {rider ? rider.riderName || rider.riderProfileId : '—'}</p>
       </section>
       <section className="panel">
@@ -95,7 +96,7 @@ function MarketplaceRecord({ delivery }: { delivery: DeliveryDetail }) {
                 {delivery.bids.map((bid) => (
                   <tr key={bid.id}>
                     <td>{bid.riderName || bid.riderProfileId}</td>
-                    <td>{bid.currency} {bid.amount}</td>
+                    <td>{deliveryMoney(bid.currency, bid.amount)}</td>
                     <td>{bid.accepted ? 'Accepted bid ' : null}<Status value={bid.status} /></td>
                     <td>{when(bid.createdAt)}</td>
                     <td>{when(bid.closedAt)}</td>
@@ -129,12 +130,12 @@ function Acceptance({ acceptance }: { acceptance: AdminAcceptance }) {
     <article>
       <Status value={acceptance.assignmentStatus} />
       <span>Rider {acceptance.riderName || acceptance.riderProfileId}</span>
-      <span>Accepted bid {acceptance.bidAmount ? `${acceptance.currency} ${acceptance.bidAmount}` : '—'}</span>
+      <span>Accepted bid {acceptance.bidAmount ? deliveryMoney(acceptance.currency, acceptance.bidAmount) : '—'}</span>
       <span>Accepted {when(acceptance.acceptedAt)}</span>
       <span>Commission rate {commissionPercent(acceptance.basisPoints)}</span>
-      <span>Commission {acceptance.commissionAmount ? `${acceptance.currency} ${acceptance.commissionAmount}` : '—'}</span>
+      <span>Commission {acceptance.commissionAmount ? deliveryMoney(acceptance.currency, acceptance.commissionAmount) : '—'}</span>
       <span>{commissionStateLabel(acceptance.commissionState)}{recordedAt ? ` · ${when(recordedAt)}` : ''}</span>
-      {acceptance.reservation ? <span>Reservation {acceptance.currency} {acceptance.reservation.amount}</span> : null}
+      {acceptance.reservation ? <span>Reservation {deliveryMoney(acceptance.currency, acceptance.reservation.amount)}</span> : null}
     </article>
   );
 }

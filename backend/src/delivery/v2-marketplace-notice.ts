@@ -92,6 +92,8 @@ export function v2PushTtlSeconds(type: string): number {
     v2_collected: true,
     v2_out_for_delivery: true,
     v2_delivered: true,
+    v2_rider_cancelled: true,
+    v2_customer_cancelled: true,
   }) {
     return CUSTOMER_TTL_SECONDS;
   }
@@ -99,7 +101,12 @@ export function v2PushTtlSeconds(type: string): number {
 }
 
 export function v2PushAudience(eventType: string): 'customer' | 'rider' {
-  if (eventType === 'BID_ACCEPTED' || eventType === 'RIDER_OPPORTUNITY' || eventType === 'ACCOUNT_APPROVED') {
+  if (
+    eventType === 'BID_ACCEPTED'
+    || eventType === 'RIDER_OPPORTUNITY'
+    || eventType === 'ACCOUNT_APPROVED'
+    || eventType === 'CUSTOMER_CANCELLED'
+  ) {
     return 'rider';
   }
   return 'customer';

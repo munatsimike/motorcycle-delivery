@@ -23,12 +23,13 @@ describe('V2 push payload', () => {
       });
       expect(message.message.data).toEqual({
         type,
+        title: customerDeliveryNotification(type)?.title,
+        body,
         deliveryId: 'delivery-1',
         assignmentId: 'assignment-1',
       });
-      expect(message.message.notification).toEqual(customerDeliveryNotification(type));
-      expect(message.message.notification?.body).toBe(body);
-      expect(message.message.android.notification?.channel_id).toBe('default');
+      expect(message.message).not.toHaveProperty('notification');
+      expect(message.message.android).not.toHaveProperty('notification');
       const encoded = JSON.stringify(message);
       expect(encoded).not.toContain('Pickup');
       expect(encoded).not.toContain('+263');

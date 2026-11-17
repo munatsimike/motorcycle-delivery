@@ -1,5 +1,5 @@
 import { NEIGHBORHOOD_SPAN, zoomForSpan } from '../home/camera.ts';
-import { isKnownDeliveryStatus, deliveryCanSearchAgain, type DeliveryStatus } from './rules.ts';
+import { isKnownDeliveryStatus, deliveryCanSearchAgain, type DeliveryCancellation, type DeliveryStatus } from './rules.ts';
 
 export const TRACKING_POLL_MS = 8_000;
 export const LIVE_LOCATION_MAX_AGE_MS = 60_000;
@@ -44,6 +44,16 @@ export type CustomerDeliveryDetail = {
   dropoffLatitude: number | null;
   dropoffLongitude: number | null;
   parcelDescription: string;
+  pickupContactPhone: string | null;
+  pickupLandmark: string | null;
+  pickupInstructions: string | null;
+  recipientPhone: string | null;
+  dropoffLandmark: string | null;
+  dropoffInstructions: string | null;
+  parcelSize: 'SMALL' | 'MEDIUM' | 'LARGE' | null;
+  parcelInstructions: string | null;
+  paymentMethod: 'CASH' | 'ECOCASH' | 'ONEMONEY' | 'INNBUCKS' | 'ZIPIT' | null;
+  cancellation: DeliveryCancellation | null;
   createdAt: string | null;
   completedAt: string | null;
   riderLocation: RiderPoint | null;
@@ -59,7 +69,7 @@ export type CustomerBid = {
   id: string;
   deliveryId: string;
   amount: string;
-  currency: 'USD';
+  currency: 'USD' | 'ZWG';
   status: 'OPEN' | 'WITHDRAWN' | 'ACCEPTED' | 'SUPERSEDED' | 'EXPIRED';
   riderName: string;
   completedDeliveries: number;
@@ -568,6 +578,16 @@ export function readCustomerDeliveryDetail(value: unknown): CustomerDeliveryDeta
     dropoffLatitude: dropoffPoint?.latitude ?? null,
     dropoffLongitude: dropoffPoint?.longitude ?? null,
     parcelDescription,
+    pickupContactPhone: text(value.pickup.contactPhone),
+    pickupLandmark: text(value.pickup.landmark),
+    pickupInstructions: text(value.pickup.instructions),
+    recipientPhone: text(value.dropoff.contactPhone),
+    dropoffLandmark: text(value.dropoff.landmark),
+    dropoffInstructions: text(value.dropoff.instructions),
+    parcelSize: readParcelSize(value.parcel.size),
+    parcelInstructions: text(value.parcel.instructions),
+    paymentMethod: readPaymentMethod(value.paymentMethod),
+    cancellation: readCancellation(value.cancellation),
     createdAt: typeof value.createdAt === 'string' && value.createdAt.trim() ? value.createdAt : null,
     completedAt: readInstant(value.completedAt),
     riderLocation: keepsRiderLocation(value.status) ? readRiderPoint(value.riderLocation) : null,
@@ -586,7 +606,7 @@ const MONEY = /^\d{1,10}\.\d{2}$/;
 
 function readBid(value: unknown): CustomerBid {
   if (!isRecord(value) || typeof value.id !== 'string' || !value.id.trim()) throw new Error('Offers are unavailable.');
-  if (typeof value.deliveryId !== 'string' || typeof value.amount !== 'string' || !MONEY.test(value.amount) || value.currency !== 'USD') throw new Error('Offers are unavailable.');
+  if (typeof value.deliveryId !== 'string' || typeof value.amount !== 'string' || !MONEY.test(value.amount) || (value.currency !== 'USD' && value.currency !== 'ZWG')) throw new Error('Offers are unavailable.');
   if (value.status !== 'OPEN' && value.status !== 'WITHDRAWN' && value.status !== 'ACCEPTED' && value.status !== 'SUPERSEDED' && value.status !== 'EXPIRED') throw new Error('Offers are unavailable.');
   const rider = isRecord(value.rider) ? value.rider : null;
   const riderName = rider && typeof rider.name === 'string' ? rider.name.trim() : '';
@@ -595,7 +615,7 @@ function readBid(value: unknown): CustomerBid {
     id: value.id,
     deliveryId: value.deliveryId,
     amount: value.amount,
-    currency: 'USD',
+    currency: value.currency,
     status: value.status,
     riderName,
     completedDeliveries: typeof rider?.completedDeliveries === 'number' && rider.completedDeliveries >= 0 ? rider.completedDeliveries : 0,
@@ -667,6 +687,22 @@ function coordinatePair(latitude: unknown, longitude: unknown): RoutePoint | nul
   const parsedLongitude = num(longitude, 180);
   if (parsedLatitude === null || parsedLongitude === null) return null;
   return { latitude: parsedLatitude, longitude: parsedLongitude };
+}
+
+function readParcelSize(value: unknown): 'SMALL' | 'MEDIUM' | 'LARGE' | null {
+  if (value === 'SMALL' || value === 'MEDIUM' || value === 'LARGE') return value;
+  return null;
+}
+
+function readPaymentMethod(value: unknown): 'CASH' | 'ECOCASH' | 'ONEMONEY' | 'INNBUCKS' | 'ZIPIT' | null {
+  if (value === 'CASH' || value === 'ECOCASH' || value === 'ONEMONEY' || value === 'INNBUCKS' || value === 'ZIPIT') return value;
+  return null;
+}
+
+function readCancellation(value: unknown): DeliveryCancellation | null {
+  if (!isRecord(value)) return null;
+  if (value.actor !== 'RIDER' && value.actor !== 'CUSTOMER' && value.actor !== 'SYSTEM') return null;
+  return { actor: value.actor, reason: text(value.reason), afterPickup: value.afterPickup === true };
 }
 
 function readServiceClass(value: unknown): ServiceClass | null | undefined {

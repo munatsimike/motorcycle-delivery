@@ -11,6 +11,7 @@ import {
 } from '../generated/prisma/client.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import { RiderApprovalService } from './rider-approval.service.js';
+import { sameWallet, walletLookup, type WalletLookup } from './wallet-test-doubles.js';
 import { formatSignedCents, signedCentsFromDecimal } from './wallet-money.js';
 
 const NOW = new Date('2026-10-13T12:00:00.000Z');
@@ -366,11 +367,10 @@ function context() {
       },
     },
     riderWallet: {
-      async findUnique({ where }: { where: { id?: string; riderProfileId?: string } }) {
-        if (where.riderProfileId) {
-          return wallets.find((wallet) => wallet.riderProfileId === where.riderProfileId) ?? null;
-        }
-        return wallets.find((wallet) => wallet.id === where.id) ?? null;
+      async findUnique({ where }: { where: WalletLookup }) {
+        const lookup = walletLookup(where);
+        if (lookup.riderProfileId) return wallets.find((wallet) => sameWallet(wallet, lookup)) ?? null;
+        return wallets.find((wallet) => wallet.id === lookup.id) ?? null;
       },
       async create({ data }: { data: Record<string, unknown> }) {
         const row = { id: `wallet-${wallets.length + 1}`, welcomeBonusAwardedAt: null, borrowingLimitOverride: null, ...data };

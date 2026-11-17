@@ -154,6 +154,88 @@ export function isSessionRejection(error: unknown): boolean {
   return status === 401 || status === 403;
 }
 
+export function isRefreshTransportFailure(error: unknown): boolean {
+  return error instanceof Error
+    && (error.message.startsWith('The request timed out') || error.message.startsWith('Network request failed'));
+}
+
+export function canRefreshAfterUnauthorized(path: string, status: number, retried: boolean): boolean {
+  return status === 401 && !retried && !path.startsWith('/auth/');
+}
+
+export function nextAccessAfterBlockedRefresh(session: AuthSession, now: number): 'use' | 'sign-out' {
+  const expiresAt = Date.parse(session.accessTokenExpiresAt);
+  return Number.isFinite(expiresAt) && expiresAt > now ? 'use' : 'sign-out';
+}
+
+export const CUSTOMER_SESSION_STORAGE_KEY = 'riders.customer.session';
+
+export type KeyValueStore = {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+  removeItem(key: string): void;
+};
+
+export function readPersistedSession(persistent: KeyValueStore, legacy: KeyValueStore | null = null): AuthSession | null {
+  const current = readStoredSession(persistent);
+  if (current) {
+    legacy?.removeItem(CUSTOMER_SESSION_STORAGE_KEY);
+    return current;
+  }
+  if (!legacy) {
+    return null;
+  }
+  const previous = readStoredSession(legacy);
+  if (!previous) {
+    return null;
+  }
+  writePersistedSession(previous, persistent);
+  legacy.removeItem(CUSTOMER_SESSION_STORAGE_KEY);
+  return previous;
+}
+
+export function writePersistedSession(session: AuthSession, storage: KeyValueStore): void {
+  storage.setItem(CUSTOMER_SESSION_STORAGE_KEY, JSON.stringify({
+    accessToken: session.accessToken,
+    refreshToken: session.refreshToken,
+    accessTokenExpiresAt: session.accessTokenExpiresAt,
+    refreshTokenExpiresAt: session.refreshTokenExpiresAt,
+  }));
+}
+
+export function clearPersistedSession(persistent: KeyValueStore, legacy: KeyValueStore | null = null): void {
+  persistent.removeItem(CUSTOMER_SESSION_STORAGE_KEY);
+  legacy?.removeItem(CUSTOMER_SESSION_STORAGE_KEY);
+}
+
+export function readStoredSession(storage: KeyValueStore): AuthSession | null {
+  const raw = storage.getItem(CUSTOMER_SESSION_STORAGE_KEY);
+  if (!raw) {
+    return null;
+  }
+  try {
+    return readSession(JSON.parse(raw) as unknown);
+  } catch {
+    storage.removeItem(CUSTOMER_SESSION_STORAGE_KEY);
+    return null;
+  }
+}
+
+export function sameSession(left: AuthSession | null, right: AuthSession | null): boolean {
+  return left?.accessToken === right?.accessToken && left?.refreshToken === right?.refreshToken;
+}
+
+export function sessionFromStorageValue(value: string | null): AuthSession | null {
+  if (!value) {
+    return null;
+  }
+  try {
+    return readSession(JSON.parse(value) as unknown);
+  } catch {
+    return null;
+  }
+}
+
 function textField(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }

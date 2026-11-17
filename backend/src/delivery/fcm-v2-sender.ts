@@ -55,9 +55,11 @@ const CUSTOMER_DELIVERY_NOTIFICATION: Record<string, { title: string; body: stri
     title: 'Counteroffer',
     body: 'A rider sent a different offer on your delivery.',
   },
+  v2_rider_cancelled: {
+    title: 'Rider cancelled',
+    body: 'Your rider cancelled the delivery.',
+  },
 };
-
-export const CUSTOMER_DELIVERY_CHANNEL_ID = 'default';
 
 export function customerDeliveryNotification(type: string): { title: string; body: string } | null {
   return CUSTOMER_DELIVERY_NOTIFICATION[type] ?? null;
@@ -173,7 +175,7 @@ export function v2ProviderFailure(error: unknown): 'timeout' | 'temporary' {
 }
 
 export function v2FcmBody(message: V2PushMessage) {
-  const notification = message.audience === 'customer' ? customerDeliveryNotification(message.type) : null;
+  const copy = message.audience === 'customer' ? customerDeliveryNotification(message.type) : null;
   const data: Record<string, string> = { type: message.type };
   if (message.deliveryId) {
     data.deliveryId = message.deliveryId;
@@ -187,18 +189,21 @@ export function v2FcmBody(message: V2PushMessage) {
   if (message.approvedAt) {
     data.approvedAt = message.approvedAt;
   }
+  if (copy) {
+    data.title = copy.title;
+    data.body = copy.body;
+  }
+  if (message.audience === 'customer' && message.accountId) {
+    data.accountId = message.accountId;
+  }
   return {
     message: {
       token: message.token,
       data,
-      ...(notification ? { notification } : {}),
       android: {
         priority: 'HIGH',
         ttl: `${message.ttlSeconds ?? 60}s`,
         collapse_key: message.collapseKey ?? (message.assignmentId || message.type),
-        ...(notification
-          ? { notification: { channel_id: CUSTOMER_DELIVERY_CHANNEL_ID } }
-          : {}),
       },
     },
   };

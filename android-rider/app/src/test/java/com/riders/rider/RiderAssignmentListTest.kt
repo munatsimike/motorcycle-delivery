@@ -48,7 +48,7 @@ class RiderAssignmentListTest {
         assertEquals(1, shown.size)
         assertEquals("Flexible", serviceClassLabel(shown[0].serviceClass))
         assertEquals("Rider assigned", deliveryStatusLabel(shown[0].status))
-        assertEquals("Agreed price \$12.50", agreedPriceLabel(shown[0].agreedPrice))
+        assertEquals("Agreed price US$12.50", agreedPriceLabel(shown[0].agreedPrice))
         assertEquals("Pickup flex-1", shown[0].pickupAddress)
         assertEquals("Documents flex-1", shown[0].parcelDescription)
     }
@@ -90,7 +90,7 @@ class RiderAssignmentListTest {
         assertEquals(NEW_OFFER_BADGE, "New offer")
         assertEquals(0xFFFFF3D6, NEW_OFFER_BACKGROUND)
         assertEquals(0xFFA66300, NEW_OFFER_FOREGROUND)
-        assertEquals("Agreed price \$9.00", agreedPriceLabel(shown[2].agreedPrice))
+        assertEquals("Agreed price US$9.00", agreedPriceLabel(shown[2].agreedPrice))
     }
 
     @Test
@@ -266,7 +266,7 @@ class RiderAssignmentListTest {
             incoming = listOf(parcel("missed", "FLEXIBLE", "RIDER_ASSIGNED", "7.50", "2026-10-26T09:00:00Z")),
         )
         assertEquals("missed", recovered.single().deliveryId)
-        assertEquals("Agreed price \$7.50", agreedPriceLabel(recovered.single().agreedPrice))
+        assertEquals("Agreed price US$7.50", agreedPriceLabel(recovered.single().agreedPrice))
     }
 
     @Test

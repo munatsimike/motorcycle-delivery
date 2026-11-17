@@ -13,6 +13,7 @@ import {
   ServiceClass,
 } from '../generated/prisma/client.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
+import { sameWallet, walletLookup, type WalletLookup } from '../rider/wallet-test-doubles.js';
 import { BidAcceptanceService } from './bid-acceptance.service.js';
 
 const NOW = new Date('2026-10-24T08:00:00.000Z');
@@ -93,7 +94,7 @@ describe('customer bid acceptance', () => {
 
   it('accepts a published 0% rate with no reservation and no ledger entry', async () => {
     process.env.V2_MARKETPLACE_ENABLED = 'true';
-    const ctx = store({ basisPoints: 0, borrowingLimit: '0.00' });
+    const ctx = store({ basisPoints: 0 });
     const accepted = await new BidAcceptanceService(ctx.prisma).accept(CUSTOMER, DELIVERY, BID, 'zero', NOW);
     expect(accepted).toMatchObject({ commissionAmount: '0.00', basisPoints: 0, reserved: false });
     expect(ctx.reservations).toHaveLength(0);
@@ -191,8 +192,8 @@ describe('customer bid acceptance', () => {
     const laterBid = '00000000-0000-7000-8000-0000000000c6';
     ctx.deliveries.push({ ...delivery(expressDelivery), serviceClass: ServiceClass.EXPRESS });
     ctx.deliveries.push({ ...delivery(laterDelivery), serviceClass: ServiceClass.FLEXIBLE });
-    ctx.bids.push({ id: expressBid, deliveryId: expressDelivery, riderProfileId: RIDER, amount: '15.00', status: BidStatus.OPEN });
-    ctx.bids.push({ id: laterBid, deliveryId: laterDelivery, riderProfileId: RIDER, amount: '11.00', status: BidStatus.OPEN });
+    ctx.bids.push({ id: expressBid, deliveryId: expressDelivery, riderProfileId: RIDER, amount: '15.00', currency: Currency.USD, status: BidStatus.OPEN });
+    ctx.bids.push({ id: laterBid, deliveryId: laterDelivery, riderProfileId: RIDER, amount: '11.00', currency: Currency.USD, status: BidStatus.OPEN });
     const service = new BidAcceptanceService(ctx.prisma);
     await service.accept(CUSTOMER, DELIVERY, BID, 'flex-1', NOW);
     await service.accept(CUSTOMER, DELIVERY_2, BID_3, 'flex-2', NOW);
@@ -238,7 +239,7 @@ describe('customer bid acceptance', () => {
     const third = '00000000-0000-7000-8000-0000000000d3';
     const bid = '00000000-0000-7000-8000-0000000000c4';
     ctx.deliveries.push({ ...ctx.deliveries[0]!, id: third });
-    ctx.bids.push({ id: bid, deliveryId: third, riderProfileId: RIDER_2, amount: '20.00', status: BidStatus.OPEN });
+    ctx.bids.push({ id: bid, deliveryId: third, riderProfileId: RIDER_2, amount: '20.00', currency: Currency.USD, status: BidStatus.OPEN });
     const service = new BidAcceptanceService(ctx.prisma);
     const results = await Promise.all([
       service.accept(CUSTOMER, DELIVERY, BID, 'rider-a', NOW),
@@ -345,6 +346,7 @@ type BidRow = {
   deliveryId: string;
   riderProfileId: string;
   amount: string;
+  currency: Currency;
   status: BidStatus;
 };
 
@@ -367,9 +369,9 @@ type AssignmentRow = {
 
 function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?: boolean }) {
   const bids: BidRow[] = [
-    { id: BID, deliveryId: DELIVERY, riderProfileId: RIDER, amount: '10.00', status: BidStatus.OPEN },
-    { id: BID_2, deliveryId: DELIVERY, riderProfileId: RIDER_2, amount: '8.00', status: BidStatus.OPEN },
-    { id: BID_3, deliveryId: DELIVERY_2, riderProfileId: RIDER, amount: '12.00', status: BidStatus.OPEN },
+    { id: BID, deliveryId: DELIVERY, riderProfileId: RIDER, amount: '10.00', currency: Currency.USD, status: BidStatus.OPEN },
+    { id: BID_2, deliveryId: DELIVERY, riderProfileId: RIDER_2, amount: '8.00', currency: Currency.USD, status: BidStatus.OPEN },
+    { id: BID_3, deliveryId: DELIVERY_2, riderProfileId: RIDER, amount: '12.00', currency: Currency.USD, status: BidStatus.OPEN },
   ];
   const deliveries = [
     delivery(DELIVERY),
@@ -395,8 +397,8 @@ function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?:
     { id: '00000000-0000-7000-8000-0000000000b2', riderProfileId: RIDER_2, verificationStatus: MotorcycleVerificationStatus.VERIFIED, isActive: true },
   ];
   const wallets = [
-    { id: 'wallet-1', riderProfileId: RIDER, balance: '0.00', borrowingLimitOverride: null as string | null },
-    { id: 'wallet-2', riderProfileId: RIDER_2, balance: '0.00', borrowingLimitOverride: null as string | null },
+    { id: 'wallet-1', riderProfileId: RIDER, currency: 'USD' as const, balance: '0.00', borrowingLimitOverride: null as string | null },
+    { id: 'wallet-2', riderProfileId: RIDER_2, currency: 'USD' as const, balance: '0.00', borrowingLimitOverride: null as string | null },
   ];
   const rates = options?.rate === false ? [] : [{ isActive: true, basisPoints: options?.basisPoints ?? 1_000, rateVersion: 3 }];
   const config = { isActive: true, defaultBorrowingLimit: options?.borrowingLimit ?? '50.00' };
@@ -552,8 +554,9 @@ function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?:
       },
     },
     riderWallet: {
-      async findUnique({ where }: { where: { riderProfileId: string } }) {
-        return wallets.find((row) => row.riderProfileId === where.riderProfileId) ?? null;
+      async findUnique({ where }: { where: WalletLookup }) {
+        const lookup = walletLookup(where);
+        return wallets.find((row) => sameWallet(row, lookup)) ?? null;
       },
     },
     riderWalletEntry: {

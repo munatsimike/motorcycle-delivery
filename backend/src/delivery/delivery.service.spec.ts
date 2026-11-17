@@ -297,6 +297,11 @@ function context(options?: { metres?: number; now?: Date }) {
         throw new Error('reservation written');
       },
     },
+    exchangeRate: {
+      async findFirst() {
+        return { rateVersion: 1, zigPerUsd: '33.0000' };
+      },
+    },
     async $queryRaw() {
       return [];
     },
@@ -604,7 +609,10 @@ describe('flagged service-class quotes', () => {
       searchStartedAt: new Date('2026-10-24T08:00:00.000Z'),
     });
     expect(String(ctx.deliveryRows[0]?.createPayloadHash)).toMatch(/^[a-f0-9]{64}$/);
+    expect(ctx.deliveryRows[0]).toMatchObject({ currency: 'USD', exchangeRateVersion: 1, exchangeRateZigPerUsd: '33.0000' });
 
+    await expect(ctx.deliveries.create(CUSTOMER, { ...body, currency: 'ZWG' }, 'booking-1'))
+      .rejects.toBeInstanceOf(ConflictException);
     await expect(ctx.deliveries.create(CUSTOMER, { ...body, offeredPrice: '5.00' }, 'booking-1'))
       .rejects.toBeInstanceOf(ConflictException);
     await expect(ctx.deliveries.create(
@@ -623,6 +631,61 @@ describe('flagged service-class quotes', () => {
     expect(ctx.deliveryRows).toHaveLength(2);
     expect(ctx.events).toHaveLength(2);
     expect(JSON.stringify(replayed)).not.toContain('booking-1');
+  });
+
+  it('rejects a new ZiG quote and booking while ZiG offers are disabled', async () => {
+    delete process.env.RIDER_ZWG_OFFERS_ENABLED;
+    process.env.V2_MARKETPLACE_ENABLED = 'true';
+    const ctx = context({ metres: 1_500, now: new Date('2026-10-24T08:00:00.000Z') });
+    ctx.configs.unshift(published('express', ServiceClass.EXPRESS, PricingModel.FIXED, '9.00'));
+    const body = {
+      ...deliveryBody('4.00'),
+      serviceClass: 'EXPRESS' as const,
+      payer: undefined,
+      paymentMethod: undefined,
+      currency: 'ZWG' as const,
+    };
+    await expect(ctx.deliveries.quote({ ...pins(), serviceClass: 'EXPRESS', currency: 'ZWG' })).rejects.toThrow('ZiG deliveries are not available');
+    await expect(ctx.deliveries.create(CUSTOMER, body, 'zig-closed')).rejects.toThrow('ZiG deliveries are not available');
+    expect(ctx.deliveryRows).toHaveLength(0);
+    expect(ctx.events).toHaveLength(0);
+  });
+
+  it('stores a ZiG suggestion from the USD tariff and the active rate without changing a USD booking', async () => {
+    process.env.V2_MARKETPLACE_ENABLED = 'true';
+    process.env.RIDER_ZWG_OFFERS_ENABLED = 'true';
+    try {
+    const ctx = context({ metres: 1_500, now: new Date('2026-10-24T08:00:00.000Z') });
+    ctx.configs.unshift(published('express', ServiceClass.EXPRESS, PricingModel.FIXED, '9.00'));
+    const body = {
+      ...deliveryBody('4.00'),
+      serviceClass: 'EXPRESS' as const,
+      payer: undefined,
+      paymentMethod: undefined,
+    };
+    const usd = await ctx.deliveries.create(CUSTOMER, body, 'usd-booking');
+    expect(usd).toMatchObject({ currency: 'USD', suggestedPrice: '9.00' });
+    const quoted = await ctx.deliveries.quote({ ...pins(), serviceClass: 'EXPRESS', currency: 'ZWG' });
+    expect(quoted).toMatchObject({ currency: 'ZWG', suggestedPrice: '297.00' });
+    const zig = await ctx.deliveries.create(CUSTOMER, { ...body, currency: 'ZWG', offeredPrice: '300.00' }, 'zig-booking');
+    expect(zig).toMatchObject({ currency: 'ZWG', suggestedPrice: '297.00', offeredPrice: null });
+    expect(ctx.deliveryRows.find((row) => row.createIdempotencyKey === 'zig-booking')).toMatchObject({
+      currency: 'ZWG',
+      suggestedPrice: '297.00',
+      customerOffer: '300.00',
+      exchangeRateVersion: 1,
+      exchangeRateZigPerUsd: '33.0000',
+    });
+    expect(ctx.deliveryRows.find((row) => row.createIdempotencyKey === 'usd-booking')?.suggestedPrice).toBe('9.00');
+    delete process.env.RIDER_ZWG_OFFERS_ENABLED;
+    const replayed = await ctx.deliveries.create(CUSTOMER, { ...body, currency: 'ZWG', offeredPrice: '300.00' }, 'zig-booking');
+    expect(replayed.id).toBe(zig.id);
+    await expect(ctx.deliveries.create(CUSTOMER, { ...body, currency: 'ZWG', offeredPrice: '300.00' }, 'zig-booking-again'))
+      .rejects.toThrow('ZiG deliveries are not available');
+    expect(ctx.deliveryRows).toHaveLength(2);
+    } finally {
+      delete process.env.RIDER_ZWG_OFFERS_ENABLED;
+    }
   });
 });
 

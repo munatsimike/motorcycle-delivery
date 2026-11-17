@@ -50,12 +50,27 @@ ALTER TABLE "v2_outbox_events"
         "attempt_count" >= 0
         AND (
             (
-                "event_type" = 'BID_ACCEPTED'::"v2_outbox_event_type"
+                "event_type" IN (
+                    'BID_ACCEPTED'::"v2_outbox_event_type",
+                    'ACCOUNT_APPROVED'::"v2_outbox_event_type",
+                    'CUSTOMER_CANCELLED'::"v2_outbox_event_type"
+                )
                 AND "rider_profile_id" IS NOT NULL
                 AND "customer_account_id" IS NULL
             )
             OR (
-                "event_type" <> 'BID_ACCEPTED'::"v2_outbox_event_type"
+                "event_type" = 'RIDER_OPPORTUNITY'::"v2_outbox_event_type"
+                AND "rider_profile_id" IS NULL
+                AND "customer_account_id" IS NULL
+                AND "delivery_id" IS NOT NULL
+            )
+            OR (
+                "event_type" NOT IN (
+                    'BID_ACCEPTED'::"v2_outbox_event_type",
+                    'ACCOUNT_APPROVED'::"v2_outbox_event_type",
+                    'CUSTOMER_CANCELLED'::"v2_outbox_event_type",
+                    'RIDER_OPPORTUNITY'::"v2_outbox_event_type"
+                )
                 AND "customer_account_id" IS NOT NULL
                 AND "rider_profile_id" IS NULL
             )
@@ -376,9 +391,10 @@ it('cancels before pickup, lets the rider cancel after collection, and refuses a
   const kept = await commit(hired, 'FLEXIBLE');
   await prisma.delivery.update({ where: { id: collecting.deliveryId }, data: { status: 'COLLECTING' } });
   await dispatch.cancelBeforePickup(hired.rider, assigned.assignmentId, `cancel-${assigned.assignmentId}`, { reason: 'BREAKDOWN' }, NOW);
-  const reopened = await prisma.delivery.findUniqueOrThrow({ where: { id: assigned.deliveryId } });
-  expect(reopened.status).toBe('CREATED');
-  expect(await eventCount(assigned.assignmentId, 'REQUEST_REOPENED')).toBe(1);
+  const closed = await prisma.delivery.findUniqueOrThrow({ where: { id: assigned.deliveryId } });
+  expect(closed.status).toBe('CANCELLED');
+  expect(await eventCount(assigned.assignmentId, 'REQUEST_REOPENED')).toBe(0);
+  expect(await eventCount(assigned.assignmentId, 'RIDER_OPPORTUNITY')).toBe(0);
   expect((await prisma.walletFeeReservation.findFirstOrThrow({ where: { assignmentId: assigned.assignmentId } })).status).toBe('RELEASED');
 
   await dispatch.cancel(customer, collecting.deliveryId, NOW);
@@ -391,8 +407,9 @@ it('cancels before pickup, lets the rider cancel after collection, and refuses a
   await step(hired.rider, collected.deliveryId, DeliveryStatus.COLLECTED);
   await expect(dispatch.cancel(customer, collected.deliveryId, NOW)).rejects.toThrow('This delivery cannot be cancelled');
   const releasedAfterPickup = await dispatch.cancelBeforePickup(hired.rider, collected.assignmentId, `late-${collected.assignmentId}`, { reason: 'BREAKDOWN' }, NOW);
-  expect(releasedAfterPickup).toMatchObject({ status: 'CREATED', reopened: true, released: true });
-  expect((await prisma.delivery.findUniqueOrThrow({ where: { id: collected.deliveryId } })).status).toBe('CREATED');
+  expect(releasedAfterPickup).toMatchObject({ status: 'CANCELLED', reopened: false, released: true });
+  expect((await prisma.delivery.findUniqueOrThrow({ where: { id: collected.deliveryId } })).status).toBe('CANCELLED');
+  expect(await eventCount(collected.assignmentId, 'REQUEST_REOPENED')).toBe(0);
   expect((await prisma.walletFeeReservation.findFirstOrThrow({ where: { assignmentId: collected.assignmentId } })).status).toBe('RELEASED');
 
   const expired = await commit(hired, 'FLEXIBLE');

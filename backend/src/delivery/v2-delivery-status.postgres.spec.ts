@@ -242,7 +242,7 @@ it('lets a rider cancel through out for delivery and keeps the customer from can
     { reason: 'SENDER_UNAVAILABLE' },
     NOW,
   );
-  expect(riderCancel).toMatchObject({ status: 'CREATED', reopened: true, released: true });
+  expect(riderCancel).toMatchObject({ status: 'CANCELLED', reopened: false, released: true });
   expect((await prisma.walletFeeReservation.findFirstOrThrow({ where: { assignmentId: assigned.assignmentId } })).status).toBe('RELEASED');
 
   const duringCollection = await dispatch.cancel(customer, collecting.deliveryId, NOW);
@@ -252,15 +252,20 @@ it('lets a rider cancel through out for delivery and keeps the customer from can
 
   await expect(dispatch.cancel(customer, collected.deliveryId, NOW)).rejects.toThrow('This delivery cannot be cancelled');
   const riderReleased = await dispatch.cancelBeforePickup(hired.rider, collected.assignmentId, `late-${collected.assignmentId}`, { reason: 'BREAKDOWN' }, NOW);
-  expect(riderReleased).toMatchObject({ status: 'CREATED', reopened: true, released: true });
-  expect((await prisma.delivery.findUniqueOrThrow({ where: { id: collected.deliveryId } })).status).toBe('CREATED');
+  expect(riderReleased).toMatchObject({ status: 'CANCELLED', reopened: false, released: true });
+  expect((await prisma.delivery.findUniqueOrThrow({ where: { id: collected.deliveryId } })).status).toBe('CANCELLED');
+  expect((await prisma.deliveryAssignment.findUniqueOrThrow({ where: { id: collected.assignmentId } })).cancellationStage).toBe('COLLECTED');
   expect((await prisma.walletFeeReservation.findFirstOrThrow({ where: { assignmentId: collected.assignmentId } })).status).toBe('RELEASED');
 
   const out = await acceptJob(hired, 'FLEXIBLE', '10.00');
   await step(hired.rider, out.deliveryId, 'COLLECTED');
   await prisma.delivery.update({ where: { id: out.deliveryId }, data: { status: 'OUT_FOR_DELIVERY' } });
   const riderOut = await dispatch.cancelBeforePickup(hired.rider, out.assignmentId, `out-${out.assignmentId}`, { reason: 'BREAKDOWN' }, NOW);
-  expect(riderOut).toMatchObject({ status: 'CREATED', reopened: true, released: true });
+  expect(riderOut).toMatchObject({ status: 'CANCELLED', reopened: false, released: true });
+  expect((await prisma.delivery.findUniqueOrThrow({ where: { id: out.deliveryId } })).status).toBe('CANCELLED');
+  expect((await prisma.deliveryAssignment.findUniqueOrThrow({ where: { id: out.assignmentId } })).cancellationStage).toBe('OUT_FOR_DELIVERY');
+  expect(await prisma.v2OutboxEvent.count({ where: { assignmentId: out.assignmentId, eventType: { in: ['REQUEST_REOPENED', 'RIDER_OPPORTUNITY'] } } })).toBe(0);
+  await expect(acceptance.accept(customer, out.deliveryId, out.bidId, `again-${out.deliveryId}`, NOW)).rejects.toThrow('This delivery is not open for bids');
   const finished = await acceptJob(hired, 'FLEXIBLE', '10.00');
   await step(hired.rider, finished.deliveryId, 'COLLECTED');
   await step(hired.rider, finished.deliveryId, 'DELIVERED');
@@ -310,7 +315,7 @@ it('finishes committed Flexible deliveries after the marketplace flag is turned 
       { reason: 'SENDER_UNAVAILABLE' },
       NOW,
     );
-    expect(cancelled).toMatchObject({ reopened: true, released: true, status: 'CREATED' });
+    expect(cancelled).toMatchObject({ reopened: false, released: true, status: 'CANCELLED' });
     expect((await prisma.walletFeeReservation.findFirstOrThrow({ where: { assignmentId: second.assignmentId } })).status).toBe('RELEASED');
     await step(hired.rider, first.deliveryId, 'DELIVERED');
     expect(await feeCount(first.assignmentId)).toBe(1);
@@ -431,6 +436,7 @@ async function acceptJob(hired: Hired, serviceClass: 'FLEXIBLE' | 'EXPRESS', amo
   return {
     rider: hired.rider,
     deliveryId: opened.deliveryId,
+    bidId: opened.bidId,
     assignmentId: accepted.assignmentId,
     acceptKey: `accept-${opened.deliveryId}`,
   };

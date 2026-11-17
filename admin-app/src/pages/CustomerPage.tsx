@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { adminApi } from '../lib/client';
 import { label, when } from '../lib/labels';
+import { deliveryMoney } from '../lib/money';
 import type { CustomerRow, DeliveryRow, Page } from '../lib/types';
 import { Empty, ErrorNote, Loading, Pager, Status, textOf } from '../ui';
 
@@ -75,7 +76,7 @@ export function CustomerPage() {
                       <td><Status value={delivery.status} /></td>
                       <td>{delivery.pickupAddress}</td>
                       <td>{delivery.dropoffAddress}</td>
-                      <td>{delivery.price ? `${delivery.currency} ${delivery.price}` : '—'}</td>
+                      <td>{delivery.price ? deliveryMoney(delivery.currency, delivery.price) : '—'}</td>
                       <td>{when(delivery.createdAt)}</td>
                     </tr>
                   ))}

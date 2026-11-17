@@ -80,9 +80,9 @@ fun cancellationAttempt(
 
 fun cancellationResultMessage(reopened: Boolean): String {
     return if (reopened) {
-        "This delivery was cancelled. The request was reopened."
+        "This delivery was cancelled."
     } else {
-        "This delivery was cancelled. The request was closed."
+        "This delivery was cancelled."
     }
 }
 

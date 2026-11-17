@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Currency } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { v2MarketplaceEnabled } from '../auth/v2-flags.js';
 import { remindLateV2Deliveries } from './v2-deadline-reminder.js';
@@ -19,6 +20,9 @@ import {
   v2RetryAt,
   type V2NoticeConfig,
 } from './v2-notice.js';
+import { marketplaceRateIsPositive } from '../rider/promotional-credit.js';
+import { riderIdsWithFeeCapacity } from '../rider/wallet-ledger.js';
+import { riderZwgOffersEnabled } from './exchange-rate.js';
 
 type ClaimedNotice = {
   id: string;
@@ -165,6 +169,7 @@ export class V2OutboxSender {
           deliveryId: row.deliveryId ?? '',
           assignmentId: row.assignmentId ?? '',
           audience: v2PushAudience(row.eventType),
+          accountId: v2PushAudience(row.eventType) === 'customer' ? row.customerAccountId ?? undefined : undefined,
           ttlSeconds: v2PushTtlSeconds(type),
           collapseKey: v2PushCollapseKey(type, row.deliveryId),
           expiresAt: openOpportunity?.expiresAt,
@@ -202,11 +207,19 @@ export class V2OutboxSender {
 
   private async devicesFor(row: ClaimedNotice): Promise<PushDeviceRow[]> {
     if (row.eventType === 'RIDER_OPPORTUNITY') {
+      const delivery = row.deliveryId
+        ? await this.prisma.delivery.findUnique({ where: { id: row.deliveryId }, select: { currency: true } })
+        : null;
+      const currency = delivery?.currency === Currency.ZWG ? Currency.ZWG : Currency.USD;
+      if (currency === Currency.ZWG && !riderZwgOffersEnabled()) {
+        return [];
+      }
       const devices = await this.prisma.riderPushDevice.findMany({
         where: { invalidatedAt: null },
         select: {
           id: true,
           fcmToken: true,
+          riderProfileId: true,
           riderProfile: {
             select: {
               approvalStatus: true,
@@ -219,7 +232,7 @@ export class V2OutboxSender {
           },
         },
       });
-      return devices.filter((device) => mayReceiveDeliveryOpportunity({
+      const eligible = devices.filter((device) => mayReceiveDeliveryOpportunity({
         approvalStatus: device.riderProfile.approvalStatus,
         accountStatus: device.riderProfile.user.accountStatus,
         phoneVerified: device.riderProfile.user.phoneVerifiedAt != null,
@@ -227,9 +240,15 @@ export class V2OutboxSender {
         receivingRequests: device.riderProfile.receivingRequests === true,
         activeVerifiedMotorcycle: hasActiveVerifiedMotorcycle(device.riderProfile.motorcycles),
         availability: device.riderProfile.availability,
-      })).map((device) => ({ id: device.id, fcmToken: device.fcmToken }));
+      }));
+      const feeRequired = await marketplaceRateIsPositive(this.prisma);
+      if (!feeRequired) {
+        return eligible.map((device) => ({ id: device.id, fcmToken: device.fcmToken }));
+      }
+      const open = await riderIdsWithFeeCapacity(this.prisma, eligible.map((device) => device.riderProfileId), currency);
+      return eligible.filter((device) => open.has(device.riderProfileId)).map((device) => ({ id: device.id, fcmToken: device.fcmToken }));
     }
-    if (row.eventType === 'BID_ACCEPTED' || row.eventType === 'ACCOUNT_APPROVED') {
+    if (row.eventType === 'BID_ACCEPTED' || row.eventType === 'ACCOUNT_APPROVED' || row.eventType === 'CUSTOMER_CANCELLED') {
       if (!row.riderProfileId) {
         return [];
       }
@@ -285,7 +304,12 @@ export class V2OutboxSender {
   }
 
   private async invalidate(row: ClaimedNotice, deviceId: string, now: Date): Promise<void> {
-    if (row.eventType === 'BID_ACCEPTED' || row.eventType === 'ACCOUNT_APPROVED' || row.eventType === 'RIDER_OPPORTUNITY') {
+    if (
+      row.eventType === 'BID_ACCEPTED'
+      || row.eventType === 'ACCOUNT_APPROVED'
+      || row.eventType === 'RIDER_OPPORTUNITY'
+      || row.eventType === 'CUSTOMER_CANCELLED'
+    ) {
       await this.prisma.riderPushDevice.updateMany({
         where: {
           id: deviceId,

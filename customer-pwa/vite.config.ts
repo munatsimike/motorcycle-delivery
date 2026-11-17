@@ -1,7 +1,6 @@
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
-import { NAVIGATION_FALLBACK_DENYLIST } from './src/pwa/navigationFallback.ts';
 
 export default defineConfig({
   plugins: [
@@ -41,11 +40,11 @@ export default defineConfig({
           },
         ],
       },
-      workbox: {
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.ts',
+      injectManifest: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,webp,woff,woff2}'],
-        navigateFallback: 'index.html',
-        navigateFallbackDenylist: NAVIGATION_FALLBACK_DENYLIST,
-        cleanupOutdatedCaches: true,
       },
       devOptions: {
         enabled: false,

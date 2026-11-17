@@ -186,7 +186,6 @@ describe('OpenAPI document', () => {
       scheme: 'bearer',
     });
 
-    const verify = document.paths?.['/auth/rider/register/whatsapp/verify']?.post;
     expect(document.paths?.['/auth/rider/login/otp']).toBeUndefined();
     expect(document.paths?.['/auth/rider/register/otp']).toBeUndefined();
     expect(document.paths?.['/auth/customer/login']).toBeUndefined();

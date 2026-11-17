@@ -193,6 +193,30 @@ export type RiderWalletSummary = {
   availablePromotionalCredit: string;
   newDeliveriesRestricted: boolean;
   currency: string;
+  zig?: ZigWalletSummary;
+};
+
+export type ZigWalletSummary = {
+  riderProfileId: string;
+  balance: string;
+  promotionalBalance: string;
+  reservedFees: string;
+  availableCapacity: string;
+  availablePromotionalCredit: string;
+  currency: 'ZWG';
+};
+
+export type WalletPaymentException = {
+  id: string;
+  riderProfileId: string;
+  riderName: string | null;
+  paymentId: string;
+  paymentReference: string;
+  currency: string;
+  amount: string;
+  code: string;
+  usdBalance: string;
+  createdAt: string;
 };
 
 export type WalletTransaction = {
@@ -355,6 +379,25 @@ export type V2CommissionRate =
       createdById: string;
       createdAt: string;
     };
+
+export type ExchangeRate = {
+  rateVersion: number;
+  zigPerUsd: string;
+  usd: '1.00';
+  createdById: string | null;
+  createdAt: string;
+};
+
+export type ExchangeRateAudit = {
+  id: string;
+  actorId: string;
+  actorName: string;
+  previousVersion: number | null;
+  nextVersion: number;
+  previousZigPerUsd: string | null;
+  nextZigPerUsd: string;
+  createdAt: string;
+};
 
 export type V2CommissionAudit = {
   id: string;

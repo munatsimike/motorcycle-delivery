@@ -1,4 +1,4 @@
-import { DeliveryStatus, type CoordinateSource, type Currency, type DeliveryPayer, type ParcelSize, type PaymentMethod, type PricingModel, type ServiceClass } from '../generated/prisma/client.js';
+import { AssignmentReleaseReason, DeliveryActorType, DeliveryStatus, type CoordinateSource, type Currency, type DeliveryPayer, type ParcelSize, type PaymentMethod, type PricingModel, type ServiceClass } from '../generated/prisma/client.js';
 import { GPS_FRESH_MS } from './dispatch.constants.js';
 import { shouldWithholdCoordinates } from './coordinate-retention.js';
 import { centsFromDecimal, formatCents } from './money.js';
@@ -138,6 +138,67 @@ export type CustomerRatingView = {
 
 export function withCustomerRating<T>(view: T, rating: CustomerRatingView): T & { rating: CustomerRatingView } {
   return { ...view, rating };
+}
+
+const RIDER_CANCEL_REASONS = new Set<string>([
+  AssignmentReleaseReason.PAYMENT_NOT_AGREED,
+  AssignmentReleaseReason.PARCEL_NOT_AS_DESCRIBED,
+  AssignmentReleaseReason.PARCEL_TOO_LARGE,
+  AssignmentReleaseReason.SENDER_UNAVAILABLE,
+  AssignmentReleaseReason.WRONG_ADDRESS,
+  AssignmentReleaseReason.BREAKDOWN,
+  AssignmentReleaseReason.OTHER,
+]);
+
+const COLLECTED_STAGES = new Set<string>([
+  DeliveryStatus.COLLECTED,
+  DeliveryStatus.OUT_FOR_DELIVERY,
+  DeliveryStatus.PICKED_UP,
+  DeliveryStatus.IN_TRANSIT,
+  DeliveryStatus.ARRIVED_AT_DROPOFF,
+]);
+
+export type CustomerCancellationView = {
+  actor: 'RIDER' | 'CUSTOMER' | 'SYSTEM';
+  reason: string | null;
+  afterPickup: boolean;
+};
+
+export function customerCancellationView(input: {
+  actorType: string | null;
+  releaseReason: string | null;
+  cancellationStage: string | null;
+}): CustomerCancellationView | null {
+  const riderReason = input.releaseReason != null && RIDER_CANCEL_REASONS.has(input.releaseReason)
+    ? input.releaseReason
+    : null;
+  const actor = input.actorType === DeliveryActorType.RIDER
+    || input.actorType === DeliveryActorType.CUSTOMER
+    || input.actorType === DeliveryActorType.SYSTEM
+    ? input.actorType
+    : input.releaseReason === AssignmentReleaseReason.CUSTOMER_CANCELLED
+      ? DeliveryActorType.CUSTOMER
+      : riderReason
+        ? DeliveryActorType.RIDER
+        : null;
+  if (!actor) {
+    return null;
+  }
+  return {
+    actor,
+    reason: actor === DeliveryActorType.RIDER ? riderReason : null,
+    afterPickup: input.cancellationStage != null && COLLECTED_STAGES.has(input.cancellationStage),
+  };
+}
+
+export function withCustomerCancellation<T>(
+  view: T,
+  cancellation: CustomerCancellationView | null,
+): T | (T & { cancellation: CustomerCancellationView }) {
+  if (!cancellation) {
+    return view;
+  }
+  return { ...view, cancellation };
 }
 
 export function freshRiderPoint(point: RiderPoint | null, updatedAt: Date | null, now: Date): RiderPoint | null {
