@@ -641,15 +641,17 @@ button.home-status:disabled {
   right: 0;
   bottom: 0;
   z-index: 10;
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  padding: 6px var(--space-sm) calc(6px + env(safe-area-inset-bottom));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px var(--space-lg) calc(6px + env(safe-area-inset-bottom));
   border-top: 1px solid var(--border);
   background: var(--background);
 }
 
 .shell-tab {
   display: flex;
+  flex: 0 0 auto;
   flex-direction: column;
   align-items: center;
   gap: 1px;
@@ -3803,3 +3805,18 @@ html.is-page-transition .page-stage {
 .book-save-custom-label { width: 100%; box-sizing: border-box; margin-top: 16px; min-height: 44px; padding: 0 12px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--background); color: var(--text); font: inherit; }
 .book-save-dialog .book-inline-save-error { margin-top: 12px; color: var(--danger, #b42318); }
 .book-save-dialog .confirm-dialog-actions { align-items: center; }
+
+/* Booking forms scroll vertically only; never show a bottom horizontal scrollbar. */
+.book-scroll {
+  overflow-x: hidden;
+  overflow-y: auto;
+  min-width: 0;
+  max-width: 100%;
+}
+.book-scroll .book-column,
+.book-scroll .book-fields,
+.book-scroll .book-review,
+.book-scroll .book-block {
+  min-width: 0;
+  max-width: 100%;
+}
