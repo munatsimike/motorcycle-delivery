@@ -4,14 +4,10 @@ export type ParcelSize = 'SMALL' | 'MEDIUM' | 'LARGE';
 export type PaymentMethod = 'CASH' | 'ECOCASH' | 'ONEMONEY' | 'INNBUCKS' | 'ZIPIT';
 export type BookingCurrency = 'USD' | 'ZWG';
 
-// Customer booking follows RIDER_ZWG_OFFERS_ENABLED. That flag defaults off,
-// so a new booking is USD until the same flag is enabled on the server.
+// Preserve the currency selected by the customer. The backend remains responsible
+// for accepting or rejecting ZiG bookings; never silently turn ZiG into USD.
 export function requestBookingCurrency(currency: BookingCurrency | null | undefined): BookingCurrency {
-  return currency === 'ZWG' && zigBookingOpen() ? 'ZWG' : 'USD';
-}
-
-function zigBookingOpen(): boolean {
-  return false;
+  return currency === 'ZWG' ? 'ZWG' : 'USD';
 }
 
 export type StopDraft = {

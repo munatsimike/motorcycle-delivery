@@ -1002,7 +1002,7 @@ button.home-status:disabled {
   display: flex;
   justify-content: space-between;
   gap: var(--space-sm);
-  margin-bottom: var(--space-md);
+  margin-bottom: var(--space-xs);
 }
 
 .deliveries-tool {
@@ -2678,7 +2678,7 @@ button.home-status:disabled {
 .book-squares,
 .book-choices {
   display: flex;
-  gap: var(--space-sm);
+  gap: var(--space-md);
 }
 
 .book-squares button,
@@ -3952,3 +3952,15 @@ html.is-page-transition .page-stage {
 /* Keep the future ZiG option visible without enabling unsupported bookings. */
 .book-choices label:has(input:disabled) { opacity: .55; cursor: not-allowed; }
 .book-currency-unavailable { font-size: .75em; white-space: nowrap; }
+
+/* Ensure the pickup and drop-off phone controls respect both booking gutters. */
+.book-fields > .field,
+.book-fields .phone-field {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+}
+.book-fields .phone-field input {
+  min-width: 0;
+  box-sizing: border-box;
+}

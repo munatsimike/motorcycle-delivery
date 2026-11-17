@@ -853,8 +853,8 @@ function ParcelForm({ draft, onChange }: { draft: BookingDraft; onChange: (patch
         <div className="book-choices">
           {currencies.map((option) => (
             <label key={option.value}>
-              <input type="radio" name="booking-currency" checked={requestBookingCurrency(draft.currency) === option.value} disabled={option.value === 'ZWG' && requestBookingCurrency('ZWG') !== 'ZWG'} onChange={() => onChange({ currency: option.value })} />
-              {option.label}{option.value === 'ZWG' && requestBookingCurrency('ZWG') !== 'ZWG' ? <span className="book-currency-unavailable">Coming soon</span> : null}
+              <input type="radio" name="booking-currency" checked={requestBookingCurrency(draft.currency) === option.value} onChange={() => onChange({ currency: option.value })} />
+              {option.label}
             </label>
           ))}
         </div>
