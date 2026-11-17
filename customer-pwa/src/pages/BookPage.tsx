@@ -510,7 +510,7 @@ export function BookPage() {
 
   async function saveDraftStop(side: 'pickup' | 'dropoff') {
     const stop = draftRef.current[side];
-    const choice = inlineSaveChoice[side];
+    const choice = { ...inlineSaveChoice[side], label: inlineSaveChoice[side].label ?? 'HOME' };
     if (choice.status !== 'idle') return;
     const latitude = Number(stop.latitude);
     const longitude = Number(stop.longitude);
@@ -537,6 +537,7 @@ export function BookPage() {
       const latest = readSavedAddresses(await listSavedAddresses(token));
       setSavedAddresses(latest);
       setInlineSaveChoice((current) => ({ ...current, [side]: { ...current[side], status: 'saved' } }));
+      setInlineSaveOpen(null);
     } catch (caught) {
       setInlineSaveChoice((current) => ({ ...current, [side]: { ...current[side], status: 'idle' } }));
       setInlineSaveError(deliveryErrorMessage(caught, 'Unable to save this address. Please try again.'));
@@ -624,18 +625,9 @@ export function BookPage() {
               resolve={(placeId, sessionToken) => resolveWithToken(accessToken, placeId, sessionToken)}
             />
             <div className="book-inline-save">
-              <button type="button" className="book-inline-save-toggle" aria-expanded={inlineSaveOpen === (step === 'pickup' ? 'pickup' : 'dropoff')} onClick={() => { setInlineSaveError(null); setInlineSaveOpen((current) => current === (step === 'pickup' ? 'pickup' : 'dropoff') ? null : step === 'pickup' ? 'pickup' : 'dropoff'); }}>
-                {inlineSaveChoice[step === 'pickup' ? 'pickup' : 'dropoff'].status === 'saved' ? '✓ Address saved' : '+ Save this address to Address Book'}
+              <button type="button" className="book-inline-save-toggle" onClick={() => { setInlineSaveError(null); setInlineSaveOpen(step === 'pickup' ? 'pickup' : 'dropoff'); }}>
+                {inlineSaveChoice[step === 'pickup' ? 'pickup' : 'dropoff'].status === 'saved' ? 'Address saved' : 'Save address'}
               </button>
-              {inlineSaveOpen === (step === 'pickup' ? 'pickup' : 'dropoff') ? (
-                <SaveAddressChoice
-                  title={step === 'pickup' ? 'Save pickup address' : 'Save drop-off address'}
-                  choice={inlineSaveChoice[step === 'pickup' ? 'pickup' : 'dropoff']}
-                  onChange={(choice) => { setInlineSaveError(null); setInlineSaveChoice((current) => ({ ...current, [step === 'pickup' ? 'pickup' : 'dropoff']: choice })); }}
-                  onSave={() => { void saveDraftStop(step === 'pickup' ? 'pickup' : 'dropoff'); }}
-                />
-              ) : null}
-              {inlineSaveError && inlineSaveOpen === (step === 'pickup' ? 'pickup' : 'dropoff') ? <p role="alert" className="book-inline-save-error">{inlineSaveError}</p> : null}
             </div>
             </>
           ) : null}
@@ -667,6 +659,32 @@ export function BookPage() {
           </div>
         </div>
       </div>
+      {inlineSaveOpen ? (
+        <div className="confirm-dialog-backdrop book-save-dialog-backdrop">
+          <div className="confirm-dialog book-save-dialog" role="dialog" aria-modal="true" aria-labelledby="book-save-dialog-title">
+            <h2 id="book-save-dialog-title">Save address</h2>
+            <p>Choose a label for this address.</p>
+            <div className="book-save-radio-row" role="radiogroup" aria-label="Address label">
+              {(['HOME', 'WORK', 'CUSTOM'] as SavedAddressLabel[]).map((label) => (
+                <label key={label} className="book-save-radio-option">
+                  <input type="radio" name="booking-save-label" value={label} checked={(inlineSaveChoice[inlineSaveOpen].label ?? 'HOME') === label} disabled={inlineSaveChoice[inlineSaveOpen].status !== 'idle'} onChange={() => setInlineSaveChoice((current) => ({ ...current, [inlineSaveOpen]: { ...current[inlineSaveOpen], label } }))} />
+                  <span>{label === 'HOME' ? 'Home' : label === 'WORK' ? 'Work' : 'Custom'}</span>
+                </label>
+              ))}
+            </div>
+            {(inlineSaveChoice[inlineSaveOpen].label ?? 'HOME') === 'CUSTOM' ? (
+              <input className="book-save-custom-label" aria-label="Custom address label" placeholder="Address label" maxLength={40} value={inlineSaveChoice[inlineSaveOpen].customLabel} disabled={inlineSaveChoice[inlineSaveOpen].status !== 'idle'} onChange={(event) => setInlineSaveChoice((current) => ({ ...current, [inlineSaveOpen]: { ...current[inlineSaveOpen], label: 'CUSTOM', customLabel: event.target.value } }))} />
+            ) : null}
+            {inlineSaveError ? <p role="alert" className="book-inline-save-error">{inlineSaveError}</p> : null}
+            <div className="confirm-dialog-actions">
+              <button type="button" className="confirm-keep" disabled={inlineSaveChoice[inlineSaveOpen].status === 'saving'} onClick={() => { setInlineSaveOpen(null); setInlineSaveError(null); }}>Cancel</button>
+              <button type="button" className="confirm-accept" disabled={inlineSaveChoice[inlineSaveOpen].status !== 'idle' || !bookingSaveLabel({ ...inlineSaveChoice[inlineSaveOpen], label: inlineSaveChoice[inlineSaveOpen].label ?? 'HOME' })} onClick={() => { void saveDraftStop(inlineSaveOpen); }}>
+                {inlineSaveChoice[inlineSaveOpen].status === 'saving' ? 'Saving…' : 'Save address'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {booked ? (
         <div className="book-confirmed" role="status">
           <div className="book-confirmed-card">
