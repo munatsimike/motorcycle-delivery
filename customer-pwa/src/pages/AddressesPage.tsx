@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import addressBookImage from '../assets/address-book.png';
 import { Link, useNavigate } from 'react-router-dom';
 import { deleteSavedAddress, listSavedAddresses, updateSavedAddress } from '../booking/addressApi';
 import {
@@ -100,7 +101,9 @@ export function AddressesPage() {
           {loading ? <Loading label="Loading addresses" /> : null}
           {!loading && emptyAddressList(addresses) ? (
             <div className="address-empty">
-              <p>No saved addresses yet.</p>
+              <img src={addressBookImage} alt="" />
+              <h2>No saved addresses yet</h2>
+              <p>Save your pickup and drop-off addresses for faster bookings.</p>
               <Link className="address-add" to="/addresses/new">Add address</Link>
             </div>
           ) : null}

@@ -113,6 +113,9 @@ export function BookPage() {
     dropoff: emptySaveChoice(),
     error: null as string | null,
   });
+  const [inlineSaveChoice, setInlineSaveChoice] = useState({ pickup: emptySaveChoice(), dropoff: emptySaveChoice() });
+  const [inlineSaveError, setInlineSaveError] = useState<string | null>(null);
+  const [inlineSaveOpen, setInlineSaveOpen] = useState<'pickup' | 'dropoff' | null>(null);
   const [keyboardInset, setKeyboardInset] = useState(0);
   const creating = useRef(false);
   const quoteRequest = useRef(0);
@@ -505,6 +508,41 @@ export function BookPage() {
     }
   }
 
+  async function saveDraftStop(side: 'pickup' | 'dropoff') {
+    const stop = draftRef.current[side];
+    const choice = inlineSaveChoice[side];
+    if (choice.status !== 'idle') return;
+    const latitude = Number(stop.latitude);
+    const longitude = Number(stop.longitude);
+    if (!stop.address.trim() || !stop.latitude.trim() || !stop.longitude.trim() || !Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) {
+      setInlineSaveError('Choose a valid address from the suggestions before saving.');
+      return;
+    }
+    if (!stop.contactName.trim() || !stop.contactPhone.trim()) {
+      setInlineSaveError('Enter the contact name and phone before saving.');
+      return;
+    }
+    const body = saveRequest({
+      address: stop.address.trim(), latitude, longitude,
+      contactName: stop.contactName.trim(), contactPhone: stop.contactPhone.trim(),
+      placeId: stop.placeId, coordinateSource: stop.coordinateSource ?? 'DEVICE_GEOCODER',
+    }, choice);
+    if (!body) return;
+    setInlineSaveError(null);
+    setInlineSaveChoice((current) => ({ ...current, [side]: { ...current[side], status: 'saving' } }));
+    try {
+      const token = await accessToken();
+      if (!token) throw new Error('Your session is unavailable. Please sign in again.');
+      await createSavedAddress(token, body);
+      const latest = readSavedAddresses(await listSavedAddresses(token));
+      setSavedAddresses(latest);
+      setInlineSaveChoice((current) => ({ ...current, [side]: { ...current[side], status: 'saved' } }));
+    } catch (caught) {
+      setInlineSaveChoice((current) => ({ ...current, [side]: { ...current[side], status: 'idle' } }));
+      setInlineSaveError(deliveryErrorMessage(caught, 'Unable to save this address. Please try again.'));
+    }
+  }
+
   function chooseSaved(which: 'pickup' | 'dropoff', entry: SavedAddress) {
     if (which === 'pickup') {
       addressEdited.current = true;
@@ -585,6 +623,20 @@ export function BookPage() {
               search={(text, sessionToken) => searchWithToken(accessToken, text, step === 'destination' ? placeBias(draft.pickup.latitude, draft.pickup.longitude) : null, sessionToken)}
               resolve={(placeId, sessionToken) => resolveWithToken(accessToken, placeId, sessionToken)}
             />
+            <div className="book-inline-save">
+              <button type="button" className="book-inline-save-toggle" aria-expanded={inlineSaveOpen === (step === 'pickup' ? 'pickup' : 'dropoff')} onClick={() => { setInlineSaveError(null); setInlineSaveOpen((current) => current === (step === 'pickup' ? 'pickup' : 'dropoff') ? null : step === 'pickup' ? 'pickup' : 'dropoff'); }}>
+                {inlineSaveChoice[step === 'pickup' ? 'pickup' : 'dropoff'].status === 'saved' ? '✓ Address saved' : '+ Save this address to Address Book'}
+              </button>
+              {inlineSaveOpen === (step === 'pickup' ? 'pickup' : 'dropoff') ? (
+                <SaveAddressChoice
+                  title={step === 'pickup' ? 'Save pickup address' : 'Save drop-off address'}
+                  choice={inlineSaveChoice[step === 'pickup' ? 'pickup' : 'dropoff']}
+                  onChange={(choice) => { setInlineSaveError(null); setInlineSaveChoice((current) => ({ ...current, [step === 'pickup' ? 'pickup' : 'dropoff']: choice })); }}
+                  onSave={() => { void saveDraftStop(step === 'pickup' ? 'pickup' : 'dropoff'); }}
+                />
+              ) : null}
+              {inlineSaveError && inlineSaveOpen === (step === 'pickup' ? 'pickup' : 'dropoff') ? <p role="alert" className="book-inline-save-error">{inlineSaveError}</p> : null}
+            </div>
             </>
           ) : null}
           {step === 'parcel' ? <ParcelForm draft={draft} onChange={updateDraft} /> : null}

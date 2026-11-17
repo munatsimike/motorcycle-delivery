@@ -3754,3 +3754,41 @@ html.is-page-transition .page-stage {
 .auth-screen:has(> .centered-loading) { display: flex; flex-direction: column; justify-content: center; }
 .auth-screen > .centered-loading { min-height: 65vh; }
 @media (prefers-reduced-motion: reduce) { .centered-loading-spinner { animation-duration: 1.6s; } }
+
+/* Booking form: balanced horizontal gutters and inline address saving. */
+.book-scroll { padding-inline: max(24px, env(safe-area-inset-left), env(safe-area-inset-right)); }
+.book-column, .book-fields, .book-fields > *, .book-address, .book-address-control { min-width: 0; max-width: 100%; }
+.book-fields .field input, .book-fields .phone-field { max-width: 100%; }
+.book-inline-save { display: grid; gap: 12px; margin: -6px 0 22px; min-width: 0; }
+.book-inline-save-toggle { justify-self: start; border: 0; background: transparent; color: var(--primary); padding: 6px 0; font: inherit; font-weight: 650; cursor: pointer; text-align: left; }
+.book-inline-save .book-save-side { padding: 14px; border: 1px solid var(--border); border-radius: var(--radius-md); }
+.book-inline-save .book-save-side > p { font-weight: 650; }
+.book-inline-save .book-save-labels button { border: 1px solid var(--border); background: var(--background); color: var(--text); border-radius: 999px; padding: 9px 14px; cursor: pointer; }
+.book-inline-save .book-save-side input { border: 1px solid var(--border); border-radius: var(--radius-md); }
+.book-inline-save .book-save-side > button { border: 0; background: var(--primary); color: white; border-radius: 999px; padding: 12px 16px; min-height: 44px; font: inherit; font-weight: 650; }
+.book-inline-save .book-save-side > button:disabled { opacity: .5; }
+.book-inline-save-error { margin: 0; color: var(--danger, #b42318); font-size: var(--caption); }
+
+/* Address Book empty state follows the Deliveries empty-state treatment. */
+.address-book .address-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xl);
+  border: 0;
+  background: transparent;
+  text-align: center;
+}
+.address-empty img { width: 40px; height: 40px; object-fit: contain; }
+.address-empty h2 { margin: 0; font-size: var(--heading); letter-spacing: 0; }
+.address-empty p { color: var(--text-secondary); font-size: var(--body); line-height: 18px; }
+.address-book .address-add {
+  justify-self: end;
+  align-self: flex-end;
+  border-color: var(--primary);
+  background: var(--primary);
+  color: #fff;
+  border-radius: 999px;
+}
+.address-empty .address-add { margin-top: var(--space-md); }
