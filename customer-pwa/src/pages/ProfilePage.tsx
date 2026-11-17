@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ApiError } from '../api/client';
 import { deleteProfilePhoto, loadCustomerAccount, loadProfilePhoto, uploadProfilePhoto } from '../account/profileApi';
-import { customerAvatarColors, customerInitials, customerPhotoFileIssue, profileKindLabel, profileRows } from '../account/profile';
+import { customerAvatarColors, customerInitials, customerPhotoFileIssue, profileRows } from '../account/profile';
 import { isSessionRejection, type CustomerAccount } from '../auth/contracts';
 import { rememberReturnPath } from '../auth/returnPath';
 import { useSession } from '../auth/sessionContext';
