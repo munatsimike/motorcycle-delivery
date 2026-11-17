@@ -4018,3 +4018,13 @@ html.is-page-transition .page-stage {
 :root:not([data-theme="dark"]) .profile-divider {
   background: linear-gradient(90deg, #d2e5da 0%, #eaf5ed 55%, #ffffff 100%);
 }
+
+/* Latest requested light-theme refinements */
+:root:not([data-theme="dark"]) .deliveries-scroll {
+  padding-top: 8px;
+}
+:root:not([data-theme="dark"]) .profile-screen,
+:root:not([data-theme="dark"]) .profile-wash,
+:root:not([data-theme="dark"]) .profile-sheet {
+  background: #ffffff;
+}
