@@ -399,8 +399,13 @@ input:focus-visible {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  overflow: auto;
+  overflow-x: clip;
+  overflow-y: auto;
+  min-width: 0;
+  scrollbar-width: none;
 }
+
+.shell-main::-webkit-scrollbar { display: none; }
 
 .home {
   position: relative;
@@ -408,7 +413,7 @@ input:focus-visible {
   flex: 1 1 auto;
   flex-direction: column;
   min-height: 0;
-  overflow-x: hidden;
+  overflow-x: clip;
   overflow-y: auto;
   background: var(--background);
 }
@@ -644,7 +649,7 @@ button.home-status:disabled {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px var(--space-lg) calc(6px + env(safe-area-inset-bottom));
+  padding: 6px max(24px, env(safe-area-inset-left)) calc(6px + env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-right));
   border-top: 1px solid var(--border);
   background: var(--background);
 }
@@ -2541,7 +2546,9 @@ button.home-status:disabled {
 
 .book-scroll {
   flex: 1;
-  overflow: auto;
+  overflow-x: clip;
+  overflow-y: auto;
+  min-width: 0;
   padding: var(--space-lg);
 }
 
@@ -3820,3 +3827,22 @@ html.is-page-transition .page-stage {
   min-width: 0;
   max-width: 100%;
 }
+
+/* Avoid nested page scrolling and fractional-width overflow on small screens. */
+.shell-main > .home,
+.shell-main > .deliveries {
+  min-width: 0;
+  max-width: 100%;
+}
+.shell-main:has(> .home),
+.shell-main:has(> .deliveries) {
+  overflow: hidden;
+}
+.book, .book-column, .book-fields, .book-block, .book-review {
+  min-width: 0;
+  max-width: 100%;
+}
+.book-scroll {
+  scrollbar-width: none;
+}
+.book-scroll::-webkit-scrollbar { display: none; }
