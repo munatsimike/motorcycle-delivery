@@ -145,7 +145,7 @@ export function AddressField({
               onChange(clearStopLocation(event.target.value));
             }}
           />
-          {onSelectSaved ? <button type="button" className="book-address-book-button" aria-label="Choose from Address Book" aria-expanded={savedOpen} onClick={() => setSavedOpen((value) => !value)}><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4.5C4 3.7 4.7 3 5.5 3H20v17H5.5A2.5 2.5 0 0 1 3 17.5v-12C3 4.7 3.4 4.5 4 4.5Z"/><path d="M4 17.5c0-.9.7-1.5 1.6-1.5H20"/><circle cx="12" cy="8.5" r="2"/><path d="M8.7 14c.3-1.8 1.5-2.8 3.3-2.8s3 1 3.3 2.8"/></svg></button> : null}
+          {onSelectSaved ? <button type="button" className="book-address-book-button" aria-label="Choose from Address Book" aria-expanded={savedOpen} onClick={() => setSavedOpen((value) => !value)}><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16v16H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/><path d="M4 17h16"/><circle cx="12" cy="9" r="2"/><path d="M8.5 14c.3-1.7 1.5-2.5 3.5-2.5s3.2.8 3.5 2.5"/></svg></button> : null}
           {searching || locating ? <span className="book-address-spinner" role="status" aria-label={locating ? 'Finding your location' : 'Searching addresses'} /> : null}
         </span>
       </label>

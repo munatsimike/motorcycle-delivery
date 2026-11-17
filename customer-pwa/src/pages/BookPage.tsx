@@ -652,7 +652,7 @@ export function BookPage() {
               </Button>
             ) : (
               <Button type="button" disabled={Boolean(busy)} onClick={() => { void goNext(); }}>
-                {busy === 'quote' ? 'Getting price' : 'Continue'}
+                {busy === 'quote' ? 'Processing' : 'Continue'}
               </Button>
             )}
           </div>
@@ -917,7 +917,7 @@ function ReviewForm({
         ) : null}
       </dl>
       <div className="book-price">
-        {quoting ? <Loading label="Getting price" /> : null}
+        {quoting ? <Loading label="Processing" /> : null}
         {quote && !quoting ? (
           <>
             <div className="book-price-row">

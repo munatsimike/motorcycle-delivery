@@ -3534,14 +3534,10 @@ html.is-page-transition .page-stage {
 /* Rider bid: name/tier, rating/rides, then arrival time. */
 .offer-copy .offer-eta-line {
   margin: 0;
-  color: var(--primary-dark);
-  font-size: var(--caption);
-  font-weight: 600;
-  line-height: 18px;
-}
-.offer-copy .offer-eta-line.is-unavailable {
   color: var(--text-secondary);
+  font-size: var(--caption);
   font-weight: 400;
+  line-height: 18px;
 }
 
 /* Match numbered pins in Parcel details sheet to the Deliveries cards. */
@@ -3964,3 +3960,10 @@ html.is-page-transition .page-stage {
   min-width: 0;
   box-sizing: border-box;
 }
+
+/* Booking address-book controls match the muted icon color on More. */
+.book-address-book-button { color: var(--text-secondary); }
+
+/* Address Book empty state: no white panel, compact illustration. */
+.address-book-page .address-empty { background: transparent; border: 0; box-shadow: none; }
+.address-book-page .address-empty img { width: 64px; height: 64px; }
