@@ -12,6 +12,7 @@ import { readReturnPath, safeReturnPath } from '../auth/returnPath';
 import { useSession } from '../auth/sessionContext';
 import { VerificationForm } from './VerificationForm';
 import { AuthBack } from '../components/AuthBack';
+import { AuthScreen } from '../components/AuthScreen';
 import { Button } from '../components/Button';
 import { ButtonSpinner } from '../components/ButtonSpinner';
 import { ErrorMessage } from '../components/ErrorMessage';
@@ -24,9 +25,9 @@ export function CreateAccountPage() {
     return <RegistrationDetails />;
   }
   return (
-    <div className="auth-screen page-stage is-entering">
+    <AuthScreen>
       <VerificationForm flow="whatsapp_registration" title="Create account" />
-    </div>
+    </AuthScreen>
   );
 }
 
@@ -43,13 +44,13 @@ function RegistrationDetails() {
 
   if (!proof) {
     return (
-      <div className="auth-screen page-stage is-entering">
+      <AuthScreen>
         <AuthBack to="/" />
         <Page title="Create account">
           <ErrorMessage>Verify your number again to finish creating the account.</ErrorMessage>
           <Button to="/create-account" variant="secondary">Start again</Button>
         </Page>
-      </div>
+      </AuthScreen>
     );
   }
 
@@ -93,7 +94,7 @@ function RegistrationDetails() {
   const nameError = registrationNameFieldError(error);
 
   return (
-    <div className="auth-screen page-stage is-entering">
+    <AuthScreen>
       <AuthBack to="/create-account" />
       <Page title="Your details">
         <p className="lede">Your number is verified. Add the details for this customer account.</p>
@@ -126,7 +127,7 @@ function RegistrationDetails() {
           </Button>
         </form>
       </Page>
-    </div>
+    </AuthScreen>
   );
 }
 

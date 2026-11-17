@@ -1,9 +1,10 @@
+import { AuthScreen } from '../components/AuthScreen';
 import { VerificationForm } from './VerificationForm';
 
 export function SignInPage() {
   return (
-    <div className="auth-screen page-stage is-entering">
+    <AuthScreen>
       <VerificationForm flow="whatsapp_login" title="Sign in" />
-    </div>
+    </AuthScreen>
   );
 }

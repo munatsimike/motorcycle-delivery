@@ -11,6 +11,7 @@ import { TopSpinner } from '../components/TopSpinner';
 import { appearanceLabel, profileSignOutRequest, type AppearanceMode } from '../theme/appearance';
 import { useAppearance } from '../theme/appearanceContext';
 import { motionClass, usePresence } from '../motion/usePresence';
+import { useContainedScroll } from '../app/useContainedScroll';
 
 function MoreRowIcon({ kind }: { kind: string }) {
   const paths: Record<string, ReactNode> = {
@@ -41,6 +42,7 @@ export function ProfilePage() {
   const removeMotion = usePresence(removeOpen, 150);
   const appearanceMotion = usePresence(appearanceOpen, 220);
   const fileInput = useRef<HTMLInputElement | null>(null);
+  const screenRef = useContainedScroll<HTMLElement>();
 
   useEffect(() => {
     let active = true;
@@ -145,7 +147,7 @@ export function ProfilePage() {
   const colors = account ? customerAvatarColors(account.id) : null;
 
   return (
-    <main id="main" className="profile-screen">
+    <main id="main" ref={screenRef} className="profile-screen">
       <div className={`profile-wash ${scheme === 'dark' ? 'is-dark' : ''}`} aria-hidden="true" />
       <div className="profile-sheet">
         {isLoading && !account ? (

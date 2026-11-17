@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useContainedScroll } from '../app/useContainedScroll';
 import parcelBox from '../assets/parcel-box.png';
 import { ErrorMessage } from '../components/ErrorMessage';
 import { useSession } from '../auth/sessionContext';
@@ -65,6 +66,7 @@ export function DeliveriesPage() {
     ? 'None of these deliveries match this filter.'
     : 'All your deliveries will appear here once you book.';
   const pull = useRef({ y: 0, top: 0 });
+  const scrollRef = useContainedScroll<HTMLDivElement>();
 
   async function searchAgain(deliveryId: string) {
     const token = await accessToken();
@@ -97,6 +99,7 @@ export function DeliveriesPage() {
         </div>
       </div>
       <div
+        ref={scrollRef}
         className="deliveries-scroll"
         onTouchStart={(event) => {
           const scroller = event.currentTarget;
