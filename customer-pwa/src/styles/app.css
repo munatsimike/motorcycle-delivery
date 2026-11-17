@@ -1017,7 +1017,7 @@ button.home-status:disabled {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
-  padding: var(--space-lg) 6px calc(5.5rem + env(safe-area-inset-bottom));
+  padding: var(--space-lg) 6px var(--space-lg);
 }
 
 .deliveries-list {
@@ -3894,3 +3894,11 @@ html.is-page-transition .page-stage {
 .address-book-page .address-empty h2 {
   margin: 0;
 }
+
+/* Deliveries and More use one scroll container inside the fixed shell. */
+.shell-main:has(> .profile-screen) { overflow: hidden; }
+.shell-main > .profile-screen { min-width: 0; overflow-x: clip; overflow-y: auto; }
+.shell-main > .deliveries { overflow: hidden; }
+.deliveries-scroll { overflow-x: hidden; overflow-y: auto; }
+.profile-sheet { min-width: 0; }
+.address-book-page .book-header { justify-content: flex-start; }
