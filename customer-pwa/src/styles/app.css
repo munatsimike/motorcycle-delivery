@@ -3846,3 +3846,51 @@ html.is-page-transition .page-stage {
   scrollbar-width: none;
 }
 .book-scroll::-webkit-scrollbar { display: none; }
+
+/* Keep booking/address pages within the shell's available space. The previous
+   100dvh minimum made the page taller than the shell (which reserves nav space),
+   causing a second vertical scrollbar even when its content fitted. */
+.shell-main:has(> .book) {
+  overflow: hidden;
+}
+.shell-main > .book {
+  flex: 1 1 auto;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  padding-top: 0; /* The shell already applies the safe-area top inset. */
+}
+.shell-main > .book > .book-scroll {
+  min-height: 0;
+  overscroll-behavior-x: none;
+}
+
+/* Address Book header and empty state */
+.address-book-page .book-header {
+  background: var(--background);
+}
+.address-book-page .book-back {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #fff;
+  justify-content: center;
+}
+.address-book-page .address-empty {
+  padding: var(--space-xl) var(--space-md);
+  gap: var(--space-sm);
+}
+.address-book-page .address-empty img {
+  width: 112px;
+  height: 112px;
+  object-fit: contain;
+  margin-bottom: var(--space-md);
+}
+.address-book-page .address-empty .address-add {
+  align-self: center;
+  justify-self: center;
+  margin: 0 0 var(--space-md);
+}
+.address-book-page .address-empty h2 {
+  margin: 0;
+}

@@ -87,7 +87,7 @@ export function AddressesPage() {
   }
 
   return (
-    <section className="book page-stage is-entering">
+    <section className="book address-book-page page-stage is-entering">
       <header className="book-header">
         <button type="button" className="book-back" aria-label="Back" onClick={() => beginPageTransition(() => navigate('/profile'))}>
           <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
@@ -102,9 +102,9 @@ export function AddressesPage() {
           {!loading && emptyAddressList(addresses) ? (
             <div className="address-empty">
               <img src={addressBookImage} alt="" />
-              <h2>No saved addresses yet</h2>
-              <p>Save your pickup and drop-off addresses for faster bookings.</p>
               <Link className="address-add" to="/addresses/new">Add address</Link>
+              <h2>No address saved yet</h2>
+              <p>Saved addresses will appear here.</p>
             </div>
           ) : null}
           {addresses.map((entry) => (
