@@ -3658,11 +3658,10 @@ html.is-page-transition .page-stage {
   background: var(--primary-light);
 }
 
-.address-default {
-  display: flex;
-  gap: var(--space-sm);
-  align-items: center;
-  min-height: 44px;
+.address-book .book-suggestions {
+  position: static;
+  top: auto;
+  margin-top: var(--space-sm);
 }
 
 .book-saved {
@@ -3827,7 +3826,6 @@ html.is-page-transition .page-stage {
 .book-save-radio-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 20px; }
 .book-save-radio-option { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: var(--body); white-space: nowrap; }
 .book-save-radio-option input { accent-color: var(--primary); width: 17px; height: 17px; margin: 0; }
-.book-save-custom-label { width: 100%; box-sizing: border-box; margin-top: 16px; min-height: 44px; padding: 0 12px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--background); color: var(--text); font: inherit; }
 .book-save-dialog .book-inline-save-error { margin-top: 12px; color: var(--danger, #b42318); }
 .book-save-dialog .confirm-dialog-actions { align-items: center; }
 

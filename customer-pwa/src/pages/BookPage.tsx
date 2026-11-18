@@ -69,7 +69,6 @@ import {
   stopFromSavedAddress,
   type BookingSaveChoice,
   type SavedAddress,
-  type SavedAddressLabel,
   type SaveState,
 } from '../booking/savedAddress';
 import { createSavedAddress, listSavedAddresses } from '../booking/addressApi';
@@ -664,7 +663,7 @@ export function BookPage() {
             <h2 id="book-save-dialog-title">Save address</h2>
             <p>Choose a label for this address.</p>
             <div className="book-save-radio-row" role="radiogroup" aria-label="Address label">
-              {(['HOME', 'WORK'] as SavedAddressLabel[]).map((label) => (
+              {(['HOME', 'WORK'] as const).map((label) => (
                 <label key={label} className="book-save-radio-option">
                   <input type="radio" name="booking-save-label" value={label} checked={(inlineSaveChoice[inlineSaveOpen].label ?? 'HOME') === label} disabled={inlineSaveChoice[inlineSaveOpen].status !== 'idle'} onChange={() => setInlineSaveChoice((current) => ({ ...current, [inlineSaveOpen]: { ...current[inlineSaveOpen], label } }))} />
                   <span>{label === 'HOME' ? 'Home' : 'Work'}</span>
@@ -710,7 +709,7 @@ export function BookPage() {
 }
 
 function emptySaveChoice(): BookingSaveChoice & { status: SaveState } {
-  return { label: null, customLabel: '', status: 'idle' };
+  return { label: null, status: 'idle' };
 }
 
 function SaveAddressChoice({
@@ -725,7 +724,7 @@ function SaveAddressChoice({
   onSave: () => void;
 }) {
   const ready = choice.status === 'idle' && bookingSaveLabel(choice) !== null;
-  const labels: SavedAddressLabel[] = ['HOME', 'WORK'];
+  const labels: Array<'HOME' | 'WORK'> = ['HOME', 'WORK'];
   return (
     <div className="book-save-side">
       <p>{title}</p>

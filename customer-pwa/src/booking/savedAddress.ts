@@ -22,14 +22,13 @@ export type SavedAddress = {
 export type SaveState = 'idle' | 'saving' | 'saved';
 
 export type BookingSaveChoice = {
-  label: SavedAddressLabel | null;
-  customLabel: string;
+  label: 'HOME' | 'WORK' | null;
 };
 
 export function savedAddressLabel(entry: { label: SavedAddressLabel; customLabel: string | null }): string {
   if (entry.label === 'HOME') return 'Home';
   if (entry.label === 'WORK') return 'Work';
-  return entry.customLabel?.trim() || 'Custom';
+  return entry.customLabel?.trim() || 'Saved address';
 }
 
 export function emptyAddressList(addresses: readonly SavedAddress[]): boolean {
@@ -56,26 +55,6 @@ export function stopFromSavedAddress(current: StopDraft, entry: SavedAddress): S
   };
 }
 
-export function canApplyDefaultPickup(input: {
-  rebook: boolean;
-  pickup: Pick<StopDraft, 'address' | 'latitude' | 'longitude'>;
-}): boolean {
-  if (input.rebook) return false;
-  return input.pickup.address.trim() === '' && input.pickup.latitude.trim() === '' && input.pickup.longitude.trim() === '';
-}
-
-export function applyDefaultPickup(input: {
-  rebook: boolean;
-  pickup: StopDraft;
-  saved: readonly SavedAddress[];
-}): { pickup: StopDraft; applied: boolean } {
-  const fallback = input.saved.find((entry) => entry.isDefaultPickup);
-  if (!fallback || !canApplyDefaultPickup({ rebook: input.rebook, pickup: input.pickup })) {
-    return { pickup: input.pickup, applied: false };
-  }
-  return { pickup: stopFromSavedAddress(input.pickup, fallback), applied: true };
-}
-
 export function automaticGpsMayApply(input: {
   addressEdited: boolean;
   pickup: Pick<StopDraft, 'address' | 'latitude'>;
@@ -88,11 +67,9 @@ export function isRebookState(state: unknown): boolean {
   return typeof state === 'object' && state !== null && 'rebook' in state;
 }
 
-export function bookingSaveLabel(choice: BookingSaveChoice): { label: SavedAddressLabel; customLabel: string | null } | null {
-  if (choice.label === 'HOME' || choice.label === 'WORK') return { label: choice.label, customLabel: null };
-  const customLabel = choice.customLabel.trim().slice(0, 40);
-  if (choice.label === 'CUSTOM' && customLabel) return { label: 'CUSTOM', customLabel };
-  return null;
+export function bookingSaveLabel(choice: BookingSaveChoice): { label: 'HOME' | 'WORK'; customLabel: null } | null {
+  if (choice.label !== 'HOME' && choice.label !== 'WORK') return null;
+  return { label: choice.label, customLabel: null };
 }
 
 export function bookingSaveBody(stop: {
@@ -103,7 +80,7 @@ export function bookingSaveBody(stop: {
   contactPhone: string;
   placeId: string | null;
   coordinateSource: SavedCoordinateSource;
-}, choice: { label: SavedAddressLabel; customLabel: string | null }) {
+}, choice: { label: 'HOME' | 'WORK'; customLabel: null }) {
   const google = stop.coordinateSource === 'GOOGLE_PLACES' && stop.placeId !== null && PLACE_ID.test(stop.placeId);
   return {
     label: choice.label,
@@ -178,10 +155,6 @@ export function readSavedAddress(value: unknown): SavedAddress | null {
 
 export function withoutSavedAddress(addresses: readonly SavedAddress[], id: string): SavedAddress[] {
   return addresses.filter((entry) => entry.id !== id);
-}
-
-export function withDefaultPickup(addresses: readonly SavedAddress[], id: string): SavedAddress[] {
-  return addresses.map((entry) => ({ ...entry, isDefaultPickup: entry.id === id }));
 }
 
 function readStoredSource(placeId: unknown, source: unknown): { placeId: string | null; coordinateSource: SavedCoordinateSource } | null {

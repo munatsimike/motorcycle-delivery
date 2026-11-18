@@ -17,6 +17,7 @@ export function AddressField({
   stop,
   onChange,
   onManualInput,
+  placeholder = '',
   locating = false,
   locateError = null,
   searchPlaces,
@@ -29,6 +30,7 @@ export function AddressField({
   onSelectSaved?: (entry: SavedAddress) => void;
   onChange: (patch: Partial<StopDraft>) => void;
   onManualInput: () => void;
+  placeholder?: string;
   locating?: boolean;
   locateError?: string | null;
   searchPlaces: (text: string, sessionToken: string) => Promise<PlaceSuggestion[]>;
@@ -134,6 +136,7 @@ export function AddressField({
         <span className="book-address-control">
           <input
             value={stop.address}
+            placeholder={placeholder}
             maxLength={500}
             autoComplete="off"
             aria-autocomplete="list"

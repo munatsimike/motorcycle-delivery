@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react';
 import addressBookImage from '../assets/address-book.png';
 import { Link, useNavigate } from 'react-router-dom';
-import { deleteSavedAddress, listSavedAddresses, updateSavedAddress } from '../booking/addressApi';
+import { deleteSavedAddress, listSavedAddresses } from '../booking/addressApi';
 import {
   emptyAddressList,
   readSavedAddresses,
   savedAddressLabel,
-  withDefaultPickup,
   withoutSavedAddress,
   type SavedAddress,
 } from '../booking/savedAddress';
@@ -74,18 +73,6 @@ export function AddressesPage() {
     }
   }
 
-  async function makeDefault(entry: SavedAddress) {
-    setError(null);
-    try {
-      const token = await accessToken();
-      if (!token) throw new Error('Saved addresses are unavailable.');
-      await updateSavedAddress(token, entry.id, { isDefaultPickup: true });
-      setAddresses((current) => withDefaultPickup(current, entry.id));
-    } catch (caught) {
-      setError(deliveryErrorMessage(caught, 'The default pickup could not be saved.'));
-    }
-  }
-
   return (
     <section className="book address-book-page page-stage is-entering">
       <header className="book-header">
@@ -108,13 +95,12 @@ export function AddressesPage() {
           ) : null}
           {addresses.map((entry) => (
             <article key={entry.id} className="address-card">
-              <p className="address-label">{savedAddressLabel(entry)}{entry.isDefaultPickup ? <span>Default pickup</span> : null}</p>
+              <p className="address-label">{savedAddressLabel(entry)}</p>
               <h2>{entry.address}</h2>
               <p>{entry.contactName}</p>
               <p>{entry.contactPhone}</p>
               <div>
                 <Link to={`/addresses/${entry.id}`}>Edit</Link>
-                {!entry.isDefaultPickup ? <button type="button" onClick={() => { void makeDefault(entry); }}>Set as default pickup</button> : null}
                 <button type="button" onClick={() => setPendingDelete(entry)}>Delete</button>
               </div>
             </article>

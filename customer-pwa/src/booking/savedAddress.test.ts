@@ -2,11 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { clearStopLocation, emptyStop, hasSelectedCoordinates } from './draft.ts';
 import {
-  applyDefaultPickup,
   automaticGpsMayApply,
   bookingSaveBody,
   bookingSaveLabel,
-  canApplyDefaultPickup,
   emptyAddressList,
   isRebookState,
   readSavedAddresses,
@@ -14,7 +12,6 @@ import {
   saveRequest,
   skipsPlacesLookup,
   stopFromSavedAddress,
-  withDefaultPickup,
   withoutSavedAddress,
   type SavedAddress,
 } from './savedAddress.ts';
@@ -100,48 +97,36 @@ test('changing address text clears stale coordinates and the Place ID', () => {
   assert.equal(hasSelectedCoordinates(cleared), false);
 });
 
-test('the default pickup does not replace a rebook or a pickup the customer already entered', () => {
-  const empty = emptyStop();
-  assert.equal(canApplyDefaultPickup({ rebook: false, pickup: empty }), true);
-  assert.equal(canApplyDefaultPickup({ rebook: true, pickup: empty }), false);
-  assert.equal(canApplyDefaultPickup({
-    rebook: false,
-    pickup: { ...empty, address: 'Typed road' },
-  }), false);
+test('a typed or rebooked pickup is not treated as an empty address', () => {
   assert.equal(isRebookState({ rebook: {} }), true);
   assert.equal(isRebookState({}), false);
 });
 
-test('a default pickup wins over a late automatic GPS fix, and a manual choice stays put', () => {
-  const applied = applyDefaultPickup({ rebook: false, pickup: emptyStop(), saved: [office, home] });
-  assert.equal(applied.applied, true);
-  assert.equal(applied.pickup.address, home.address);
-  assert.equal(applied.pickup.contactPhone, home.contactPhone);
-  assert.equal(automaticGpsMayApply({ addressEdited: applied.applied, pickup: applied.pickup }), false);
-
+test('automatic GPS stays off after the customer edits the pickup', () => {
   const chosen = stopFromSavedAddress(emptyStop(), office);
   assert.equal(automaticGpsMayApply({ addressEdited: true, pickup: chosen }), false);
   assert.equal(automaticGpsMayApply({ addressEdited: false, pickup: emptyStop() }), true);
-  assert.equal(applyDefaultPickup({ rebook: false, pickup: chosen, saved: [home] }).applied, false);
+  assert.equal(automaticGpsMayApply({ addressEdited: false, pickup: chosen }), false);
 });
 
-test('saving waits for a successful booking and keeps Home, Work, and Custom independent', () => {
-  assert.equal(saveRequest(null, { label: 'HOME', customLabel: '' }), null);
-  assert.equal(saveRequest(bookedStop, { label: null, customLabel: '' }), null);
-  assert.equal(bookingSaveLabel({ label: 'CUSTOM', customLabel: '   ' }), null);
+test('saving waits for a successful booking and keeps Home and Work', () => {
+  assert.equal(saveRequest(null, { label: 'HOME' }), null);
+  assert.equal(saveRequest(bookedStop, { label: null }), null);
+  assert.equal(bookingSaveLabel({ label: null }), null);
 
-  const pickup = saveRequest(bookedStop, { label: 'HOME', customLabel: 'ignored' });
-  const delivery = saveRequest({ ...bookedStop, address: '12 Samora' }, { label: 'CUSTOM', customLabel: 'Mum' });
+  const pickup = saveRequest(bookedStop, { label: 'HOME' });
+  const delivery = saveRequest({ ...bookedStop, address: '12 Samora' }, { label: 'WORK' });
   assert.equal(pickup?.label, 'HOME');
   assert.equal(pickup?.customLabel, null);
   assert.equal(pickup?.placeId, 'ChIJoffice1');
   assert.equal(pickup?.coordinateSource, 'GOOGLE_PLACES');
   assert.equal(pickup?.contactName, 'Rudo Ncube');
+  assert.equal(pickup?.isDefaultPickup, false);
   assert.equal(pickup?.reuseExisting, true);
-  assert.equal(delivery?.label, 'CUSTOM');
-  assert.equal(delivery?.customLabel, 'Mum');
+  assert.equal(delivery?.label, 'WORK');
+  assert.equal(delivery?.customLabel, null);
   assert.notEqual(delivery?.address, pickup?.address);
-  assert.equal(bookingSaveLabel({ label: 'WORK', customLabel: '' })?.label, 'WORK');
+  assert.equal(bookingSaveLabel({ label: 'WORK' })?.label, 'WORK');
 
   const device = bookingSaveBody({
     ...bookedStop,
@@ -158,10 +143,9 @@ test('saving waits for a successful booking and keeps Home, Work, and Custom ind
   }, { label: 'WORK', customLabel: null }), device);
 });
 
-test('edit, delete, and default pickup stay on the owned list', () => {
+test('deleting an address removes only that row', () => {
   const shop: SavedAddress = { ...home, id: 'shop', label: 'CUSTOM', customLabel: 'Shop', isDefaultPickup: false };
   assert.deepEqual(withoutSavedAddress([home, shop], 'home').map((entry) => entry.id), ['shop']);
-  assert.deepEqual(withDefaultPickup([home, shop], 'shop').map((entry) => entry.isDefaultPickup), [false, true]);
 });
 
 test('one invalid saved address is skipped and the valid addresses remain', () => {

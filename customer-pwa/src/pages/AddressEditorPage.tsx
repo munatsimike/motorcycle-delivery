@@ -22,10 +22,8 @@ export function AddressEditorPage() {
   const { id } = useParams();
   const editing = Boolean(id);
   const { accessToken, signOut } = useSession();
-  const [label, setLabel] = useState<SavedAddressLabel>('HOME');
-  const [customLabel, setCustomLabel] = useState('');
+  const [label, setLabel] = useState<SavedAddressLabel | null>(editing ? null : 'HOME');
   const [stop, setStop] = useState<StopDraft>(emptyStop);
-  const [isDefaultPickup, setIsDefaultPickup] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(editing);
   const [saving, setSaving] = useState(false);
@@ -47,9 +45,7 @@ export function AddressEditorPage() {
         if (!active) return;
         const full = readSavedAddress(entry);
         if (!full) throw new Error('Saved address not found.');
-        setLabel(full.label === 'CUSTOM' ? 'HOME' : full.label);
-        setCustomLabel(full.customLabel ?? '');
-        setIsDefaultPickup(full.isDefaultPickup);
+        setLabel(full.label === 'HOME' || full.label === 'WORK' ? full.label : null);
         setStop({
           ...emptyStop(),
           address: full.address,
@@ -83,16 +79,16 @@ export function AddressEditorPage() {
   }, [accessToken, id, navigate, signOut]);
 
   async function save() {
-    const issue = formIssue(label, customLabel, stop);
-    if (issue) {
-      setError(issue);
+    const issue = formIssue(label, stop);
+    if (issue || !label) {
+      setError(issue ?? 'Choose Home or Work');
       return;
     }
     setSaving(true);
     setError(null);
     const body = {
       label,
-      customLabel: label === 'CUSTOM' ? customLabel.trim() : null,
+      customLabel: null,
       address: stop.resolvedAddress.trim() || stop.address.trim(),
       latitude: stop.latitude,
       longitude: stop.longitude,
@@ -100,7 +96,6 @@ export function AddressEditorPage() {
       coordinateSource: stop.coordinateSource === 'GOOGLE_PLACES' ? 'GOOGLE_PLACES' : 'DEVICE_GEOCODER',
       contactName: stop.contactName,
       contactPhone: deliveryContactPhone(stop.contactPhone),
-      isDefaultPickup,
     };
     try {
       const token = await accessToken();
@@ -140,6 +135,7 @@ export function AddressEditorPage() {
               </fieldset>
               <AddressField
                 stop={stop}
+                placeholder="Search for an address"
                 onChange={(patch) => setStop((current) => ({ ...current, ...patch }))}
                 onManualInput={() => undefined}
                 searchPlaces={(text, sessionToken) => searchWithToken(accessToken, text, sessionToken)}
@@ -156,10 +152,6 @@ export function AddressEditorPage() {
                 autoComplete="tel"
                 onChange={(local) => setStop((current) => ({ ...current, contactPhone: bookingPhoneStored(local) }))}
               />
-              <label className="address-default">
-                <input type="checkbox" checked={isDefaultPickup} onChange={(event) => setIsDefaultPickup(event.target.checked)} />
-                Default pickup
-              </label>
               {error ? <ErrorMessage>{error}</ErrorMessage> : null}
               <Button type="button" disabled={saving} onClick={() => { void save(); }}>{saving ? 'Saving' : 'Save address'}</Button>
             </>
@@ -170,8 +162,8 @@ export function AddressEditorPage() {
   );
 }
 
-function formIssue(label: SavedAddressLabel, customLabel: string, stop: StopDraft): string | null {
-  if (label === 'CUSTOM' && !customLabel.trim()) return 'Enter the address label';
+function formIssue(label: SavedAddressLabel | null, stop: StopDraft): string | null {
+  if (label !== 'HOME' && label !== 'WORK') return 'Choose Home or Work';
   if (!stop.address.trim()) return 'Enter the address';
   if (stop.coordinateSource !== 'GOOGLE_PLACES' && stop.coordinateSource !== 'DEVICE_GEOCODER') return 'Choose the address';
   if (!stop.latitude.trim() || !stop.longitude.trim()) return 'Choose the address';
