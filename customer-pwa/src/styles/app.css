@@ -3941,7 +3941,14 @@ html.is-page-transition .page-stage {
   background: var(--background);
   border-color: var(--list-card-border);
 }
-.address-book-page .book-header { justify-content: flex-start; }
+.address-book-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 4px max(24px, env(safe-area-inset-right)) 8px max(24px, env(safe-area-inset-left));
+}
+.address-book-page .book-scroll {
+  padding-top: 4px;
+}
 
 /* Keep the future ZiG option visible without enabling unsupported bookings. */
 .book-choices label:has(input:disabled) { opacity: .55; cursor: not-allowed; }
@@ -4104,7 +4111,7 @@ html.is-page-transition .page-stage {
 }
 .address-book-page .address-card h2 { font-size: var(--body); line-height: 1.45; font-weight: 650; }
 .address-book-page .address-card > p:not(.address-label) { color: var(--text-secondary); font-size: var(--caption); }
-.address-book-page .address-card div:not(.address-card-heading) { margin-top: 4px; justify-content: flex-end; }
+.address-book-page .address-card div:not(.address-card-heading):not(.address-card-footer) { margin-top: 0; justify-content: flex-end; }
 .address-book-page .address-card div button,
 .address-book-page .address-card div a { min-height: 36px; padding: 0 16px; font-size: var(--caption); border-radius: 999px; }
 :root:not([data-theme="dark"]) .deliveries-switch button.is-selected { color: #171b18; }
@@ -4169,7 +4176,21 @@ html.is-page-transition .page-stage {
 .address-type-badge.is-home { background: #e6f5eb; color: #226b40; }
 .address-type-badge.is-work { background: #e8f0ff; color: #315c9c; }
 .address-book-page .address-card .address-card-location,
-.book-address-selection-card .address-card-location { color: var(--text); font-size: var(--body); line-height: 1.45; }
+.book-address-selection-card .address-card-heading strong,
+.book-address-selection-card .address-card-location,
+.book-address-selection-card .address-card-phone {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.book-address-selection-card .address-detail-icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  color: var(--text-secondary);
+}
+.book-address-selection-card .address-card-location { color: var(--text); font-size: var(--body); line-height: 1.3; }
 .address-book-page .address-card .address-card-phone,
 .book-address-selection-card .address-card-phone { color: var(--text-secondary); font-size: var(--caption); }
 .book-address-selection-card { box-shadow: 0 4px 16px rgba(16, 40, 26, .09); }
@@ -4233,11 +4254,23 @@ html.is-page-transition .page-stage {
   line-height: 1.3;
 }
 .address-book-page .address-card .address-card-phone {
-  margin: 2px 0 0;
+  margin: 0;
   line-height: 1.3;
 }
-.address-book-page .address-card .address-card-actions {
+.address-book-page .address-card div.address-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   margin: 2px 0 0;
-  gap: 4px;
+}
+.address-book-page .address-card .address-card-footer .address-card-phone {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.address-book-page .address-card .address-card-actions {
+  margin: 0;
+  gap: 0;
   justify-content: flex-end;
+  flex: none;
 }
