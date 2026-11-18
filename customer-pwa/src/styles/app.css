@@ -4419,3 +4419,16 @@ html.is-page-transition .page-stage {
 .book-address-selection-card .address-avatar {
   color: #ffffff;
 }
+
+/* Address Book: align the avatar with the contact text, not the action icons. */
+.address-book-page .address-card .address-avatar {
+  transform: translateY(-12px);
+}
+.address-book-page .address-card,
+:root:not([data-theme="dark"]) .address-book-page .address-card {
+  padding-bottom: 6px;
+}
+/* Address picker: keep initials white regardless of inherited text color. */
+.book-address-selection-card .address-avatar {
+  color: #fff !important;
+}
