@@ -4174,3 +4174,15 @@ html.is-page-transition .page-stage {
 .book-address-selection-card .address-card-phone { color: var(--text-secondary); font-size: var(--caption); }
 .book-address-selection-card { box-shadow: 0 4px 16px rgba(16, 40, 26, .09); }
 .address-book-page .address-card { box-shadow: none; }
+
+/* Parcel option group: breathing room below the question. */
+.book-block:has(.book-squares) .book-squares { margin-top: 14px; }
+/* Consistent inline progress indicator on booking and address-save buttons. */
+.book-actions .button:has(.auth-button-spinner),
+.book-save-dialog .confirm-accept:has(.auth-button-spinner),
+.book-save-side button:has(.auth-button-spinner),
+.address-editor-page .button:has(.auth-button-spinner) {
+  display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+}
+/* Shared button progress alignment, including Address Book editor. */
+.button:has(> .auth-button-spinner) { display: inline-flex; align-items: center; justify-content: center; gap: 10px; }

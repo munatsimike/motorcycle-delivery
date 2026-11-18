@@ -9,6 +9,7 @@ import { deliveryErrorMessage } from '../deliveries/api';
 import type { CustomerAccount } from '../auth/contracts';
 import { useSession } from '../auth/sessionContext';
 import { Button } from '../components/Button';
+import { ButtonSpinner } from '../components/ButtonSpinner';
 import { ErrorMessage } from '../components/ErrorMessage';
 import { ZimbabwePhoneField } from '../components/ZimbabwePhoneField';
 import { Loading } from '../components/Loading';
@@ -647,11 +648,11 @@ export function BookPage() {
           <div className="book-actions">
             {step === 'review' || step === 'confirm' ? (
               <Button type="button" disabled={Boolean(busy) || Boolean(booked) || !quote} onClick={() => { void confirm(); }}>
-                {busy === 'create' ? 'Booking' : 'Confirm'}
+                {busy === 'create' ? <><ButtonSpinner />Booking…</> : 'Confirm'}
               </Button>
             ) : (
               <Button type="button" disabled={Boolean(busy)} onClick={() => { void goNext(); }}>
-                {busy === 'quote' ? 'Processing' : 'Continue'}
+                {busy === 'quote' ? <><ButtonSpinner />Processing…</> : 'Continue'}
               </Button>
             )}
           </div>
@@ -674,7 +675,7 @@ export function BookPage() {
             <div className="confirm-dialog-actions">
               <button type="button" className="confirm-keep" disabled={inlineSaveChoice[inlineSaveOpen].status === 'saving'} onClick={() => { setInlineSaveOpen(null); setInlineSaveError(null); }}>Cancel</button>
               <button type="button" className="confirm-accept" disabled={inlineSaveChoice[inlineSaveOpen].status !== 'idle' || !bookingSaveLabel({ ...inlineSaveChoice[inlineSaveOpen], label: inlineSaveChoice[inlineSaveOpen].label ?? 'HOME' })} onClick={() => { void saveDraftStop(inlineSaveOpen); }}>
-                {inlineSaveChoice[inlineSaveOpen].status === 'saving' ? 'Saving…' : 'Save address'}
+                {inlineSaveChoice[inlineSaveOpen].status === 'saving' ? <><ButtonSpinner />Saving…</> : 'Save address'}
               </button>
             </div>
           </div>
@@ -743,7 +744,7 @@ function SaveAddressChoice({
         ))}
       </div>
       <button type="button" disabled={!ready} onClick={onSave}>
-        {choice.status === 'saved' ? 'Saved' : choice.status === 'saving' ? 'Saving' : 'Save to Address Book'}
+        {choice.status === 'saved' ? 'Saved' : choice.status === 'saving' ? <><ButtonSpinner />Saving…</> : 'Save to Address Book'}
       </button>
     </div>
   );

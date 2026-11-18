@@ -9,6 +9,7 @@ import { isSessionRejection } from '../auth/contracts';
 import { rememberReturnPath } from '../auth/returnPath';
 import { useSession } from '../auth/sessionContext';
 import { Button } from '../components/Button';
+import { ButtonSpinner } from '../components/ButtonSpinner';
 import { ErrorMessage } from '../components/ErrorMessage';
 import { Loading } from '../components/Loading';
 import { ZimbabwePhoneField } from '../components/ZimbabwePhoneField';
@@ -153,7 +154,7 @@ export function AddressEditorPage() {
                 onChange={(local) => setStop((current) => ({ ...current, contactPhone: bookingPhoneStored(local) }))}
               />
               {error ? <ErrorMessage>{error}</ErrorMessage> : null}
-              <Button type="button" disabled={saving} onClick={() => { void save(); }}>{saving ? 'Saving' : 'Save address'}</Button>
+              <Button type="button" disabled={saving} onClick={() => { void save(); }}>{saving ? <><ButtonSpinner />Saving…</> : 'Save address'}</Button>
             </>
           )}
         </div>
