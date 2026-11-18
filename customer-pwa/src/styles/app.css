@@ -4218,3 +4218,28 @@ html.is-page-transition .page-stage {
   justify-content: flex-end;
   gap: 8px;
 }
+
+/* Address Book compact cards: override legacy margins applied to every card div. */
+.address-book-page .address-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 16px 18px;
+  min-height: 0;
+}
+.address-book-page .address-card .address-card-heading {
+  margin: 0 0 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+.address-book-page .address-card .address-card-location {
+  margin: 0 0 6px;
+}
+.address-book-page .address-card .address-card-phone {
+  margin: 0;
+}
+.address-book-page .address-card .address-card-actions {
+  margin: 8px 0 0;
+  gap: 8px;
+  justify-content: flex-end;
+}
