@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { AddressDetailIcon } from './AddressDetailIcon';
-import { savedAddressLabel, skipsPlacesLookup, type SavedAddress } from './savedAddress';
+import { AddressSearchField } from './AddressSearchField';
+import { filterSavedAddresses, savedAddressLabel, skipsPlacesLookup, type SavedAddress } from './savedAddress';
 import { ErrorMessage } from '../components/ErrorMessage';
 import { deliveryErrorMessage } from '../deliveries/api';
 import { clearStopLocation, type StopDraft } from './draft';
@@ -38,6 +38,8 @@ export function AddressField({
   resolvePlace: (placeId: string, sessionToken: string) => Promise<{ label: string; latitude: string; longitude: string; suburb?: string; locality?: string }>;
 }) {
   const [savedOpen, setSavedOpen] = useState(false);
+  const [savedSearch, setSavedSearch] = useState('');
+  const matchingSavedAddresses = filterSavedAddresses(savedAddresses, savedSearch);
 
   useEffect(() => {
     if (!savedOpen) return undefined;
@@ -169,16 +171,20 @@ export function AddressField({
             <h2 id="book-address-selection-title">Address Book</h2>
           </header>
           <div className="book-address-selection-list">
-            {savedAddresses.length ? savedAddresses.map((entry) => (
+            {savedAddresses.length > 0 ? (
+              <AddressSearchField value={savedSearch} onChange={setSavedSearch} />
+            ) : null}
+            {savedAddresses.length > 0 && matchingSavedAddresses.length === 0 ? <p className="address-search-empty">No matching addresses.</p> : null}
+            {matchingSavedAddresses.length ? matchingSavedAddresses.map((entry) => (
               <button key={entry.id} className="book-address-selection-card" type="button" onClick={() => { onSelectSaved?.(entry); setSavedOpen(false); }}>
                 <span className="address-card-heading">
-                  <strong><AddressDetailIcon kind="name" />{entry.contactName}</strong>
+                  <strong>{entry.contactName}</strong>
                   <span className={`address-type-badge ${entry.label === 'WORK' ? 'is-work' : 'is-home'}`}>{savedAddressLabel(entry)}</span>
                 </span>
-                <span className="address-card-location"><AddressDetailIcon kind="address" />{entry.address}</span>
-                <span className="address-card-phone"><AddressDetailIcon kind="phone" />{entry.contactPhone}</span>
+                <span className="address-card-location">{entry.address}</span>
+                <span className="address-card-phone">{entry.contactPhone}</span>
               </button>
-            )) : <div className="book-address-selection-empty"><strong>No saved addresses yet</strong><p>Add an address from More → Address Book, then select it here.</p></div>}
+            )) : savedAddresses.length === 0 ? <div className="book-address-selection-empty"><strong>No saved addresses yet</strong><p>Add an address from More → Address Book, then select it here.</p></div> : null}
           </div>
         </div>
       ) : null}

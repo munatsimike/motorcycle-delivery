@@ -8,6 +8,7 @@ import {
   emptyAddressList,
   isRebookState,
   readSavedAddresses,
+  filterSavedAddresses,
   savedAddressLabel,
   saveRequest,
   skipsPlacesLookup,
@@ -53,6 +54,16 @@ const bookedStop = {
   placeId: 'ChIJoffice1',
   coordinateSource: 'GOOGLE_PLACES' as const,
 };
+
+test('saved address search matches name, address, phone, and label without case or extra spaces', () => {
+  assert.deepEqual(filterSavedAddresses([home, office], '   ').map((entry) => entry.id), ['home', 'office']);
+  assert.deepEqual(filterSavedAddresses([home, office], '  TENDAI   moyo ').map((entry) => entry.id), ['home']);
+  assert.deepEqual(filterSavedAddresses([home, office], 'nelson   mandela').map((entry) => entry.id), ['office']);
+  assert.deepEqual(filterSavedAddresses([home, office], '+263 77 222').map((entry) => entry.id), ['office']);
+  assert.deepEqual(filterSavedAddresses([home, office], 'WORK').map((entry) => entry.id), ['office']);
+  assert.deepEqual(filterSavedAddresses([home, office], 'home').map((entry) => entry.id), ['home']);
+  assert.deepEqual(filterSavedAddresses([home, office], 'airport'), []);
+});
 
 test('an empty address book offers add address', () => {
   assert.equal(emptyAddressList([]), true);

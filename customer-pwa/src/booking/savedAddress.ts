@@ -31,6 +31,20 @@ export function savedAddressLabel(entry: { label: SavedAddressLabel; customLabel
   return entry.customLabel?.trim() || 'Saved address';
 }
 
+export function filterSavedAddresses(addresses: readonly SavedAddress[], query: string): SavedAddress[] {
+  const needle = compactSearchText(query);
+  if (!needle) return [...addresses];
+  return addresses.filter((entry) => savedAddressSearchFields(entry).some((field) => compactSearchText(field).includes(needle)));
+}
+
+function savedAddressSearchFields(entry: SavedAddress): string[] {
+  return [entry.contactName, entry.address, entry.contactPhone, savedAddressLabel(entry)];
+}
+
+function compactSearchText(value: string): string {
+  return value.toLocaleLowerCase().replace(/\s+/g, '');
+}
+
 export function emptyAddressList(addresses: readonly SavedAddress[]): boolean {
   return addresses.length === 0;
 }
