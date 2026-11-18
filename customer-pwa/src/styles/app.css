@@ -4297,7 +4297,7 @@ html.is-page-transition .page-stage {
 .address-search-empty { margin: 0; text-align: center; color: var(--text-secondary); padding: 8px 0; }
 :root:not([data-theme="dark"]) .address-book-page .address-card,
 .address-book-page .address-card,
-.book-address-selection-card { padding: 12px 18px 8px; gap: 4px; }
+.book-address-selection-card { padding: 12px 18px 8px; gap: 6px; }
 .address-book-page .address-card div.address-card-heading,
 .book-address-selection-card .address-card-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0; }
 .address-book-page .address-card .address-card-heading h2,
@@ -4342,4 +4342,10 @@ html.is-page-transition .page-stage {
 .address-book-fab.is-compact span { max-width: 0; opacity: 0; }
 .address-book-page .book-scroll { padding-bottom: max(80px, env(safe-area-inset-bottom)); }
 .address-book-page .address-book-toolbar,
-.book-address-selection-toolbar { padding-left: max(6px, env(safe-area-inset-left)); padding-right: max(6px, env(safe-area-inset-right)); }
+.book-address-selection-toolbar { padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); }
+.address-book-page .address-card .address-card-heading,
+.address-book-page .address-card .address-card-location,
+.address-book-page .address-card div.address-card-footer,
+.book-address-selection-card .address-card-heading,
+.book-address-selection-card .address-card-location,
+.book-address-selection-card .address-card-phone { margin: 0; }
