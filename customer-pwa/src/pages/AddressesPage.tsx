@@ -88,11 +88,11 @@ export function AddressesPage() {
           </svg>
         </button>
         <h1>Address Book</h1>
-        {!loading && addresses.length > 0 ? <Link className="address-add" to="/addresses/new">Add address</Link> : null}
       </header>
       {!loading && addresses.length > 0 ? (
         <div className="address-book-toolbar">
-          {searchOpen ? <AddressSearchField value={search} onChange={setSearch} /> : <AddressSearchToggle expanded={searchOpen} onToggle={() => setSearchOpen(true)} />}
+          <Link className="address-add" to="/addresses/new">Add address</Link>
+          {searchOpen ? <AddressSearchField value={search} onChange={setSearch} onDismiss={() => { setSearchOpen(false); setSearch(''); }} /> : <AddressSearchToggle expanded={searchOpen} onToggle={() => setSearchOpen(true)} />}
         </div>
       ) : null}
       <div className="book-scroll">

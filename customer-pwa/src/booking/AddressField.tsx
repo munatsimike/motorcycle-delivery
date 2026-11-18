@@ -171,10 +171,13 @@ export function AddressField({
               <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M20 12H4m0 0 7-7m-7 7 7 7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
             </button>
             <h2 id="book-address-selection-title">Address Book</h2>
-            {savedAddresses.length > 0 ? <AddressSearchToggle labeled={false} expanded={searchOpen} onToggle={() => { setSearchOpen((open) => !open); setSavedSearch(''); }} /> : null}
           </header>
+          {savedAddresses.length > 0 ? (
+            <div className="address-book-toolbar book-address-selection-toolbar">
+              {searchOpen ? <AddressSearchField value={savedSearch} onChange={setSavedSearch} onDismiss={() => { setSearchOpen(false); setSavedSearch(''); }} /> : <AddressSearchToggle expanded={searchOpen} onToggle={() => setSearchOpen(true)} />}
+            </div>
+          ) : null}
           <div className="book-address-selection-list">
-            {searchOpen && savedAddresses.length > 0 ? <AddressSearchField value={savedSearch} onChange={setSavedSearch} /> : null}
             {savedAddresses.length > 0 && matchingSavedAddresses.length === 0 ? <p className="address-search-empty">No matching addresses.</p> : null}
             {matchingSavedAddresses.length ? matchingSavedAddresses.map((entry) => (
               <button key={entry.id} className="book-address-selection-card" type="button" onClick={() => { onSelectSaved?.(entry); setSavedOpen(false); }}>
