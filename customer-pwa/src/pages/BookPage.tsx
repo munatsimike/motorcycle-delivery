@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { beginPageTransition } from '../motion/pageTransition';
+import { motionClass, usePresence } from '../motion/usePresence';
 import { ApiError } from '../api/client';
 import { loadCustomerAccount } from '../account/profileApi';
 import { offerFieldText } from '../deliveries/tracking';
@@ -115,6 +116,10 @@ export function BookPage() {
   const [inlineSaveChoice, setInlineSaveChoice] = useState({ pickup: emptySaveChoice(), dropoff: emptySaveChoice() });
   const [inlineSaveError, setInlineSaveError] = useState<string | null>(null);
   const [inlineSaveOpen, setInlineSaveOpen] = useState<'pickup' | 'dropoff' | null>(null);
+  const saveDialog = usePresence(inlineSaveOpen !== null, 150);
+  const saveStopRef = useRef<'pickup' | 'dropoff' | null>(null);
+  if (inlineSaveOpen) saveStopRef.current = inlineSaveOpen;
+  const saveStop = inlineSaveOpen ?? saveStopRef.current;
   const [keyboardInset, setKeyboardInset] = useState(0);
   const creating = useRef(false);
   const quoteRequest = useRef(0);
@@ -658,24 +663,24 @@ export function BookPage() {
           </div>
         </div>
       </div>
-      {inlineSaveOpen ? (
-        <div className="confirm-dialog-backdrop book-save-dialog-backdrop">
+      {saveDialog.mounted && saveStop ? (
+        <div className={motionClass('confirm-dialog-backdrop book-save-dialog-backdrop', 'dialog', saveDialog.visible)}>
           <div className="confirm-dialog book-save-dialog" role="dialog" aria-modal="true" aria-labelledby="book-save-dialog-title">
             <h2 id="book-save-dialog-title">Save address</h2>
             <p>Choose a label for this address.</p>
             <div className="book-save-radio-row" role="radiogroup" aria-label="Address label">
               {(['HOME', 'WORK'] as const).map((label) => (
                 <label key={label} className="book-save-radio-option">
-                  <input type="radio" name="booking-save-label" value={label} checked={(inlineSaveChoice[inlineSaveOpen].label ?? 'HOME') === label} disabled={inlineSaveChoice[inlineSaveOpen].status !== 'idle'} onChange={() => setInlineSaveChoice((current) => ({ ...current, [inlineSaveOpen]: { ...current[inlineSaveOpen], label } }))} />
+                  <input type="radio" name="booking-save-label" value={label} checked={(inlineSaveChoice[saveStop].label ?? 'HOME') === label} disabled={inlineSaveChoice[saveStop].status !== 'idle'} onChange={() => setInlineSaveChoice((current) => ({ ...current, [saveStop]: { ...current[saveStop], label } }))} />
                   <span>{label === 'HOME' ? 'Home' : 'Work'}</span>
                 </label>
               ))}
             </div>
             {inlineSaveError ? <p role="alert" className="book-inline-save-error">{inlineSaveError}</p> : null}
             <div className="confirm-dialog-actions">
-              <button type="button" className="confirm-keep" disabled={inlineSaveChoice[inlineSaveOpen].status === 'saving'} onClick={() => { setInlineSaveOpen(null); setInlineSaveError(null); }}>Cancel</button>
-              <button type="button" className="confirm-accept" disabled={inlineSaveChoice[inlineSaveOpen].status !== 'idle' || !bookingSaveLabel({ ...inlineSaveChoice[inlineSaveOpen], label: inlineSaveChoice[inlineSaveOpen].label ?? 'HOME' })} onClick={() => { void saveDraftStop(inlineSaveOpen); }}>
-                {inlineSaveChoice[inlineSaveOpen].status === 'saving' ? <><ButtonSpinner />Saving…</> : 'Save address'}
+              <button type="button" className="confirm-keep" disabled={inlineSaveChoice[saveStop].status === 'saving'} onClick={() => { setInlineSaveOpen(null); setInlineSaveError(null); }}>Cancel</button>
+              <button type="button" className="confirm-accept" disabled={inlineSaveChoice[saveStop].status !== 'idle' || !bookingSaveLabel({ ...inlineSaveChoice[saveStop], label: inlineSaveChoice[saveStop].label ?? 'HOME' })} onClick={() => { void saveDraftStop(saveStop); }}>
+                {inlineSaveChoice[saveStop].status === 'saving' ? <><ButtonSpinner />Saving…</> : 'Save address'}
               </button>
             </div>
           </div>

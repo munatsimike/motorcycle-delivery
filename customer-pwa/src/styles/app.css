@@ -2056,8 +2056,9 @@ button.home-status:disabled {
 }
 
 .track-rider .track-avatar {
+  width: 56px;
   height: 56px;
-  border-radius: var(--radius-md);
+  border-radius: 50%;
 }
 
 .rider-confirmed-note {
@@ -2424,7 +2425,7 @@ button.home-status:disabled {
 }
 
 .track-avatar.offer-avatar {
-  border-radius: var(--radius-md);
+  border-radius: 50%;
 }
 
 .track-offers .offer-decline {
@@ -3159,7 +3160,7 @@ button.home-status:disabled {
   padding: 0;
   overflow: hidden;
   border: 0;
-  border-radius: var(--radius-lg);
+  border-radius: 50%;
   background: var(--primary-light);
 }
 
@@ -3450,7 +3451,11 @@ html.is-page-transition .page-stage {
   transition-duration: 200ms;
 }
 
-.deliveries-list {
+.deliveries-list,
+.address-book,
+.book-address-selection-list,
+.address-search-field,
+.book-suggestions {
   animation: card-rise 220ms ease;
 }
 
@@ -3480,6 +3485,13 @@ html.is-page-transition .page-stage {
 @media (prefers-reduced-motion: reduce) {
   .page-stage.is-entering,
   .deliveries-list,
+  .address-book,
+  .book-address-selection-list,
+  .address-search-field,
+  .book-suggestions,
+  .book-address-selection,
+  .address-book-fab,
+  .address-book-fab span,
   ::view-transition-old(customer-page),
   ::view-transition-new(customer-page) {
     animation: none;
@@ -3492,6 +3504,9 @@ html.is-page-transition .page-stage {
   .motion-dialog .confirm-dialog,
   .motion-dialog .profile-dialog-card,
   .motion-dialog .deliveries-sheet,
+  .book-address-selection,
+  .address-book-fab,
+  .address-book-fab span,
   .button:active:not(:disabled),
   .home-send:active,
   .shell-tab:active,
@@ -4073,6 +4088,13 @@ html.is-page-transition .page-stage {
   background: var(--background);
   color: var(--text);
   overflow: hidden;
+  opacity: 0;
+  transform: translateY(12px);
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+.book-address-selection.is-open {
+  opacity: 1;
+  transform: none;
 }
 .book-address-selection-header {
   display: flex;
@@ -4254,13 +4276,14 @@ html.is-page-transition .page-stage {
 .book-address-selection-header { position: relative; justify-content: center; border-bottom: 0; }
 .book-address-selection-header h2 { text-align: center; }
 .book-address-selection-back { position: absolute; left: 20px; top: 50%; transform: translateY(-50%); }
-.address-book-page .book-header { grid-template-columns: 44px minmax(0, 1fr) 44px; }
+.address-book-page .book-header { grid-template-columns: 44px minmax(0, 1fr) 44px; min-height: 44px; padding-bottom: 0; }
 .address-book-page .book-header h1 { min-width: 0; }
 .address-book-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px max(24px, env(safe-area-inset-right)) 8px max(24px, env(safe-area-inset-left)); }
 .address-book-toolbar .address-add { flex: none; min-height: 40px; padding: 0 16px; white-space: nowrap; }
-.address-book-toolbar .address-search-toggle { margin-left: auto; border: 0; background: transparent; box-shadow: none; }
+.address-book-toolbar .address-search-toggle { margin-left: auto; min-height: 0; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: var(--text-secondary); font-weight: 650; }
 .address-book-toolbar .address-search-toggle:focus-visible { outline: none; }
 .address-book-toolbar .address-search-field { flex: 1 1 auto; min-width: 0; margin-left: auto; }
+.address-book-toolbar.is-searching .address-search-field { width: 100%; margin-left: 0; }
 .address-search-toggle { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 14px; border: 1px solid var(--border); border-radius: 999px; background: var(--background); color: var(--text); font: inherit; font-weight: 600; cursor: pointer; }
 .address-search-toggle.is-icon { width: 40px; justify-content: center; padding: 0; border-radius: 50%; }
 .book-address-selection-toolbar { flex: none; padding: 0 20px 12px; }
@@ -4274,24 +4297,49 @@ html.is-page-transition .page-stage {
 .address-search-empty { margin: 0; text-align: center; color: var(--text-secondary); padding: 8px 0; }
 :root:not([data-theme="dark"]) .address-book-page .address-card,
 .address-book-page .address-card,
-.book-address-selection-card { padding: 12px 18px 8px; gap: 2px; }
+.book-address-selection-card { padding: 12px 18px 8px; gap: 4px; }
 .address-book-page .address-card div.address-card-heading,
 .book-address-selection-card .address-card-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0; }
 .address-book-page .address-card .address-card-heading h2,
 .book-address-selection-card .address-card-heading strong,
 .book-address-selection-card .address-card-location,
-.book-address-selection-card .address-card-phone { display: flex; align-items: flex-start; gap: 8px; margin: 0; text-align: left; line-height: 1.3; }
-.book-address-selection-card .address-card-phone { margin-top: 8px; }
+.book-address-selection-card .address-card-phone { display: flex; align-items: flex-start; gap: 8px; margin: 0; text-align: left; line-height: 1.25; }
 .address-book-page .address-card .address-card-location,
-.address-book-page .address-card .address-card-phone { display: flex; align-items: flex-start; gap: 8px; margin: 0; text-align: left; line-height: 1.2; }
+.address-book-page .address-card .address-card-phone { display: flex; align-items: flex-start; gap: 8px; margin: 0; text-align: left; line-height: 1.25; }
 .address-detail-icon { flex: none; width: 16px; height: 16px; margin-top: 1px; color: var(--text-secondary); }
-.address-book-page .address-card div.address-card-footer { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin: -2px 0 0; }
+.address-book-page .address-card div.address-card-footer { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin: 0; }
 .address-book-page .address-card .address-card-footer .address-card-phone { flex: 1 1 auto; min-width: 0; }
 .address-book-page .address-card .address-card-actions { margin: 0; gap: 0; }
-.book-address-selection-header { padding-bottom: 8px; }
+.book-address-selection-header { padding-bottom: 0; }
 .book-address-selection-toolbar { padding-bottom: 4px; }
 .book-address-selection-list { gap: 8px; padding-top: 8px; padding-bottom: max(8px, env(safe-area-inset-bottom)); padding-left: max(6px, env(safe-area-inset-left)); padding-right: max(6px, env(safe-area-inset-right)); }
 .address-book-page .book-scroll { padding-top: 8px; padding-bottom: max(8px, env(safe-area-inset-bottom)); padding-left: max(6px, env(safe-area-inset-left)); padding-right: max(6px, env(safe-area-inset-right)); }
-.address-book-page .address-book-toolbar { padding-bottom: 4px; }
+.address-book-page .address-book-toolbar { padding-top: 0; padding-bottom: 4px; }
+.book-address-selection-toolbar { padding-top: 0; }
+.address-book-page { position: relative; }
+.address-book-fab {
+  position: absolute;
+  right: max(16px, env(safe-area-inset-right));
+  bottom: max(16px, env(safe-area-inset-bottom));
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 48px;
+  padding: 0 16px 0 14px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: #fff;
+  font-weight: 700;
+  text-decoration: none;
+  box-shadow: 0 2px 8px rgba(23, 33, 29, 0.16);
+  transition: padding 180ms ease, gap 180ms ease;
+}
+.address-book-fab svg { flex: none; }
+.address-book-fab span { max-width: 48px; overflow: hidden; white-space: nowrap; transition: max-width 180ms ease, opacity 180ms ease; }
+.address-book-fab.is-compact { gap: 0; padding: 0; width: 48px; }
+.address-book-fab.is-compact span { max-width: 0; opacity: 0; }
+.address-book-page .book-scroll { padding-bottom: max(80px, env(safe-area-inset-bottom)); }
 .address-book-page .address-book-toolbar,
 .book-address-selection-toolbar { padding-left: max(6px, env(safe-area-inset-left)); padding-right: max(6px, env(safe-area-inset-right)); }

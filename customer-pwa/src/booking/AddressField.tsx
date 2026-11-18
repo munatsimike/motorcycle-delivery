@@ -3,6 +3,7 @@ import { AddressDetailIcon } from './AddressDetailIcon';
 import { AddressSearchField, AddressSearchToggle } from './AddressSearchField';
 import { filterSavedAddresses, savedAddressLabel, skipsPlacesLookup, type SavedAddress } from './savedAddress';
 import { ErrorMessage } from '../components/ErrorMessage';
+import { usePresence } from '../motion/usePresence';
 import { deliveryErrorMessage } from '../deliveries/api';
 import { clearStopLocation, type StopDraft } from './draft';
 import {
@@ -39,6 +40,7 @@ export function AddressField({
   resolvePlace: (placeId: string, sessionToken: string) => Promise<{ label: string; latitude: string; longitude: string; suburb?: string; locality?: string }>;
 }) {
   const [savedOpen, setSavedOpen] = useState(false);
+  const selection = usePresence(savedOpen, 180);
   const [savedSearch, setSavedSearch] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
   const matchingSavedAddresses = filterSavedAddresses(savedAddresses, savedSearch);
@@ -164,8 +166,8 @@ export function AddressField({
           {searching || locating ? <span className="book-address-spinner" role="status" aria-label={locating ? 'Finding your location' : 'Searching addresses'} /> : null}
         </span>
       </label>
-      {savedOpen ? (
-        <div className="book-address-selection" role="dialog" aria-modal="true" aria-labelledby="book-address-selection-title">
+      {selection.mounted ? (
+        <div className={selection.visible ? 'book-address-selection is-open' : 'book-address-selection'} role="dialog" aria-modal="true" aria-labelledby="book-address-selection-title">
           <header className="book-address-selection-header">
             <button type="button" className="book-address-selection-back" aria-label="Back to booking" onClick={() => setSavedOpen(false)}>
               <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M20 12H4m0 0 7-7m-7 7 7 7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import addressBookImage from '../assets/address-book.png';
 import { Link, useNavigate } from 'react-router-dom';
 import { deleteSavedAddress, listSavedAddresses } from '../booking/addressApi';
@@ -27,6 +27,8 @@ export function AddressesPage() {
   const [addresses, setAddresses] = useState<SavedAddress[]>([]);
   const [search, setSearch] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
+  const [fabCompact, setFabCompact] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const matchingAddresses = filterSavedAddresses(addresses, search);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -66,6 +68,20 @@ export function AddressesPage() {
     return () => { active = false; };
   }, [accessToken, navigate, signOut]);
 
+  useEffect(() => {
+    const node = scrollRef.current;
+    if (!node) return undefined;
+    let last = node.scrollTop;
+    const onScroll = () => {
+      const next = node.scrollTop;
+      if (next <= 8 || next < last - 4) setFabCompact(false);
+      else if (next > last + 4) setFabCompact(true);
+      last = next;
+    };
+    node.addEventListener('scroll', onScroll, { passive: true });
+    return () => node.removeEventListener('scroll', onScroll);
+  }, [loading, addresses.length]);
+
   async function remove(entry: SavedAddress) {
     setPendingDelete(null);
     setError(null);
@@ -90,12 +106,11 @@ export function AddressesPage() {
         <h1>Address Book</h1>
       </header>
       {!loading && addresses.length > 0 ? (
-        <div className="address-book-toolbar">
-          <Link className="address-add" to="/addresses/new">Add address</Link>
+        <div className={searchOpen ? 'address-book-toolbar is-searching' : 'address-book-toolbar'}>
           {searchOpen ? <AddressSearchField value={search} onChange={setSearch} onDismiss={() => { setSearchOpen(false); setSearch(''); }} /> : <AddressSearchToggle expanded={searchOpen} onToggle={() => setSearchOpen(true)} />}
         </div>
       ) : null}
-      <div className="book-scroll">
+      <div className="book-scroll" ref={scrollRef}>
         <div className="book-column address-book">
           {loading ? <Loading label="Loading addresses" /> : null}
           {!loading && emptyAddressList(addresses) ? (
@@ -134,6 +149,14 @@ export function AddressesPage() {
           {error ? <ErrorMessage>{error}</ErrorMessage> : null}
         </div>
       </div>
+      {!loading && addresses.length > 0 && !searchOpen ? (
+        <Link className={fabCompact ? 'address-book-fab is-compact' : 'address-book-fab'} to="/addresses/new" aria-label="Add address">
+          <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+          </svg>
+          <span>Add</span>
+        </Link>
+      ) : null}
       {dialog.mounted && pendingDelete ? (
         <div className={motionClass('profile-dialog', 'dialog', dialog.visible)} role="dialog" aria-modal="true" aria-labelledby="delete-address-title">
           <div className="profile-dialog-card">
