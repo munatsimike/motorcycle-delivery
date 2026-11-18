@@ -95,10 +95,12 @@ export function AddressesPage() {
           ) : null}
           {addresses.map((entry) => (
             <article key={entry.id} className="address-card">
-              <p className="address-label">{savedAddressLabel(entry)}</p>
-              <h2>{entry.address}</h2>
-              <p>{entry.contactName}</p>
-              <p>{entry.contactPhone}</p>
+              <div className="address-card-heading">
+                <h2>{entry.contactName}</h2>
+                <span className={`address-type-badge ${entry.label === 'WORK' ? 'is-work' : 'is-home'}`}>{savedAddressLabel(entry)}</span>
+              </div>
+              <p className="address-card-location">{entry.address}</p>
+              <p className="address-card-phone">{entry.contactPhone}</p>
               <div className="address-card-actions">
                 <Link className="address-icon-action" to={`/addresses/${entry.id}`} aria-label={`Edit ${savedAddressLabel(entry)} address`} title="Edit address">
                   <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

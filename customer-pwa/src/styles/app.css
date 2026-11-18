@@ -4144,3 +4144,33 @@ html.is-page-transition .page-stage {
   border-bottom: none;
   box-shadow: none;
 }
+
+/* Shared saved-address card hierarchy: contact, address, phone, type. */
+.address-card .address-card-heading,
+.book-address-selection-card .address-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+}
+.address-book-page .address-card .address-card-heading h2 { margin: 0; font-size: var(--body); font-weight: 650; }
+.address-card .address-type-badge,
+.book-address-selection-card .address-type-badge {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+.address-type-badge.is-home { background: #e6f5eb; color: #226b40; }
+.address-type-badge.is-work { background: #e8f0ff; color: #315c9c; }
+.address-book-page .address-card .address-card-location,
+.book-address-selection-card .address-card-location { color: var(--text); font-size: var(--body); line-height: 1.45; }
+.address-book-page .address-card .address-card-phone,
+.book-address-selection-card .address-card-phone { color: var(--text-secondary); font-size: var(--caption); }
+.book-address-selection-card { box-shadow: 0 4px 16px rgba(16, 40, 26, .09); }
+.address-book-page .address-card { box-shadow: none; }

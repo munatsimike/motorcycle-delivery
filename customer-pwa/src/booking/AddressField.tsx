@@ -170,10 +170,12 @@ export function AddressField({
           <div className="book-address-selection-list">
             {savedAddresses.length ? savedAddresses.map((entry) => (
               <button key={entry.id} className="book-address-selection-card" type="button" onClick={() => { onSelectSaved?.(entry); setSavedOpen(false); }}>
-                <span className="book-address-selection-label">{savedAddressLabel(entry)}</span>
-                <strong>{entry.address}</strong>
-                <span>{entry.contactName}{entry.contactPhone ? ` · ${entry.contactPhone}` : ''}</span>
-                <span className="book-address-selection-choose">Use this address <span aria-hidden="true">›</span></span>
+                <span className="address-card-heading">
+                  <strong>{entry.contactName}</strong>
+                  <span className={`address-type-badge ${entry.label === 'WORK' ? 'is-work' : 'is-home'}`}>{savedAddressLabel(entry)}</span>
+                </span>
+                <span className="address-card-location">{entry.address}</span>
+                <span className="address-card-phone">{entry.contactPhone}</span>
               </button>
             )) : <div className="book-address-selection-empty"><strong>No saved addresses yet</strong><p>Add an address from More → Address Book, then select it here.</p></div>}
           </div>
