@@ -56,7 +56,7 @@ private val RiderDestination.navIcon: Int
         RiderDestination.Home -> R.drawable.ic_nav_home
         RiderDestination.Deliveries -> R.drawable.ic_nav_deliveries
         RiderDestination.Wallet -> R.drawable.ic_nav_wallet
-        RiderDestination.Profile -> R.drawable.ic_nav_profile
+        RiderDestination.Profile -> R.drawable.ic_nav_more
     }
 
 @Composable

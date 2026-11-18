@@ -297,11 +297,6 @@ fun DeliveryScreen(
                             routeWidth = 4.dp,
                         )
                     } else {
-                        MapBackground(
-                            Modifier.fillMaxSize(),
-                            pickup = pickupPoint,
-                            dropoff = dropoffPoint,
-                        )
                         Box(
                             Modifier
                                 .matchParentSize()
@@ -1144,7 +1139,6 @@ private fun CollectedPage(
                 routeWidth = 4.dp,
             )
         } else {
-            MapBackground(Modifier.fillMaxSize(), useKnownLocation = false)
             Box(
                 Modifier
                     .matchParentSize()
@@ -1251,7 +1245,17 @@ private fun DeliveredPage(
                 modifier = Modifier.fillMaxSize(),
             )
         } else {
-            MapBackground(Modifier.fillMaxSize(), useKnownLocation = false)
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            0f to RidersColors.mintStart.copy(alpha = 0.72f),
+                            0.62f to RidersColors.mintMid.copy(alpha = 0.35f),
+                            1f to RidersColors.mintEnd.copy(alpha = 0.55f),
+                        ),
+                    ),
+            )
         }
         Box(
             Modifier

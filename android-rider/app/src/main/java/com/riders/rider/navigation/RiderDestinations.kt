@@ -6,7 +6,7 @@ enum class RiderDestination(val label: String) {
     Home("Home"),
     Deliveries("Deliveries"),
     Wallet("Wallet"),
-    Profile("Profile"),
+    Profile("More"),
 }
 
 const val RIDER_SHELL = "main"

@@ -372,7 +372,7 @@ private fun ProfileStep(ui: OnboardingUi) {
         Box(
             Modifier
                 .size(40.dp)
-                .clip(RoundedCornerShape(8.dp))
+                .clip(CircleShape)
                 .background(Color(0xFF3D5A80)),
             contentAlignment = Alignment.Center,
         ) {

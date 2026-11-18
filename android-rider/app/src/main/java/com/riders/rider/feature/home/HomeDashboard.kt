@@ -106,7 +106,6 @@ import com.riders.rider.core.design.RidersSpacing
 import com.riders.rider.core.design.RidersStatusIndicator
 import com.riders.rider.core.design.RidersType
 import com.riders.rider.feature.delivery.domain.ActiveDelivery
-import com.riders.rider.feature.delivery.presentation.MapBackground
 import com.riders.rider.core.network.OfferResponse
 import com.riders.rider.feature.offers.domain.RequestOverlay
 import com.riders.rider.feature.offers.presentation.OfferRequestCard
@@ -415,7 +414,6 @@ fun HomeDashboard(
                         .height(headerHeight)
                         .clipToBounds(),
                 ) {
-                    MapBackground(Modifier.fillMaxSize())
                     Box(
                         Modifier
                             .matchParentSize()
@@ -562,7 +560,7 @@ private fun RiderInitialsAvatar(fullName: String, photo: Bitmap?) {
     Box(
         Modifier
             .size(48.dp)
-            .clip(RoundedCornerShape(RidersRadius.lg))
+            .clip(CircleShape)
             .background(palette.background),
         contentAlignment = Alignment.Center,
     ) {

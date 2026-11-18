@@ -59,13 +59,11 @@ import com.riders.rider.core.design.RidersPullRefresh
 import com.riders.rider.core.design.RidersRadius
 import com.riders.rider.core.design.RidersSpacing
 import com.riders.rider.core.design.RidersType
-import com.riders.rider.feature.delivery.presentation.MapBackground
 import com.riders.rider.feature.wallet.domain.WalletEntry
 import com.riders.rider.feature.wallet.domain.WalletSummary
 import com.riders.rider.feature.wallet.domain.ecocashDemoControlsEnabled
 import com.riders.rider.feature.wallet.domain.showsBorrowingLimit
 import com.riders.rider.feature.wallet.domain.walletBalanceIsNegative
-import com.riders.rider.feature.wallet.domain.zigTopUpNotice
 import com.riders.rider.feature.wallet.domain.statementAmount
 import com.riders.rider.feature.wallet.domain.statementReference
 import com.riders.rider.feature.wallet.domain.walletActivityLabel
@@ -98,8 +96,8 @@ fun WalletScreen(
         onDispose { lifecycle.removeObserver(observer) }
     }
     var showTopUp by rememberSaveable { mutableStateOf(false) }
-    val summaryForTopUp = ui.usd
-    if (showTopUp && summaryForTopUp != null && ui.currency == "USD") {
+    val summaryForTopUp = if (ui.currency == "ZWG") ui.zig else ui.usd
+    if (showTopUp && summaryForTopUp != null) {
         EcocashTopUpSheet(
             balanceLabel = signedWalletLabel(summaryForTopUp.currency, summaryForTopUp.balance),
             demoControls = ecocashDemoControlsEnabled(BuildConfig.DEBUG),
@@ -146,7 +144,6 @@ fun WalletScreen(
                         WalletPicker(selected = ui.currency, onSelect = model::selectCurrency)
                         BalanceCard(
                             summary = board.summary,
-                            usdBalance = ui.usd?.balance,
                             onTopUp = { showTopUp = true },
                         )
                     }
@@ -229,7 +226,6 @@ private fun WalletTitle(onBack: () -> Unit) {
 @Composable
 private fun WalletBackdrop(modifier: Modifier = Modifier) {
     Box(modifier.clipToBounds()) {
-        MapBackground(Modifier.matchParentSize())
         Box(
             Modifier
                 .matchParentSize()
@@ -280,7 +276,7 @@ private fun WalletPicker(selected: String, onSelect: (String) -> Unit) {
 }
 
 @Composable
-private fun BalanceCard(summary: WalletSummary, usdBalance: String?, onTopUp: () -> Unit) {
+private fun BalanceCard(summary: WalletSummary, onTopUp: () -> Unit) {
     val zig = summary.currency.equals("ZWG", ignoreCase = true)
     val shape = RoundedCornerShape(RidersRadius.xl)
     Column(
@@ -305,31 +301,17 @@ private fun BalanceCard(summary: WalletSummary, usdBalance: String?, onTopUp: ()
                     color = if (!zig && walletBalanceIsNegative(summary.balance)) RidersColors.error else RidersColors.text,
                 )
             }
-            if (!zig) {
-                Text(
-                    "Top up",
-                    style = RidersType.bodyStrong,
-                    color = RidersColors.textInverse,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(RidersRadius.pill))
-                        .background(RidersColors.primary)
-                        .clickable(role = Role.Button, onClick = onTopUp)
-                        .padding(horizontal = RidersSpacing.xxl, vertical = RidersSpacing.md),
-                )
-            }
-        }
-        if (zig) {
             Text(
-                zigTopUpNotice(usdBalance ?: "0.00"),
-                style = RidersType.body,
-                color = if (walletBalanceIsNegative(usdBalance ?: "0.00")) RidersColors.error else RidersColors.textSecondary,
+                "Top up",
+                style = RidersType.bodyStrong,
+                color = RidersColors.textInverse,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(RidersRadius.pill))
+                    .background(RidersColors.primary)
+                    .clickable(role = Role.Button, onClick = onTopUp)
+                    .padding(horizontal = RidersSpacing.xxl, vertical = RidersSpacing.md),
             )
         }
-        Text(
-            "Promotional credit ${walletMoneyLabel(summary.currency, summary.promotionalBalance)}",
-            style = RidersType.body,
-            color = RidersColors.textSecondary,
-        )
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md),
@@ -342,12 +324,14 @@ private fun BalanceCard(summary: WalletSummary, usdBalance: String?, onTopUp: ()
                     modifier = Modifier.weight(1f),
                 )
             }
-            BalanceOption(
-                icon = R.drawable.ic_gauge_outline,
-                label = "Available",
-                value = walletMoneyLabel(summary.currency, summary.availableCapacity),
-                modifier = Modifier.weight(1f),
-            )
+            if (zig) {
+                BalanceOption(
+                    icon = R.drawable.ic_gauge_outline,
+                    label = "Available",
+                    value = walletMoneyLabel(summary.currency, summary.availableCapacity),
+                    modifier = Modifier.weight(1f),
+                )
+            }
             BalanceOption(
                 icon = R.drawable.ic_gauge_outline,
                 label = "Reserved",

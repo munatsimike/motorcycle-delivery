@@ -47,7 +47,6 @@ import com.riders.rider.core.design.RidersSpacing
 import com.riders.rider.core.design.RidersType
 import com.riders.rider.feature.delivery.domain.DeliveryListSort
 import com.riders.rider.feature.delivery.presentation.AssignmentListPane
-import com.riders.rider.feature.delivery.presentation.MapBackground
 import com.riders.rider.feature.delivery.presentation.CompletedDeliveriesPane
 import com.riders.rider.feature.delivery.presentation.filteredContentTitle
 import com.riders.rider.feature.bids.presentation.BidBoardScreen
@@ -94,15 +93,14 @@ fun DeliveriesScreen(
             .fillMaxSize()
             .background(RidersColors.canvas),
     ) {
-        MapBackground(Modifier.fillMaxSize())
         Box(
             Modifier
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        0f to RidersColors.canvas.copy(alpha = 0.78f),
-                        0.34f to RidersColors.canvas.copy(alpha = 0.12f),
-                        1f to RidersColors.text.copy(alpha = 0.18f),
+                        0f to RidersColors.mintStart.copy(alpha = 0.72f),
+                        0.62f to RidersColors.mintMid.copy(alpha = 0.35f),
+                        1f to RidersColors.mintEnd.copy(alpha = 0.55f),
                     ),
                 ),
         )

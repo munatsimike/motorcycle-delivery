@@ -9,11 +9,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -33,7 +31,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.riders.rider.R
 import com.riders.rider.core.design.RidersColors
-import com.riders.rider.core.design.RidersRadius
 import com.riders.rider.core.design.RidersSpacing
 import com.riders.rider.core.design.RidersType
 import com.riders.rider.core.network.StopResponse
@@ -222,18 +219,10 @@ private fun PartyContactRow(
     ) {
         if (!plain) {
             Box(
-                if (compact) {
-                    Modifier
-                        .size(40.dp)
-                        .clip(RoundedCornerShape(RidersRadius.md))
-                        .background(tone?.background ?: RidersColors.primaryLight)
-                } else {
-                    Modifier
-                        .width(48.dp)
-                        .height(56.dp)
-                        .clip(RoundedCornerShape(RidersRadius.md))
-                        .background(tone?.background ?: RidersColors.primaryLight)
-                },
+                Modifier
+                    .size(if (compact) 40.dp else 48.dp)
+                    .clip(CircleShape)
+                    .background(tone?.background ?: RidersColors.primaryLight),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
