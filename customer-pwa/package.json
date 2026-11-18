@@ -13,8 +13,6 @@
   },
   "dependencies": {
     "firebase": "^13.3.0",
-    "lucide-react": "^1.73.0",
-    "material-symbols": "^0.49.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.9.4",

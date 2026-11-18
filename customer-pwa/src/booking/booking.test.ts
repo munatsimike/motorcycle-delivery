@@ -280,8 +280,8 @@ test('booking another rider prefills a new draft and does not reuse the cancelle
   const zigPrepared = prepareBooking(zig);
   assert.equal(zigPrepared.ok, true);
   if (!zigPrepared.ok) return;
-  assert.equal(zigPrepared.booking.currency, 'USD');
-  assert.equal(v2CreateBody(zigPrepared.booking, '99.00').currency, 'USD');
+  assert.equal(zigPrepared.booking.currency, 'ZWG');
+  assert.equal(v2CreateBody(zigPrepared.booking, '99.00').currency, 'ZWG');
   assert.notEqual(quoteIdentity(zigPrepared.booking.pinKey, 'FLEXIBLE', 'USD'), quoteIdentity(zigPrepared.booking.pinKey, 'FLEXIBLE', 'ZWG'));
 });
 

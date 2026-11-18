@@ -68,15 +68,6 @@ input:focus-visible {
   line-height: 1.5;
 }
 
-.placeholder {
-  margin: 0;
-  padding: var(--space-md) var(--space-lg);
-  border-radius: var(--radius-md);
-  background: var(--surface);
-  color: var(--text-secondary);
-  font-size: var(--caption);
-}
-
 .button {
   display: inline-flex;
   align-items: center;
@@ -399,14 +390,6 @@ body:has(.auth-screen),
   background: var(--background);
   padding-top: env(safe-area-inset-top);
   padding-bottom: calc(58px + env(safe-area-inset-bottom));
-}
-
-.fullscreen {
-  min-height: 100vh;
-  min-height: 100dvh;
-  padding-top: env(safe-area-inset-top);
-  padding-bottom: env(safe-area-inset-bottom);
-  background: var(--background);
 }
 
 .fullscreen-back {
