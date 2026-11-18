@@ -96,8 +96,8 @@ export function AddressesPage() {
           {addresses.map((entry) => (
             <article key={entry.id} className="address-card">
               <div className="address-card-heading">
-                <h2>{entry.contactName}</h2>
                 <span className={`address-type-badge ${entry.label === 'WORK' ? 'is-work' : 'is-home'}`}>{savedAddressLabel(entry)}</span>
+                <h2>{entry.contactName}</h2>
               </div>
               <p className="address-card-location">{entry.address}</p>
               <p className="address-card-phone">{entry.contactPhone}</p>

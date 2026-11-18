@@ -4186,3 +4186,35 @@ html.is-page-transition .page-stage {
 }
 /* Shared button progress alignment, including Address Book editor. */
 .button:has(> .auth-button-spinner) { display: inline-flex; align-items: center; justify-content: center; gap: 10px; }
+
+/* Address Book: label left, contact name right, consistent vertical rhythm. */
+.address-book-page .address-card {
+  gap: 0;
+  padding: 16px 18px;
+}
+.address-book-page .address-card .address-card-heading {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.address-book-page .address-card .address-card-heading h2 {
+  margin: 0;
+  min-width: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+.address-book-page .address-card .address-card-location {
+  margin: 0 0 7px;
+  line-height: 1.45;
+}
+.address-book-page .address-card .address-card-phone {
+  margin: 0 0 12px;
+  line-height: 1.4;
+}
+.address-book-page .address-card .address-card-actions {
+  justify-content: flex-end;
+  gap: 8px;
+}
