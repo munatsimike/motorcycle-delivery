@@ -111,7 +111,7 @@ export function AddressEditorPage() {
   }
 
   return (
-    <section className="book page-stage is-entering">
+    <section className="book address-editor-page page-stage is-entering">
       <header className="book-header">
         <button type="button" className="book-back" aria-label="Back" onClick={() => beginPageTransition(() => navigate('/addresses'))}>
           <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useContainedScroll } from '../app/useContainedScroll';
 import parcelBox from '../assets/parcel-box.png';
@@ -66,7 +66,22 @@ export function DeliveriesPage() {
     ? 'None of these deliveries match this filter.'
     : 'All your deliveries will appear here once you book.';
   const pull = useRef({ y: 0, top: 0 });
+  const [fabCompact, setFabCompact] = useState(false);
   const scrollRef = useContainedScroll<HTMLDivElement>();
+
+  useEffect(() => {
+    const node = scrollRef.current;
+    if (!node) return undefined;
+    let last = node.scrollTop;
+    const onScroll = () => {
+      const next = node.scrollTop;
+      if (next <= 8 || next < last - 4) setFabCompact(false);
+      else if (next > last + 4) setFabCompact(true);
+      last = next;
+    };
+    node.addEventListener('scroll', onScroll, { passive: true });
+    return () => node.removeEventListener('scroll', onScroll);
+  }, [scrollRef, ordered.length]);
 
   async function searchAgain(deliveryId: string) {
     const token = await accessToken();
@@ -135,7 +150,12 @@ export function DeliveriesPage() {
           </button>
         ) : null}
       </div>
-      <Link className="deliveries-fab" to="/book" aria-label="Send a parcel">+</Link>
+      <Link className={fabCompact ? 'deliveries-fab is-compact' : 'deliveries-fab'} to="/book" aria-label="Send a parcel">
+        <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+        </svg>
+        <span>Send</span>
+      </Link>
       {sheetMotion.mounted && shownSheet ? (
         <div className={motionClass('deliveries-sheet-backdrop', 'sheet', sheetMotion.visible)} onClick={() => setSheet(null)}>
           <div className="deliveries-sheet" role="dialog" aria-label={shownSheet === 'filter' ? 'Filter' : 'Sort by'} onClick={(event) => event.stopPropagation()}>

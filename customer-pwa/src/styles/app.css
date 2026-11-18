@@ -1229,21 +1229,8 @@ button.home-status:disabled {
   cursor: pointer;
 }
 
-.deliveries-fab {
-  position: absolute;
-  right: var(--space-lg);
-  bottom: var(--space-lg);
-  display: grid;
-  place-items: center;
-  width: 48px;
-  height: 48px;
-  border-radius: var(--radius-md);
-  background: var(--primary);
-  color: var(--text-inverse);
-  font-size: 28px;
-  line-height: 1;
-  text-decoration: none;
-  box-shadow: 0 2px 8px rgba(23, 33, 29, 0.14);
+.deliveries-scroll {
+  padding-bottom: max(80px, env(safe-area-inset-bottom));
 }
 
 .confirm-dialog-backdrop {
@@ -3455,6 +3442,7 @@ html.is-page-transition .page-stage {
 .deliveries-switch button:active:not(:disabled),
 .deliveries-tool:active:not(:disabled),
 .deliveries-fab:active,
+.address-book-fab:active,
 .profile-row:active:not(:disabled),
 .confirm-keep:active:not(:disabled),
 .confirm-accept:active:not(:disabled),
@@ -3498,6 +3486,7 @@ html.is-page-transition .page-stage {
   .deliveries-switch button:active:not(:disabled),
   .deliveries-tool:active:not(:disabled),
   .deliveries-fab:active,
+.address-book-fab:active,
   .profile-row:active:not(:disabled),
   .confirm-keep:active:not(:disabled),
 .confirm-accept:active:not(:disabled),
@@ -4300,6 +4289,7 @@ html.is-page-transition .page-stage {
 .address-book-page .address-book-toolbar { padding-top: 0; padding-bottom: 4px; }
 .book-address-selection-toolbar { padding-top: 0; }
 .address-book-page { position: relative; }
+.deliveries-fab,
 .address-book-fab {
   position: absolute;
   right: max(16px, env(safe-area-inset-right));
@@ -4319,9 +4309,13 @@ html.is-page-transition .page-stage {
   box-shadow: 0 2px 8px rgba(23, 33, 29, 0.16);
   transition: padding 180ms ease, gap 180ms ease;
 }
+.deliveries-fab svg,
 .address-book-fab svg { flex: none; }
+.deliveries-fab span,
 .address-book-fab span { max-width: 48px; overflow: hidden; white-space: nowrap; transition: max-width 180ms ease, opacity 180ms ease; }
+.deliveries-fab.is-compact,
 .address-book-fab.is-compact { gap: 0; padding: 0; width: 48px; }
+.deliveries-fab.is-compact span,
 .address-book-fab.is-compact span { max-width: 0; opacity: 0; }
 .address-book-page .book-scroll { padding-bottom: max(80px, env(safe-area-inset-bottom)); }
 .address-book-page .address-book-toolbar,
@@ -4332,3 +4326,38 @@ html.is-page-transition .page-stage {
 .book-address-selection-card .address-card-heading,
 .book-address-selection-card .address-card-location,
 .book-address-selection-card .address-card-phone { margin: 0; }
+
+/* Add/edit address: header and fields share one side inset, and Home/Work are rounded rectangles. */
+.address-editor-page .book-header,
+.address-editor-page .book-scroll {
+  padding-left: max(16px, env(safe-area-inset-left), env(safe-area-inset-right));
+  padding-right: max(16px, env(safe-area-inset-left), env(safe-area-inset-right));
+}
+.address-editor-page .address-book {
+  width: 100%;
+}
+.address-editor-page .book-choice {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+}
+.address-editor-page .book-choice button {
+  flex: 1 1 0;
+  border-radius: var(--radius-md);
+}
+
+/* Address Book rows are not clickable, so they use wallet-style rules instead of cards. */
+.address-book-page .address-book { row-gap: 0; }
+.address-book-page .address-card,
+:root:not([data-theme="dark"]) .address-book-page .address-card {
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  box-shadow: none;
+  padding: 14px 0 12px;
+}
+.address-book-page .address-card.is-first,
+:root:not([data-theme="dark"]) .address-book-page .address-card.is-first {
+  border-top: 1px solid var(--border);
+}

@@ -122,8 +122,8 @@ export function AddressesPage() {
             </div>
           ) : null}
           {!loading && addresses.length > 0 && matchingAddresses.length === 0 ? <p className="address-search-empty">No matching addresses.</p> : null}
-          {matchingAddresses.map((entry) => (
-            <article key={entry.id} className="address-card">
+          {matchingAddresses.map((entry, index) => (
+            <article key={entry.id} className={index === 0 ? 'address-card is-first' : 'address-card'}>
               <div className="address-card-heading">
                 <h2><AddressDetailIcon kind="name" />{entry.contactName}</h2>
                 <span className={`address-type-badge ${entry.label === 'WORK' ? 'is-work' : 'is-home'}`}>{savedAddressLabel(entry)}</span>
