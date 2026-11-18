@@ -4124,9 +4124,9 @@ html.is-page-transition .page-stage {
   height: 38px;
   min-height: 38px;
   padding: 0;
-  border: 1px solid var(--border);
+  border: none;
   border-radius: 50%;
-  background: var(--background);
+  background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
 }
@@ -4136,4 +4136,11 @@ html.is-page-transition .page-stage {
 .address-book-page .address-card .address-card-actions .address-icon-action:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
+}
+
+/* Remove the separator beneath the Address Book heading on both views. */
+.address-book-page .book-header,
+.book-address-selection-header {
+  border-bottom: none;
+  box-shadow: none;
 }
