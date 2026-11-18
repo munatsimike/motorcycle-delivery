@@ -4104,7 +4104,7 @@ html.is-page-transition .page-stage {
 }
 .address-book-page .address-card h2 { font-size: var(--body); line-height: 1.45; font-weight: 650; }
 .address-book-page .address-card > p:not(.address-label) { color: var(--text-secondary); font-size: var(--caption); }
-.address-book-page .address-card div { margin-top: 8px; justify-content: flex-end; }
+.address-book-page .address-card div:not(.address-card-heading) { margin-top: 4px; justify-content: flex-end; }
 .address-book-page .address-card div button,
 .address-book-page .address-card div a { min-height: 36px; padding: 0 16px; font-size: var(--caption); border-radius: 999px; }
 :root:not([data-theme="dark"]) .deliveries-switch button.is-selected { color: #171b18; }
@@ -4187,59 +4187,57 @@ html.is-page-transition .page-stage {
 /* Shared button progress alignment, including Address Book editor. */
 .button:has(> .auth-button-spinner) { display: inline-flex; align-items: center; justify-content: center; gap: 10px; }
 
-/* Address Book: label left, contact name right, consistent vertical rhythm. */
+/* Address Book: contact name left, label badge right, tight vertical rhythm. */
+.address-book-page .address-book {
+  gap: 8px;
+}
 .address-book-page .address-card {
+  display: flex;
+  flex-direction: column;
   gap: 0;
-  padding: 16px 18px;
+  padding: 10px 14px;
+  min-height: 0;
 }
 .address-book-page .address-card .address-card-heading {
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
+  gap: 10px;
+  margin: 0 0 2px;
+}
+.address-book-page .address-card .address-card-heading h2,
+.address-book-page .address-card .address-card-location,
+.address-book-page .address-card .address-card-phone {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
 }
 .address-book-page .address-card .address-card-heading h2 {
   margin: 0;
   min-width: 0;
-  text-align: right;
+  flex: 1 1 auto;
+  text-align: left;
+  line-height: 1.25;
   overflow-wrap: anywhere;
 }
-.address-book-page .address-card .address-card-location {
-  margin: 0 0 7px;
-  line-height: 1.45;
-}
-.address-book-page .address-card .address-card-phone {
-  margin: 0 0 12px;
-  line-height: 1.4;
-}
-.address-book-page .address-card .address-card-actions {
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-/* Address Book compact cards: override legacy margins applied to every card div. */
-.address-book-page .address-card {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  padding: 16px 18px;
-  min-height: 0;
-}
-.address-book-page .address-card .address-card-heading {
-  margin: 0 0 10px;
-  align-items: center;
-  justify-content: space-between;
+.address-book-page .address-card .address-detail-icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  color: var(--text-secondary);
 }
 .address-book-page .address-card .address-card-location {
-  margin: 0 0 6px;
-}
-.address-book-page .address-card .address-card-phone {
   margin: 0;
+  line-height: 1.3;
+}
+.address-book-page .address-card .address-card-phone {
+  margin: 2px 0 0;
+  line-height: 1.3;
 }
 .address-book-page .address-card .address-card-actions {
-  margin: 8px 0 0;
-  gap: 8px;
+  margin: 2px 0 0;
+  gap: 4px;
   justify-content: flex-end;
 }
