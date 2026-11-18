@@ -4061,3 +4061,79 @@ html.is-page-transition .page-stage {
 /* Address Book: consistent primary pill action. */
 .address-book .button { border-radius: 999px; }
 .address-book-page .address-add { border-radius: 999px; }
+
+
+/* Address selection replaces the inline expanding picker with a full-screen view. */
+.book-address-selection {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  background: var(--background);
+  color: var(--text);
+  overflow: hidden;
+}
+.book-address-selection-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-shrink: 0;
+  padding: max(16px, env(safe-area-inset-top)) 20px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.book-address-selection-header h2 { margin: 0; font-size: 19px; font-weight: 700; }
+.book-address-selection-back { display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 0; background: transparent; color: var(--text); }
+.book-address-selection-list { flex: 1; overflow-y: auto; padding: 20px 16px max(24px, env(safe-area-inset-bottom)); display: grid; align-content: start; gap: 12px; }
+.book-address-selection-card { display: grid; gap: 8px; width: 100%; padding: 18px; text-align: left; border: 1px solid var(--border); border-radius: 16px; background: var(--background); color: var(--text); box-shadow: none; }
+.book-address-selection-card strong { font-size: var(--body); font-weight: 650; line-height: 1.4; }
+.book-address-selection-card > span:not(.book-address-selection-label):not(.book-address-selection-choose) { font-size: var(--caption); color: var(--text-secondary); }
+.book-address-selection-label { justify-self: start; font-size: var(--caption); font-weight: 700; color: var(--primary-dark); }
+.book-address-selection-choose { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; font-size: var(--caption); font-weight: 700; color: var(--primary-dark); }
+.book-address-selection-empty { text-align: center; padding: 44px 12px; }
+.book-address-selection-empty p { color: var(--text-secondary); }
+
+/* Saved addresses: clean white cards with restrained actions. */
+:root:not([data-theme="dark"]) .address-book-page .address-card {
+  background: #ffffff;
+  border: 1px solid #e6eae7;
+  box-shadow: none;
+  border-radius: 16px;
+  padding: 18px;
+  gap: 8px;
+}
+.address-book-page .address-card h2 { font-size: var(--body); line-height: 1.45; font-weight: 650; }
+.address-book-page .address-card > p:not(.address-label) { color: var(--text-secondary); font-size: var(--caption); }
+.address-book-page .address-card div { margin-top: 8px; justify-content: flex-end; }
+.address-book-page .address-card div button,
+.address-book-page .address-card div a { min-height: 36px; padding: 0 16px; font-size: var(--caption); border-radius: 999px; }
+:root:not([data-theme="dark"]) .deliveries-switch button.is-selected { color: #171b18; }
+
+/* Address Book card actions: compact, accessible edit/delete icons. */
+.address-book-page .address-card .address-card-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}
+.address-book-page .address-card .address-card-actions .address-icon-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  min-height: 38px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--background);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.address-book-page .address-card .address-card-actions .address-icon-delete {
+  color: var(--danger, #b64242);
+}
+.address-book-page .address-card .address-card-actions .address-icon-action:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}

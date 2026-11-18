@@ -99,9 +99,17 @@ export function AddressesPage() {
               <h2>{entry.address}</h2>
               <p>{entry.contactName}</p>
               <p>{entry.contactPhone}</p>
-              <div>
-                <Link to={`/addresses/${entry.id}`}>Edit</Link>
-                <button type="button" onClick={() => setPendingDelete(entry)}>Delete</button>
+              <div className="address-card-actions">
+                <Link className="address-icon-action" to={`/addresses/${entry.id}`} aria-label={`Edit ${savedAddressLabel(entry)} address`} title="Edit address">
+                  <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L9 17l-4 1 1-4Z" />
+                  </svg>
+                </Link>
+                <button className="address-icon-action address-icon-delete" type="button" aria-label={`Delete ${savedAddressLabel(entry)} address`} title="Delete address" onClick={() => setPendingDelete(entry)}>
+                  <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M3 6h18M8 6V4h8v2m3 0-1 14H6L5 6m5 4v7m4-7v7" />
+                  </svg>
+                </button>
               </div>
             </article>
           ))}

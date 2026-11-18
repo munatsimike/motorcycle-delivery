@@ -37,6 +37,13 @@ export function AddressField({
   resolvePlace: (placeId: string, sessionToken: string) => Promise<{ label: string; latitude: string; longitude: string; suburb?: string; locality?: string }>;
 }) {
   const [savedOpen, setSavedOpen] = useState(false);
+
+  useEffect(() => {
+    if (!savedOpen) return undefined;
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setSavedOpen(false); };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [savedOpen]);
   const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
   const [searching, setSearching] = useState(false);
   const [searched, setSearched] = useState(false);
@@ -148,11 +155,30 @@ export function AddressField({
               onChange(clearStopLocation(event.target.value));
             }}
           />
-          {onSelectSaved ? <button type="button" className="book-address-book-button" aria-label="Choose from Address Book" aria-expanded={savedOpen} onClick={() => setSavedOpen((value) => !value)}><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16v16H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/><path d="M4 17h16"/><circle cx="12" cy="9" r="2"/><path d="M8.5 14c.3-1.7 1.5-2.5 3.5-2.5s3.2.8 3.5 2.5"/></svg></button> : null}
+          {onSelectSaved ? <button type="button" className="book-address-book-button" aria-label="Choose from Address Book" aria-expanded={savedOpen} onClick={() => setSavedOpen(true)}><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16v16H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/><path d="M4 17h16"/><circle cx="12" cy="9" r="2"/><path d="M8.5 14c.3-1.7 1.5-2.5 3.5-2.5s3.2.8 3.5 2.5"/></svg></button> : null}
           {searching || locating ? <span className="book-address-spinner" role="status" aria-label={locating ? 'Finding your location' : 'Searching addresses'} /> : null}
         </span>
       </label>
-      {savedOpen ? <div className="book-address-book-picker"><strong>Address Book</strong>{savedAddresses.length ? savedAddresses.map((entry) => <button key={entry.id} type="button" onClick={() => { onSelectSaved?.(entry); setSavedOpen(false); }}><strong>{savedAddressLabel(entry)}</strong><span>{entry.address}</span></button>) : <p>No saved addresses yet. Add one from More → Address Book.</p>}</div> : null}
+      {savedOpen ? (
+        <div className="book-address-selection" role="dialog" aria-modal="true" aria-labelledby="book-address-selection-title">
+          <header className="book-address-selection-header">
+            <button type="button" className="book-address-selection-back" aria-label="Back to booking" onClick={() => setSavedOpen(false)}>
+              <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M20 12H4m0 0 7-7m-7 7 7 7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+            </button>
+            <h2 id="book-address-selection-title">Address Book</h2>
+          </header>
+          <div className="book-address-selection-list">
+            {savedAddresses.length ? savedAddresses.map((entry) => (
+              <button key={entry.id} className="book-address-selection-card" type="button" onClick={() => { onSelectSaved?.(entry); setSavedOpen(false); }}>
+                <span className="book-address-selection-label">{savedAddressLabel(entry)}</span>
+                <strong>{entry.address}</strong>
+                <span>{entry.contactName}{entry.contactPhone ? ` · ${entry.contactPhone}` : ''}</span>
+                <span className="book-address-selection-choose">Use this address <span aria-hidden="true">›</span></span>
+              </button>
+            )) : <div className="book-address-selection-empty"><strong>No saved addresses yet</strong><p>Add an address from More → Address Book, then select it here.</p></div>}
+          </div>
+        </div>
+      ) : null}
       {locateError ? <p className="book-locate-error" role="status">{locateError}</p> : null}
       {searchError ? <ErrorMessage>{searchError}</ErrorMessage> : null}
       {searched && !searching && suggestions.length === 0 && !searchError ? (
