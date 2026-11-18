@@ -664,16 +664,13 @@ export function BookPage() {
             <h2 id="book-save-dialog-title">Save address</h2>
             <p>Choose a label for this address.</p>
             <div className="book-save-radio-row" role="radiogroup" aria-label="Address label">
-              {(['HOME', 'WORK', 'CUSTOM'] as SavedAddressLabel[]).map((label) => (
+              {(['HOME', 'WORK'] as SavedAddressLabel[]).map((label) => (
                 <label key={label} className="book-save-radio-option">
                   <input type="radio" name="booking-save-label" value={label} checked={(inlineSaveChoice[inlineSaveOpen].label ?? 'HOME') === label} disabled={inlineSaveChoice[inlineSaveOpen].status !== 'idle'} onChange={() => setInlineSaveChoice((current) => ({ ...current, [inlineSaveOpen]: { ...current[inlineSaveOpen], label } }))} />
-                  <span>{label === 'HOME' ? 'Home' : label === 'WORK' ? 'Work' : 'Custom'}</span>
+                  <span>{label === 'HOME' ? 'Home' : 'Work'}</span>
                 </label>
               ))}
             </div>
-            {(inlineSaveChoice[inlineSaveOpen].label ?? 'HOME') === 'CUSTOM' ? (
-              <input className="book-save-custom-label" aria-label="Custom address label" placeholder="Address label" maxLength={40} value={inlineSaveChoice[inlineSaveOpen].customLabel} disabled={inlineSaveChoice[inlineSaveOpen].status !== 'idle'} onChange={(event) => setInlineSaveChoice((current) => ({ ...current, [inlineSaveOpen]: { ...current[inlineSaveOpen], label: 'CUSTOM', customLabel: event.target.value } }))} />
-            ) : null}
             {inlineSaveError ? <p role="alert" className="book-inline-save-error">{inlineSaveError}</p> : null}
             <div className="confirm-dialog-actions">
               <button type="button" className="confirm-keep" disabled={inlineSaveChoice[inlineSaveOpen].status === 'saving'} onClick={() => { setInlineSaveOpen(null); setInlineSaveError(null); }}>Cancel</button>
@@ -728,7 +725,7 @@ function SaveAddressChoice({
   onSave: () => void;
 }) {
   const ready = choice.status === 'idle' && bookingSaveLabel(choice) !== null;
-  const labels: SavedAddressLabel[] = ['HOME', 'WORK', 'CUSTOM'];
+  const labels: SavedAddressLabel[] = ['HOME', 'WORK'];
   return (
     <div className="book-save-side">
       <p>{title}</p>
@@ -742,19 +739,10 @@ function SaveAddressChoice({
             disabled={choice.status !== 'idle'}
             onClick={() => onChange({ ...choice, label })}
           >
-            {label === 'HOME' ? 'Home' : label === 'WORK' ? 'Work' : 'Custom'}
+            {label === 'HOME' ? 'Home' : 'Work'}
           </button>
         ))}
       </div>
-      {choice.label === 'CUSTOM' ? (
-        <input
-          aria-label={`${title} label`}
-          value={choice.customLabel}
-          maxLength={40}
-          disabled={choice.status !== 'idle'}
-          onChange={(event) => onChange({ ...choice, customLabel: event.target.value })}
-        />
-      ) : null}
       <button type="button" disabled={!ready} onClick={onSave}>
         {choice.status === 'saved' ? 'Saved' : choice.status === 'saving' ? 'Saving' : 'Save to Address Book'}
       </button>

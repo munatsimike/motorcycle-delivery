@@ -15,14 +15,14 @@ import { ZimbabwePhoneField } from '../components/ZimbabwePhoneField';
 import { deliveryErrorMessage } from '../deliveries/api';
 import { beginPageTransition } from '../motion/pageTransition';
 
-const LABELS: SavedAddressLabel[] = ['HOME', 'WORK', 'CUSTOM'];
+const LABELS: SavedAddressLabel[] = ['HOME', 'WORK'];
 
 export function AddressEditorPage() {
   const navigate = useNavigate();
   const { id } = useParams();
   const editing = Boolean(id);
   const { accessToken, signOut } = useSession();
-  const [label, setLabel] = useState<SavedAddressLabel>('CUSTOM');
+  const [label, setLabel] = useState<SavedAddressLabel>('HOME');
   const [customLabel, setCustomLabel] = useState('');
   const [stop, setStop] = useState<StopDraft>(emptyStop);
   const [isDefaultPickup, setIsDefaultPickup] = useState(false);
@@ -47,7 +47,7 @@ export function AddressEditorPage() {
         if (!active) return;
         const full = readSavedAddress(entry);
         if (!full) throw new Error('Saved address not found.');
-        setLabel(full.label);
+        setLabel(full.label === 'CUSTOM' ? 'HOME' : full.label);
         setCustomLabel(full.customLabel ?? '');
         setIsDefaultPickup(full.isDefaultPickup);
         setStop({
@@ -133,17 +133,11 @@ export function AddressEditorPage() {
                 <div className="book-choice">
                   {LABELS.map((option) => (
                     <button key={option} type="button" aria-pressed={label === option} className={label === option ? 'is-selected' : undefined} onClick={() => setLabel(option)}>
-                      {option === 'HOME' ? 'Home' : option === 'WORK' ? 'Work' : 'Custom'}
+                      {option === 'HOME' ? 'Home' : 'Work'}
                     </button>
                   ))}
                 </div>
               </fieldset>
-              {label === 'CUSTOM' ? (
-                <label className="field">
-                  Name
-                  <input value={customLabel} maxLength={40} onChange={(event) => setCustomLabel(event.target.value)} />
-                </label>
-              ) : null}
               <AddressField
                 stop={stop}
                 onChange={(patch) => setStop((current) => ({ ...current, ...patch }))}

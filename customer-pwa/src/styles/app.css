@@ -4055,3 +4055,11 @@ html.is-page-transition .page-stage {
 .profile-logout {
   font-weight: 400;
 }
+
+/* Deliveries: slightly roomier horizontal inset and tighter pickup/drop-off rhythm. */
+.delivery-card { padding-left: 18px; padding-right: 18px; }
+.delivery-card-open { gap: 3px; }
+
+/* Address Book: consistent primary pill action. */
+.address-book .button { border-radius: 999px; }
+.address-book-page .address-add { border-radius: 999px; }
