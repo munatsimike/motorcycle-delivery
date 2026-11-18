@@ -4278,7 +4278,6 @@ html.is-page-transition .page-stage {
 .book-address-selection-card .address-card-phone { display: flex; align-items: flex-start; gap: 8px; margin: 0; text-align: left; line-height: 1.25; }
 .address-book-page .address-card .address-card-location,
 .address-book-page .address-card .address-card-phone { display: flex; align-items: flex-start; gap: 8px; margin: 0; text-align: left; line-height: 1.25; }
-.address-detail-icon { flex: none; width: 16px; height: 16px; margin-top: 1px; color: var(--text-secondary); }
 .address-book-page .address-card div.address-card-footer { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin: 0; }
 .address-book-page .address-card .address-card-footer .address-card-phone { flex: 1 1 auto; min-width: 0; }
 .address-book-page .address-card .address-card-actions { margin: 0; gap: 0; }
@@ -4360,4 +4359,53 @@ html.is-page-transition .page-stage {
 .address-book-page .address-card.is-first,
 :root:not([data-theme="dark"]) .address-book-page .address-card.is-first {
   border-top: 1px solid var(--border);
+}
+
+/* Initial circles replace the name, pin, and phone icons on both address lists. */
+.address-book-page .address-card,
+:root:not([data-theme="dark"]) .address-book-page .address-card,
+.book-address-selection-card {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  column-gap: 12px;
+  row-gap: 2px;
+  align-items: center;
+}
+.address-avatar {
+  grid-column: 1;
+  grid-row: 1 / span 3;
+  align-self: center;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1;
+}
+.address-book-page .address-card .address-card-heading,
+.address-book-page .address-card .address-card-location,
+.address-book-page .address-card .address-card-footer,
+.book-address-selection-card .address-card-heading,
+.book-address-selection-card .address-card-location,
+.book-address-selection-card .address-card-phone {
+  grid-column: 2;
+  min-width: 0;
+  margin: 0;
+}
+.address-book-page .address-card .address-card-heading h2,
+.book-address-selection-card .address-card-heading strong {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+.address-book-page .address-card .address-card-location,
+.address-book-page .address-card .address-card-phone,
+.book-address-selection-card .address-card-location,
+.book-address-selection-card .address-card-phone {
+  display: block;
 }

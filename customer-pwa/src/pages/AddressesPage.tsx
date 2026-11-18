@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import addressBookImage from '../assets/address-book.png';
 import { Link, useNavigate } from 'react-router-dom';
 import { deleteSavedAddress, listSavedAddresses } from '../booking/addressApi';
-import { AddressDetailIcon } from '../booking/AddressDetailIcon';
+import { AddressAvatar } from '../booking/AddressAvatar';
 import { AddressSearchField, AddressSearchToggle } from '../booking/AddressSearchField';
 import {
   emptyAddressList,
@@ -124,13 +124,14 @@ export function AddressesPage() {
           {!loading && addresses.length > 0 && matchingAddresses.length === 0 ? <p className="address-search-empty">No matching addresses.</p> : null}
           {matchingAddresses.map((entry, index) => (
             <article key={entry.id} className={index === 0 ? 'address-card is-first' : 'address-card'}>
+              <AddressAvatar name={entry.contactName} />
               <div className="address-card-heading">
-                <h2><AddressDetailIcon kind="name" />{entry.contactName}</h2>
+                <h2>{entry.contactName}</h2>
                 <span className={`address-type-badge ${entry.label === 'WORK' ? 'is-work' : 'is-home'}`}>{savedAddressLabel(entry)}</span>
               </div>
-              <p className="address-card-location"><AddressDetailIcon kind="address" />{entry.address}</p>
+              <p className="address-card-location">{entry.address}</p>
               <div className="address-card-footer">
-                <p className="address-card-phone"><AddressDetailIcon kind="phone" />{entry.contactPhone}</p>
+                <p className="address-card-phone">{entry.contactPhone}</p>
                 <div className="address-card-actions">
                 <Link className="address-icon-action" to={`/addresses/${entry.id}`} aria-label={`Edit ${savedAddressLabel(entry)} address`} title="Edit address">
                   <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
