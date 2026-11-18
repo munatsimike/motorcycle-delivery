@@ -478,7 +478,31 @@ describe('V2 bid lifecycle', () => {
     ctx.wallets.push({ id: 'wallet-zig', riderProfileId: RIDER, currency: 'ZWG', balance: '20.00', borrowingLimitOverride: null });
     const open = await bids.listOpenRequests(RIDER_CONTEXT, NOW);
     expect(open.map((request) => request.id)).toEqual([DELIVERY]);
+    expect(open[0]?.currency).toBe('ZWG');
     delete process.env.RIDER_ZWG_OFFERS_ENABLED;
+  });
+
+  it('keeps a declined request hidden for that rider and open for another', async () => {
+    process.env.V2_MARKETPLACE_ENABLED = 'true';
+    const ctx = store();
+    const bids = new BidService(ctx.prisma);
+    const other = { userId: 'user-rider-2', riderProfileId: OTHER_RIDER };
+    const first = await bids.declineRequest(RIDER_CONTEXT, DELIVERY, NOW);
+    const again = await bids.declineRequest(RIDER_CONTEXT, DELIVERY, NOW);
+    expect(again).toEqual(first);
+    expect(ctx.declines).toHaveLength(1);
+    expect(ctx.deliveries[0]!.status).toBe(DeliveryStatus.CREATED);
+    await expect(bids.listOpenRequests(RIDER_CONTEXT, NOW)).resolves.toEqual([]);
+    const listed = await bids.listOpenRequests(other, NOW);
+    expect(listed.map((request) => request.currency)).toEqual(['USD']);
+    expect(listed.map((request) => request.id)).toEqual([DELIVERY]);
+    await expect(bids.submit(RIDER_CONTEXT, bidBody(1_000), 'declined-bid', NOW)).rejects.toThrow('You declined this request');
+    expect(ctx.bids).toHaveLength(0);
+    const placed = await bids.submit(other, bidBody(1_100), 'other-bid', NOW);
+    expect(placed.deliveryId).toBe(DELIVERY);
+    expect(ctx.bids).toHaveLength(1);
+    await expect(bids.declineRequest(RIDER_CONTEXT, 'not-a-delivery', NOW)).rejects.toBeInstanceOf(NotFoundException);
+    expect(ctx.declines).toHaveLength(1);
   });
 
   it('records Express interest and a different offer without assigning the rider', async () => {
@@ -657,6 +681,8 @@ function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?:
     const profilePhotos: Array<{ riderProfileId: string }> = [];
   const rates = options?.rate === false ? [] : [{ isActive: true, basisPoints: options?.basisPoints ?? 1_000, rateVersion: 1 }];
   const config = { isActive: true, defaultBorrowingLimit: options?.borrowingLimit ?? '50.00' };
+  const declines: Array<{ id: string; riderProfileId: string; deliveryId: string; createdAt: Date }> = [];
+  let nextDecline = 1;
   let reservationWrites = 0;
   let ledgerWrites = 0;
   let assignmentWrites = 0;
@@ -675,6 +701,7 @@ function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?:
       });
       await previous;
       const backup = bids.map((bid) => ({ ...bid }));
+      const declineBackup = declines.map((row) => ({ ...row }));
       try {
         const result = await fn(db);
         if (failSubmitCommit) {
@@ -683,6 +710,7 @@ function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?:
         return result;
       } catch (error) {
         bids.splice(0, bids.length, ...backup);
+        declines.splice(0, declines.length, ...declineBackup);
         throw error;
       } finally {
         release();
@@ -841,6 +869,27 @@ function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?:
         return config;
       },
     },
+    riderRequestDecline: {
+      async findMany({ where }: { where: { riderProfileId: string; deliveryId?: { in: string[] } } }) {
+        return declines.filter((row) => (
+          row.riderProfileId === where.riderProfileId
+          && (!where.deliveryId?.in || where.deliveryId.in.includes(row.deliveryId))
+        ));
+      },
+      async findUnique({ where }: { where: { riderProfileId_deliveryId: { riderProfileId: string; deliveryId: string } } }) {
+        const key = where.riderProfileId_deliveryId;
+        return declines.find((row) => row.riderProfileId === key.riderProfileId && row.deliveryId === key.deliveryId) ?? null;
+      },
+      async create({ data }: { data: { riderProfileId: string; deliveryId: string; createdAt: Date } }) {
+        if (declines.some((row) => row.riderProfileId === data.riderProfileId && row.deliveryId === data.deliveryId)) {
+          throw uniqueViolation();
+        }
+        const row = { id: `decline-${nextDecline}`, ...data };
+        nextDecline += 1;
+        declines.push(row);
+        return row;
+      },
+    },
     walletFeeReservation: {
       async findMany() {
         return [];
@@ -874,6 +923,7 @@ function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?:
   return {
     prisma: db as unknown as PrismaService,
     bids,
+    declines,
     deliveries,
     profiles,
     wallets,

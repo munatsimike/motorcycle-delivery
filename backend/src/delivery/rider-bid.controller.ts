@@ -38,6 +38,16 @@ export class RiderBidController {
     return this.bids.listOpenRequests(requiredRider(request));
   }
 
+  @Post('bid-requests/:deliveryId/decline')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Hide one open request from the signed-in rider' })
+  @ApiParam({ name: 'deliveryId', format: 'uuid' })
+  @ApiOkResponse({ description: 'The request stays open for the customer and for other riders.' })
+  @ApiNotFoundResponse({ description: 'Delivery not found' })
+  decline(@Req() request: BidRequest, @Param('deliveryId') deliveryId: string) {
+    return this.bids.declineRequest(requiredRider(request), deliveryId);
+  }
+
   @Get('bid-requests/:deliveryId/route')
   @ApiOperation({ summary: 'Read the driving route between an open request pickup and drop-off' })
   @ApiParam({ name: 'deliveryId', format: 'uuid' })

@@ -9,6 +9,7 @@ describe('bid route authorization', () => {
 
   it('requires the signed-in rider and an idempotency key', () => {
     expect(() => riderRoutes.listRequests({})).toThrow(ForbiddenException);
+    expect(() => riderRoutes.decline({}, 'delivery-1')).toThrow(ForbiddenException);
     expect(() => riderRoutes.list({})).toThrow(ForbiddenException);
     expect(() => riderRoutes.submit({}, { deliveryId: 'x', amountCents: 100 })).toThrow(ForbiddenException);
     expect(() => riderRoutes.withdraw({}, 'bid-1')).toThrow(ForbiddenException);

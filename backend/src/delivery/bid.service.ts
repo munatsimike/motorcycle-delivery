@@ -233,7 +233,14 @@ export class BidService {
           parcelSize: true,
         },
       });
-      return rows.map((row) => ({
+      const declined = rows.length === 0
+        ? []
+        : await tx.riderRequestDecline.findMany({
+          where: { riderProfileId: rider.riderProfileId, deliveryId: { in: rows.map((row) => row.id) } },
+          select: { deliveryId: true },
+        });
+      const hidden = new Set(declined.map((row) => row.deliveryId));
+      return rows.filter((row) => !hidden.has(row.id)).map((row) => ({
         id: row.id,
         serviceClass: row.serviceClass,
         deliverBy: row.deliverBy?.toISOString() ?? null,
@@ -250,6 +257,34 @@ export class BidService {
         parcelDescription: row.parcelDescription,
         parcelSize: row.parcelSize,
       }));
+    });
+  }
+
+  async declineRequest(rider: RiderContext, deliveryId: string, now = new Date()) {
+    this.requireMarketplace();
+    if (!UUID_TEXT.test(deliveryId)) {
+      throw new NotFoundException('Delivery not found');
+    }
+    return this.prisma.$transaction(async (tx) => {
+      const delivery = await tx.delivery.findUnique({ where: { id: deliveryId }, select: { id: true } });
+      if (!delivery) {
+        throw new NotFoundException('Delivery not found');
+      }
+      const existing = await tx.riderRequestDecline.findUnique({
+        where: { riderProfileId_deliveryId: { riderProfileId: rider.riderProfileId, deliveryId } },
+      });
+      if (!existing) {
+        try {
+          await tx.riderRequestDecline.create({
+            data: { riderProfileId: rider.riderProfileId, deliveryId, createdAt: now },
+          });
+        } catch (error) {
+          if (!isUniqueViolation(error)) {
+            throw error;
+          }
+        }
+      }
+      return { deliveryId, declined: true as const };
     });
   }
 
@@ -569,6 +604,12 @@ export class BidService {
     });
     if (profile.receivingRequests !== true) {
       throw new ConflictException('You are not receiving requests');
+    }
+    const declined = await tx.riderRequestDecline.findUnique({
+      where: { riderProfileId_deliveryId: { riderProfileId: profile.id, deliveryId: delivery.id } },
+    });
+    if (declined) {
+      throw new ConflictException('You declined this request');
     }
     const open = await tx.bid.findFirst({
       where: { deliveryId: delivery.id, riderProfileId: profile.id, status: BidStatus.OPEN },
