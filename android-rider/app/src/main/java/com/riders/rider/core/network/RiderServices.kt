@@ -189,6 +189,9 @@ interface RiderService {
         @Query("cursor") cursor: String? = null,
     ): OwnBidsResponse
 
+    @POST("riders/me/bid-requests/{deliveryId}/decline")
+    suspend fun declineRequest(@Path("deliveryId") deliveryId: String): DeclinedRequestResponse
+
     @POST("riders/me/bids")
     suspend fun submitBid(
         @Header("Idempotency-Key") idempotencyKey: String,

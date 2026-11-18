@@ -62,6 +62,7 @@ data class OfferUi(
     val bidError: String? = null,
     val accepted: AcceptedDelivery? = null,
     val submittingBid: Boolean = false,
+    val declining: Boolean = false,
     val placingBid: Boolean = false,
     val sentLabels: Map<String, String> = emptyMap(),
     val sentAmounts: Map<String, String> = emptyMap(),
@@ -198,6 +199,31 @@ class OfferViewModel @Inject constructor(
 
     fun submitBid(deliveryId: String, amountText: String, currency: String) {
         submitBidAmount(deliveryId, amountText, currency)
+    }
+
+    fun decline(deliveryId: String) {
+        if (state.value.declining) {
+            return
+        }
+        viewModelScope.launch {
+            state.update { it.copy(declining = true, bidError = null) }
+            when (val result = bids.decline(deliveryId)) {
+                is ApiResult.Ok -> {
+                    openRequests = openRequests.filter { it.id != deliveryId }
+                    state.update { current ->
+                        current.copy(
+                            declining = false,
+                            offers = current.offers.filter { it.deliveryId != deliveryId },
+                            selected = if (current.selected?.deliveryId == deliveryId) null else current.selected,
+                            placingBid = if (current.selected?.deliveryId == deliveryId) false else current.placingBid,
+                            bidError = null,
+                        )
+                    }
+                    refreshOffers()
+                }
+                is ApiResult.Err -> state.update { it.copy(declining = false, bidError = result.error.text()) }
+            }
+        }
     }
 
     private fun submitBidAmount(deliveryId: String, amountText: String, currency: String) {

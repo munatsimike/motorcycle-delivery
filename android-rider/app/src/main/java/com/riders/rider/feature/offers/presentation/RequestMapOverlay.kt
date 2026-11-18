@@ -112,6 +112,8 @@ fun RequestMapOverlay(
     onAccept: () -> Unit,
     onBid: () -> Unit,
     onSubmitBid: (String) -> Unit,
+    onDecline: () -> Unit,
+    declining: Boolean,
     onInterest: () -> Unit,
     onClose: () -> Unit,
     routes: RequestRouteModel = hiltViewModel(),
@@ -179,6 +181,8 @@ fun RequestMapOverlay(
                 onAccept = onAccept,
                 onBid = onBid,
                 onSubmitBid = onSubmitBid,
+                onDecline = onDecline,
+                declining = declining,
                 onInterest = onInterest,
             )
             if (!error.isNullOrBlank()) {

@@ -31,6 +31,22 @@ fun offerPriceLabel(currency: String, offeredPrice: String): String {
     return moneyLabel(currency, offeredPrice)
 }
 
+fun requestCurrencyLabel(currency: String): String {
+    return when (currency.trim().uppercase()) {
+        "ZWG" -> "ZiG"
+        "USD" -> "USD"
+        else -> currency.trim().uppercase()
+    }
+}
+
+fun requestAmountLabel(currency: String, amount: String): String {
+    val trimmed = amount.trim().removePrefix("+")
+    val negative = trimmed.startsWith("-")
+    val digits = if (negative) trimmed.removePrefix("-") else trimmed
+    val label = "${requestCurrencyLabel(currency)} $digits"
+    return if (negative) "−$label" else label
+}
+
 fun acceptOfferLabel(): String {
     return "Accept"
 }
@@ -75,6 +91,7 @@ fun bidSubmissionAfterResult(amount: String, error: String?): BidSubmissionUi {
 }
 
 const val OFFER_YOUR_PRICE = "Your offer"
+const val DECLINE_REQUEST = "Decline"
 const val AWAITING_CUSTOMER = "Awaiting customer"
 
 fun deliveryCategoryTitle(description: String): String = when (description.trim().lowercase()) {

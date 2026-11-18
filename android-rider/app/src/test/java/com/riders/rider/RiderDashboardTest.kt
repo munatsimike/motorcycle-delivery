@@ -48,7 +48,10 @@ import com.riders.rider.feature.offers.domain.acceptOfferLabel
 import com.riders.rider.feature.offers.domain.bidSubmissionAfterResult
 import com.riders.rider.feature.offers.domain.canStartBidSubmit
 import com.riders.rider.feature.offers.domain.deliveryCategoryTitle
+import com.riders.rider.feature.offers.domain.DECLINE_REQUEST
 import com.riders.rider.feature.offers.domain.offerPriceLabel
+import com.riders.rider.feature.offers.domain.requestAmountLabel
+import com.riders.rider.feature.offers.domain.requestCurrencyLabel
 import com.riders.rider.feature.offers.domain.offerSentConfirmation
 import com.riders.rider.feature.offers.domain.opensDeliveriesAfterListedOffer
 import com.riders.rider.feature.offers.domain.requestNeedsAnotherOffer
@@ -214,6 +217,11 @@ class RiderDashboardTest {
         assertEquals("Food delivery", deliveryCategoryTitle("food"))
         assertEquals("Doc delivery", deliveryCategoryTitle("document"))
         assertFalse(label.contains("earning", ignoreCase = true))
+        assertEquals("USD", requestCurrencyLabel("USD"))
+        assertEquals("ZiG", requestCurrencyLabel("ZWG"))
+        assertEquals("USD 2.00", requestAmountLabel("USD", "2.00"))
+        assertEquals("ZiG 7.50", requestAmountLabel("zwg", "7.50"))
+        assertEquals("Decline", DECLINE_REQUEST)
     }
 
     @Test

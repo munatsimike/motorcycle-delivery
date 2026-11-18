@@ -368,6 +368,12 @@ data class BidSubmissionRequest(
 )
 
 @Serializable
+data class DeclinedRequestResponse(
+    val deliveryId: String,
+    val declined: Boolean,
+)
+
+@Serializable
 data class SubmittedBidResponse(
     val id: String,
     val deliveryId: String,

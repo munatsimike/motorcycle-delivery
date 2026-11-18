@@ -33,6 +33,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -101,12 +102,14 @@ import com.riders.rider.feature.offers.domain.canAcceptOffer
 import com.riders.rider.feature.offers.domain.offerExpiryLabel
 import com.riders.rider.feature.offers.domain.offerIsExpired
 import com.riders.rider.feature.offers.domain.offerDistanceLabel
+import com.riders.rider.feature.offers.domain.DECLINE_REQUEST
 import com.riders.rider.feature.offers.domain.OFFER_YOUR_PRICE
 import com.riders.rider.feature.offers.domain.acceptOfferLabel
 import com.riders.rider.feature.bids.domain.resolvedSubmittedAmount
 import com.riders.rider.feature.offers.domain.offerSentConfirmation
 import com.riders.rider.feature.offers.domain.senderChoosesRider
-import com.riders.rider.feature.offers.domain.offerPriceLabel
+import com.riders.rider.feature.offers.domain.requestAmountLabel
+import com.riders.rider.feature.offers.domain.requestCurrencyLabel
 import com.riders.rider.feature.delivery.domain.DeliveryListSort
 import com.riders.rider.feature.delivery.domain.sortDeliveries
 import com.riders.rider.feature.offers.domain.offerStopLine
@@ -180,6 +183,8 @@ fun OffersScreen(
                 onAccept = { respondToOffer(model, it) },
                 onBid = model::openBid,
                 onSubmitBid = { offer, amount -> model.submitBid(offer.deliveryId, amount, offer.currency) },
+                onDecline = { offer -> model.decline(offer.deliveryId) },
+                declining = ui.declining,
                 onInterest = model::expressInterest,
                 onRetry = model::pullRefresh,
                 contentKind = contentKind,
@@ -203,6 +208,8 @@ fun OffersScreen(
                 error = ui.bidError ?: ui.error,
                 onAccept = { respondToOffer(model, selected) },
                 onBid = { amount -> model.submitBid(selected.deliveryId, amount, selected.currency) },
+                onDecline = { model.decline(selected.deliveryId) },
+                declining = ui.declining,
                 placingBid = placingBid,
                 onCloseBid = model::closeBid,
                 onViewDelivery = onAccepted,
@@ -219,6 +226,8 @@ private fun OfferList(
     onAccept: (OfferResponse) -> Unit,
     onBid: (OfferResponse) -> Unit,
     onSubmitBid: (OfferResponse, String) -> Unit,
+    onDecline: (OfferResponse) -> Unit,
+    declining: Boolean,
     onInterest: (OfferResponse) -> Unit,
     onRetry: () -> Unit,
     contentKind: String? = null,
@@ -265,6 +274,8 @@ private fun OfferList(
                 onAccept = { onAccept(offer) },
                 onBid = { onBid(offer) },
                 onSubmitBid = { amount -> onSubmitBid(offer, amount) },
+                onDecline = { onDecline(offer) },
+                declining = declining,
                 onInterest = { onInterest(offer) },
                 fresh = true,
             )
@@ -295,6 +306,8 @@ private fun OfferDetail(
     error: String?,
     onAccept: () -> Unit,
     onBid: (String) -> Unit,
+    onDecline: () -> Unit,
+    declining: Boolean,
     placingBid: Boolean,
     onCloseBid: () -> Unit,
     onViewDelivery: (String) -> Unit,
@@ -326,6 +339,8 @@ private fun OfferDetail(
                 canAct = canAct && !accepting,
                 error = error,
                 onSend = onBid,
+                onDecline = onDecline,
+                declining = declining,
                 onRetry = onRetry,
                 onBack = onCloseBid,
             )
@@ -339,6 +354,8 @@ private fun OfferDetail(
                 error = error,
                 onAccept = onAccept,
                 onSubmitBid = onBid,
+                onDecline = onDecline,
+                declining = declining,
                 onViewDelivery = onViewDelivery,
                 onRetry = onRetry,
             )
@@ -356,6 +373,8 @@ private fun OfferActions(
     error: String?,
     onAccept: () -> Unit,
     onSubmitBid: (String) -> Unit,
+    onDecline: () -> Unit,
+    declining: Boolean,
     onViewDelivery: (String) -> Unit,
     onRetry: () -> Unit,
 ) {
@@ -368,7 +387,7 @@ private fun OfferActions(
         }
         if (acceptanceConfirmationVisible(confirmed)) {
             RidersConfirmation("Delivery accepted!", Modifier.fillMaxWidth())
-            Text(offerPriceLabel(offer.currency, offer.offeredPrice), style = RidersType.body, color = RidersColors.text)
+            Text(requestAmountLabel(offer.currency, offer.offeredPrice), style = RidersType.body, color = RidersColors.text)
             Text(offer.pickup.address, style = RidersType.body, color = RidersColors.text)
             Text(offer.dropoff.address, style = RidersType.body, color = RidersColors.text)
             RidersPrimaryButton(
@@ -384,6 +403,8 @@ private fun OfferActions(
                 submittingBid = submittingBid,
                 onAccept = onAccept,
                 onSubmitBid = onSubmitBid,
+                onDecline = onDecline,
+                declining = declining,
             )
         }
     }
@@ -397,6 +418,8 @@ private fun IncomingOfferActions(
     submittingBid: Boolean,
     onAccept: () -> Unit,
     onSubmitBid: (String) -> Unit,
+    onDecline: () -> Unit,
+    declining: Boolean,
 ) {
     var offering by remember(offer.deliveryId) { mutableStateOf(false) }
     var amount by remember(offer.deliveryId, offer.offeredPrice) { mutableStateOf(offer.offeredPrice) }
@@ -410,7 +433,7 @@ private fun IncomingOfferActions(
     }
     RidersDialog(visible = offering, onDismiss = { if (!submittingBid) offering = false }) {
         RidersTextField(
-            label = "Your offer ($)",
+            label = "Your offer (${requestCurrencyLabel(offer.currency)})",
             value = amount,
             onValueChange = { amount = it },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
@@ -460,6 +483,20 @@ private fun IncomingOfferActions(
             soft = false,
             compact = true,
         )
+        Text(
+            if (declining) "Declining" else DECLINE_REQUEST,
+            style = RidersType.caption,
+            color = RidersColors.textSecondary,
+            textAlign = TextAlign.Center,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(
+                    enabled = canAct && !declining && !accepting && !submittingBid,
+                    role = Role.Button,
+                    onClick = onDecline,
+                )
+                .padding(vertical = RidersSpacing.xs),
+        )
     }
 }
 
@@ -493,6 +530,8 @@ private fun BidPage(
     canAct: Boolean,
     error: String?,
     onSend: (String) -> Unit,
+    onDecline: () -> Unit,
+    declining: Boolean,
     onRetry: () -> Unit,
     onBack: () -> Unit,
 ) {
@@ -502,7 +541,7 @@ private fun BidPage(
     val suggestions = bidSuggestions(startingBidCents(offer.offeredPrice))
     RidersDialog(visible = confirmSend, onDismiss = { if (!submitting) confirmSend = false }) {
         RidersDialogTitle("Send offer")
-        RidersDialogBody("You are sending an offer of ${offerPriceLabel(offer.currency, amount)} to deliver the ${deliveryKindWord(content.label)}.")
+        RidersDialogBody("You are sending an offer of ${requestAmountLabel(offer.currency, amount)} to deliver the ${deliveryKindWord(content.label)}.")
         RidersDialogActions {
             RidersDialogTextButton(
                 label = "Cancel",
@@ -544,7 +583,7 @@ private fun BidPage(
                     contentAlignment = Alignment.CenterStart,
                 ) {
                     RidersChangingText(
-                        value = offerPriceLabel(offer.currency, amount),
+                        value = requestAmountLabel(offer.currency, amount),
                         style = RidersType.heading,
                         color = RidersColors.text,
                     )
@@ -591,7 +630,7 @@ private fun BidPage(
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            formatBidDollars(choice),
+                            requestAmountLabel(offer.currency, formatBidDollars(choice)),
                             style = RidersType.caption.copy(fontWeight = FontWeight.SemiBold),
                             color = labelColor,
                         )
@@ -599,6 +638,16 @@ private fun BidPage(
                 }
             }
         }
+        Text(
+            if (declining) "Declining" else DECLINE_REQUEST,
+            style = RidersType.caption,
+            color = RidersColors.textSecondary,
+            textAlign = TextAlign.Center,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(enabled = canAct && !declining && !submitting, role = Role.Button, onClick = onDecline)
+                .padding(vertical = RidersSpacing.xs),
+        )
         RidersPrimaryButton(
             label = "Send offer",
             onClick = { confirmSend = true },
@@ -649,7 +698,7 @@ private fun SentOfferCard(offer: OfferResponse, amount: String) {
         ) {
             Text("Your offer", style = RidersType.body, color = RidersColors.textSecondary)
             Text(
-                offerPriceLabel(offer.currency, amount),
+                requestAmountLabel(offer.currency, amount),
                 style = RidersType.bodyStrong,
                 color = RidersColors.text,
             )
@@ -728,8 +777,8 @@ private fun OfferDetailsSheet(visible: Boolean, offer: OfferResponse, amount: St
             }
             HorizontalDivider()
             DetailLine("Distance", offerDistanceLabel(offer.distanceMeters))
-            DetailLine("Customer price", offerPriceLabel(offer.currency, offer.offeredPrice))
-            DetailLine("Your offer", offerPriceLabel(offer.currency, amount))
+            DetailLine("Customer price", requestAmountLabel(offer.currency, offer.offeredPrice))
+            DetailLine("Your offer", requestAmountLabel(offer.currency, amount))
         }
     }
 }
@@ -749,7 +798,7 @@ private fun SentOfferDetails(offer: OfferResponse, amount: String) {
             Text(it, style = RidersType.caption, color = RidersColors.textSecondary)
         }
         DetailLine("Distance", offerDistanceLabel(offer.distanceMeters))
-        DetailLine("Your offer", offerPriceLabel(offer.currency, amount))
+        DetailLine("Your offer", requestAmountLabel(offer.currency, amount))
         DetailLine("Pays", readableOfferValue(offer.payer))
         DetailLine("Method", readableOfferValue(offer.paymentMethod))
     }
@@ -843,6 +892,8 @@ fun OfferRequestCard(
     onAccept: () -> Unit,
     @Suppress("UNUSED_PARAMETER") onBid: () -> Unit,
     onSubmitBid: (String) -> Unit = {},
+    onDecline: () -> Unit = {},
+    declining: Boolean = false,
     @Suppress("UNUSED_PARAMETER") onInterest: () -> Unit = {},
     onOpen: (() -> Unit)? = null,
     fresh: Boolean = false,
@@ -880,6 +931,8 @@ fun OfferRequestCard(
                         awaiting = true
                         onSubmitBid(amount)
                     },
+                    onDecline = onDecline,
+                    declining = declining,
                 )
             }
         }
@@ -937,7 +990,7 @@ private fun OfferSummary(offer: OfferResponse, nowMillis: Long, detailed: Boolea
             verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs),
         ) {
             Text("Customer offers", style = RidersType.caption, color = RidersColors.textSecondary)
-            Text(offerPriceLabel(offer.currency, offer.offeredPrice), style = RidersType.heading, color = RidersColors.text)
+            Text(requestAmountLabel(offer.currency, offer.offeredPrice), style = RidersType.heading, color = RidersColors.text)
         }
     }
 }

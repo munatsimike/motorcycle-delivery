@@ -257,6 +257,8 @@ fun HomeScreen(
         onSubmitBid = { offer, amount ->
             offersModel.submitBid(offer.deliveryId, amount, offer.currency)
         },
+        onDeclineOffer = { offer -> offersModel.decline(offer.deliveryId) },
+        offerDeclining = offersUi.declining,
         onInterestOffer = offersModel::expressInterest,
         onOpenRequest = { offer -> overlay = overlay.open(offer.deliveryId) },
         offerAccepting = offersUi.accepting,
@@ -303,6 +305,8 @@ fun HomeScreen(
             },
             onBid = { offersModel.openBid(shownRequest) },
             onSubmitBid = { amount -> offersModel.submitBid(shownRequest.deliveryId, amount, shownRequest.currency) },
+            onDecline = { offersModel.decline(shownRequest.deliveryId) },
+            declining = offersUi.declining,
             onInterest = { offersModel.expressInterest(shownRequest) },
             onClose = { overlay = overlay.dismiss() },
         )
@@ -363,6 +367,8 @@ fun HomeDashboard(
     onAcceptOffer: (OfferResponse) -> Unit = {},
     onBidOffer: (OfferResponse) -> Unit = {},
     onSubmitBid: (OfferResponse, String) -> Unit = { _, _ -> },
+    onDeclineOffer: (OfferResponse) -> Unit = {},
+    offerDeclining: Boolean = false,
     onInterestOffer: (OfferResponse) -> Unit = {},
     onOpenRequest: (OfferResponse) -> Unit = {},
     offerAccepting: Boolean = false,
@@ -528,6 +534,8 @@ fun HomeDashboard(
                             onAcceptOffer,
                             onBidOffer,
                             onSubmitBid,
+                            onDeclineOffer,
+                            offerDeclining,
                             onInterestOffer,
                             onOpenRequest,
                             offerAccepting,
@@ -958,6 +966,8 @@ private fun RequestsSection(
     onAcceptOffer: (OfferResponse) -> Unit,
     onBidOffer: (OfferResponse) -> Unit,
     onSubmitBid: (OfferResponse, String) -> Unit,
+    onDeclineOffer: (OfferResponse) -> Unit,
+    offerDeclining: Boolean,
     onInterestOffer: (OfferResponse) -> Unit,
     onOpenRequest: (OfferResponse) -> Unit,
     offerAccepting: Boolean,
@@ -1020,6 +1030,8 @@ private fun RequestsSection(
                     onAccept = { onAcceptOffer(offer) },
                     onBid = { onBidOffer(offer) },
                     onSubmitBid = { amount -> onSubmitBid(offer, amount) },
+                    onDecline = { onDeclineOffer(offer) },
+                    declining = offerDeclining,
                     onInterest = { onInterestOffer(offer) },
                     onOpen = { onOpenRequest(offer) },
                 )

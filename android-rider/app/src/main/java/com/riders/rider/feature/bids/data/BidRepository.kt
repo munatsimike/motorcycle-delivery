@@ -108,6 +108,13 @@ class BidRepository @Inject constructor(
         }
     }
 
+    suspend fun decline(deliveryId: String): ApiResult<Unit> {
+        return when (val result = apiCall { riders.declineRequest(deliveryId) }) {
+            is ApiResult.Ok -> ApiResult.Ok(Unit)
+            is ApiResult.Err -> result
+        }
+    }
+
     suspend fun withdraw(bidId: String): ApiResult<Unit> {
         return when (val result = apiCall { riders.withdrawBid(bidId) }) {
             is ApiResult.Ok -> ApiResult.Ok(Unit)
