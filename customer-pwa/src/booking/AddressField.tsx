@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { AddressSearchField } from './AddressSearchField';
+import { AddressDetailIcon } from './AddressDetailIcon';
+import { AddressSearchField, AddressSearchToggle } from './AddressSearchField';
 import { filterSavedAddresses, savedAddressLabel, skipsPlacesLookup, type SavedAddress } from './savedAddress';
 import { ErrorMessage } from '../components/ErrorMessage';
 import { deliveryErrorMessage } from '../deliveries/api';
@@ -39,6 +40,7 @@ export function AddressField({
 }) {
   const [savedOpen, setSavedOpen] = useState(false);
   const [savedSearch, setSavedSearch] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
   const matchingSavedAddresses = filterSavedAddresses(savedAddresses, savedSearch);
 
   useEffect(() => {
@@ -169,20 +171,19 @@ export function AddressField({
               <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M20 12H4m0 0 7-7m-7 7 7 7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
             </button>
             <h2 id="book-address-selection-title">Address Book</h2>
+            {savedAddresses.length > 0 ? <AddressSearchToggle labeled={false} expanded={searchOpen} onToggle={() => { setSearchOpen((open) => !open); setSavedSearch(''); }} /> : null}
           </header>
           <div className="book-address-selection-list">
-            {savedAddresses.length > 0 ? (
-              <AddressSearchField value={savedSearch} onChange={setSavedSearch} />
-            ) : null}
+            {searchOpen && savedAddresses.length > 0 ? <AddressSearchField value={savedSearch} onChange={setSavedSearch} /> : null}
             {savedAddresses.length > 0 && matchingSavedAddresses.length === 0 ? <p className="address-search-empty">No matching addresses.</p> : null}
             {matchingSavedAddresses.length ? matchingSavedAddresses.map((entry) => (
               <button key={entry.id} className="book-address-selection-card" type="button" onClick={() => { onSelectSaved?.(entry); setSavedOpen(false); }}>
                 <span className="address-card-heading">
-                  <strong>{entry.contactName}</strong>
+                  <strong><AddressDetailIcon kind="name" />{entry.contactName}</strong>
                   <span className={`address-type-badge ${entry.label === 'WORK' ? 'is-work' : 'is-home'}`}>{savedAddressLabel(entry)}</span>
                 </span>
-                <span className="address-card-location">{entry.address}</span>
-                <span className="address-card-phone">{entry.contactPhone}</span>
+                <span className="address-card-location"><AddressDetailIcon kind="address" />{entry.address}</span>
+                <span className="address-card-phone"><AddressDetailIcon kind="phone" />{entry.contactPhone}</span>
               </button>
             )) : savedAddresses.length === 0 ? <div className="book-address-selection-empty"><strong>No saved addresses yet</strong><p>Add an address from More → Address Book, then select it here.</p></div> : null}
           </div>

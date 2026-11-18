@@ -1,7 +1,24 @@
+import { useEffect, useRef } from 'react';
+
+export function AddressSearchToggle({ labeled = true, expanded, onToggle }: { labeled?: boolean; expanded: boolean; onToggle: () => void }) {
+  return (
+    <button type="button" className={labeled ? 'address-search-toggle' : 'address-search-toggle is-icon'} aria-expanded={expanded} aria-label="Search saved addresses" onClick={onToggle}>
+      <SearchGlyph />
+      {labeled ? <span>Search</span> : null}
+    </button>
+  );
+}
+
 export function AddressSearchField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
   return (
     <label className="address-search-field">
+      <SearchGlyph />
       <input
+        ref={inputRef}
         type="search"
         value={value}
         onChange={(event) => onChange(event.target.value)}
@@ -16,5 +33,14 @@ export function AddressSearchField({ value, onChange }: { value: string; onChang
         </button>
       ) : null}
     </label>
+  );
+}
+
+function SearchGlyph() {
+  return (
+    <svg className="address-search-glyph" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+      <circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <path d="m16 16 4 4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
   );
 }

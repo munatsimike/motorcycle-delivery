@@ -4254,10 +4254,33 @@ html.is-page-transition .page-stage {
 .book-address-selection-header { position: relative; justify-content: center; border-bottom: 0; }
 .book-address-selection-header h2 { text-align: center; }
 .book-address-selection-back { position: absolute; left: 20px; top: 50%; transform: translateY(-50%); }
-.address-search-field { position: relative; display: block; width: 100%; }
-.address-search-field input { box-sizing: border-box; width: 100%; min-height: 46px; padding: 10px 42px 10px 14px; border: 1px solid var(--border); border-radius: 14px; background: var(--background); color: var(--text); font: inherit; }
+.address-book-page .book-header { grid-template-columns: 44px minmax(0, 1fr) auto; }
+.address-book-page .book-header h1 { min-width: 0; }
+.address-book-page .book-header .address-add { justify-self: end; min-height: 36px; padding: 0 14px; white-space: nowrap; }
+.address-book-toolbar { display: flex; padding: 0 max(24px, env(safe-area-inset-right)) 8px max(24px, env(safe-area-inset-left)); }
+.address-book-toolbar .address-search-field { flex: 1; }
+.address-search-toggle { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 14px; border: 1px solid var(--border); border-radius: 999px; background: var(--background); color: var(--text); font: inherit; font-weight: 600; cursor: pointer; }
+.address-search-toggle.is-icon { width: 40px; justify-content: center; padding: 0; border-radius: 50%; }
+.book-address-selection-header .address-search-toggle.is-icon { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); }
+.address-search-glyph { flex: none; color: var(--text-secondary); }
+.address-search-field { position: relative; display: flex; align-items: center; gap: 8px; width: 100%; min-height: 46px; padding: 0 42px 0 12px; border: 1px solid var(--border); border-radius: 14px; background: var(--background); }
+.address-search-field input { box-sizing: border-box; width: 100%; min-height: 44px; padding: 0; border: 0; background: transparent; color: var(--text); font: inherit; }
 .address-search-field input::-webkit-search-cancel-button { appearance: none; }
-.address-search-field input:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.address-search-field input:focus-visible, .address-search-toggle:focus-visible, .address-search-clear:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .address-search-clear { position: absolute; top: 50%; right: 6px; transform: translateY(-50%); display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--text-secondary); cursor: pointer; }
-.address-search-clear:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
-.address-search-empty { text-align: center; color: var(--text-secondary); padding: 16px 0; }
+.address-search-empty { margin: 0; text-align: center; color: var(--text-secondary); padding: 8px 0; }
+.address-book-page .address-card,
+.book-address-selection-card { padding: 10px 14px; gap: 2px; }
+.address-book-page .address-card div.address-card-heading,
+.book-address-selection-card .address-card-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0; }
+.address-book-page .address-card .address-card-heading h2,
+.address-book-page .address-card .address-card-location,
+.address-book-page .address-card .address-card-phone,
+.book-address-selection-card .address-card-heading strong,
+.book-address-selection-card .address-card-location,
+.book-address-selection-card .address-card-phone { display: flex; align-items: flex-start; gap: 8px; margin: 0; text-align: left; line-height: 1.3; }
+.address-detail-icon { flex: none; width: 16px; height: 16px; margin-top: 1px; color: var(--text-secondary); }
+.address-book-page .address-card div.address-card-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0; }
+.address-book-page .address-card .address-card-footer .address-card-phone { flex: 1 1 auto; min-width: 0; }
+.address-book-page .address-card .address-card-actions { margin: 0; gap: 0; }
+.book-address-selection-list { gap: 8px; padding-top: 12px; }
