@@ -1,4 +1,4 @@
-import motorcycle from '../assets/rider-cutout-visible.png';
+import motorcycle from '../assets/rider-cutout-visible.webp';
 import { BrandLogo } from '../components/BrandLogo';
 import { Button } from '../components/Button';
 

@@ -45,7 +45,7 @@ export function DeliveriesPage() {
   const shownSheet = sheet ?? sheetSnapshot.current;
   const sheetMotion = usePresence(sheet !== null, 220);
   const active = useDeliveries(ACTIVE_LIST_STATUSES);
-  const history = useDeliveries(HISTORY_LIST_STATUSES);
+  const history = useDeliveries(HISTORY_LIST_STATUSES, { enabled: group === 'history' });
   const selected = group === 'active' ? active : history;
   const visible = contentKind
     ? selected.deliveries.filter((delivery) => deliveryContentKind(delivery.parcelDescription) === contentKind)

@@ -72,6 +72,9 @@ export function TrackingMap({
   const pulseCircles = useRef<Circle[]>([]);
   const pulseTimer = useRef<number | null>(null);
   const pulseStarted = useRef(0);
+  const pulseElapsed = useRef(0);
+  const pausePulseRef = useRef<() => void>(() => undefined);
+  const syncPulseRef = useRef<() => void>(() => undefined);
   const pickupMarker = useRef<Marker | null>(null);
   const labelMarker = useRef<Marker | null>(null);
   const deliveredMarker = useRef<Marker | null>(null);
@@ -136,8 +139,14 @@ export function TrackingMap({
       listeners.push({ remove: () => resize.disconnect() });
       drawRef.current();
     }).catch(() => undefined);
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') pausePulseRef.current();
+      else syncPulseRef.current();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
     return () => {
       cancelled = true;
+      document.removeEventListener('visibilitychange', onVisibility);
       for (const listener of listeners) listener.remove();
       riderMarkerRef.current?.setMap(null);
       labelMarker.current?.setMap(null);
@@ -333,11 +342,19 @@ export function TrackingMap({
     syncSearchPulse();
   }
 
+  function pauseSearchPulse() {
+    if (pulseTimer.current === null) return;
+    window.clearInterval(pulseTimer.current);
+    pulseTimer.current = null;
+    pulseElapsed.current = performance.now() - pulseStarted.current;
+  }
+
   function stopSearchPulse() {
     if (pulseTimer.current !== null) {
       window.clearInterval(pulseTimer.current);
       pulseTimer.current = null;
     }
+    pulseElapsed.current = 0;
     for (const circle of pulseCircles.current) circle.setMap(null);
     pulseCircles.current = [];
   }
@@ -350,8 +367,11 @@ export function TrackingMap({
       stopSearchPulse();
       return;
     }
-    if (pulseTimer.current !== null) return;
-    pulseStarted.current = performance.now();
+    if (document.visibilityState === 'hidden') {
+      pauseSearchPulse();
+      return;
+    }
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const tick = () => {
       const liveMap = mapRef.current;
       const latest = props.current;
@@ -359,7 +379,6 @@ export function TrackingMap({
         stopSearchPulse();
         return;
       }
-      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
       const progress = reduceMotion ? 0 : ((performance.now() - pulseStarted.current) % SEARCH_PULSE_MS) / SEARCH_PULSE_MS;
       const rings = searchPulseRings(progress, reduceMotion);
       while (pulseCircles.current.length < rings.length) {
@@ -388,9 +407,18 @@ export function TrackingMap({
         });
       });
     };
+    if (reduceMotion) {
+      pauseSearchPulse();
+      tick();
+      return;
+    }
+    if (pulseTimer.current !== null) return;
+    pulseStarted.current = performance.now() - pulseElapsed.current;
     tick();
     pulseTimer.current = window.setInterval(tick, SEARCH_PULSE_FRAME_MS);
   }
+  pausePulseRef.current = pauseSearchPulse;
+  syncPulseRef.current = syncSearchPulse;
 
   function drawPin(maps: Maps, map: GoogleMap, slot: { current: Marker | null }, point: RoutePoint | null, title: string, color: string) {
     if (!point) {

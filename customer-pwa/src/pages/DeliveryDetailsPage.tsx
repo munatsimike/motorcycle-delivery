@@ -357,28 +357,41 @@ export function DeliveryDetailsPage() {
     };
   }, [accessToken, attempt, id]);
 
+  const nearbyPickup = delivery && showsRiderOffers(delivery) && delivery.pickupLatitude !== null && delivery.pickupLongitude !== null
+    ? `${delivery.pickupLatitude},${delivery.pickupLongitude}`
+    : null;
   useEffect(() => {
-    if (!delivery || !showsRiderOffers(delivery) || delivery.pickupLatitude === null || delivery.pickupLongitude === null) return undefined;
-    const latitude = delivery.pickupLatitude;
-    const longitude = delivery.pickupLongitude;
+    if (!nearbyPickup) return undefined;
+    const [latitude, longitude] = nearbyPickup.split(',').map(Number);
     let stopped = false;
+    let pending = false;
+    const hidden = () => document.visibilityState === 'hidden';
     async function loadNearby() {
-      const token = await accessToken();
-      if (!token || stopped) return;
+      if (stopped || pending || hidden()) return;
+      pending = true;
       try {
+        const token = await accessToken();
+        if (!token || stopped || hidden()) return;
         const result = await fetchNearbyRiders(token, latitude, longitude);
         if (!stopped) setNearby(result.points);
       } catch {
         if (!stopped) setNearby([]);
+      } finally {
+        pending = false;
       }
     }
     void loadNearby();
     const timer = window.setInterval(() => { void loadNearby(); }, 20_000);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void loadNearby();
+    };
+    document.addEventListener('visibilitychange', onVisible);
     return () => {
       stopped = true;
       window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [accessToken, delivery]);
+  }, [accessToken, nearbyPickup]);
 
   useEffect(() => {
     if (nearby.length === 0) return undefined;

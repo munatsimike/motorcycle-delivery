@@ -8,7 +8,7 @@ export default defineConfig({
     VitePWA({
       registerType: 'prompt',
       injectRegister: false,
-      includeAssets: ['favicon.png', 'icon.png'],
+      includeAssets: ['favicon.png'],
       manifest: {
         name: 'Riders Delivery',
         short_name: 'Riders',
@@ -45,6 +45,7 @@ export default defineConfig({
       filename: 'sw.ts',
       injectManifest: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,webp,woff,woff2}'],
+        globIgnores: ['**/node_modules/**/*', 'sw.js', 'workbox-*.js', '**/icon.png'],
       },
       devOptions: {
         enabled: false,

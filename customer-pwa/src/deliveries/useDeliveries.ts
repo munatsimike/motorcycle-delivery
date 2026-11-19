@@ -13,7 +13,9 @@ import {
 
 const CACHE_KEY = 'riders.customer.deliveries.active';
 
-export function useDeliveries(statuses: readonly DeliveryStatus[]) {
+export function useDeliveries(statuses: readonly DeliveryStatus[], options?: { enabled?: boolean }) {
+  const enabled = options?.enabled ?? true;
+  const loadOnce = options !== undefined;
   const { accessToken } = useSession();
   const [deliveries, setDeliveries] = useState<CustomerDelivery[]>([]);
   const [page, setPage] = useState(0);
@@ -24,6 +26,7 @@ export function useDeliveries(statuses: readonly DeliveryStatus[]) {
   const [error, setError] = useState<string | null>(null);
   const [offlineNote, setOfflineNote] = useState<string | null>(null);
   const request = useRef(0);
+  const fetchedKey = useRef<string | null>(null);
   const statusKey = statuses.join(',');
   const caches = sameStatuses(statuses, ACTIVE_LIST_STATUSES);
 
@@ -97,16 +100,21 @@ export function useDeliveries(statuses: readonly DeliveryStatus[]) {
   }, [accessToken, caches, statusKey]);
 
   useEffect(() => {
-    load(1);
+    if (!enabled) return undefined;
+    const seen = loadOnce && fetchedKey.current === statusKey;
+    if (!seen) {
+      if (loadOnce) fetchedKey.current = statusKey;
+      load(1);
+    }
     const onVisible = () => {
       if (document.visibilityState === 'visible') load(1);
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => {
-      request.current += 1;
       document.removeEventListener('visibilitychange', onVisible);
+      if (!loadOnce || seen) request.current += 1;
     };
-  }, [load]);
+  }, [enabled, load, loadOnce, statusKey]);
 
   const hasMore = page > 0 && page < totalPages;
   return {
