@@ -52,7 +52,7 @@ export function TrackingMap({
   headingToDropoff: boolean;
   line: RoutePoint[];
   summary: string | null;
-  extraMarkers?: Array<RoutePoint & { title: string }>;
+  extraMarkers?: Array<RoutePoint & { title: string; id?: string }>;
   pickup?: RoutePoint | null;
   interactive?: boolean;
   stroke?: string;
@@ -78,7 +78,7 @@ export function TrackingMap({
   const heldOffers = useRef<{ width: number; height: number; frame: OffersMapFrame } | null>(null);
   const props = useRef({ deliveryId, live, rider, stop, headingToDropoff, line, summary, extraMarkers, pickup, interactive, stroke, deliveredCallout, neighborhood, pickupLabel });
   props.current = { deliveryId, live, rider, stop, headingToDropoff, line, summary, extraMarkers, pickup, interactive, stroke, deliveredCallout, neighborhood, pickupLabel };
-  const markerKey = extraMarkers.map((point) => `${point.latitude.toFixed(5)}:${point.longitude.toFixed(5)}`).join('|');
+  const markerKey = extraMarkers.map((point) => `${point.id ?? ''}:${point.latitude.toFixed(5)}:${point.longitude.toFixed(5)}`).join('|');
   const routeKey = line.length > 1 ? `${line.length}:${line[0].latitude.toFixed(4)}:${line[line.length - 1].latitude.toFixed(4)}` : '';
   const stopKey = stop ? `${stop.latitude.toFixed(5)}:${stop.longitude.toFixed(5)}` : '';
   const stopKeyRef = useRef(stopKey);
@@ -156,7 +156,10 @@ export function TrackingMap({
     const decision = trackingCameraShouldMove(destinationChanged, gestured.current);
     stopKeyRef.current = stopKey;
     gestured.current = decision.gestured;
-    if (!decision.move) return;
+    if (!decision.move) {
+      drawRef.current();
+      return;
+    }
     const map = mapRef.current;
     if (!map) return;
     if (props.current.neighborhood && props.current.stop && heldOffers.current) {

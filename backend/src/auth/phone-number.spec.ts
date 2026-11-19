@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { InvalidPersonNameError, normalizePersonName } from './person-name.js';
+import { hasGivenNameAndSurname, InvalidPersonNameError, normalizePersonName } from './person-name.js';
 import { InvalidPhoneNumberError, normalizeAuthPhone, normalizeZimbabweMobile } from './phone-number.js';
 
 describe('Zimbabwe mobile numbers', () => {
@@ -95,5 +95,12 @@ describe('person names', () => {
 
   it('rejects an empty name', () => {
     expect(() => normalizePersonName('   ')).toThrow(InvalidPersonNameError);
+  });
+
+  it('accepts a surname, extra spaces, and punctuation without requiring exactly two words', () => {
+    expect(hasGivenNameAndSurname('Tariro')).toBe(false);
+    expect(hasGivenNameAndSurname(normalizePersonName('  mary   ann   smith '))).toBe(true);
+    expect(hasGivenNameAndSurname("Mary-Ann O'Connor")).toBe(true);
+    expect(hasGivenNameAndSurname('Jo Lee')).toBe(true);
   });
 });

@@ -112,7 +112,6 @@ export class CustomerSavedAddressService {
             next = { ...toInput(match), isDefaultPickup: true };
           }
         }
-        await this.assertLabelAvailable(tx, customerAccountId, addressId, next.label);
         if (next.isDefaultPickup) {
           await tx.customerSavedAddress.updateMany({
             where: {
@@ -176,26 +175,6 @@ export class CustomerSavedAddressService {
     return rows.find((row) => sameStop(row, input)) ?? null;
   }
 
-  private async assertLabelAvailable(
-    tx: Prisma.TransactionClient,
-    customerAccountId: string,
-    id: string | null,
-    label: CustomerSavedAddressLabel,
-  ): Promise<void> {
-    if (label === CustomerSavedAddressLabel.CUSTOM) return;
-    const existing = await tx.customerSavedAddress.findFirst({
-      where: {
-        customerAccountId,
-        label,
-        ...(id ? { NOT: { id } } : {}),
-      },
-    });
-    if (existing) {
-      throw new ConflictException(label === CustomerSavedAddressLabel.HOME
-        ? 'You already have a Home address'
-        : 'You already have a Work address');
-    }
-  }
 }
 
 function sameStop(row: AddressRow, input: SavedAddressInput): boolean {

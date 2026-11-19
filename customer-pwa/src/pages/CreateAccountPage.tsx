@@ -3,10 +3,10 @@ import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { completeWhatsAppRegistration } from '../auth/api';
 import { ApiError } from '../api/client';
 import {
-  collapseRegistrationName,
   registrationDetailsIssue,
   registrationNameFieldError,
 } from '../auth/name';
+import { formatManualAddress, formatPersonName } from '../text/format';
 import { clearRegistrationProof, readRegistrationProof, saveRegistrationProof, verifiedRegistrationPhone } from '../auth/proof';
 import { readReturnPath, safeReturnPath } from '../auth/returnPath';
 import { useSession } from '../auth/sessionContext';
@@ -59,13 +59,15 @@ function RegistrationDetails() {
     if (isLoading || !proof) {
       return;
     }
-    const issue = registrationDetailsIssue(fullName, address);
+    const name = formatPersonName(fullName);
+    const place = formatManualAddress(address);
+    setFullName(name);
+    setAddress(place);
+    const issue = registrationDetailsIssue(name, place);
     if (issue) {
       setError(issue);
       return;
     }
-    const name = collapseRegistrationName(fullName);
-    const place = address.trim().replace(/\s+/g, ' ');
     saveRegistrationProof({ ...proof, fullName: name, address: place });
     setIsLoading(true);
     setError(null);
@@ -107,6 +109,7 @@ function RegistrationDetails() {
             autoComplete="name"
             value={fullName}
             onChange={(event) => setFullName(event.target.value)}
+            onBlur={() => setFullName((current) => formatPersonName(current))}
             disabled={isLoading}
             required
           />
@@ -117,6 +120,7 @@ function RegistrationDetails() {
               id="create-address"
               value={address}
               onChange={(event) => setAddress(event.target.value)}
+              onBlur={() => setAddress((current) => formatManualAddress(current))}
               disabled={isLoading}
               required
               rows={3}

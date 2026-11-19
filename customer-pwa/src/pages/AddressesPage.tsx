@@ -168,13 +168,13 @@ export function AddressesPage() {
         </Link>
       ) : null}
       {dialog.mounted && pendingDelete ? (
-        <div className={motionClass('profile-dialog', 'dialog', dialog.visible)} role="dialog" aria-modal="true" aria-labelledby="delete-address-title" onClick={(event) => { if (event.target === event.currentTarget && !deleting) setPendingDelete(null); }}>
-          <div className="profile-dialog-card address-delete-dialog-card">
+        <div className={motionClass('confirm-dialog-backdrop', 'dialog', dialog.visible)} onClick={(event) => { if (event.target === event.currentTarget && !deleting) setPendingDelete(null); }}>
+          <div className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-address-title" aria-describedby="delete-address-copy" onClick={(event) => event.stopPropagation()}>
             <h2 id="delete-address-title">Delete address?</h2>
-            <p>Are you sure you want to remove this address?</p>
-            <div>
-              <button type="button" disabled={deleting} onClick={() => setPendingDelete(null)}>Cancel</button>
-              <button className="address-delete-confirm" type="button" disabled={deleting} onClick={() => { void remove(pendingDelete); }}>{deleting ? <><span className="auth-button-spinner" aria-hidden="true" />Deleting…</> : <>Delete address</>}</button>
+            <p id="delete-address-copy">Are you sure you want to remove this address?</p>
+            <div className="confirm-dialog-actions">
+              <button type="button" className="confirm-keep" disabled={deleting} onClick={() => setPendingDelete(null)}>Cancel</button>
+              <button className="confirm-cancel" type="button" disabled={deleting} onClick={() => { void remove(pendingDelete); }}>{deleting ? <><span className="auth-button-spinner" aria-hidden="true" />Deleting…</> : <>Delete address</>}</button>
             </div>
           </div>
         </div>

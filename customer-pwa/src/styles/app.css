@@ -1293,6 +1293,13 @@ button.home-status:disabled {
   cursor: default;
 }
 
+.confirm-dialog-actions button:has(.auth-button-spinner) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
 .confirm-keep {
   border: 0;
   background: transparent;
@@ -3651,6 +3658,30 @@ html.is-page-transition .page-stage {
   margin-top: var(--space-sm);
 }
 
+.address-editor-page .book-address {
+  position: relative;
+  z-index: 2;
+}
+
+.address-editor-page .address-book .book-suggestions {
+  position: absolute;
+  top: calc(100% + var(--space-sm));
+  left: 0;
+  right: 0;
+  z-index: 8;
+  margin-top: 0;
+  padding: var(--space-xs);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: 0 8px 24px rgba(23, 33, 29, 0.16);
+}
+
+.address-editor-page .book-suggestions button {
+  min-height: 44px;
+  touch-action: manipulation;
+}
+
 .book-saved {
   display: grid;
   gap: var(--space-sm);
@@ -3809,7 +3840,6 @@ html.is-page-transition .page-stage {
 /* Booking address save dialog follows the existing confirmation dialog style. */
 .book-inline-save { display: flex; justify-content: flex-end; }
 .book-inline-save-toggle { font-weight: 600; }
-.book-save-dialog { width: min(100%, 23rem); }
 .book-save-radio-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 20px; }
 .book-save-radio-option { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: var(--body); white-space: nowrap; }
 .book-save-radio-option input { accent-color: var(--primary); width: 17px; height: 17px; margin: 0; }
@@ -4512,11 +4542,3 @@ html.is-page-transition .page-stage {
 /* More/Profile: subtly enlarge values and actions; preserve secondary labels. */
 .profile-screen .profile-settings .profile-row strong { font-size: calc(var(--body) + 1px); line-height: 24px; }
 .profile-screen .profile-logout { font-size: calc(var(--body) + 1px); }
-
-/* Address Book destructive confirmation only. */
-/* Match the 22px corner radius used by other confirmation dialogs. */
-.address-book-page .address-delete-dialog-card { border-radius: 22px; }
-.address-book-page .address-delete-dialog-card > div { align-items: center; gap: 12px; }
-.address-book-page .address-delete-dialog-card > div > button:first-child { padding: 12px 16px; border: 0; background: transparent; color: var(--text); font-weight: 500; }
-.address-book-page .address-delete-dialog-card > div > .address-delete-confirm { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 10px 18px; border: 0; border-radius: 999px; background: #c62828; color: #fff; font-weight: 600; }
-.address-book-page .address-delete-dialog-card > div > .address-delete-confirm:disabled { opacity: .7; }

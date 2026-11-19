@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { clearStoredProfile } from '../account/profileLoad';
 import { setUnauthorizedRecovery } from '../api/client';
 import { SessionContext, type SessionContextValue, type SessionStatus } from './sessionContext';
 import { logoutSession, refreshSession } from './api';
@@ -53,6 +54,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const sessionRef = useRef<AuthSession | null>(null);
 
   const adopt = useCallback((next: AuthSession | null, nextStatus: SessionStatus) => {
+    if (!next) clearStoredProfile();
     sessionRef.current = next;
     setSession(next);
     setStatus(nextStatus);
@@ -143,6 +145,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [adopt]);
 
   const saveSession = useCallback((next: AuthSession) => {
+    clearStoredProfile();
     storeSession(next);
     adopt(next, 'signed-in');
     clearRegistrationProof();

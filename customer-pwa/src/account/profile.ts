@@ -7,6 +7,11 @@ const AVATAR_COLORS = [
   { backgroundColor: '#F3E6D8', color: '#17211D' },
 ] as const;
 
+export function profileAvatarMark(input: { kind: 'INDIVIDUAL' | 'BUSINESS'; name: string | null }): string | null {
+  if (!hasLetter(input.name ?? '')) return null;
+  return customerInitials(input);
+}
+
 export function customerInitials(input: { kind: 'INDIVIDUAL' | 'BUSINESS'; name: string | null }): string {
   const letters = (input.name ?? '').trim().split(/\s+/).map(firstLetter).filter((letter): letter is string => letter !== null);
   if (letters.length === 0) return 'R';
@@ -46,6 +51,13 @@ export function customerPhotoFileIssue(size: number | null | undefined): string 
   if (size === 0) return 'Choose a profile photo';
   if (size != null && size > CUSTOMER_PROFILE_PHOTO_MAX_BYTES) return 'Profile photo is too large';
   return null;
+}
+
+function hasLetter(value: string): boolean {
+  for (const character of value) {
+    if (character.toLowerCase() !== character.toUpperCase()) return true;
+  }
+  return false;
 }
 
 function firstLetter(word: string): string | null {

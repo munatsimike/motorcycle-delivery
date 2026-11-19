@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { CustomerAccountKind } from '../generated/prisma/client.js';
-import { InvalidPersonNameError, normalizePersonName } from '../auth/person-name.js';
+import { hasGivenNameAndSurname, InvalidPersonNameError, normalizePersonName } from '../auth/person-name.js';
 
 export type CustomerProfileInput = {
   kind: CustomerAccountKind;
@@ -18,11 +18,11 @@ export function readCustomerProfile(body: unknown): CustomerProfileInput {
   const kind = readKind(record.accountKind);
   const address = readAddress(record.address);
   if (kind === CustomerAccountKind.BUSINESS) {
-    const contactName = readPerson(record.contactName, 'Enter the contact name');
+    const contactName = readCustomerPerson(record.contactName, 'Enter the contact name');
     const name = readPerson(record.businessName, 'Enter the business name');
     return { kind, name, contactName, address, personName: contactName };
   }
-  const name = readPerson(record.fullName, 'Full name is required');
+  const name = readCustomerPerson(record.fullName, 'Full name is required');
   return { kind, name, contactName: null, address, personName: name };
 }
 
@@ -48,6 +48,14 @@ function readPerson(value: unknown, message: string): string {
     }
     throw error;
   }
+}
+
+function readCustomerPerson(value: unknown, message: string): string {
+  const name = readPerson(value, message);
+  if (!hasGivenNameAndSurname(name)) {
+    throw new BadRequestException('Enter your first name and surname.');
+  }
+  return name;
 }
 
 export function readAddress(value: unknown): string {

@@ -664,8 +664,8 @@ export function BookPage() {
         </div>
       </div>
       {saveDialog.mounted && saveStop ? (
-        <div className={motionClass('confirm-dialog-backdrop book-save-dialog-backdrop', 'dialog', saveDialog.visible)}>
-          <div className="confirm-dialog book-save-dialog" role="dialog" aria-modal="true" aria-labelledby="book-save-dialog-title">
+        <div className={motionClass('confirm-dialog-backdrop book-save-dialog-backdrop', 'dialog', saveDialog.visible)} onClick={() => { if (inlineSaveChoice[saveStop].status === 'saving') return; setInlineSaveOpen(null); setInlineSaveError(null); }}>
+          <div className="confirm-dialog book-save-dialog" role="dialog" aria-modal="true" aria-labelledby="book-save-dialog-title" onClick={(event) => event.stopPropagation()}>
             <h2 id="book-save-dialog-title">Save address</h2>
             <p>Choose a label for this address.</p>
             <div className="book-save-radio-row" role="radiogroup" aria-label="Address label">

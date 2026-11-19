@@ -245,8 +245,14 @@ export class V2OutboxSender {
       if (!feeRequired) {
         return eligible.map((device) => ({ id: device.id, fcmToken: device.fcmToken }));
       }
-      const open = await riderIdsWithFeeCapacity(this.prisma, eligible.map((device) => device.riderProfileId), currency);
-      return eligible.filter((device) => open.has(device.riderProfileId)).map((device) => ({ id: device.id, fcmToken: device.fcmToken }));
+      const ids = eligible.map((device) => device.riderProfileId);
+      const usdOpen = await riderIdsWithFeeCapacity(this.prisma, ids, Currency.USD);
+      const zigOpen = riderZwgOffersEnabled()
+        ? await riderIdsWithFeeCapacity(this.prisma, ids, Currency.ZWG)
+        : new Set<string>();
+      return eligible
+        .filter((device) => usdOpen.has(device.riderProfileId) || zigOpen.has(device.riderProfileId))
+        .map((device) => ({ id: device.id, fcmToken: device.fcmToken }));
     }
     if (row.eventType === 'BID_ACCEPTED' || row.eventType === 'ACCOUNT_APPROVED' || row.eventType === 'CUSTOMER_CANCELLED') {
       if (!row.riderProfileId) {

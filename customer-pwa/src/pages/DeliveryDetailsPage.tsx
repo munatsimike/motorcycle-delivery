@@ -720,7 +720,7 @@ export function DeliveryDetailsPage() {
           summary={null}
           extraMarkers={[
             ...orderedOffers.flatMap((bid) => bid.mapPoint ? [{ ...bid.mapPoint, title: bid.riderName }] : []),
-            ...nearby.map((point) => ({ latitude: point.latitude, longitude: point.longitude, title: 'Available rider' })),
+            ...nearby.map((point) => ({ id: point.id, latitude: point.latitude, longitude: point.longitude, title: 'Available rider' })),
           ]}
           neighborhood
           interactive={false}
@@ -960,13 +960,15 @@ export function DeliveryDetailsPage() {
         </div>
       ) : null}
       {confirmMotion.mounted && shownConfirm === 'delete' ? (
-        <div className={motionClass('deliveries-sheet-backdrop', 'dialog', confirmMotion.visible)} onClick={() => { if (busy) return; setConfirmError(null); setConfirm(null); }}>
-          <div className="deliveries-sheet" role="dialog" aria-label="Confirm" onClick={(event) => event.stopPropagation()}>
-            <h2>Delete this delivery?</h2>
-            <p>This cannot be undone.</p>
+        <div className={motionClass('confirm-dialog-backdrop', 'dialog', confirmMotion.visible)} onClick={() => { if (busy) return; setConfirmError(null); setConfirm(null); }}>
+          <div className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-delivery-title" aria-describedby="delete-delivery-copy" onClick={(event) => event.stopPropagation()}>
+            <h2 id="delete-delivery-title">Delete this delivery?</h2>
+            <p id="delete-delivery-copy">This cannot be undone.</p>
             {confirmError ? <ErrorMessage>{confirmError}</ErrorMessage> : null}
-            <button type="button" disabled={busy} onClick={() => { if (busy) return; setConfirmError(null); setConfirm(null); }}>Cancel</button>
-            <button type="button" disabled={busy} onClick={() => void deleteRequest()}>{busy ? 'Confirming' : 'Delete'}</button>
+            <div className="confirm-dialog-actions">
+              <button type="button" className="confirm-keep" disabled={busy} onClick={() => { if (busy) return; setConfirmError(null); setConfirm(null); }}>Cancel</button>
+              <button type="button" className="confirm-cancel" disabled={busy} onClick={() => void deleteRequest()}>{busy ? 'Confirming' : 'Delete'}</button>
+            </div>
           </div>
         </div>
       ) : null}
@@ -1146,7 +1148,6 @@ function DeliveredSummary({ delivery }: { delivery: CustomerDeliveryDetail }) {
           </span>
         </p>
       ) : null}
-      <div className="facts-divider" />
       <div className="delivery-facts delivery-price">
         <p><span>Distance</span><strong>{deliveryDistanceLabel(delivery.distanceMeters)}</strong></p>
         <p><span>Price</span><strong>{amount ? moneyLabel(delivery.currency, amount) : 'Unavailable'}</strong></p>
@@ -1189,7 +1190,6 @@ function DeliveryFacts({
       {when ? <p className="facts-date"><CalendarMark />{when}</p> : null}
       <p className="delivery-stop"><PinMark dropoff={false} /><span>{showContacts && delivery.senderName ? `${delivery.senderName}, ` : ''}{deliveryCardAddress(delivery.pickupAddress)}</span></p>
       <p className="delivery-stop"><PinMark dropoff /><span>{showContacts && delivery.recipientName ? `${delivery.recipientName}, ` : ''}{deliveryCardAddress(delivery.dropoffAddress)}</span></p>
-      {!showContacts ? <div className="facts-divider" /> : null}
       <div className="delivery-facts">
         <p><span>Distance</span><strong>{deliveryDistanceLabel(delivery.distanceMeters)}</strong></p>
         <p className="facts-price">

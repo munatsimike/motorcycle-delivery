@@ -196,7 +196,8 @@ describe('rider availability alerts', () => {
     expect(db.calls[0]?.sql).toContain('ST_DWithin');
     expect(db.calls[0]?.sql).toContain('updated_at');
     expect(db.calls[0]?.sql).toContain(`'AVAILABLE'`);
-    expect(db.calls[0]?.sql).toContain(`'ACCEPTED'`);
+    expect(db.calls[0]?.sql).toContain('receiving_requests" IS TRUE');
+    expect(db.calls[0]?.sql).not.toContain(`'ACCEPTED'`);
     expect(db.calls[0]?.values).toContainEqual(new Date(NOW.getTime() - GPS_FRESH_MS));
   });
 

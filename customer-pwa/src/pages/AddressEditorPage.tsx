@@ -15,6 +15,7 @@ import { Loading } from '../components/Loading';
 import { ZimbabwePhoneField } from '../components/ZimbabwePhoneField';
 import { deliveryErrorMessage } from '../deliveries/api';
 import { beginPageTransition } from '../motion/pageTransition';
+import { addressTextForSave, formatPersonName, hasGivenNameAndSurname } from '../text/format';
 
 const LABELS: SavedAddressLabel[] = ['HOME', 'WORK'];
 
@@ -87,15 +88,18 @@ export function AddressEditorPage() {
     }
     setSaving(true);
     setError(null);
+    const contactName = formatPersonName(stop.contactName);
+    const address = addressTextForSave(stop.resolvedAddress.trim() || stop.address.trim(), stop.coordinateSource);
+    setStop((current) => ({ ...current, contactName, address }));
     const body = {
       label,
       customLabel: null,
-      address: stop.resolvedAddress.trim() || stop.address.trim(),
+      address,
       latitude: stop.latitude,
       longitude: stop.longitude,
       placeId: stop.coordinateSource === 'GOOGLE_PLACES' ? stop.placeId : null,
       coordinateSource: stop.coordinateSource === 'GOOGLE_PLACES' ? 'GOOGLE_PLACES' : 'DEVICE_GEOCODER',
-      contactName: stop.contactName,
+      contactName,
       contactPhone: deliveryContactPhone(stop.contactPhone),
     };
     try {
@@ -144,7 +148,13 @@ export function AddressEditorPage() {
               />
               <label className="field">
                 Contact name
-                <input value={stop.contactName} maxLength={200} autoComplete="name" onChange={(event) => setStop((current) => ({ ...current, contactName: event.target.value }))} />
+                <input
+                  value={stop.contactName}
+                  maxLength={200}
+                  autoComplete="name"
+                  onChange={(event) => setStop((current) => ({ ...current, contactName: event.target.value }))}
+                  onBlur={() => setStop((current) => ({ ...current, contactName: formatPersonName(current.contactName) }))}
+                />
               </label>
               <ZimbabwePhoneField
                 id="saved-address-phone"
@@ -169,6 +179,7 @@ function formIssue(label: SavedAddressLabel | null, stop: StopDraft): string | n
   if (stop.coordinateSource !== 'GOOGLE_PLACES' && stop.coordinateSource !== 'DEVICE_GEOCODER') return 'Choose the address';
   if (!stop.latitude.trim() || !stop.longitude.trim()) return 'Choose the address';
   if (!stop.contactName.trim()) return 'Enter the contact name';
+  if (!hasGivenNameAndSurname(stop.contactName)) return 'Enter your first name and surname.';
   if (!deliveryContactPhone(stop.contactPhone)) return 'Enter the contact phone';
   return null;
 }

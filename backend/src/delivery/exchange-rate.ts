@@ -45,6 +45,9 @@ export function formatZigPerUsd(units: number): string {
   return `${whole}.${fraction}`;
 }
 
+// Conversions use integer cents. The rate is ZiG per 1 USD in units of 1/10000.
+// Half-up: a remainder of at least half the divisor rounds away from zero.
+// A positive amount that rounds to 0 cents in the other currency cannot be paid there.
 export function zigCentsFromUsdCents(usdCents: number, units: number): number {
   if (!Number.isSafeInteger(usdCents) || usdCents < 0 || !Number.isSafeInteger(units) || units <= 0) {
     throw new BadRequestException('The suggested price could not be calculated');
@@ -53,6 +56,21 @@ export function zigCentsFromUsdCents(usdCents: number, units: number): number {
   const cents = Math.floor(scaled / RATE_SCALE);
   const remainder = scaled % RATE_SCALE;
   return remainder >= RATE_SCALE / 2 ? cents + 1 : cents;
+}
+
+export function usdCentsFromZigCents(zigCents: number, units: number): number {
+  if (!Number.isSafeInteger(zigCents) || zigCents < 0 || !Number.isSafeInteger(units) || units <= 0) {
+    throw new BadRequestException('The commission could not be converted');
+  }
+  const scaled = BigInt(zigCents) * BigInt(RATE_SCALE);
+  const divisor = BigInt(units);
+  const cents = scaled / divisor;
+  const remainder = scaled % divisor;
+  const rounded = remainder * 2n >= divisor ? cents + 1n : cents;
+  if (rounded > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new BadRequestException('The commission could not be converted');
+  }
+  return Number(rounded);
 }
 
 export function suggestedCentsForCurrency(

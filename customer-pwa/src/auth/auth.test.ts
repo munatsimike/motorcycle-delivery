@@ -79,7 +79,10 @@ test('reads login, session, and registration responses without keeping partial t
 });
 
 test('requires a name, surname, and address before registration can finish', () => {
-  assert.equal(registrationDetailsIssue('Tariro', '12 Samora Machel'), 'Enter your name and surname.');
+  assert.equal(registrationDetailsIssue('Tariro', '12 Samora Machel'), 'Enter your first name and surname.');
+  assert.equal(registrationDetailsIssue('  Mary   Ann   Smith  ', '12 Samora Machel'), null);
+  assert.equal(registrationDetailsIssue("Mary-Ann O'Connor", '12 Samora Machel'), null);
+  assert.equal(registrationDetailsIssue('Jo Lee', '12 Samora Machel'), null);
   assert.equal(registrationDetailsIssue('Tariro Moyo', ''), 'Enter your name and address.');
   assert.equal(registrationDetailsIssue('Tariro Moyo', '12 Samora Machel'), null);
 });

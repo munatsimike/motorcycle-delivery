@@ -925,10 +925,9 @@ model RiderProfilePhoto {
   @@map("rider_profile_photos")
 }
 
-// Saved stops belong to one customer account. Prisma 7.1.0 cannot represent
-// the partial unique indexes in the migration. Do not drop them:
-//   customer_saved_addresses_one_home_idx
-//   customer_saved_addresses_one_work_idx
+// Saved stops belong to one customer account. Home and Work may repeat.
+// Prisma 7.1.0 cannot represent the remaining partial unique index.
+// Do not drop it:
 //   customer_saved_addresses_one_default_pickup_idx
 enum CustomerSavedAddressLabel {
   HOME
@@ -1416,6 +1415,15 @@ model WalletFeeReservation {
   walletAmount       Decimal                    @default(0) @map("wallet_amount") @db.Decimal(12, 2)
   currency           Currency
   configVersion      Int                        @map("config_version")
+  // Null on a reservation created before USD-first commission payment.
+  // Those rows charge `amount` in `currency` and must not be reinterpreted.
+  // A later row stores the delivery-currency commission in source_* and the
+  // converted charge in amount/currency. exchange_rate_* is the rate used
+  // for that conversion, or null when no conversion was needed.
+  sourceCurrency       Currency? @map("source_currency")
+  sourceAmount         Decimal?  @map("source_amount") @db.Decimal(12, 2)
+  exchangeRateVersion  Int?      @map("exchange_rate_version")
+  exchangeRateZigPerUsd Decimal? @map("exchange_rate_zig_per_usd") @db.Decimal(12, 4)
   status             WalletFeeReservationStatus @default(OPEN)
   createdAt     DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
   releasedAt    DateTime?                  @map("released_at") @db.Timestamptz(6)

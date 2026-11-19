@@ -58,53 +58,71 @@ test('motorcycle markers use whole pixels at the native bitmap size', () => {
   assert.equal(motorcycleMarkerDisplaySize(0).height, 115);
 });
 
+const RIDERS = [
+  '11111111-1111-4111-8111-111111111111',
+  '22222222-2222-4222-8222-222222222222',
+  '33333333-3333-4333-8333-333333333333',
+  '44444444-4444-4444-8444-444444444444',
+  '55555555-5555-4555-8555-555555555555',
+] as const;
+
 test('nearby responses keep only unexpired approximate points', () => {
   const map = readNearbyRiderMap({
     count: 2,
     points: [
-      { latitude: -17.8, longitude: 31.05, expiresAt: future },
-      { latitude: -17.81, longitude: 31.06, expiresAt: past },
+      { id: RIDERS[0], latitude: -17.8, longitude: 31.05, expiresAt: future },
+      { id: RIDERS[1], latitude: -17.81, longitude: 31.06, expiresAt: past },
     ],
   });
   assert.equal(map.count, 1);
-  assert.equal(map.points[0]?.latitude, -17.8);
+  assert.equal(map.points[0]?.id, RIDERS[0]);
   const mixed = readNearbyRiderMap({
     count: 2,
     points: [
-      { latitude: 999, longitude: 31.05, expiresAt: future },
-      { latitude: -17.82, longitude: 31.04, expiresAt: future },
-      { latitude: -17.83, longitude: 31.07 },
+      { id: RIDERS[0], latitude: 999, longitude: 31.05, expiresAt: future },
+      { id: RIDERS[1], latitude: -17.82, longitude: 31.04, expiresAt: future },
+      { latitude: -17.83, longitude: 31.07, expiresAt: future },
     ],
   });
   assert.equal(mixed.count, 1);
-  assert.equal(mixed.points[0]?.latitude, -17.82);
-  assert.equal(mixed.points[0]?.expiresAt, future);
-  assert.throws(() => readNearbyRiderMap({ count: 0, points: [{ latitude: -17.8, longitude: 31.05, expiresAt: future }] }), /unavailable/);
+  assert.equal(mixed.points[0]?.id, RIDERS[1]);
+  assert.throws(() => readNearbyRiderMap({ count: 0, points: [{ id: RIDERS[0], latitude: -17.8, longitude: 31.05, expiresAt: future }] }), /unavailable/);
 });
 
 test('stored nearby points keep their expiry and drop only the expired ones', () => {
   const points = [
-    { latitude: -17.8, longitude: 31.05, expiresAt: future },
-    { latitude: -17.81, longitude: 31.06, expiresAt: past },
+    { id: RIDERS[0], latitude: -17.8, longitude: 31.05, expiresAt: future },
+    { id: RIDERS[1], latitude: -17.81, longitude: 31.06, expiresAt: past },
   ];
   const kept = filterValidNearbyRiderPoints(points);
   assert.equal(kept.length, 1);
-  assert.equal(kept[0]?.expiresAt, future);
+  assert.equal(kept[0]?.id, RIDERS[0]);
 });
 
-test('rider markers keep their identity and survive a failed refresh', () => {
-  let next = 0;
-  const createId = () => `nearby-marker-${next += 1}`;
-  const first = nextNearbyMarkers([], { status: 'ready', points: [{ latitude: -17.8, longitude: 31.05, expiresAt: future }] }, createId);
-  const moved = nextNearbyMarkers(first, {
+test('each available rider keeps one marker and a failed refresh keeps it', () => {
+  const points = RIDERS.map((id, index) => ({
+    id,
+    latitude: -17.8 - index * 0.01,
+    longitude: 31.05 + index * 0.01,
+    expiresAt: future,
+  }));
+  assert.equal(nextNearbyMarkers([], { status: 'ready', points: [] }).length, 0);
+  const one = nextNearbyMarkers([], { status: 'ready', points: [points[0]!] });
+  assert.deepEqual(one.map((point) => point.id), [RIDERS[0]]);
+  const two = nextNearbyMarkers(one, { status: 'ready', points: points.slice(0, 2) });
+  assert.deepEqual(two.map((point) => point.id), RIDERS.slice(0, 2));
+  const five = nextNearbyMarkers(two, { status: 'ready', points });
+  assert.deepEqual(five.map((point) => point.id), [...RIDERS]);
+  const moved = nextNearbyMarkers(five, {
     status: 'ready',
-    points: [{ latitude: -17.8004, longitude: 31.0504, expiresAt: future }],
-  }, createId);
-  assert.equal(moved[0]?.id, first[0]?.id);
-  const failed = nextNearbyMarkers(moved, { status: 'failed' }, createId);
-  assert.equal(failed.length, 1);
-  const expired: NearbyMarker[] = [{ id: 'nearby-marker-9', latitude: -17.8, longitude: 31.05, expiresAt: past }];
-  assert.equal(nextNearbyMarkers(expired, { status: 'failed' }, createId).length, 0);
+    points: [{ ...points[0]!, latitude: -17.8004, longitude: 31.0504 }],
+  });
+  assert.deepEqual(moved.map((point) => point.id), [RIDERS[0]]);
+  assert.equal(moved[0]?.latitude, -17.8004);
+  const failed = nextNearbyMarkers(moved, { status: 'failed' });
+  assert.equal(failed[0]?.id, RIDERS[0]);
+  const expired: NearbyMarker[] = [{ id: RIDERS[0], latitude: -17.8, longitude: 31.05, expiresAt: past }];
+  assert.equal(nextNearbyMarkers(expired, { status: 'failed' }).length, 0);
 });
 
 test('location and rider status labels match the customer app', () => {

@@ -203,9 +203,7 @@ export class BidService {
       if (!usdOpen && !zigOpen) {
         return [];
       }
-      const currency = usdOpen && zigOpen
-        ? {}
-        : { currency: usdOpen ? Currency.USD : Currency.ZWG };
+      const currency = riderZwgOffersEnabled() ? {} : { currency: Currency.USD };
       const rows = await tx.delivery.findMany({
         where: {
           status: DeliveryStatus.CREATED,

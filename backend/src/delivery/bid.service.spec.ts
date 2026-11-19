@@ -474,8 +474,6 @@ describe('V2 bid lifecycle', () => {
     const bids = new BidService(ctx.prisma);
     await expect(bids.listOpenRequests(RIDER_CONTEXT, NOW)).resolves.toEqual([]);
     process.env.RIDER_ZWG_OFFERS_ENABLED = 'true';
-    await expect(bids.listOpenRequests(RIDER_CONTEXT, NOW)).resolves.toEqual([]);
-    ctx.wallets.push({ id: 'wallet-zig', riderProfileId: RIDER, currency: 'ZWG', balance: '20.00', borrowingLimitOverride: null });
     const open = await bids.listOpenRequests(RIDER_CONTEXT, NOW);
     expect(open.map((request) => request.id)).toEqual([DELIVERY]);
     expect(open[0]?.currency).toBe('ZWG');
@@ -846,6 +844,11 @@ function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?:
     v2CommissionRate: {
       async findFirst({ where }: { where: { isActive: boolean } }) {
         return rates.find((rate) => rate.isActive === where.isActive) ?? null;
+      },
+    },
+    exchangeRate: {
+      async findFirst({ where }: { where: { isActive: boolean } }) {
+        return where.isActive ? { rateVersion: 1, zigPerUsd: '33.0000' } : null;
       },
     },
     riderWallet: {

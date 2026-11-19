@@ -12,6 +12,8 @@ import {
 } from '../generated/prisma/client.js';
 import type { AdminContext } from '../auth/admin-access.service.js';
 import { v2MarketplaceEnabled } from '../auth/v2-flags.js';
+import { chooseCommissionPayment, type CommissionPayment } from '../delivery/commission-wallet.js';
+import { readActiveExchangeRate, riderZwgOffersEnabled } from '../delivery/exchange-rate.js';
 import {
   consumeReservedPromotional,
   issuePromotionalCredit,
@@ -372,34 +374,37 @@ export async function openV2CommissionReservation(
   now: Date,
   currency: Currency = Currency.USD,
 ): Promise<V2CommissionReservationResult> {
-  const wallet = await assertV2CommissionCapacity(tx, riderProfileId, amountCents, currency);
-  if (amountCents === 0 || !wallet) {
+  const quoted = await quoteCommissionPayment(tx, riderProfileId, amountCents, currency);
+  if (amountCents === 0 || !quoted.wallet) {
     return { reserved: false, amount: formatSignedCents(0), rateVersion };
   }
-  const cover = await feeCoverCents(tx, wallet);
   const split = splitCommission(
-    amountCents,
-    cover.promo,
-    cover.cash,
+    quoted.payment.payingCents,
+    quoted.promo,
+    quoted.cash,
     'Wallet capacity is not enough for this bid',
   );
   await tx.walletFeeReservation.create({
     data: {
-      riderWalletId: wallet.id,
+      riderWalletId: quoted.wallet.id,
       deliveryId,
       assignmentId,
-      amount: formatSignedCents(amountCents),
+      amount: formatSignedCents(quoted.payment.payingCents),
       promotionalAmount: formatSignedCents(split.promo),
       walletAmount: formatSignedCents(split.wallet),
-      currency: walletCurrency(wallet),
+      currency: walletCurrency(quoted.wallet),
       configVersion: rateVersion,
+      sourceCurrency: quoted.payment.sourceCurrency,
+      sourceAmount: formatSignedCents(quoted.payment.sourceCents),
+      exchangeRateVersion: quoted.payment.exchangeRateVersion,
+      exchangeRateZigPerUsd: quoted.payment.exchangeRateZigPerUsd,
       status: WalletFeeReservationStatus.OPEN,
       createdAt: now,
       releasedAt: null,
       capturedAt: null,
     },
   });
-  return { reserved: true, amount: formatSignedCents(amountCents), rateVersion };
+  return { reserved: true, amount: formatSignedCents(quoted.payment.payingCents), rateVersion };
 }
 
 export async function assertV2CommissionCapacity(
@@ -408,6 +413,16 @@ export async function assertV2CommissionCapacity(
   amountCents: number,
   currency: Currency = Currency.USD,
 ): Promise<WalletRow | null> {
+  const quoted = await quoteCommissionPayment(tx, riderProfileId, amountCents, currency);
+  return quoted.wallet;
+}
+
+async function quoteCommissionPayment(
+  tx: Prisma.TransactionClient,
+  riderProfileId: string,
+  amountCents: number,
+  currency: Currency,
+): Promise<{ wallet: WalletRow | null; payment: CommissionPayment; promo: number; cash: number }> {
   if (!Number.isSafeInteger(amountCents) || amountCents < 0 || !supportedFeeCurrency(currency)) {
     throw new ConflictException('Wallet capacity is not enough for this bid');
   }
@@ -418,37 +433,61 @@ export async function assertV2CommissionCapacity(
   }
   await lockRiderWallet(tx, usd.id);
   const lockedUsd = await tx.riderWallet.findUnique({ where: { id: usd.id } });
-  if (!lockedUsd) {
+  if (!lockedUsd || lockedUsd.riderProfileId !== riderProfileId) {
     throw new ConflictException('Wallet capacity is not enough for this bid');
   }
-  // A zero commission reserves nothing. It still requires the delivery-currency
-  // wallet and does not fall back to the other currency.
   if (amountCents === 0) {
-    if (currency === Currency.USD) {
-      return null;
-    }
-    const zigWallet = await tx.riderWallet.findUnique({ where: walletWhere(riderProfileId, currency) });
-    if (!zigWallet || zigWallet.riderProfileId !== riderProfileId) {
-      throw new ConflictException('Wallet capacity is not enough for this bid');
-    }
-    return null;
+    return {
+      wallet: null,
+      promo: 0,
+      cash: 0,
+      payment: {
+        sourceCurrency: currency,
+        sourceCents: 0,
+        payingCurrency: currency,
+        payingCents: 0,
+        exchangeRateVersion: null,
+        exchangeRateZigPerUsd: null,
+      },
+    };
   }
-  const feeWallet = currency === Currency.USD
-    ? lockedUsd
-    : await tx.riderWallet.findUnique({ where: walletWhere(riderProfileId, currency) });
-  if (!feeWallet) {
+  const usdCover = await feeCoverCents(tx, lockedUsd);
+  const zigRow = await tx.riderWallet.findUnique({ where: walletWhere(riderProfileId, Currency.ZWG) });
+  let lockedZig: WalletRow | null = null;
+  let zigCover = { cash: 0, promo: 0 };
+  if (zigRow && zigRow.riderProfileId === riderProfileId) {
+    if (zigRow.id !== lockedUsd.id) {
+      await lockRiderWallet(tx, zigRow.id);
+    }
+    lockedZig = await tx.riderWallet.findUnique({ where: { id: zigRow.id } });
+    if (lockedZig && lockedZig.riderProfileId === riderProfileId) {
+      zigCover = await feeCoverCents(tx, lockedZig);
+    } else {
+      lockedZig = null;
+    }
+  }
+  const rate = await readActiveExchangeRate(tx);
+  const zigEnabled = riderZwgOffersEnabled();
+  const choice = chooseCommissionPayment({
+    sourceCurrency: currency,
+    sourceCents: amountCents,
+    usdCoverCents: usdCover.cash + usdCover.promo,
+    zigCoverCents: zigEnabled ? zigCover.cash + zigCover.promo : 0,
+    rate,
+    zigOffersEnabled: zigEnabled,
+  });
+  if (!choice.ok) {
+    if (choice.reason === 'rate') {
+      throw new BadRequestException('An exchange rate has not been published');
+    }
     throw new ConflictException('Wallet capacity is not enough for this bid');
   }
-  if (feeWallet.id !== lockedUsd.id) {
-    await lockRiderWallet(tx, feeWallet.id);
-  }
-  const lockedFee = await tx.riderWallet.findUnique({ where: { id: feeWallet.id } });
-  if (!lockedFee || lockedFee.riderProfileId !== riderProfileId) {
+  const paying = choice.payment.payingCurrency === Currency.USD ? lockedUsd : lockedZig;
+  if (!paying || walletCurrency(paying) !== choice.payment.payingCurrency) {
     throw new ConflictException('Wallet capacity is not enough for this bid');
   }
-  const cover = await feeCoverCents(tx, lockedFee);
-  splitCommission(amountCents, cover.promo, cover.cash, 'Wallet capacity is not enough for this bid');
-  return lockedFee;
+  const cover = choice.payment.payingCurrency === Currency.USD ? usdCover : zigCover;
+  return { wallet: paying, payment: choice.payment, promo: cover.promo, cash: cover.cash };
 }
 
 export async function riderIdsWithOpenUsdBorrowing(
@@ -850,7 +889,18 @@ export async function captureV2CommissionReservation(
     throw new ConflictException('This commission reservation does not match the accepted bid');
   }
   const reservedCents = signedCentsFromDecimal(reservation.amount);
-  if (reservedCents !== commissionCents || reservation.configVersion !== assignment.acceptedV2CommissionRateVersion) {
+  const delivery = await tx.delivery.findUnique({ where: { id: deliveryId }, select: { currency: true } });
+  if (reservation.sourceAmount == null) {
+    if (reservedCents !== commissionCents) {
+      throw new ConflictException('This commission reservation does not match the accepted bid');
+    }
+  } else {
+    const sourceCents = signedCentsFromDecimal(reservation.sourceAmount);
+    if (sourceCents !== commissionCents || reservation.sourceCurrency !== delivery?.currency) {
+      throw new ConflictException('This commission reservation does not match the accepted bid');
+    }
+  }
+  if (reservation.configVersion !== assignment.acceptedV2CommissionRateVersion) {
     throw new ConflictException('This commission reservation does not match the accepted bid');
   }
   if (reservation.status === WalletFeeReservationStatus.RELEASED) {
@@ -1103,6 +1153,15 @@ export async function refundAcceptanceCommission(
       throw new ConflictException('Acceptance commission charge is inconsistent');
     }
     portions = reservationPortions(reservation);
+    if (reservation.sourceAmount != null) {
+      const source = signedCentsFromDecimal(reservation.sourceAmount);
+      const accepted = assignment.acceptedCommissionAmount == null
+        ? null
+        : signedCentsFromDecimal(assignment.acceptedCommissionAmount);
+      if (accepted == null || source !== accepted || feeCents !== signedCentsFromDecimal(reservation.amount)) {
+        throw new ConflictException('Acceptance commission charge is inconsistent');
+      }
+    }
     if (portions.total !== feeCents) {
       throw new ConflictException('Acceptance commission charge is inconsistent');
     }

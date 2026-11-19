@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { Prisma, UserRole } from '../generated/prisma/client.js';
 import { CustomerSavedAddressController } from './customer-saved-address.controller.js';
 import { CustomerSavedAddressService } from './customer-saved-address.service.js';
+import { readSavedAddress, readSavedAddressPatch } from './customer-saved-address.js';
 
 const OWNER = { userId: 'user-1', role: UserRole.CUSTOMER, customerAccountId: 'account-1' };
 const OTHER = { userId: 'user-2', role: UserRole.CUSTOMER, customerAccountId: 'account-2' };
@@ -27,17 +28,20 @@ describe('customer saved addresses', () => {
     expect(db.deliveries).toEqual([{ id: 'delivery-1', recipientName: 'Historical' }]);
   });
 
-  it('allows one Home, one Work, and many custom labels', async () => {
+  it('allows many Home and Work addresses and edits a duplicate label', async () => {
     const service = new CustomerSavedAddressService(memory().prisma);
-    await service.create(OWNER, addressBody({ label: 'HOME', customLabel: null }), NOW);
-    await service.create(OWNER, addressBody({ label: 'WORK', customLabel: null, address: 'Work road' }), NOW);
-    await service.create(OWNER, addressBody({ customLabel: 'Mum' }), NOW);
-    await service.create(OWNER, addressBody({ customLabel: 'Shop', address: 'Shop road' }), NOW);
-    await expect(service.create(OWNER, addressBody({ label: 'HOME', customLabel: null, address: 'Second home' }), NOW))
-      .rejects.toThrow('You already have a Home address');
-    await expect(service.create(OWNER, addressBody({ label: 'WORK', customLabel: null, address: 'Second work' }), NOW))
-      .rejects.toThrow('You already have a Work address');
-    expect(await service.list(OWNER)).toHaveLength(4);
+    const borrowdale = await service.create(OWNER, addressBody({ label: 'HOME', customLabel: null, address: 'Borrowdale' }), NOW);
+    const avondale = await service.create(OWNER, addressBody({ label: 'HOME', customLabel: null, address: 'Avondale', contactName: 'Mary Ann Smith' }), NOW);
+    const cbd = await service.create(OWNER, addressBody({ label: 'WORK', customLabel: null, address: 'Harare CBD' }), NOW);
+    const workBorrowdale = await service.create(OWNER, addressBody({ label: 'WORK', customLabel: null, address: 'Borrowdale office' }), NOW);
+    expect(new Set([borrowdale.id, avondale.id, cbd.id, workBorrowdale.id]).size).toBe(4);
+    const edited = await service.update(OWNER, avondale.id, { label: 'HOME', address: 'Avondale West', contactPhone: '0770000000' }, NOW);
+    expect(edited.id).toBe(avondale.id);
+    expect(edited.label).toBe('HOME');
+    expect(edited.address).toBe('Avondale West');
+    expect((await service.list(OWNER)).filter((row) => row.label === 'HOME')).toHaveLength(2);
+    expect((await service.list(OWNER)).filter((row) => row.label === 'WORK')).toHaveLength(2);
+    expect((await service.list(OWNER)).find((row) => row.id === borrowdale.id)?.address).toBe('Borrowdale');
   });
 
   it('keeps a single default pickup and switches it atomically', async () => {
@@ -92,6 +96,13 @@ describe('customer saved addresses', () => {
     await expect(service.create(OWNER, addressBody({ longitude: '-181' }), NOW)).rejects.toThrow('Enter a valid location');
     await expect(service.create(OWNER, addressBody({ contactPhone: '123' }), NOW)).rejects.toThrow('Enter the contact phone');
     await expect(service.create(OWNER, addressBody({ contactName: ' ' }), NOW)).rejects.toThrow('Enter the contact name');
+    await expect(service.create(OWNER, addressBody({ contactName: 'Tendai' }), NOW)).rejects.toThrow('Enter your first name and surname.');
+    const created = await service.create(OWNER, addressBody({ contactName: "Mary-Ann O'Connor" }), NOW);
+    expect(created.contactName).toBe("Mary-Ann O'Connor");
+    const stored = readSavedAddress(addressBody({ contactName: 'Rudo Ncube' }));
+    stored.contactName = 'Rudo';
+    expect(readSavedAddressPatch({ contactName: '  Rudo  ' }, stored).contactName).toBe('Rudo');
+    await expect(service.update(OWNER, created.id, { contactName: 'Rudo' }, NOW)).rejects.toThrow('Enter your first name and surname.');
     await expect(service.create(OWNER, addressBody({ label: 'HOME', customLabel: 'House' }), NOW)).rejects.toThrow('Enter the address label');
     await expect(service.create(OWNER, addressBody({ coordinateSource: 'GOOGLE_PLACES', placeId: null }), NOW)).rejects.toThrow('Enter a valid location');
   });
@@ -202,12 +213,6 @@ function memory(options?: { collideOnce?: boolean; opaqueDefault?: boolean }) {
 
   function assertIndexes(id: string | null, data: { customerAccountId: string; label: Row['label']; isDefaultPickup: boolean }) {
     const others = rows.filter((row) => row.customerAccountId === data.customerAccountId && row.id !== id);
-    if (data.label === 'HOME' && others.some((row) => row.label === 'HOME')) {
-      throw new Error('customer_saved_addresses_one_home_idx');
-    }
-    if (data.label === 'WORK' && others.some((row) => row.label === 'WORK')) {
-      throw new Error('customer_saved_addresses_one_work_idx');
-    }
     if (data.isDefaultPickup && others.some((row) => row.isDefaultPickup)) {
       if (options?.opaqueDefault) {
         throw new Prisma.PrismaClientKnownRequestError('Unique constraint failed on the fields: (`customer_account_id`)', {

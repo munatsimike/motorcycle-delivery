@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { CoordinateSource, CustomerSavedAddressLabel } from '../generated/prisma/client.js';
-import { InvalidPersonNameError, normalizePersonName } from '../auth/person-name.js';
+import { hasGivenNameAndSurname, InvalidPersonNameError, normalizePersonName } from '../auth/person-name.js';
 import { InvalidPhoneNumberError, normalizeAuthPhone } from '../auth/phone-number.js';
 import { isPlaceId } from '../delivery/google-places.js';
 
@@ -53,7 +53,7 @@ export function readSavedAddressPatch(body: unknown, current: SavedAddressInput)
       record.placeId === undefined && record.coordinateSource === undefined ? current.placeId : record.placeId,
       record.coordinateSource === undefined && record.placeId === undefined ? current.coordinateSource : record.coordinateSource,
     ),
-    contactName: record.contactName === undefined ? current.contactName : readPerson(record.contactName),
+    contactName: record.contactName === undefined ? current.contactName : readPerson(record.contactName, current.contactName),
     contactPhone: record.contactPhone === undefined ? current.contactPhone : readPhone(record.contactPhone),
     isDefaultPickup: record.isDefaultPickup === undefined ? current.isDefaultPickup : readFlag(record.isDefaultPickup),
     reuseExisting: false,
@@ -112,14 +112,18 @@ function readCoordinate(value: unknown, limit: number): string {
   return numeric.toFixed(7);
 }
 
-function readPerson(value: unknown): string {
+function readPerson(value: unknown, unchanged?: string): string {
   if (typeof value !== 'string') throw new BadRequestException('Enter the contact name');
+  let name: string;
   try {
-    return normalizePersonName(value);
+    name = normalizePersonName(value);
   } catch (error) {
     if (error instanceof InvalidPersonNameError) throw new BadRequestException('Enter the contact name');
     throw error;
   }
+  if (unchanged !== undefined && unchanged === name) return name;
+  if (!hasGivenNameAndSurname(name)) throw new BadRequestException('Enter your first name and surname.');
+  return name;
 }
 
 function readPhone(value: unknown): string {

@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ApiError } from '../api/client';
 import { deleteProfilePhoto, loadCustomerAccount, loadProfilePhoto, uploadProfilePhoto } from '../account/profileApi';
-import { customerAvatarColors, customerInitials, customerPhotoFileIssue, profileRows } from '../account/profile';
+import { customerAvatarColors, customerPhotoFileIssue, profileAvatarMark, profileRows } from '../account/profile';
+import { clearStoredProfilePhoto, readStoredProfile, storeProfileAccount, storeProfilePhoto } from '../account/profileLoad';
 import { isSessionRejection, type CustomerAccount } from '../auth/contracts';
 import { rememberReturnPath } from '../auth/returnPath';
 import { useSession } from '../auth/sessionContext';
@@ -29,11 +30,12 @@ export function ProfilePage() {
   const navigate = useNavigate();
   const { accessToken, signOut } = useSession();
   const { mode, scheme, setMode } = useAppearance();
-  const [account, setAccount] = useState<CustomerAccount | null>(null);
-  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const remembered = readStoredProfile();
+  const [account, setAccount] = useState<CustomerAccount | null>(remembered?.account ?? null);
+  const [photoUrl, setPhotoUrl] = useState<string | null>(remembered?.photoUrl ?? null);
   const [error, setError] = useState<string | null>(null);
   const [photoError, setPhotoError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(remembered == null);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [phase, setPhase] = useState<'idle' | 'uploading' | 'removing'>('idle');
   const [progress, setProgress] = useState(0);
@@ -42,14 +44,14 @@ export function ProfilePage() {
   const removeMotion = usePresence(removeOpen, 150);
   const appearanceMotion = usePresence(appearanceOpen, 220);
   const fileInput = useRef<HTMLInputElement | null>(null);
+  const photoRequest = useRef(0);
   const screenRef = useContainedScroll<HTMLElement>();
 
   useEffect(() => {
     let active = true;
-    let objectUrl: string | null = null;
 
     async function load() {
-      setIsLoading(true);
+      if (!readStoredProfile()) setIsLoading(true);
       setError(null);
       try {
         const token = await accessToken();
@@ -59,14 +61,21 @@ export function ProfilePage() {
           navigate('/sign-in', { replace: true, state: { from: '/more' } });
           return;
         }
-        const next = await loadAccount(token);
-        if (!active) {
-          if (next.photoUrl) URL.revokeObjectURL(next.photoUrl);
+        const next = await loadCustomerAccount(token);
+        if (!active) return;
+        const painted = storeProfileAccount(next);
+        setAccount(next);
+        setPhotoUrl(painted.photoUrl);
+        setIsLoading(false);
+        if (!painted.fetchPhoto) return;
+        const request = ++photoRequest.current;
+        const url = await photoObjectUrl(token);
+        if (request !== photoRequest.current) {
+          if (url) URL.revokeObjectURL(url);
           return;
         }
-        setAccount(next.account);
-        objectUrl = next.photoUrl;
-        setPhotoUrl(next.photoUrl);
+        storeProfilePhoto(next.id, url);
+        if (active) setPhotoUrl(url);
       } catch (caught) {
         if (!active) return;
         if (isSessionRejection(caught)) {
@@ -75,7 +84,9 @@ export function ProfilePage() {
           navigate('/sign-in', { replace: true, state: { from: '/more', notice: 'Your session ended. Sign in again.' } });
           return;
         }
-        setError(caught instanceof Error ? caught.message : 'Account details are unavailable.');
+        if (!readStoredProfile()) {
+          setError(caught instanceof Error ? caught.message : 'Account details are unavailable.');
+        }
       } finally {
         if (active) setIsLoading(false);
       }
@@ -84,7 +95,6 @@ export function ProfilePage() {
     void load();
     return () => {
       active = false;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [accessToken, navigate, signOut]);
 
@@ -102,6 +112,7 @@ export function ProfilePage() {
       setPhotoError(issue ?? 'Choose a profile photo');
       return;
     }
+    photoRequest.current += 1;
     setPhase('uploading');
     setProgress(0);
     setPhotoError(null);
@@ -113,11 +124,13 @@ export function ProfilePage() {
       await uploadProfilePhoto(token, file, setProgress);
       const stored = await loadProfilePhoto(token);
       URL.revokeObjectURL(preview);
-      setPhotoUrl(stored ? URL.createObjectURL(stored) : null);
-      setAccount((current) => current ? { ...current, hasProfilePhoto: true } : current);
+      const nextUrl = stored ? URL.createObjectURL(stored) : null;
+      storeProfilePhoto(account?.id ?? null, nextUrl);
+      setPhotoUrl(nextUrl);
+      setAccount((current) => current ? { ...current, hasProfilePhoto: nextUrl != null } : current);
     } catch (caught) {
       URL.revokeObjectURL(preview);
-      setPhotoUrl(null);
+      setPhotoUrl(readStoredProfile()?.photoUrl ?? null);
       setPhotoError(caught instanceof Error ? caught.message : 'Profile photo is unavailable.');
     } finally {
       setPhase('idle');
@@ -125,6 +138,7 @@ export function ProfilePage() {
   }
 
   async function removePhoto() {
+    photoRequest.current += 1;
     setRemoveOpen(false);
     setPhase('removing');
     setPhotoError(null);
@@ -132,6 +146,7 @@ export function ProfilePage() {
       const token = await accessToken();
       if (!token) throw new Error('Profile photo is unavailable.');
       await deleteProfilePhoto(token);
+      clearStoredProfilePhoto(account?.id ?? null);
       setPhotoUrl(null);
       setAccount((current) => current ? { ...current, hasProfilePhoto: false } : current);
     } catch (caught) {
@@ -167,7 +182,7 @@ export function ProfilePage() {
             </div>
             <div className="profile-avatar-slot">
               <button type="button" className="profile-avatar" aria-label="Change profile photo" disabled={phase !== 'idle'} onClick={() => fileInput.current?.click()}>
-                {photoUrl ? <img src={photoUrl} alt="" /> : <span style={{ background: colors?.backgroundColor, color: colors?.color }}>{customerInitials(account)}</span>}
+                {photoUrl ? <img src={photoUrl} alt="" onError={() => { storeProfilePhoto(account.id, null); setPhotoUrl(null); }} /> : <span style={{ background: colors?.backgroundColor, color: colors?.color }}>{profileAvatarMark(account) ?? <ProfileUserIcon />}</span>}
               </button>
               {phase === 'idle' && (account.hasProfilePhoto || photoUrl) ? (
                 <button type="button" className="profile-remove" aria-label="Remove photo" onClick={() => setRemoveOpen(true)}>
@@ -216,13 +231,13 @@ export function ProfilePage() {
         </button>
       </div>
       {removeMotion.mounted ? (
-        <div className={motionClass('profile-dialog', 'dialog', removeMotion.visible)} role="dialog" aria-modal="true" aria-labelledby="remove-photo-title">
-          <div className="profile-dialog-card">
+        <div className={motionClass('confirm-dialog-backdrop', 'dialog', removeMotion.visible)} onClick={() => setRemoveOpen(false)}>
+          <div className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="remove-photo-title" aria-describedby="remove-photo-copy" onClick={(event) => event.stopPropagation()}>
             <h2 id="remove-photo-title">Remove profile photo?</h2>
-            <p>Your initials will be shown instead.</p>
-            <div>
-              <button type="button" onClick={() => setRemoveOpen(false)}>Keep photo</button>
-              <button type="button" onClick={() => { void removePhoto(); }}>Remove photo</button>
+            <p id="remove-photo-copy">Your initials will be shown instead.</p>
+            <div className="confirm-dialog-actions">
+              <button type="button" className="confirm-keep" onClick={() => setRemoveOpen(false)}>Keep photo</button>
+              <button type="button" className="confirm-cancel" onClick={() => { void removePhoto(); }}>Remove photo</button>
             </div>
           </div>
         </div>
@@ -255,10 +270,13 @@ export function ProfilePage() {
   );
 }
 
-async function loadAccount(token: string): Promise<{ account: CustomerAccount; photoUrl: string | null }> {
-  const account = await loadCustomerAccount(token);
-  const photoUrl = account.hasProfilePhoto ? await photoObjectUrl(token) : null;
-  return { account, photoUrl };
+function ProfileUserIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="36" height="36" aria-hidden="true">
+      <circle cx="12" cy="8.5" r="3.2" fill="currentColor" />
+      <path fill="currentColor" d="M5.5 18.5c.7-3 2.9-4.5 6.5-4.5s5.8 1.5 6.5 4.5H5.5Z" />
+    </svg>
+  );
 }
 
 async function photoObjectUrl(token: string): Promise<string | null> {

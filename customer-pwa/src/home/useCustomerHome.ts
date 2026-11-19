@@ -30,7 +30,6 @@ export function useCustomerHome(mapElement: HTMLDivElement | null, cardHeight: n
   const blockLocation = useRef(false);
   const refreshing = useRef(false);
   const request = useRef(0);
-  const markerIds = useRef(0);
   customerRef.current = customer;
   cardRef.current = cardHeight;
 
@@ -81,18 +80,14 @@ export function useCustomerHome(mapElement: HTMLDivElement | null, cardHeight: n
     if (refreshing.current) return;
     refreshing.current = true;
     const current = ++request.current;
-    const createMarkerId = () => {
-      markerIds.current += 1;
-      return `nearby-marker-${markerIds.current}`;
-    };
-    const retainMarkers = () => nextNearbyMarkers(pointsRef.current, { status: 'failed' }, createMarkerId, new Date());
+    const retainMarkers = () => nextNearbyMarkers(pointsRef.current, { status: 'failed' }, new Date());
     try {
       const location = await readBrowserLocation(mode === 'retry' ? 0 : POLL_MAX_AGE_MS);
       if (request.current !== current) return;
       if (location.status !== 'ready') {
         blockLocation.current = pausesLocation(location);
         setCustomer(null);
-        const shown = nextNearbyMarkers(pointsRef.current, { status: 'failed' }, createMarkerId, new Date());
+        const shown = nextNearbyMarkers(pointsRef.current, { status: 'failed' }, new Date());
         publish(shown, location);
         return;
       }
@@ -115,7 +110,7 @@ export function useCustomerHome(mapElement: HTMLDivElement | null, cardHeight: n
       try {
         const nearby = await fetchNearbyRiders(token, point.latitude, point.longitude);
         if (request.current !== current) return;
-        const shown = nextNearbyMarkers(pointsRef.current, { status: 'ready', points: nearby.points }, createMarkerId, new Date());
+        const shown = nextNearbyMarkers(pointsRef.current, { status: 'ready', points: nearby.points }, new Date());
         publish(shown, { status: 'ready', count: shown.length });
       } catch (error) {
         if (request.current !== current) return;

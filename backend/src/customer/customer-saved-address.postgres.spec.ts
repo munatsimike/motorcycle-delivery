@@ -46,6 +46,7 @@ beforeAll(async () => {
     CREATE TABLE "customer_accounts" ("id" UUID PRIMARY KEY);
   `);
   await owner.query(readFileSync('prisma/migrations/20261117010000_customer_saved_addresses/migration.sql', 'utf8'));
+  await owner.query(readFileSync('prisma/migrations/20261119180000_allow_many_home_and_work_addresses/migration.sql', 'utf8'));
   await owner.query('INSERT INTO "customer_accounts" ("id") VALUES ($1), ($2)', [OWNER, OTHER]);
   other = new pg.Client({ connectionString: DISPOSABLE_URL });
   await other.connect();
@@ -57,11 +58,11 @@ afterAll(async () => {
   await exec('docker', ['rm', '-f', CONTAINER], { windowsHide: true }).catch(() => undefined);
 }, 60_000);
 
-it('keeps one Home, one Work, and one default pickup for each customer', async () => {
+it('allows many Home and Work rows and one default pickup for each customer', async () => {
   await insert(owner, HOME, OWNER, 'HOME', null, false);
   await insert(owner, WORK, OWNER, 'WORK', null, false);
-  await expect(insert(owner, '018f5b4a-7c3a-7c3a-8c3a-000000000013', OWNER, 'HOME', null, false)).rejects.toMatchObject({ code: '23505' });
-  await expect(insert(owner, '018f5b4a-7c3a-7c3a-8c3a-000000000014', OWNER, 'WORK', null, false)).rejects.toMatchObject({ code: '23505' });
+  await insert(owner, '018f5b4a-7c3a-7c3a-8c3a-000000000013', OWNER, 'HOME', null, false);
+  await insert(owner, '018f5b4a-7c3a-7c3a-8c3a-000000000014', OWNER, 'WORK', null, false);
   await insert(owner, '018f5b4a-7c3a-7c3a-8c3a-000000000015', OWNER, 'CUSTOM', 'Mum', false);
   await insert(owner, '018f5b4a-7c3a-7c3a-8c3a-000000000016', OWNER, 'CUSTOM', 'Shop', false);
   await insert(other, '018f5b4a-7c3a-7c3a-8c3a-000000000017', OTHER, 'HOME', null, true);

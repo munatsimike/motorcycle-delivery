@@ -8,6 +8,7 @@ export const NEARBY_RIDER_POINT_TTL_MS = 90_000;
 export const NEARBY_RIDER_BUCKET_METRES = 20;
 
 export type NearbyRiderMapPoint = {
+  id: string;
   latitude: number;
   longitude: number;
   expiresAt: string;
@@ -18,6 +19,7 @@ type NearbyCountRow = {
 };
 
 type NearbyPositionRow = {
+  id: string | null;
   latitude: number | string | null;
   longitude: number | string | null;
 };
@@ -35,30 +37,8 @@ export async function countNearbyAvailableRiders(
     WHERE p."approval_status" = 'APPROVED'::"rider_approval_status"
       AND p."verification_status" = 'VERIFIED'::"rider_verification_status"
       AND l."updated_at" > ${input.freshAfter}
-      AND (
-        (
-          p."availability" = 'AVAILABLE'::"rider_availability"
-          AND p."receiving_requests" IS NOT FALSE
-        )
-        OR EXISTS (
-          SELECT 1
-          FROM "delivery_assignments" a
-          INNER JOIN "deliveries" d ON d."id" = a."delivery_id"
-          WHERE a."rider_profile_id" = p."id"
-            AND a."status" = 'ACCEPTED'::"assignment_status"
-            AND d."status" IN (
-              'ASSIGNED'::"delivery_status",
-              'RIDER_ASSIGNED'::"delivery_status",
-              'COLLECTING'::"delivery_status",
-              'COLLECTED'::"delivery_status",
-              'OUT_FOR_DELIVERY'::"delivery_status",
-              'ARRIVED_AT_PICKUP'::"delivery_status",
-              'PICKED_UP'::"delivery_status",
-              'IN_TRANSIT'::"delivery_status",
-              'ARRIVED_AT_DROPOFF'::"delivery_status"
-            )
-        )
-      )
+      AND p."availability" = 'AVAILABLE'::"rider_availability"
+      AND p."receiving_requests" IS TRUE
       AND ST_DWithin(
         l."position",
         ST_SetSRID(
@@ -81,6 +61,7 @@ export async function nearbyAvailableRiderPoints(
 ): Promise<NearbyRiderMapPoint[]> {
   const rows = await db.$queryRaw<NearbyPositionRow[]>`
     SELECT
+      p."id" AS id,
       ST_Y(l."position"::geometry) AS latitude,
       ST_X(l."position"::geometry) AS longitude
     FROM "rider_locations" l
@@ -88,30 +69,8 @@ export async function nearbyAvailableRiderPoints(
     WHERE p."approval_status" = 'APPROVED'::"rider_approval_status"
       AND p."verification_status" = 'VERIFIED'::"rider_verification_status"
       AND l."updated_at" > ${input.freshAfter}
-      AND (
-        (
-          p."availability" = 'AVAILABLE'::"rider_availability"
-          AND p."receiving_requests" IS NOT FALSE
-        )
-        OR EXISTS (
-          SELECT 1
-          FROM "delivery_assignments" a
-          INNER JOIN "deliveries" d ON d."id" = a."delivery_id"
-          WHERE a."rider_profile_id" = p."id"
-            AND a."status" = 'ACCEPTED'::"assignment_status"
-            AND d."status" IN (
-              'ASSIGNED'::"delivery_status",
-              'RIDER_ASSIGNED'::"delivery_status",
-              'COLLECTING'::"delivery_status",
-              'COLLECTED'::"delivery_status",
-              'OUT_FOR_DELIVERY'::"delivery_status",
-              'ARRIVED_AT_PICKUP'::"delivery_status",
-              'PICKED_UP'::"delivery_status",
-              'IN_TRANSIT'::"delivery_status",
-              'ARRIVED_AT_DROPOFF'::"delivery_status"
-            )
-        )
-      )
+      AND p."availability" = 'AVAILABLE'::"rider_availability"
+      AND p."receiving_requests" IS TRUE
       AND ST_DWithin(
         l."position",
         ST_SetSRID(
@@ -122,12 +81,12 @@ export async function nearbyAvailableRiderPoints(
       )
     ORDER BY l."updated_at" DESC
   `;
-  return rows.map((row, index) => approximateNearbyRiderPoint(
+  return rows.map((row) => approximateNearbyRiderPoint(
+    riderMarkerId(row.id),
     row.latitude,
     row.longitude,
     input.latitude,
     input.longitude,
-    index,
     input.now,
   ));
 }
@@ -149,21 +108,39 @@ export function approximateCustomerMapPoint(
   const cosine = Math.cos((bucketLatitude * Math.PI) / 180);
   const longitudeStep = spread / (111_320 * Math.max(0.2, Math.abs(cosine)));
   const bucketLongitude = Math.round(longitude / longitudeStep) * longitudeStep;
-  const point = approximateNearbyRiderPoint(bucketLatitude, bucketLongitude, bucketLatitude, bucketLongitude, seed, new Date(0));
+  const point = approximateNearbyRiderPoint(
+    '00000000-0000-4000-8000-000000000000',
+    bucketLatitude,
+    bucketLongitude,
+    bucketLatitude,
+    bucketLongitude,
+    new Date(0),
+    seed,
+  );
   return { latitude: point.latitude, longitude: point.longitude };
 }
 
+function riderMarkerId(value: string | null): string {
+  const id = value?.trim() ?? '';
+  if (!/^[0-9a-f-]{36}$/i.test(id)) {
+    throw new Error('Nearby riders are unavailable.');
+  }
+  return id;
+}
+
 function approximateNearbyRiderPoint(
+  id: string,
   latitude: number | string | null,
   longitude: number | string | null,
   customerLatitude: number,
   customerLongitude: number,
-  index: number,
   now: Date,
+  seed?: number,
 ): NearbyRiderMapPoint {
   const realLatitude = number(latitude);
   const realLongitude = number(longitude);
   const spread = NEARBY_RIDER_BUCKET_METRES;
+  const index = seed ?? markerSeed(id);
   const scaleX = Math.sin((realLatitude + realLongitude + index + 7) * 12.9898) * 43758.5453;
   const scaleY = Math.cos((realLatitude - realLongitude + index + 13) * 11.1675) * 43758.5453;
   const maskX = (scaleX - Math.floor(scaleX)) * 2 - 1;
@@ -173,10 +150,19 @@ function approximateNearbyRiderPoint(
   const latitudeValue = clamp(realLatitude + latJitter, -90, 90);
   const longitudeValue = wrapLongitude(realLongitude + lonJitter, customerLongitude);
   return {
+    id,
     latitude: latitudeValue,
     longitude: longitudeValue,
     expiresAt: new Date(now.getTime() + NEARBY_RIDER_POINT_TTL_MS).toISOString(),
   };
+}
+
+function markerSeed(id: string): number {
+  let hash = 0;
+  for (const character of id) {
+    hash = Math.imul(hash, 31) + character.charCodeAt(0);
+  }
+  return Math.abs(hash % 10_000);
 }
 
 function number(value: number | string | null): number {
