@@ -4508,3 +4508,7 @@ html.is-page-transition .page-stage {
 :root:not([data-theme="dark"]) .profile-sheet {
   background: #ffffff;
 }
+
+/* More/Profile: subtly enlarge values and actions; preserve secondary labels. */
+.profile-screen .profile-settings .profile-row strong { font-size: calc(var(--body) + 1px); line-height: 24px; }
+.profile-screen .profile-logout { font-size: calc(var(--body) + 1px); }
