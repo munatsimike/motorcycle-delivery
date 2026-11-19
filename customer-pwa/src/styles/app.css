@@ -4464,3 +4464,17 @@ html.is-page-transition .page-stage {
 :root:not([data-theme="dark"]) .address-book-page .address-card,
 .address-book-page .address-card.is-first,
 :root:not([data-theme="dark"]) .address-book-page .address-card.is-first { padding-top: 11px; padding-bottom: 7px; }
+
+/* Address Book: unfilled cards and consistent, readable Search typography. */
+.address-book-page .address-card,
+:root:not([data-theme="dark"]) .address-book-page .address-card,
+.address-book-page .address-card.is-first,
+:root:not([data-theme="dark"]) .address-book-page .address-card.is-first {
+  background: transparent;
+}
+.address-book-toolbar .address-search-toggle,
+.book-address-picker .address-search-toggle {
+  color: var(--text);
+  font-weight: 500;
+  opacity: 1;
+}
