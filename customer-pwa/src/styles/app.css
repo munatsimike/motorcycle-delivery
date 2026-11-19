@@ -4499,3 +4499,12 @@ html.is-page-transition .page-stage {
 .profile-settings .profile-row { min-height: 64px; padding-top: 12px; padding-bottom: 12px; }
 .profile-settings .profile-addresses { min-height: 64px; padding-top: 12px; padding-bottom: 12px; }
 .profile-sheet > .profile-logout { margin-top: 12px; padding: 10px 12px; }
+
+/* More page: soft green backdrop visible above the white rounded details sheet. */
+:root:not([data-theme="dark"]) .profile-screen,
+:root:not([data-theme="dark"]) .profile-wash {
+  background: #e8f7ed;
+}
+:root:not([data-theme="dark"]) .profile-sheet {
+  background: #ffffff;
+}
