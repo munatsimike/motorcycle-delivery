@@ -2,6 +2,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
 import { adminApi } from '../lib/client';
 import { DELIVERY_STATUSES, label, when } from '../lib/labels';
+
+const OVERVIEW_STATUSES = new Set(['DELIVERED', 'CANCELLED', 'FAILED']);
 import { deliveryMoney } from '../lib/money';
 import type { DeliveryRow, Page } from '../lib/types';
 import { Empty, ErrorNote, Loading, Pager, Status, textOf } from '../ui';
@@ -44,7 +46,8 @@ export function DeliveriesPage() {
         <label>Status
           <select name="status" defaultValue={status}>
             <option value="">Any</option>
-            {DELIVERY_STATUSES.map((item) => <option key={item} value={item}>{label(item)}</option>)}
+            {status && OVERVIEW_STATUSES.has(status) ? <option value={status}>{label(status)}</option> : null}
+            {DELIVERY_STATUSES.filter((item) => !OVERVIEW_STATUSES.has(item)).map((item) => <option key={item} value={item}>{label(item)}</option>)}
           </select>
         </label>
         <button className="button" type="submit">Apply</button>
