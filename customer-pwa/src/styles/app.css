@@ -3057,9 +3057,9 @@ button.home-status:disabled {
   display: grid;
   align-content: start;
   flex: 1 0 auto;
-  gap: var(--space-lg);
+  gap: 12px;
   width: min(100%, var(--max-width));
-  margin: 72px auto 0;
+  margin: 120px auto 0;
   padding: calc(40px + var(--space-sm)) var(--space-lg) var(--space-xxl);
   border-radius: var(--radius-xl) var(--radius-xl) 0 0;
   background: var(--background);
