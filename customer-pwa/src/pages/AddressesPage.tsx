@@ -174,7 +174,7 @@ export function AddressesPage() {
             <p>Are you sure you want to remove this address?</p>
             <div>
               <button type="button" disabled={deleting} onClick={() => setPendingDelete(null)}>Cancel</button>
-              <button className="address-delete-confirm" type="button" disabled={deleting} onClick={() => { void remove(pendingDelete); }}>{deleting ? <><span className="auth-button-spinner" aria-hidden="true" />Deleting…</> : <><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2m3 0-1 14H6L5 6m5 4v7m4-7v7" /></svg>Delete</>}</button>
+              <button className="address-delete-confirm" type="button" disabled={deleting} onClick={() => { void remove(pendingDelete); }}>{deleting ? <><span className="auth-button-spinner" aria-hidden="true" />Deleting…</> : <>Delete</>}</button>
             </div>
           </div>
         </div>
