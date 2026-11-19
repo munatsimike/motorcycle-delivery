@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { deleteSavedAddress, listSavedAddresses } from '../booking/addressApi';
 import { AddressAvatar } from '../booking/AddressAvatar';
 import { AddressSearchField, AddressSearchToggle } from '../booking/AddressSearchField';
+import { AddressTypeFilter, type AddressTypeChoice } from '../booking/AddressTypeFilter';
 import {
   emptyAddressList,
   filterSavedAddresses,
@@ -27,9 +28,10 @@ export function AddressesPage() {
   const [addresses, setAddresses] = useState<SavedAddress[]>([]);
   const [search, setSearch] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
+  const [addressType, setAddressType] = useState<AddressTypeChoice>('ALL');
   const [fabCompact, setFabCompact] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const matchingAddresses = filterSavedAddresses(addresses, search);
+  const matchingAddresses = filterSavedAddresses(addresses, search).filter((entry) => addressType === 'ALL' || entry.label === addressType);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [pendingDelete, setPendingDelete] = useState<SavedAddress | null>(null);
@@ -108,6 +110,7 @@ export function AddressesPage() {
       {!loading && addresses.length > 0 ? (
         <div className={searchOpen ? 'address-book-toolbar is-searching' : 'address-book-toolbar'}>
           {searchOpen ? <AddressSearchField value={search} onChange={setSearch} onDismiss={() => { setSearchOpen(false); setSearch(''); }} /> : <AddressSearchToggle expanded={searchOpen} onToggle={() => setSearchOpen(true)} />}
+          <AddressTypeFilter value={addressType} onChange={setAddressType} />
         </div>
       ) : null}
       <div className="book-scroll" ref={scrollRef}>

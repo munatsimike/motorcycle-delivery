@@ -4432,3 +4432,25 @@ html.is-page-transition .page-stage {
 .book-address-selection-card .address-avatar {
   color: #fff !important;
 }
+
+/* Address Book: restore separate information cards without changing their contents. */
+.address-book-page .address-book { row-gap: 10px; }
+.address-book-page .address-card,
+:root:not([data-theme="dark"]) .address-book-page .address-card,
+.address-book-page .address-card.is-first,
+:root:not([data-theme="dark"]) .address-book-page .address-card.is-first {
+  background: var(--surface, #fff);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: none;
+  padding: 14px 14px 10px;
+}
+/* Keep the filter alongside Search, using the Deliveries filter control styling. */
+.address-book-toolbar .address-type-filter-trigger {
+  flex: none;
+  margin-left: 0;
+  min-width: 0;
+  white-space: nowrap;
+}
+.address-book-toolbar .address-search-field { min-width: 0; }
+.address-filter-backdrop { z-index: 200; }

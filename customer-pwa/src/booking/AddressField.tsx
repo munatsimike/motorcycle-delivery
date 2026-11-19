@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { AddressAvatar } from './AddressAvatar';
 import { AddressSearchField, AddressSearchToggle } from './AddressSearchField';
+import { AddressTypeFilter, type AddressTypeChoice } from './AddressTypeFilter';
 import { filterSavedAddresses, savedAddressLabel, skipsPlacesLookup, type SavedAddress } from './savedAddress';
 import { ErrorMessage } from '../components/ErrorMessage';
 import { usePresence } from '../motion/usePresence';
@@ -43,7 +44,8 @@ export function AddressField({
   const selection = usePresence(savedOpen, 180);
   const [savedSearch, setSavedSearch] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
-  const matchingSavedAddresses = filterSavedAddresses(savedAddresses, savedSearch);
+  const [addressType, setAddressType] = useState<AddressTypeChoice>('ALL');
+  const matchingSavedAddresses = filterSavedAddresses(savedAddresses, savedSearch).filter((entry) => addressType === 'ALL' || entry.label === addressType);
 
   useEffect(() => {
     if (!savedOpen) return undefined;
@@ -177,6 +179,7 @@ export function AddressField({
           {savedAddresses.length > 0 ? (
             <div className="address-book-toolbar book-address-selection-toolbar">
               {searchOpen ? <AddressSearchField value={savedSearch} onChange={setSavedSearch} onDismiss={() => { setSearchOpen(false); setSavedSearch(''); }} /> : <AddressSearchToggle expanded={searchOpen} onToggle={() => setSearchOpen(true)} />}
+              <AddressTypeFilter value={addressType} onChange={setAddressType} />
             </div>
           ) : null}
           <div className="book-address-selection-list">
