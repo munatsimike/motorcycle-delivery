@@ -168,13 +168,13 @@ export function AddressesPage() {
         </Link>
       ) : null}
       {dialog.mounted && pendingDelete ? (
-        <div className={motionClass('profile-dialog', 'dialog', dialog.visible)} role="dialog" aria-modal="true" aria-labelledby="delete-address-title">
+        <div className={motionClass('profile-dialog', 'dialog', dialog.visible)} role="dialog" aria-modal="true" aria-labelledby="delete-address-title" onClick={(event) => { if (event.target === event.currentTarget && !deleting) setPendingDelete(null); }}>
           <div className="profile-dialog-card address-delete-dialog-card">
             <h2 id="delete-address-title">Delete address?</h2>
             <p>Are you sure you want to remove this address?</p>
             <div>
               <button type="button" disabled={deleting} onClick={() => setPendingDelete(null)}>Cancel</button>
-              <button className="address-delete-confirm" type="button" disabled={deleting} onClick={() => { void remove(pendingDelete); }}>{deleting ? <><span className="auth-button-spinner" aria-hidden="true" />Deleting…</> : <>Delete</>}</button>
+              <button className="address-delete-confirm" type="button" disabled={deleting} onClick={() => { void remove(pendingDelete); }}>{deleting ? <><span className="auth-button-spinner" aria-hidden="true" />Deleting…</> : <>Delete address</>}</button>
             </div>
           </div>
         </div>
