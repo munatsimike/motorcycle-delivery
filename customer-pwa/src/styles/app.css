@@ -4412,8 +4412,8 @@ html.is-page-transition .page-stage {
 
 /* Address Book list: comfortable side insets and white avatar initials. */
 .address-book-page .book-scroll {
-  padding-left: max(20px, env(safe-area-inset-left));
-  padding-right: max(20px, env(safe-area-inset-right));
+  padding-left: max(12px, env(safe-area-inset-left));
+  padding-right: max(12px, env(safe-area-inset-right));
 }
 .address-book-page .address-avatar,
 .book-address-selection-card .address-avatar {
