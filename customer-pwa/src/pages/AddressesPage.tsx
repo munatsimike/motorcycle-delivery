@@ -35,6 +35,7 @@ export function AddressesPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [pendingDelete, setPendingDelete] = useState<SavedAddress | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const dialog = usePresence(pendingDelete !== null, 150);
 
   useEffect(() => {
@@ -85,15 +86,20 @@ export function AddressesPage() {
   }, [loading, addresses.length]);
 
   async function remove(entry: SavedAddress) {
-    setPendingDelete(null);
+    if (deleting) return;
+    setDeleting(true);
     setError(null);
     try {
       const token = await accessToken();
       if (!token) throw new Error('Saved addresses are unavailable.');
       await deleteSavedAddress(token, entry.id);
       setAddresses((current) => withoutSavedAddress(current, entry.id));
+      setPendingDelete(null);
     } catch (caught) {
       setError(deliveryErrorMessage(caught, 'The address could not be deleted.'));
+      setPendingDelete(null);
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -163,12 +169,12 @@ export function AddressesPage() {
       ) : null}
       {dialog.mounted && pendingDelete ? (
         <div className={motionClass('profile-dialog', 'dialog', dialog.visible)} role="dialog" aria-modal="true" aria-labelledby="delete-address-title">
-          <div className="profile-dialog-card">
-            <h2 id="delete-address-title">Delete {savedAddressLabel(pendingDelete)}?</h2>
-            <p>This removes it from My addresses. Past deliveries stay unchanged.</p>
+          <div className="profile-dialog-card address-delete-dialog-card">
+            <h2 id="delete-address-title">Delete address?</h2>
+            <p>Are you sure you want to remove this address?</p>
             <div>
-              <button type="button" onClick={() => setPendingDelete(null)}>Keep address</button>
-              <button type="button" onClick={() => { void remove(pendingDelete); }}>Delete address</button>
+              <button type="button" disabled={deleting} onClick={() => setPendingDelete(null)}>Cancel</button>
+              <button className="address-delete-confirm" type="button" disabled={deleting} onClick={() => { void remove(pendingDelete); }}>{deleting ? <><span className="auth-button-spinner" aria-hidden="true" />Deleting…</> : <><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2m3 0-1 14H6L5 6m5 4v7m4-7v7" /></svg>Delete</>}</button>
             </div>
           </div>
         </div>

@@ -4512,3 +4512,9 @@ html.is-page-transition .page-stage {
 /* More/Profile: subtly enlarge values and actions; preserve secondary labels. */
 .profile-screen .profile-settings .profile-row strong { font-size: calc(var(--body) + 1px); line-height: 24px; }
 .profile-screen .profile-logout { font-size: calc(var(--body) + 1px); }
+
+/* Address Book destructive confirmation only. */
+.address-book-page .address-delete-dialog-card > div { align-items: center; gap: 12px; }
+.address-book-page .address-delete-dialog-card > div > button:first-child { padding: 12px 16px; border: 0; background: transparent; color: var(--text); font-weight: 500; }
+.address-book-page .address-delete-dialog-card > div > .address-delete-confirm { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 10px 18px; border: 0; border-radius: 999px; background: #c62828; color: #fff; font-weight: 600; }
+.address-book-page .address-delete-dialog-card > div > .address-delete-confirm:disabled { opacity: .7; }
