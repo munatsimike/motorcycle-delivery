@@ -179,7 +179,7 @@ export function AddressField({
           {savedAddresses.length > 0 ? (
             <div className="address-book-toolbar book-address-selection-toolbar">
               {searchOpen ? <AddressSearchField value={savedSearch} onChange={setSavedSearch} onDismiss={() => { setSearchOpen(false); setSavedSearch(''); }} /> : <AddressSearchToggle expanded={searchOpen} onToggle={() => setSearchOpen(true)} />}
-              <AddressTypeFilter value={addressType} onChange={setAddressType} />
+              {!searchOpen ? <AddressTypeFilter value={addressType} onChange={setAddressType} /> : null}
             </div>
           ) : null}
           <div className="book-address-selection-list">

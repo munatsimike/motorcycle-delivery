@@ -4454,3 +4454,13 @@ html.is-page-transition .page-stage {
 }
 .address-book-toolbar .address-search-field { min-width: 0; }
 .address-filter-backdrop { z-index: 200; }
+
+/* Address Book: search left, filter right; expanded search fills the toolbar. */
+.address-book-toolbar .address-search-toggle { margin-left: 0; }
+.address-book-toolbar.is-searching .address-search-field { flex: 1 1 100%; width: 100%; }
+/* Main Address Book: white canvas and slightly more compact card insets. */
+:root:not([data-theme="dark"]) .address-book-page { background: #fff; }
+.address-book-page .address-card,
+:root:not([data-theme="dark"]) .address-book-page .address-card,
+.address-book-page .address-card.is-first,
+:root:not([data-theme="dark"]) .address-book-page .address-card.is-first { padding-top: 11px; padding-bottom: 7px; }

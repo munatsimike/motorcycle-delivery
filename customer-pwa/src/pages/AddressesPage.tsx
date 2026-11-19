@@ -110,7 +110,7 @@ export function AddressesPage() {
       {!loading && addresses.length > 0 ? (
         <div className={searchOpen ? 'address-book-toolbar is-searching' : 'address-book-toolbar'}>
           {searchOpen ? <AddressSearchField value={search} onChange={setSearch} onDismiss={() => { setSearchOpen(false); setSearch(''); }} /> : <AddressSearchToggle expanded={searchOpen} onToggle={() => setSearchOpen(true)} />}
-          <AddressTypeFilter value={addressType} onChange={setAddressType} />
+          {!searchOpen ? <AddressTypeFilter value={addressType} onChange={setAddressType} /> : null}
         </div>
       ) : null}
       <div className="book-scroll" ref={scrollRef}>

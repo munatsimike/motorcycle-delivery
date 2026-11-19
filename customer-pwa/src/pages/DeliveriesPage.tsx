@@ -101,14 +101,14 @@ export function DeliveriesPage() {
           ))}
         </div>
         <div className="deliveries-tools">
-          <button type="button" className="deliveries-tool" aria-label={`Filter deliveries, ${selectedFilter.menu}`} onClick={() => setSheet('filter')}>
-            <FilterIcon />
-            <span>{selectedFilter.menu}</span>
-            <ChevronDownIcon />
-          </button>
           <button type="button" className="deliveries-tool" aria-label={`Sort deliveries, ${selectedSort.label}`} onClick={() => setSheet('sort')}>
             <SortIcon />
             <span>{selectedSort.shortLabel}</span>
+            <ChevronDownIcon />
+          </button>
+          <button type="button" className="deliveries-tool" aria-label={`Filter deliveries, ${selectedFilter.menu}`} onClick={() => setSheet('filter')}>
+            <FilterIcon />
+            <span>{selectedFilter.menu}</span>
             <ChevronDownIcon />
           </button>
         </div>
