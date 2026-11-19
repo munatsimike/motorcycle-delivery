@@ -25,13 +25,19 @@ type Draft =
   | { kind: 'exchange-rate'; zigPerUsd: string }
   | null;
 
+type SettingsTab = 'wallet' | 'pricing' | 'commission' | 'exchange';
+
+const SETTINGS_TABS = [
+  ['wallet', 'Wallet'],
+  ['pricing', 'Pricing'],
+  ['commission', 'Commission'],
+  ['exchange', 'Exchange rate'],
+] as const;
+
 export function SettingsPage() {
   const queryClient = useQueryClient();
-  const wallet = useQuery({ queryKey: ['wallet-config'], queryFn: () => adminApi.request<WalletConfig>('/admin/wallet-config') });
-  const v2Commission = useQuery({ queryKey: ['v2-commission'], queryFn: () => adminApi.request<V2CommissionRate>('/admin/v2-commission-rate') });
-  const exchangeRate = useQuery({ queryKey: ['exchange-rate'], queryFn: () => adminApi.request<ExchangeRate>('/admin/exchange-rate') });
+  const [tab, setTab] = useState<SettingsTab>('wallet');
   const [draft, setDraft] = useState<Draft>(null);
-  const [section, setSection] = useState<'express' | 'flexible'>('express');
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const save = useMutation({
@@ -69,8 +75,48 @@ export function SettingsPage() {
         <p className="eyebrow">Platform</p>
         <h1>Settings</h1>
       </div>
+      <div className="settings-tabs" role="tablist" aria-label="Settings">
+        {SETTINGS_TABS.map(([id, title]) => (
+          <button
+            key={id}
+            id={`settings-tab-${id}`}
+            className={tab === id ? 'button' : 'button-secondary'}
+            type="button"
+            role="tab"
+            aria-selected={tab === id}
+            aria-controls={`settings-panel-${id}`}
+            onClick={() => {
+              setTab(id);
+              setError(null);
+              setSuccess(null);
+            }}
+          >
+            {title}
+          </button>
+        ))}
+      </div>
       {success ? <SuccessNote>{success}</SuccessNote> : null}
       {error || save.error ? <ErrorNote>{error ?? textOf(save.error)}</ErrorNote> : null}
+      <div role="tabpanel" id={`settings-panel-${tab}`} aria-labelledby={`settings-tab-${tab}`}>
+        {tab === 'wallet' ? <WalletSettings setError={setError} setDraft={setDraft} /> : null}
+        {tab === 'pricing' ? <PricingSettings /> : null}
+        {tab === 'commission' ? <CommissionSettings setError={setError} setDraft={setDraft} /> : null}
+        {tab === 'exchange' ? <ExchangeSettings setError={setError} setDraft={setDraft} /> : null}
+      </div>
+      {draft ? (
+        <Dialog title="Save settings" busy={save.isPending} confirmLabel="Save" onClose={() => { if (!save.isPending) setDraft(null); }} onConfirm={() => save.mutate(draft)}>
+          <DraftSummary draft={draft} />
+          {save.error ? <ErrorNote>{textOf(save.error)}</ErrorNote> : null}
+        </Dialog>
+      ) : null}
+    </div>
+  );
+}
+
+function WalletSettings({ setError, setDraft }: { setError: (value: string | null) => void; setDraft: (value: Draft) => void }) {
+  const wallet = useQuery({ queryKey: ['wallet-config'], queryFn: () => adminApi.request<WalletConfig>('/admin/wallet-config') });
+  return (
+    <div className="stack">
       <section className="panel">
         <h2>Wallet configuration</h2>
         {wallet.isLoading ? <Loading label="Loading wallet configuration" /> : null}
@@ -100,6 +146,14 @@ export function SettingsPage() {
       </section>
       <WalletConfigHistory />
       <BorrowingLimitHistory />
+    </div>
+  );
+}
+
+function PricingSettings() {
+  const [section, setSection] = useState<'express' | 'flexible'>('express');
+  return (
+    <div className="stack">
       <section className="panel">
         <h2>Delivery pricing</h2>
         <div className="tabs" role="tablist" aria-label="Pricing sections">
@@ -129,6 +183,14 @@ export function SettingsPage() {
         </div>
       </section>
       <PricingHistory />
+    </div>
+  );
+}
+
+function CommissionSettings({ setError, setDraft }: { setError: (value: string | null) => void; setDraft: (value: Draft) => void }) {
+  const v2Commission = useQuery({ queryKey: ['v2-commission'], queryFn: () => adminApi.request<V2CommissionRate>('/admin/v2-commission-rate') });
+  return (
+    <div className="stack">
       <section className="panel">
         <h2>V2 commission percentage</h2>
         <p className="muted">One percentage for every Express and Flexible delivery.</p>
@@ -158,6 +220,14 @@ export function SettingsPage() {
         ) : null}
       </section>
       <V2CommissionHistory />
+    </div>
+  );
+}
+
+function ExchangeSettings({ setError, setDraft }: { setError: (value: string | null) => void; setDraft: (value: Draft) => void }) {
+  const exchangeRate = useQuery({ queryKey: ['exchange-rate'], queryFn: () => adminApi.request<ExchangeRate>('/admin/exchange-rate') });
+  return (
+    <div className="stack">
       <section className="panel">
         <h2>Exchange rate</h2>
         <p className="muted">Internal rate used to suggest a ZiG delivery price. 1 USD converts to this many ZiG. This is not a live market rate and does not change existing deliveries.</p>
@@ -181,12 +251,6 @@ export function SettingsPage() {
         ) : null}
       </section>
       <ExchangeRateHistory />
-      {draft ? (
-        <Dialog title="Save settings" busy={save.isPending} confirmLabel="Save" onClose={() => { if (!save.isPending) setDraft(null); }} onConfirm={() => save.mutate(draft)}>
-          <DraftSummary draft={draft} />
-          {save.error ? <ErrorNote>{textOf(save.error)}</ErrorNote> : null}
-        </Dialog>
-      ) : null}
     </div>
   );
 }

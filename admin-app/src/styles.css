@@ -193,6 +193,15 @@ th { font-size: 0.75rem; letter-spacing: 0.04em; text-transform: uppercase; colo
 
 [hidden] { display: none !important; }
 .tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+.settings-tabs {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+.settings-tabs .button,
+.settings-tabs .button-secondary { flex: 0 0 auto; }
 .editor-card { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); }
 .editor-card h4 { margin: 0; }
 .editor-card fieldset { border: 0; margin: 0; padding: 0; display: grid; gap: 8px; }

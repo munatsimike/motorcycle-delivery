@@ -127,6 +127,7 @@ afterEach(() => {
 describe('admin wallet settings', () => {
   it('keeps the welcome bonus and platform fee when reviewing the default negative wallet limit', async () => {
     await renderReady();
+    expect(screen.getByRole('tab', { name: 'Wallet' }).getAttribute('aria-selected')).toBe('true');
     expect(screen.getByLabelText('Default negative wallet limit')).toBeTruthy();
     expect(screen.queryByLabelText('Default borrowing limit')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Review wallet settings' }));
@@ -139,20 +140,35 @@ describe('admin wallet settings', () => {
       platformFee: '0.00',
     }]));
   });
+
+  it('loads another settings section only after its tab is opened', async () => {
+    await renderReady();
+    expect(screen.queryByRole('heading', { name: 'V2 commission percentage' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Exchange rate' })).toBeNull();
+    expect(request.mock.calls.some(([path]) => path === '/admin/v2-commission-rate' || path === '/admin/exchange-rate')).toBe(false);
+    fireEvent.click(screen.getByRole('tab', { name: 'Commission' }));
+    expect(await screen.findByRole('heading', { name: 'V2 commission percentage' })).toBeTruthy();
+    expect(screen.queryByLabelText('Default negative wallet limit')).toBeNull();
+    await waitFor(() => expect(request).toHaveBeenCalledWith('/admin/v2-commission-rate'));
+    expect(screen.getByRole('tab', { name: 'Commission' }).getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByRole('heading', { name: 'V2 commission history' })).toBeTruthy();
+  });
 });
 
 describe('admin pricing settings', () => {
   it('shows Express and Flexible pricing without the legacy tariff or commission policy', async () => {
-    await renderReady();
+    await renderReady('pricing');
     expect(screen.queryByRole('tab', { name: 'V1 Legacy' })).toBeNull();
     expect(screen.queryByRole('heading', { name: 'Commission policy' })).toBeNull();
     expect(screen.getByRole('tab', { name: 'Express' })).toBeTruthy();
     expect(screen.getByRole('tab', { name: 'Flexible' })).toBeTruthy();
-    expect(screen.getByRole('heading', { name: 'V2 commission percentage' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'V2 commission percentage' })).toBeNull();
+    fireEvent.click(screen.getByRole('tab', { name: 'Commission' }));
+    expect(await screen.findByRole('heading', { name: 'V2 commission percentage' })).toBeTruthy();
   });
 
   it('keeps Express and Flexible drafts apart', async () => {
-    await renderReady();
+    await renderReady('pricing');
     fireEvent.click(screen.getByRole('tab', { name: 'Express' }));
     const express = await screen.findByRole('tabpanel', { name: 'Express' });
     expect(express.textContent).toContain('Express pricing has not been published');
@@ -169,7 +185,7 @@ describe('admin pricing settings', () => {
 
   it('shows an empty class without invented prices', async () => {
     world.expressError = new ApiError('Express pricing is not available', 404);
-    await renderReady();
+    await renderReady('pricing');
     fireEvent.click(screen.getByRole('tab', { name: 'Express' }));
     const panel = await screen.findByRole('tabpanel', { name: 'Express' });
     expect(panel.textContent).toContain('No price is filled in for you.');
@@ -179,7 +195,7 @@ describe('admin pricing settings', () => {
   });
 
   it('shows only the money fields for the selected model', async () => {
-    await renderReady();
+    await renderReady('pricing');
     fireEvent.click(screen.getByRole('tab', { name: 'Express' }));
     const panel = await screen.findByRole('tabpanel', { name: 'Express' });
     const model = within(panel).getByLabelText('Pricing model');
@@ -215,7 +231,7 @@ describe('admin pricing settings', () => {
       minimumTripMetres: 100,
       maximumTripMetres: 100000,
     });
-    await renderReady();
+    await renderReady('pricing');
     fireEvent.click(screen.getByRole('tab', { name: 'Express' }));
     const panel = await screen.findByRole('tabpanel', { name: 'Express' });
     expect((within(panel).getByLabelText('Base price (USD)') as HTMLInputElement).value).toBe('5.00');
@@ -242,7 +258,7 @@ describe('admin pricing settings', () => {
   });
 
   it('edits distance tiers without repairing an invalid order', async () => {
-    await renderReady();
+    await renderReady('pricing');
     fireEvent.click(screen.getByRole('tab', { name: 'Flexible' }));
     const panel = await screen.findByRole('tabpanel', { name: 'Flexible' });
     fireEvent.change(within(panel).getByLabelText('Pricing model'), { target: { value: 'DISTANCE_TIERS' } });
@@ -286,7 +302,7 @@ describe('admin pricing settings', () => {
   });
 
   it('warns about overlapping windows and explains midnight windows', async () => {
-    await renderReady();
+    await renderReady('pricing');
     fireEvent.click(screen.getByRole('tab', { name: 'Express' }));
     const panel = await screen.findByRole('tabpanel', { name: 'Express' });
     selectFixed(panel);
@@ -304,7 +320,7 @@ describe('admin pricing settings', () => {
 
   it('publishes the confirmed Express request and refreshes the tariff', async () => {
     world.express = classTariff('EXPRESS', 3);
-    await renderReady();
+    await renderReady('pricing');
     fireEvent.click(screen.getByRole('tab', { name: 'Express' }));
     const panel = await screen.findByRole('tabpanel', { name: 'Express' });
     selectFixed(panel);
@@ -349,7 +365,7 @@ describe('admin pricing settings', () => {
 
   it('keeps the entered tariff when publication fails', async () => {
     world.failPublish = 'Suggested price is negative';
-    await renderReady();
+    await renderReady('pricing');
     fireEvent.click(screen.getByRole('tab', { name: 'Express' }));
     const panel = await screen.findByRole('tabpanel', { name: 'Express' });
     selectFixed(panel);
@@ -370,7 +386,7 @@ describe('admin pricing settings', () => {
       release = resolve;
     });
     world.express = classTariff('EXPRESS', 2);
-    await renderReady();
+    await renderReady('pricing');
     fireEvent.click(screen.getByRole('tab', { name: 'Express' }));
     const panel = await screen.findByRole('tabpanel', { name: 'Express' });
     selectFixed(panel);
@@ -391,7 +407,7 @@ describe('admin pricing settings', () => {
     world.express = classTariff('EXPRESS', 1, {
       windows: [windowRow('window-1', true)],
     });
-    await renderReady();
+    await renderReady('pricing');
     fireEvent.click(screen.getByRole('tab', { name: 'Express' }));
     const panel = await screen.findByRole('tabpanel', { name: 'Express' });
     expect(panel.querySelector('[data-window-id="window-1"]')).toBeTruthy();
@@ -423,7 +439,7 @@ describe('admin pricing settings', () => {
       data: [{ id: 'audit-2', actorId: 'admin-2', previousVersion: 1, nextVersion: 2, createdAt }],
       pagination: { page: 2, limit: 20, total: 21, totalPages: 2 },
     };
-    await renderReady();
+    await renderReady('pricing');
     expect(screen.getByText('admin-1')).toBeTruthy();
     expect(screen.getByText('None')).toBeTruthy();
     expect(screen.getByText(when(createdAt))).toBeTruthy();
@@ -436,7 +452,7 @@ describe('admin pricing settings', () => {
   it('shows authorization and API errors with retry', async () => {
     world.expressError = new ApiError('Admin access is required', 403);
     world.auditError = new ApiError('The request could not be completed.', 500);
-    await renderReady();
+    await renderReady('pricing');
     expect(screen.getByText('The request could not be completed.')).toBeTruthy();
     world.auditError = null;
     fireEvent.click(within(screen.getByRole('heading', { name: 'Pricing history' }).closest('section') as HTMLElement).getByRole('button', { name: 'Try again' }));
@@ -449,7 +465,7 @@ describe('admin pricing settings', () => {
   });
 
   it('shows an unpublished V2 percentage separately from a published 0%', async () => {
-    await renderReady();
+    await renderReady('commission');
     const section = v2Section();
     expect(section.textContent).toContain('No V2 commission percentage has been published.');
     expect(within(section).queryByText(/Version/)).toBeNull();
@@ -462,7 +478,7 @@ describe('admin pricing settings', () => {
       createdAt: '2026-10-24T07:00:00.000Z',
     };
     cleanup();
-    await renderReady();
+    await renderReady('commission');
     const published = v2Section();
     expect(published.textContent).toContain('0% · Version 3');
     expect(published.textContent).not.toContain('No V2 commission percentage has been published.');
@@ -470,7 +486,7 @@ describe('admin pricing settings', () => {
   });
 
   it('asks for confirmation before publishing 100% and rejects an invalid percentage', async () => {
-    await renderReady();
+    await renderReady('commission');
     const section = v2Section();
     fireEvent.change(within(section).getByLabelText('Percentage'), { target: { value: '101' } });
     fireEvent.click(within(section).getByRole('button', { name: 'Review V2 commission' }));
@@ -503,7 +519,7 @@ describe('admin pricing settings', () => {
       }],
       pagination: { page: 1, limit: 20, total: 1, totalPages: 1 },
     };
-    await renderReady();
+    await renderReady('commission');
     const history = screen.getByRole('heading', { name: 'V2 commission history' }).closest('section') as HTMLElement;
     expect(history.textContent).toContain('Ada Admin');
     expect(history.textContent).not.toContain('admin-9');
@@ -512,7 +528,7 @@ describe('admin pricing settings', () => {
   });
 
   it('asks before publishing a new internal exchange rate', async () => {
-    await renderReady();
+    await renderReady('exchange');
     const section = screen.getByRole('heading', { name: 'Exchange rate' }).closest('section') as HTMLElement;
     expect(section.textContent).toContain('1 USD = 33.0000 ZiG');
     fireEvent.change(within(section).getByLabelText('ZiG per 1 USD'), { target: { value: '34.5' } });
@@ -527,7 +543,7 @@ function v2Section() {
   return screen.getByRole('heading', { name: 'V2 commission percentage' }).closest('section') as HTMLElement;
 }
 
-async function renderReady() {
+async function renderReady(tab: 'wallet' | 'pricing' | 'commission' | 'exchange' = 'wallet') {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -538,8 +554,24 @@ async function renderReady() {
       </MemoryRouter>
     </QueryClientProvider>,
   );
-  await screen.findByRole('heading', { name: 'Wallet configuration' });
-  await screen.findByRole('tab', { name: 'Express' });
+  await screen.findByRole('heading', { name: 'Settings' });
+  const tabName = tab === 'wallet' ? 'Wallet' : tab === 'pricing' ? 'Pricing' : tab === 'commission' ? 'Commission' : 'Exchange rate';
+  if (tab !== 'wallet') {
+    fireEvent.click(screen.getByRole('tab', { name: tabName }));
+  }
+  if (tab === 'wallet') {
+    await screen.findByRole('heading', { name: 'Wallet configuration' });
+  }
+  if (tab === 'pricing') {
+    await screen.findByRole('tab', { name: 'Express' });
+    await waitFor(() => expect(screen.queryByText('Loading pricing history')).toBeNull());
+  }
+  if (tab === 'commission') {
+    await screen.findByLabelText('Percentage');
+  }
+  if (tab === 'exchange') {
+    await screen.findByLabelText('ZiG per 1 USD');
+  }
 }
 
 function selectFixed(panel: HTMLElement) {
