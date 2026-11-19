@@ -535,6 +535,7 @@ it('shows the rider point on each assigned or collecting delivery for that custo
   const session = await prisma.refreshSession.create({
     data: {
       userId: hired.rider.userId,
+      appRole: UserRole.RIDER,
       familyId: randomUUID(),
       tokenHash: randomUUID().replaceAll('-', '') + randomUUID().replaceAll('-', ''),
       expiresAt: new Date(clock.getTime() + 3_600_000),

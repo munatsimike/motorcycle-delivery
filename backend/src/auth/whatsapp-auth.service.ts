@@ -347,7 +347,7 @@ export class WhatsAppAuthService {
           },
         });
         const owner = await tx.user.findUniqueOrThrow({ where: { id: userId }, include: accountInclude });
-        const tokens = await this.sessions.issue(tx, owner.id, owner.role, now);
+        const tokens = await this.sessions.issue(tx, owner.id, owner.role, now, { app: UserRole.CUSTOMER });
         return { kind: 'created' as const, tokens };
       });
       if (outcome.kind === 'created') {
@@ -562,7 +562,7 @@ export class WhatsAppAuthService {
         },
       });
     }
-    return this.sessions.issue(tx, user.id, user.role, now);
+    return this.sessions.issue(tx, user.id, user.role, now, { app: UserRole.CUSTOMER });
   }
 
   private async finishRiderVerification(purpose: AuthPurpose, body: unknown): Promise<RiderVerificationResult> {
@@ -616,7 +616,7 @@ export class WhatsAppAuthService {
             },
           });
         }
-        const tokens = await this.sessions.issue(tx, user.id, user.role, now, { riderMembership: true });
+        const tokens = await this.sessions.issue(tx, user.id, user.role, now, { app: UserRole.RIDER });
         return { kind: 'session' as const, tokens };
       }
       return {
@@ -702,7 +702,7 @@ export class WhatsAppAuthService {
       },
     });
     await createEmptyWallet(tx, riderProfile.id, now);
-    return this.sessions.issue(tx, userId, role, now, { riderMembership: true });
+    return this.sessions.issue(tx, userId, role, now, { app: UserRole.RIDER });
   }
 
   private assertConfigured(): void {
@@ -858,7 +858,9 @@ export class WhatsAppAuthService {
             phoneVerifiedAt: now,
           },
         });
-        return this.sessions.issue(tx, user.id, user.role, now);
+        return this.sessions.issue(tx, user.id, user.role, now, {
+          app: role === AuthSubjectRole.RIDER ? UserRole.RIDER : UserRole.CUSTOMER,
+        });
       });
     } catch (error) {
       if (error instanceof UnauthorizedException || error instanceof ConflictException || error instanceof ServiceUnavailableException) {

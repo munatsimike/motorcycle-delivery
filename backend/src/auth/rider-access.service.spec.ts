@@ -116,6 +116,7 @@ describe('RiderAccessService', () => {
 type SessionRow = {
   id: string;
   userId: string;
+  appRole: UserRole;
   revokedAt: Date | null;
   replacedBySessionId: string | null;
   expiresAt: Date;
@@ -135,6 +136,7 @@ function context() {
   const session: SessionRow = {
     id: 'session-1',
     userId: 'user-1',
+    appRole: UserRole.RIDER,
     revokedAt: null,
     replacedBySessionId: null,
     expiresAt: new Date(NOW.getTime() + 60_000),

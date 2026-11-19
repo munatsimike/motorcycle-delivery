@@ -5,7 +5,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { AccessTokenService } from './access-token.service.js';
 import { REFRESH_ABSOLUTE_MS, REFRESH_INACTIVITY_MS, REFRESH_REUSE_GRACE_MS } from './auth.constants.js';
 import { hasAccountCredential } from './account-credential.js';
-import { rejectClosedRiderSession } from './rider-session-policy.js';
+import { rejectClosedSession } from './rider-session-policy.js';
 import { hashSecret, newRefreshToken } from './token-hash.js';
 
 export type AuthTokens = {
@@ -36,21 +36,35 @@ export class SessionService {
     userId: string,
     role: UserRole,
     now = new Date(),
-    options?: { riderMembership?: boolean },
+    options?: { app?: UserRole },
   ): Promise<AuthTokens> {
-    if (role !== UserRole.RIDER && options?.riderMembership !== true) {
-      return this.createSession(writer, userId, role, now);
+    const app = options?.app ?? role;
+    if (app === UserRole.ADMIN) {
+      return this.createSession(writer, userId, role, UserRole.ADMIN, now);
     }
-    return withRiderIssueLock(userId, async () => {
+    return withAppIssueLock(userId, async () => {
       await writer.$queryRaw`SELECT "id" FROM "users" WHERE "id" = CAST(${userId} AS uuid) FOR UPDATE`;
-      await this.revokeAll(userId, writer);
-      await writer.$executeRaw`
-        DELETE FROM "rider_locations" AS l
-        USING "rider_profiles" AS p
-        WHERE l."rider_profile_id" = p."id"
-          AND p."user_id" = CAST(${userId} AS uuid)
-      `;
-      return this.createSession(writer, userId, role, now);
+      await this.revokeApp(userId, app, writer);
+      if (app === UserRole.RIDER) {
+        // Drop the previous phone's live point. Leave profiles, deliveries, and
+        // availability alone. Invalidate every current push token so the previous
+        // phone stops receiving offers; the new phone reactivates only its own token.
+        await writer.$executeRaw`
+          DELETE FROM "rider_locations" AS l
+          USING "rider_profiles" AS p
+          WHERE l."rider_profile_id" = p."id"
+            AND p."user_id" = CAST(${userId} AS uuid)
+        `;
+        await writer.$executeRaw`
+          UPDATE "rider_push_devices" AS d
+          SET "invalidated_at" = ${now}
+          FROM "rider_profiles" AS p
+          WHERE d."rider_profile_id" = p."id"
+            AND p."user_id" = CAST(${userId} AS uuid)
+            AND d."invalidated_at" IS NULL
+        `;
+      }
+      return this.createSession(writer, userId, role, app, now);
     });
   }
 
@@ -73,14 +87,21 @@ export class SessionService {
             data: { revokedAt: now },
           });
         }
-        return rejectClosedRiderSession(tx, current);
+        return rejectClosedSession(tx, current);
       }
 
       const user = await tx.user.findUnique({ where: { id: current.userId } });
       const expired = current.expiresAt <= now || current.familyExpiresAt <= now;
-      if (!user || !sessionAllowed(user) || expired) {
+      if (!user || !sessionAllowed(user)) {
         await tx.refreshSession.updateMany({
           where: { userId: current.userId, revokedAt: null },
+          data: { revokedAt: now },
+        });
+        throw new UnauthorizedException('Authentication failed');
+      }
+      if (expired) {
+        await tx.refreshSession.updateMany({
+          where: { familyId: current.familyId, revokedAt: null },
           data: { revokedAt: now },
         });
         throw new UnauthorizedException('Authentication failed');
@@ -96,6 +117,7 @@ export class SessionService {
 
       const created = await this.insertSession(tx, {
         userId: current.userId,
+        appRole: current.appRole,
         familyId: current.familyId,
         familyExpiresAt: familyExpiry(user.role, now, current.familyExpiresAt),
         now,
@@ -154,6 +176,13 @@ export class SessionService {
     });
   }
 
+  private async revokeApp(userId: string, app: UserRole, writer: Pick<SessionWriter, 'refreshSession'>): Promise<void> {
+    await writer.refreshSession.updateMany({
+      where: { userId, appRole: app, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+  }
+
   private async assertCurrent(sessionId: string, userId: string, now: Date): Promise<void> {
     const session = await this.prisma.refreshSession.findUnique({ where: { id: sessionId } });
     if (
@@ -164,13 +193,20 @@ export class SessionService {
       || session.expiresAt <= now
       || session.familyExpiresAt <= now
     ) {
-      return rejectClosedRiderSession(this.prisma, session?.userId === userId ? session : null);
+      return rejectClosedSession(this.prisma, session?.userId === userId ? session : null);
     }
   }
 
-  private async createSession(writer: SessionWriter, userId: string, role: UserRole, now: Date): Promise<AuthTokens> {
+  private async createSession(
+    writer: SessionWriter,
+    userId: string,
+    role: UserRole,
+    app: UserRole,
+    now: Date,
+  ): Promise<AuthTokens> {
     const created = await this.insertSession(writer, {
       userId,
+      appRole: app,
       familyId: randomUUID(),
       familyExpiresAt: familyExpiry(role, now),
       now,
@@ -180,13 +216,14 @@ export class SessionService {
 
   private async insertSession(
     writer: SessionWriter,
-    input: { userId: string; familyId: string; familyExpiresAt: Date; now: Date },
+    input: { userId: string; appRole: UserRole; familyId: string; familyExpiresAt: Date; now: Date },
   ): Promise<{ id: string; rawToken: string; expiresAt: Date }> {
     const rawToken = newRefreshToken();
     const expiresAt = input.familyExpiresAt;
     const session = await writer.refreshSession.create({
       data: {
         userId: input.userId,
+        appRole: input.appRole,
         familyId: input.familyId,
         tokenHash: hashSecret(rawToken),
         expiresAt,
@@ -219,15 +256,15 @@ function familyExpiry(role: UserRole, now: Date, currentFamilyExpiresAt?: Date):
   return new Date(now.getTime() + REFRESH_INACTIVITY_MS);
 }
 
-const riderIssueLocks = new Map<string, Promise<void>>();
+const appIssueLocks = new Map<string, Promise<void>>();
 
-function withRiderIssueLock<T>(userId: string, work: () => Promise<T>): Promise<T> {
-  const previous = (riderIssueLocks.get(userId) ?? Promise.resolve()).catch(() => undefined);
+function withAppIssueLock<T>(userId: string, work: () => Promise<T>): Promise<T> {
+  const previous = (appIssueLocks.get(userId) ?? Promise.resolve()).catch(() => undefined);
   let release: () => void = () => undefined;
   const current = new Promise<void>((resolve) => {
     release = resolve;
   });
-  riderIssueLocks.set(userId, previous.then(() => current));
+  appIssueLocks.set(userId, previous.then(() => current));
   return previous.then(async () => {
     try {
       return await work();

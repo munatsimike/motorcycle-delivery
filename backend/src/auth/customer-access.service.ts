@@ -3,6 +3,7 @@ import { AccountStatus, UserRole } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { hasAccountCredential } from './account-credential.js';
 import { AccessTokenService, readBearerToken } from './access-token.service.js';
+import { rejectClosedSession } from './rider-session-policy.js';
 
 export type CustomerSession = {
   userId: string;
@@ -52,7 +53,10 @@ export class CustomerAccessService {
       || session.replacedBySessionId
       || session.expiresAt <= now
     ) {
-      throw new UnauthorizedException('Authentication failed');
+      return rejectClosedSession(this.prisma, session?.userId === claims.sub ? session : null);
+    }
+    if (session.appRole !== UserRole.CUSTOMER) {
+      throw new ForbiddenException('Customer access is required');
     }
 
     const user = await this.prisma.user.findUnique({

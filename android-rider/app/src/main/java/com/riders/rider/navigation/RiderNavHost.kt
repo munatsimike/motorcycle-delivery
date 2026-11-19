@@ -7,13 +7,23 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.riders.rider.core.design.RiderTransition
+import com.riders.rider.core.design.RidersDialog
+import com.riders.rider.core.design.RidersDialogActions
+import com.riders.rider.core.design.RidersDialogBody
+import com.riders.rider.core.design.RidersDialogTextButton
+import com.riders.rider.core.design.RidersDialogTitle
 import com.riders.rider.core.design.rememberRidersMotion
+import com.riders.rider.feature.auth.domain.DeviceReplacementNotice
+import com.riders.rider.feature.auth.domain.showsSignedOutDialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.riders.rider.feature.offers.notification.rememberOfferInbox
 import com.riders.rider.feature.auth.presentation.AccountScreen
@@ -51,6 +61,7 @@ fun RiderNavHost(signedIn: Boolean, notice: String? = null) {
 @Composable
 private fun RiderGraph(signedIn: Boolean, notice: String?) {
     val controller = rememberNavController()
+    var showSignedOut by remember(notice) { mutableStateOf(showsSignedOutDialog(notice)) }
     val motion = rememberRidersMotion()
     val deliveryMs = motion.millis(RiderTransition.DeliveryForward)
     if (signedIn) {
@@ -217,6 +228,23 @@ private fun RiderGraph(signedIn: Boolean, notice: String?) {
                 onBack = { controller.popBackStack() },
                 onFinished = { controller.popBackStack(RIDER_SHELL, inclusive = false) },
             )
+        }
+    }
+    if (!signedIn) {
+        SignedOutDialog(visible = showSignedOut, onDismiss = {
+            showSignedOut = false
+            DeviceReplacementNotice.clear()
+        })
+    }
+}
+
+@Composable
+private fun SignedOutDialog(visible: Boolean, onDismiss: () -> Unit) {
+    RidersDialog(visible = visible, onDismiss = onDismiss) {
+        RidersDialogTitle("Signed out")
+        RidersDialogBody(DeviceReplacementNotice.MESSAGE)
+        RidersDialogActions {
+            RidersDialogTextButton(label = "OK", onClick = onDismiss)
         }
     }
 }

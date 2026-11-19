@@ -18,6 +18,7 @@ import {
 } from './contracts';
 import { clearRegistrationProof } from './proof';
 import { detachCustomerPush } from '../pwa/pushApi';
+import { rememberReplacementSignOut } from './replacementSignOut';
 import {
   blockRefreshToken,
   browserRefreshLock,
@@ -92,6 +93,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       } catch (error: unknown) {
         if (!active) return;
         if (isSessionRejection(error) || isRefreshTransportFailure(error)) {
+          rememberReplacementSignOut(error);
           const kept = await settleRejectedRefresh(stored.refreshToken);
           if (!active) return;
           adopt(kept, kept ? 'signed-in' : 'signed-out');
@@ -136,6 +138,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         return next.accessToken;
       } catch (error) {
         if (!isSessionRejection(error) && !isRefreshTransportFailure(error)) return null;
+        rememberReplacementSignOut(error);
         const kept = await settleRejectedRefresh(current.refreshToken);
         adopt(kept, kept ? 'signed-in' : 'signed-out');
         return kept?.accessToken ?? null;
@@ -201,6 +204,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       return next.accessToken;
     } catch (error) {
       if (!isSessionRejection(error) && !isRefreshTransportFailure(error)) throw error;
+      rememberReplacementSignOut(error);
       const kept = await settleRejectedRefresh(current.refreshToken);
       adopt(kept, kept ? 'signed-in' : 'signed-out');
       return kept?.accessToken ?? null;

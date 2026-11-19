@@ -8,6 +8,8 @@
 //   delivery_assignments_one_open_offer_per_rider_idx
 //   the named *_chk constraints
 //   refresh_sessions_one_active_per_family_idx
+//   refresh_sessions_one_active_per_app_idx
+//   refresh_sessions_prepare_insert()
 //   users_account_credential_chk
 //   rider_profiles_licence_verification_chk
 //   rider_profiles_availability_requires_approval_chk
@@ -872,6 +874,10 @@ model RefreshSession {
   id                  String    @id @default(uuid(7)) @db.Uuid
   userId              String    @map("user_id") @db.Uuid
   familyId            String    @map("family_id") @db.Uuid
+  // Which app issued this session. Customer and rider each keep one active
+  // session. Admin sessions are not limited by that rule. The partial unique
+  // index refresh_sessions_one_active_per_app_idx is SQL-only.
+  appRole             UserRole  @map("app_role")
   tokenHash           String    @unique @map("token_hash") @db.Char(64)
   expiresAt           DateTime  @map("expires_at") @db.Timestamptz(6)
   familyExpiresAt     DateTime  @map("family_expires_at") @db.Timestamptz(6)

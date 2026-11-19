@@ -84,6 +84,7 @@ import com.riders.rider.core.design.RidersBrandMark
 import com.riders.rider.core.design.PhoneWithFlag
 import com.riders.rider.core.design.ZimbabweFlag
 import com.riders.rider.feature.auth.domain.OTP_BOX_COUNT
+import com.riders.rider.feature.auth.domain.showsSignedOutDialog
 import com.riders.rider.feature.auth.domain.fitOtpDigits
 import com.riders.rider.feature.auth.domain.isVerificationCode
 import com.riders.rider.feature.auth.domain.looksLikeDutchTestNumber
@@ -202,7 +203,7 @@ fun SignInScreen(
         phone = phone,
         onPhone = { phone = it },
         loading = ui.loading,
-        error = ui.error ?: notice,
+        error = ui.error ?: notice?.takeUnless { showsSignedOutDialog(it) },
         codeSent = ui.completedPhone != null,
         onSubmit = { model.startWhatsAppLogin(riderPhoneEntry(phone, allowDutchTestNumbers = BuildConfig.DEBUG)) },
         onCreateAccount = onCreateAccount,

@@ -37,8 +37,8 @@ describe('CustomerAccessService', () => {
       { id: 'user-b', role: UserRole.CUSTOMER, accountStatus: AccountStatus.ACTIVE, phoneVerifiedAt: NOW, customerAccount: { id: 'account-b' } },
     ];
     const sessions = [
-      { id: 'session-a', userId: 'user-a', revokedAt: null, replacedBySessionId: null, expiresAt: new Date(NOW.getTime() + 60_000) },
-      { id: 'session-b', userId: 'user-b', revokedAt: null, replacedBySessionId: null, expiresAt: new Date(NOW.getTime() + 60_000) },
+      { id: 'session-a', userId: 'user-a', appRole: UserRole.CUSTOMER, revokedAt: null, replacedBySessionId: null, expiresAt: new Date(NOW.getTime() + 60_000) },
+      { id: 'session-b', userId: 'user-b', appRole: UserRole.CUSTOMER, revokedAt: null, replacedBySessionId: null, expiresAt: new Date(NOW.getTime() + 60_000) },
     ];
     const db = {
       refreshSession: {
@@ -81,6 +81,7 @@ function context(role: UserRole) {
   const session = {
     id: 'session-1',
     userId: 'user-1',
+    appRole: UserRole.CUSTOMER,
     revokedAt: null,
     replacedBySessionId: null,
     expiresAt: new Date(NOW.getTime() + 60_000),

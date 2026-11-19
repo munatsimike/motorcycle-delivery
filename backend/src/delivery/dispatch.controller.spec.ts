@@ -99,10 +99,11 @@ function http(request: object): ExecutionContext {
   return { switchToHttp: () => ({ getRequest: () => request }) } as ExecutionContext;
 }
 
-function session(now: Date) {
+function session(now: Date, appRole: UserRole) {
   return {
     id: 'session-1',
     userId: 'user-1',
+    appRole,
     revokedAt: null,
     replacedBySessionId: null,
     expiresAt: new Date(now.getTime() + 60_000),
@@ -111,7 +112,7 @@ function session(now: Date) {
 
 function riderAccess() {
   const now = new Date();
-  const current = session(now);
+  const current = session(now, UserRole.RIDER);
   const user = {
     id: 'user-1',
     role: UserRole.RIDER,
@@ -135,7 +136,7 @@ function riderAccess() {
 
 function customerAccess() {
   const now = new Date();
-  const current = session(now);
+  const current = session(now, UserRole.CUSTOMER);
   const user = {
     id: 'user-1',
     role: UserRole.CUSTOMER,

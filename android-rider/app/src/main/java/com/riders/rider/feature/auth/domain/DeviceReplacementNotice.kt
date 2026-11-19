@@ -21,4 +21,8 @@ fun signedOutStart(notice: String?): String {
     return if (notice.isNullOrBlank()) "welcome" else "sign-in"
 }
 
+fun showsSignedOutDialog(notice: String?): Boolean {
+    return notice == DeviceReplacementNotice.MESSAGE
+}
+
 fun resumedAssignmentId(assignmentIds: List<String>): String? = assignmentIds.firstOrNull()

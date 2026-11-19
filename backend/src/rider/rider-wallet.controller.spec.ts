@@ -85,6 +85,7 @@ function access() {
   const session = {
     id: 'session-1',
     userId: 'user-1',
+    appRole: UserRole.RIDER,
     revokedAt: null,
     replacedBySessionId: null,
     expiresAt: new Date(now.getTime() + 60_000),

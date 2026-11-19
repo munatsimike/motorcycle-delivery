@@ -12,6 +12,7 @@ import com.riders.rider.feature.auth.domain.DEBUG_REGISTRATION_FULL_NAME
 import com.riders.rider.feature.auth.domain.DeviceReplacementNotice
 import com.riders.rider.feature.auth.domain.appEntry
 import com.riders.rider.feature.auth.domain.resumedAssignmentId
+import com.riders.rider.feature.auth.domain.showsSignedOutDialog
 import com.riders.rider.feature.auth.domain.signedOutStart
 import com.riders.rider.feature.availability.domain.LocationCommand
 import com.riders.rider.feature.availability.domain.commandAfterUploadFailure
@@ -147,6 +148,9 @@ class RiderDomainTest {
         assertEquals(LocationCommand.Stop, commandAfterUploadFailure(error))
         assertEquals(DashboardFailure.Authentication, dashboardFailure(error))
         assertEquals("sign-in", signedOutStart(error.text()))
+        assertTrue(showsSignedOutDialog(error.text()))
+        assertFalse(showsSignedOutDialog("Your session has ended. Sign in again."))
+        assertFalse(showsSignedOutDialog("Network request failed. Check your connection and try again."))
         assertFalse(shouldPollOffers(false))
         assertFalse(error.leavesAcceptUnresolved())
         assertEquals("delivery-1", resumedAssignmentId(listOf("delivery-1")))

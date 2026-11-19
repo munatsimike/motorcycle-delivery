@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { beginPageTransition, samePageLink } from '../motion/pageTransition';
 import { OfflineNotice } from '../components/OfflineNotice';
@@ -20,6 +20,7 @@ import { useSession } from '../auth/sessionContext';
 import { clearReturnPath, readReturnPath, rememberReturnPath } from '../auth/returnPath';
 import { signedOutDestination, visibleTree } from './navigation';
 import { Shell } from './Shell';
+import { clearReplacementSignOut, replacementSignOutPending, subscribeReplacementSignOut } from '../auth/replacementSignOut';
 
 export function App() {
   const { status } = useSession();
@@ -32,6 +33,7 @@ export function App() {
       <UpdateNotice />
       <CustomerPush />
       {visibleTree(status) === 'session-check' ? <SessionCheck /> : status === 'signed-in' ? <SignedInRoutes /> : <SignedOutRoutes />}
+      {status === 'signed-out' ? <ReplacementSignOutDialog /> : null}
     </>
   );
 }
@@ -60,6 +62,22 @@ function PageTransitionLinks() {
     return () => document.removeEventListener('click', onClick, true);
   }, [navigate]);
   return null;
+}
+
+function ReplacementSignOutDialog() {
+  const open = useSyncExternalStore(subscribeReplacementSignOut, replacementSignOutPending, () => false);
+  if (!open) return null;
+  return (
+    <div className="confirm-dialog-backdrop">
+      <div className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="signed-out-title" aria-describedby="signed-out-copy">
+        <h2 id="signed-out-title">Signed out</h2>
+        <p id="signed-out-copy">Your account was signed in on another device. Please sign in again to continue.</p>
+        <div className="confirm-dialog-actions">
+          <button type="button" onClick={clearReplacementSignOut}>OK</button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function SessionCheck() {

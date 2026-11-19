@@ -981,6 +981,7 @@ async function seed(): Promise<void> {
         refreshSessions: {
           create: {
             id: rider.sessionId,
+            appRole: 'RIDER',
             familyId: rider.familyId,
             tokenHash: rider.sessionId.replaceAll('-', '').padEnd(64, 'a'),
             expiresAt: later,
@@ -1002,6 +1003,7 @@ async function seed(): Promise<void> {
       refreshSessions: {
         create: {
           id: SESSION_C,
+          appRole: 'CUSTOMER',
           familyId: FAMILY_C,
           tokenHash: SESSION_C.replaceAll('-', '').padEnd(64, 'c'),
           expiresAt: later,

@@ -5,6 +5,7 @@ import { deleteProfilePhoto, loadCustomerAccount, loadProfilePhoto, uploadProfil
 import { customerAvatarColors, customerPhotoFileIssue, profileAvatarMark, profileRows } from '../account/profile';
 import { clearStoredProfilePhoto, readStoredProfile, storeProfileAccount, storeProfilePhoto } from '../account/profileLoad';
 import { isSessionRejection, type CustomerAccount } from '../auth/contracts';
+import { isReplacementSignOut } from '../auth/replacementSignOut';
 import { rememberReturnPath } from '../auth/returnPath';
 import { useSession } from '../auth/sessionContext';
 import { ErrorMessage } from '../components/ErrorMessage';
@@ -81,7 +82,10 @@ export function ProfilePage() {
         if (isSessionRejection(caught)) {
           rememberReturnPath('/more');
           await signOut();
-          navigate('/sign-in', { replace: true, state: { from: '/more', notice: 'Your session ended. Sign in again.' } });
+          navigate('/sign-in', {
+            replace: true,
+            state: isReplacementSignOut(caught) ? { from: '/more' } : { from: '/more', notice: 'Your session ended. Sign in again.' },
+          });
           return;
         }
         if (!readStoredProfile()) {
