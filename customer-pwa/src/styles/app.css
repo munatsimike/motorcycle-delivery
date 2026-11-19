@@ -4493,3 +4493,9 @@ html.is-page-transition .page-stage {
 .deliveries-sheet .delivery-facts-card .delivery-stop + .delivery-stop {
   margin-top: -4px;
 }
+
+/* More page: balanced, divider-free settings list. */
+.profile-settings { padding-top: 4px; padding-bottom: 4px; }
+.profile-settings .profile-row { min-height: 64px; padding-top: 12px; padding-bottom: 12px; }
+.profile-settings .profile-addresses { min-height: 64px; padding-top: 12px; padding-bottom: 12px; }
+.profile-sheet > .profile-logout { margin-top: 12px; padding: 10px 12px; }

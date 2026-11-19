@@ -1189,7 +1189,7 @@ function DeliveryFacts({
       {when ? <p className="facts-date"><CalendarMark />{when}</p> : null}
       <p className="delivery-stop"><PinMark dropoff={false} /><span>{showContacts && delivery.senderName ? `${delivery.senderName}, ` : ''}{deliveryCardAddress(delivery.pickupAddress)}</span></p>
       <p className="delivery-stop"><PinMark dropoff /><span>{showContacts && delivery.recipientName ? `${delivery.recipientName}, ` : ''}{deliveryCardAddress(delivery.dropoffAddress)}</span></p>
-      <div className="facts-divider" />
+      {!showContacts ? <div className="facts-divider" /> : null}
       <div className="delivery-facts">
         <p><span>Distance</span><strong>{deliveryDistanceLabel(delivery.distanceMeters)}</strong></p>
         <p className="facts-price">

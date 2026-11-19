@@ -179,9 +179,8 @@ export function ProfilePage() {
               <input ref={fileInput} className="profile-file" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => { void changePhoto(event.target.files?.[0]); event.target.value = ''; }} />
             </div>
             <div className="profile-settings">
-              {contactRows.map((row, index) => (
+              {contactRows.map((row) => (
                 <div key={row.label}>
-                  {index > 0 ? <div className="profile-divider" /> : null}
                   {row.action === 'appearance' ? (
                     <button type="button" className="profile-row" onClick={() => setAppearanceOpen(true)}>
                       <MoreRowIcon kind="appearance" /><span><small>{row.label}</small><strong>{row.value}</strong></span>
@@ -198,12 +197,10 @@ export function ProfilePage() {
                   )}
                 </div>
               ))}
-              <div className="profile-divider" />
               <Link className="profile-row profile-addresses" to="/addresses"><MoreRowIcon kind="address" /><span><strong>Address Book</strong></span><span aria-hidden="true" className="more-address-chevron">›</span></Link>
               {appearanceRows.map((row) => (
                 <div key={row.label}>
-                  <div className="profile-divider" />
-                  <button type="button" className="profile-row" onClick={() => setAppearanceOpen(true)}>
+                      <button type="button" className="profile-row" onClick={() => setAppearanceOpen(true)}>
                     <MoreRowIcon kind="appearance" /><span><small>{row.label}</small><strong>{row.value}</strong></span>
                     <span aria-hidden="true" className="profile-chevron"><svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M7.41 15.41 12 10.83l4.59 4.58L18 14l-6-6-6 6 1.41 1.41Z" /></svg></span>
                   </button>
