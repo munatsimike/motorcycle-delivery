@@ -47,13 +47,18 @@ const summary: DashboardSummary = {
     availability: { available: 1, busy: 1, offline: 1 },
   },
   customers: { total: 9, individual: 7, business: 2, last24Hours: 1 },
-  motorcycles: { total: 4, pending: 1, verified: 2, rejected: 1, revoked: 0 },
+  motorcycles: { total: 4, pending: 0, verified: 2, rejected: 1, revoked: 0 },
 };
 
 afterEach(() => {
   cleanup();
   request.mockReset();
 });
+
+const licencePage = {
+  data: [],
+  pagination: { page: 1, limit: 1, total: 4, totalPages: 4 },
+};
 
 function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -68,7 +73,7 @@ function renderPage() {
 
 describe('admin overview', () => {
   it('shows the compact figures and only statuses that have deliveries', async () => {
-    request.mockResolvedValue(summary);
+    request.mockImplementation((path: string) => Promise.resolve(String(path).includes('verificationStatus=PENDING') ? licencePage : summary));
     renderPage();
     expect(screen.getByText('Loading the overview')).toBeTruthy();
     expect(await screen.findByRole('heading', { name: 'Overview' })).toBeTruthy();
@@ -78,11 +83,18 @@ describe('admin overview', () => {
     expect(screen.getByRole('link', { name: /Customers/ }).textContent).toContain('9');
     expect(screen.getByLabelText('Recent activity').textContent).toContain('3');
     expect(screen.getByRole('link', { name: /Failed/ }).textContent).toContain('0');
-    const reviews = screen.getByLabelText('Pending reviews');
-    expect(reviews.textContent).toContain('Rider approvals');
-    expect(reviews.textContent).toContain('Licence reviews');
-    expect(reviews.textContent).toContain('Open');
-    expect(reviews.textContent).toContain('Motorcycle reviews');
+    const approvals = screen.getByRole('link', { name: /Rider approvals/ });
+    const licences = screen.getByRole('link', { name: /Licence reviews/ });
+    const motorcycles = screen.getByRole('link', { name: /Motorcycle reviews/ });
+    expect(approvals.textContent).toContain('2');
+    expect(approvals.className).toContain('review-attention');
+    expect(approvals.getAttribute('href')).toBe('/riders?approvalStatus=PENDING');
+    expect(licences.textContent).toContain('4');
+    expect(licences.textContent).not.toContain('Open');
+    expect(licences.getAttribute('href')).toBe('/riders?verificationStatus=PENDING');
+    expect(motorcycles.textContent).toContain('0');
+    expect(motorcycles.className).not.toContain('review-attention');
+    expect(screen.queryByText('Action required')).toBeNull();
     const chart = screen.getByRole('heading', { name: 'Deliveries by status' }).closest('section') as HTMLElement;
     expect(chart.textContent).toContain('Searching');
     expect(chart.textContent).toContain('Delivered');
@@ -102,7 +114,7 @@ describe('admin overview', () => {
     expect(screen.getByText('Offline').parentElement?.textContent).toContain('1');
     expect(screen.getByText('3 approved riders · 2 verified motorcycles')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
-    await waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(request).toHaveBeenCalledTimes(4));
   });
 
   it('shows an error without replacing the status counts', async () => {
