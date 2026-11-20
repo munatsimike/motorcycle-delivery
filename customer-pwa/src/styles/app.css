@@ -1399,6 +1399,53 @@ button.home-status:disabled {
   fill: currentColor;
 }
 
+.price-sheet {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.price-sheet h2 {
+  margin-bottom: 0;
+}
+
+.price-sheet .book-offer-field {
+  width: 100%;
+}
+
+.price-sheet-actions {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+}
+
+.deliveries-sheet .price-sheet-cancel,
+.deliveries-sheet .price-sheet-save {
+  width: auto;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 999px;
+  font-weight: 700;
+  text-align: center;
+  justify-content: center;
+}
+
+.deliveries-sheet .price-sheet-cancel {
+  background: transparent;
+  color: var(--text);
+}
+
+.deliveries-sheet .price-sheet-save {
+  background: var(--primary);
+  color: var(--text-inverse);
+}
+
+.deliveries-sheet .price-sheet-cancel:disabled,
+.deliveries-sheet .price-sheet-save:disabled {
+  opacity: 0.6;
+}
+
 .deliveries-sheet button {
   display: flex;
   align-items: center;

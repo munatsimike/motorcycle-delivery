@@ -439,7 +439,7 @@ export function DeliveryDetailsPage() {
   const sheetConfirm = confirm === 'delete';
   const parcelMotion = usePresence(parcelOpen, 220);
   const sortMotion = usePresence(sortOpen, 220);
-  const priceMotion = usePresence(priceOpen, 150);
+  const priceMotion = usePresence(priceOpen, 220);
   const requestMotion = usePresence(requestDialog, 150);
   const riderMotion = usePresence(riderDialog, 150);
   const declineMotion = usePresence(decline !== null, 150);
@@ -1010,13 +1010,20 @@ export function DeliveryDetailsPage() {
         </div>
       ) : null}
       {priceMotion.mounted ? (
-        <div className={motionClass('deliveries-sheet-backdrop', 'dialog', priceMotion.visible)}>
-          <div className="deliveries-sheet" role="dialog" aria-label="Adjust price">
-            <h2>Your offer ({delivery.currency === 'ZWG' ? 'ZiG' : 'USD'})</h2>
-            <input inputMode="decimal" maxLength={7} value={priceText} onChange={(event) => { setPriceText(offerFieldText(event.target.value)); setPriceError(null); }} />
+        <div className={motionClass('deliveries-sheet-backdrop', 'sheet', priceMotion.visible)} onClick={() => { if (busy) return; setPriceOpen(false); }}>
+          <div className="deliveries-sheet price-sheet" role="dialog" aria-modal="true" aria-labelledby="adjust-price-title" onClick={(event) => event.stopPropagation()}>
+            <h2 id="adjust-price-title">Your offer ({delivery.currency === 'ZWG' ? 'ZiG' : 'USD'})</h2>
+            <label className="book-offer">
+              <span className="book-offer-field">
+                <span aria-hidden="true">{delivery.currency === 'ZWG' ? 'ZiG' : 'USD'}</span>
+                <input inputMode="decimal" maxLength={7} value={priceText} onChange={(event) => { setPriceText(offerFieldText(event.target.value)); setPriceError(null); }} />
+              </span>
+            </label>
             {priceError ? <ErrorMessage>{priceError}</ErrorMessage> : null}
-            <button type="button" disabled={busy} onClick={() => setPriceOpen(false)}>Cancel</button>
-            <button type="button" disabled={busy} onClick={() => void savePrice()}>{busy ? 'Saving' : 'Save price'}</button>
+            <div className="price-sheet-actions">
+              <button type="button" className="price-sheet-cancel" disabled={busy} onClick={() => setPriceOpen(false)}>Cancel</button>
+              <button type="button" className="price-sheet-save" disabled={busy} onClick={() => void savePrice()}>{busy ? 'Saving' : 'Save price'}</button>
+            </div>
           </div>
         </div>
       ) : null}
