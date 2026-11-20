@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { customerOfferForBooking, offerFieldText } from '../deliveries/tracking.ts';
 import {
+  applyManualPoint,
   applyResolvedStop,
   deliveryContactPhone,
   hasSelectedCoordinates,
@@ -29,7 +30,7 @@ import {
   clearBookingAttempt,
   memoryAttemptStore,
 } from './flow.ts';
-import { acceptSearchResult, pickupAutofillFix, readGeocodedAddress, resolveManualAddress } from './places.ts';
+import { acceptSearchResult, manualGeocodeAccepts, pickupAutofillFix, readGeocodedAddress, resolveManualAddress } from './places.ts';
 import { bookingSuccessPath, confirmQuoteDecision, nextCustomerOffer, quotesMatch, readDeliveryQuote } from './quote.ts';
 
 test('pickup and drop-off require an address, contact, phone, and resolved point', () => {
@@ -93,6 +94,17 @@ test('address resolution keeps exact places and ignores a stale search', () => {
   }], null);
   assert.equal(areas.status, 'choose-area');
   assert.equal(resolveManualAddress('Nowhere', [], null).status, 'unresolved');
+  assert.equal(manualGeocodeAccepts('12 Samora Machel, Harare', '12 Samora Machel Avenue, Harare, Zimbabwe'), true);
+  assert.equal(manualGeocodeAccepts('the blue gate behind the shop', 'Harare, Zimbabwe'), false);
+  const typed = { ...emptyStop(), address: '12 Samora Machel', contactName: 'Tariro Moyo', contactPhone: '771234567' };
+  const manual = applyManualPoint(typed, { latitude: '-17.8292000', longitude: '31.0522000' });
+  assert.equal(manual.address, '12 Samora Machel');
+  assert.equal(manual.placeId, null);
+  assert.equal(manual.coordinateSource, 'DEVICE_GEOCODER');
+  assert.equal(hasSelectedCoordinates(manual), true);
+  const unpinned = prepareBooking({ ...emptyBookingDraft(), pickup: typed, dropoff: manual });
+  assert.equal(unpinned.ok, false);
+  if (!unpinned.ok) assert.equal(unpinned.error, 'Confirm the pickup address on the map');
   assert.equal(acceptSearchResult(1, 2, ['stale']), null);
   assert.deepEqual(acceptSearchResult(2, 2, ['current']), ['current']);
 });
@@ -166,7 +178,7 @@ test('confirmation cannot start twice and eligibility must be explicit', () => {
   assert.equal(bookingSuccessPath('delivery 1'), '/deliveries/delivery%201');
 });
 
-test('pickup autofill accepts only a granted, fresh, accurate Zimbabwe fix', () => {
+test('pickup autofill accepts a granted, fresh, accurate fix in any country', () => {
   const now = 1_000_000;
   const allowed = pickupAutofillFix({
     permission: 'granted',
@@ -178,7 +190,10 @@ test('pickup autofill accepts only a granted, fresh, accurate Zimbabwe fix', () 
   });
   assert.ok(allowed);
   assert.equal(pickupAutofillFix({ permission: 'prompt', latitude: -17.8292, longitude: 31.0522, accuracyMetres: 20, capturedAt: now, now }), null);
-  assert.equal(pickupAutofillFix({ permission: 'granted', latitude: 52.3, longitude: 4.9, accuracyMetres: 10, capturedAt: now, now }), null);
+  const netherlands = pickupAutofillFix({ permission: 'granted', latitude: 52.3, longitude: 4.9, accuracyMetres: 10, capturedAt: now, now });
+  assert.equal(netherlands?.latitude, '52.3');
+  assert.equal(netherlands?.longitude, '4.9');
+  assert.equal(pickupAutofillFix({ permission: 'granted', latitude: 91, longitude: 4.9, accuracyMetres: 10, capturedAt: now, now }), null);
   const address = readGeocodedAddress([
     { long_name: '12', types: ['street_number'] },
     { long_name: 'Samora Machel Avenue', types: ['route'] },

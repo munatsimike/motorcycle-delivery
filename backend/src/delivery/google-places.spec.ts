@@ -14,9 +14,10 @@ import { readSearchBias } from './places.service.js';
 const TOKEN = '4f3b2a10-6c2d-4b1a-8f3e-9a1b2c3d4e5f';
 
 describe('Google Places autocomplete', () => {
-  it('restricts suggestions to Zimbabwe and biases a provided point without a city centre', () => {
+  it('searches worldwide and biases a provided point without a city centre', () => {
     const body = autocompleteBody('Budiriro', TOKEN, { latitude: -17.88, longitude: 30.93 });
-    expect(body.includedRegionCodes).toEqual(['zw']);
+    expect(body.includedRegionCodes).toBeUndefined();
+    expect(autocompleteBody('Amsterdam', TOKEN, null, ['zw']).includedRegionCodes).toEqual(['zw']);
     expect(body.sessionToken).toBe(TOKEN);
     expect(body.locationBias).toEqual({
       circle: {

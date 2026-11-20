@@ -34,20 +34,36 @@ describe('service area', () => {
     expect(pins.dropoffLongitude).toBe('28.5833000');
   });
 
-  it('rejects an unsupported production pickup or drop-off', () => {
-    expect(coordinateIsServable(52.3676, 4.9041)).toBe(false);
-    expect(coordinateIsServable(-26.2041, 28.0473)).toBe(false);
-    expect(coordinateIsServable(0, 0)).toBe(false);
-    expect(() => readQuotePins({
+  it('accepts valid coordinates outside Zimbabwe while worldwide testing is the default', () => {
+    expect(coordinateIsServable(52.3676, 4.9041)).toBe(true);
+    expect(coordinateIsServable(-26.2041, 28.0473)).toBe(true);
+    expect(coordinateIsServable(0, 0)).toBe(true);
+    const pins = readQuotePins({
       pickup: { latitude: 52.3676, longitude: 4.9041 },
-      dropoff: { latitude: -17.8292, longitude: 31.0522 },
-    })).toThrow(OUTSIDE_SERVICE_AREA);
-    expect(() => readQuotePins({
-      pickup: { latitude: -17.8292, longitude: 31.0522 },
-      dropoff: { latitude: -26.2041, longitude: 28.0473 },
-    })).toThrow(OUTSIDE_SERVICE_AREA);
-    expect(() => readDeliveryDraft(deliveryBody(52.3676, 4.9041, -17.8292, 31.0522))).toThrow(BadRequestException);
-    expect(() => readDeliveryDraft(deliveryBody(-17.8292, 31.0522, 52.35, 4.91))).toThrow(OUTSIDE_SERVICE_AREA);
+      dropoff: { latitude: 52.35, longitude: 4.85 },
+    });
+    expect(pins.pickupLatitude).toBe('52.3676000');
+    expect(readDeliveryDraft(deliveryBody(52.3676, 4.9041, 52.35, 4.85)).dropoffLongitude).toBe('4.8500000');
+  });
+
+  it('rejects an unsupported pickup or drop-off when the Zimbabwe area is restored', () => {
+    const zimbabwe = { SERVICE_AREA: 'zimbabwe' };
+    expect(coordinateIsServable(52.3676, 4.9041, zimbabwe)).toBe(false);
+    expect(coordinateIsServable(-26.2041, 28.0473, zimbabwe)).toBe(false);
+    expect(coordinateIsServable(0, 0, zimbabwe)).toBe(false);
+    expect(coordinateIsServable(-17.8292, 31.0522, zimbabwe)).toBe(true);
+    const previous = process.env.SERVICE_AREA;
+    process.env.SERVICE_AREA = 'zimbabwe';
+    try {
+      expect(() => readQuotePins({
+        pickup: { latitude: 52.3676, longitude: 4.9041 },
+        dropoff: { latitude: -17.8292, longitude: 31.0522 },
+      })).toThrow(OUTSIDE_SERVICE_AREA);
+      expect(() => readDeliveryDraft(deliveryBody(-17.8292, 31.0522, 52.35, 4.91))).toThrow(OUTSIDE_SERVICE_AREA);
+    } finally {
+      if (previous === undefined) delete process.env.SERVICE_AREA;
+      else process.env.SERVICE_AREA = previous;
+    }
   });
 
   it('rejects malformed coordinates before the service-area message', () => {
@@ -87,6 +103,7 @@ describe('service area', () => {
       RAILWAY_ENVIRONMENT: 'production',
     })).toBe(false);
     expect(coordinateIsServable(52.3676, 4.9041, {
+      SERVICE_AREA: 'zimbabwe',
       NODE_ENV: 'production',
       ALLOW_TEST_NL_COORDINATES: 'true',
     })).toBe(false);

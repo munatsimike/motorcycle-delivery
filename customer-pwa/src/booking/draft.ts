@@ -320,6 +320,19 @@ export function v2CreateBody(booking: PreparedBooking, offeredPrice: string) {
   return { ...body, paymentMethod: booking.paymentMethod };
 }
 
+export function applyManualPoint(stop: StopDraft, point: { latitude: string; longitude: string }): StopDraft {
+  return {
+    ...stop,
+    latitude: point.latitude,
+    longitude: point.longitude,
+    approximate: true,
+    precision: 'unverified',
+    placeId: null,
+    coordinateSource: 'DEVICE_GEOCODER',
+    resolvedAddress: '',
+  };
+}
+
 export function clearStopLocation(address: string): Partial<StopDraft> {
   return {
     address,
@@ -387,7 +400,7 @@ function prepareStop(stop: StopDraft, label: 'pickup' | 'drop-off'): { ok: true;
   const details = readStopText(stop, label);
   if (!details.ok) return details;
   if (stop.coordinateSource !== 'GOOGLE_PLACES' && stop.coordinateSource !== 'DEVICE_GEOCODER') {
-    return { ok: false, error: `Choose the ${label} address` };
+    return { ok: false, error: `Confirm the ${label} address on the map` };
   }
   if (stop.coordinateSource === 'GOOGLE_PLACES' && !stop.placeId) return { ok: false, error: `Choose the ${label} address` };
   if (stop.coordinateSource === 'DEVICE_GEOCODER' && stop.placeId) return { ok: false, error: `Choose the ${label} address` };

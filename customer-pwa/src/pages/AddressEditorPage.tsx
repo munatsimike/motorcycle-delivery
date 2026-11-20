@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { AddressField } from '../booking/AddressField';
+import { AddressPinDialog } from '../booking/AddressPinDialog';
+import { geocodeManualAddress } from '../booking/forwardGeocode';
 import { createSavedAddress, listSavedAddresses, updateSavedAddress } from '../booking/addressApi';
 import { resolvePlace, searchPlaces } from '../booking/api';
-import { bookingPhoneDisplay, bookingPhoneStored, deliveryContactPhone, emptyStop, type StopDraft } from '../booking/draft';
+import { applyManualPoint, bookingPhoneDisplay, bookingPhoneStored, deliveryContactPhone, emptyStop, hasSelectedCoordinates, type StopDraft } from '../booking/draft';
 import { readSavedAddress, readSavedAddresses, type SavedAddressLabel } from '../booking/savedAddress';
 import { isSessionRejection } from '../auth/contracts';
 import { rememberReturnPath } from '../auth/returnPath';
@@ -29,6 +31,7 @@ export function AddressEditorPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(editing);
   const [saving, setSaving] = useState(false);
+  const [pinOpen, setPinOpen] = useState(false);
 
   useEffect(() => {
     if (!id) return undefined;
@@ -80,27 +83,51 @@ export function AddressEditorPage() {
     return () => { active = false; };
   }, [accessToken, id, navigate, signOut]);
 
-  async function save() {
-    const issue = formIssue(label, stop);
-    if (issue || !label) {
-      setError(issue ?? 'Choose Home or Work');
+  async function save(confirmed?: StopDraft) {
+    let next = confirmed ?? stop;
+    if (!label) {
+      setError('Choose Home or Work');
+      return;
+    }
+    if (!next.address.trim()) {
+      setError('Enter the address');
+      return;
+    }
+    if (!hasSelectedCoordinates(next)) {
+      setSaving(true);
+      setError(null);
+      try {
+        const point = await geocodeManualAddress(next.address);
+        if (!point) {
+          setPinOpen(true);
+          return;
+        }
+        next = applyManualPoint(next, point);
+        setStop(next);
+      } finally {
+        setSaving(false);
+      }
+    }
+    const issue = formIssue(label, next);
+    if (issue) {
+      setError(issue);
       return;
     }
     setSaving(true);
     setError(null);
-    const contactName = formatPersonName(stop.contactName);
-    const address = addressTextForSave(stop.resolvedAddress.trim() || stop.address.trim(), stop.coordinateSource);
-    setStop((current) => ({ ...current, contactName, address }));
+    const contactName = formatPersonName(next.contactName);
+    const address = addressTextForSave(next.resolvedAddress.trim() || next.address.trim(), next.coordinateSource);
+    setStop({ ...next, contactName, address });
     const body = {
       label,
       customLabel: null,
       address,
-      latitude: stop.latitude,
-      longitude: stop.longitude,
-      placeId: stop.coordinateSource === 'GOOGLE_PLACES' ? stop.placeId : null,
-      coordinateSource: stop.coordinateSource === 'GOOGLE_PLACES' ? 'GOOGLE_PLACES' : 'DEVICE_GEOCODER',
+      latitude: next.latitude,
+      longitude: next.longitude,
+      placeId: next.coordinateSource === 'GOOGLE_PLACES' ? next.placeId : null,
+      coordinateSource: next.coordinateSource === 'GOOGLE_PLACES' ? 'GOOGLE_PLACES' : 'DEVICE_GEOCODER',
       contactName,
-      contactPhone: deliveryContactPhone(stop.contactPhone),
+      contactPhone: deliveryContactPhone(next.contactPhone),
     };
     try {
       const token = await accessToken();
@@ -164,6 +191,18 @@ export function AddressEditorPage() {
                 onChange={(local) => setStop((current) => ({ ...current, contactPhone: bookingPhoneStored(local) }))}
               />
               {error ? <ErrorMessage>{error}</ErrorMessage> : null}
+              {pinOpen ? (
+                <AddressPinDialog
+                  address={stop.address}
+                  onCancel={() => setPinOpen(false)}
+                  onConfirm={(point) => {
+                    const next = applyManualPoint(stop, point);
+                    setStop(next);
+                    setPinOpen(false);
+                    void save(next);
+                  }}
+                />
+              ) : null}
               <Button type="button" disabled={saving} onClick={() => { void save(); }}>{saving ? <><ButtonSpinner />Saving…</> : 'Save address'}</Button>
             </>
           )}
@@ -176,8 +215,7 @@ export function AddressEditorPage() {
 function formIssue(label: SavedAddressLabel | null, stop: StopDraft): string | null {
   if (label !== 'HOME' && label !== 'WORK') return 'Choose Home or Work';
   if (!stop.address.trim()) return 'Enter the address';
-  if (stop.coordinateSource !== 'GOOGLE_PLACES' && stop.coordinateSource !== 'DEVICE_GEOCODER') return 'Choose the address';
-  if (!stop.latitude.trim() || !stop.longitude.trim()) return 'Choose the address';
+  if (!hasSelectedCoordinates(stop)) return 'Confirm the address on the map';
   if (!stop.contactName.trim()) return 'Enter the contact name';
   if (!hasGivenNameAndSurname(stop.contactName)) return 'Enter your first name and surname.';
   if (!deliveryContactPhone(stop.contactPhone)) return 'Enter the contact phone';

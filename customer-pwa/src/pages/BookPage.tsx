@@ -16,6 +16,8 @@ import { ErrorMessage } from '../components/ErrorMessage';
 import { ZimbabwePhoneField } from '../components/ZimbabwePhoneField';
 import { Loading } from '../components/Loading';
 import { AddressField } from '../booking/AddressField';
+import { AddressPinDialog } from '../booking/AddressPinDialog';
+import { geocodeManualAddress } from '../booking/forwardGeocode';
 import { createDelivery, quoteDelivery, resolvePlace, searchPlaces } from '../booking/api';
 import { mapsBrowserKey } from '../config/env';
 import { loadGoogleMaps } from '../home/googleMap';
@@ -27,6 +29,7 @@ import {
   describeParcel,
   displayPhone,
   bookingDraftFromLocation,
+  applyManualPoint,
   hasSelectedCoordinates,
   parcelError,
   paymentMethodLabel,
@@ -117,6 +120,7 @@ export function BookPage() {
   const [inlineSaveChoice, setInlineSaveChoice] = useState({ pickup: emptySaveChoice(), dropoff: emptySaveChoice() });
   const [inlineSaveError, setInlineSaveError] = useState<string | null>(null);
   const [inlineSaveOpen, setInlineSaveOpen] = useState<'pickup' | 'dropoff' | null>(null);
+  const [pinRequest, setPinRequest] = useState<{ side: 'pickup' | 'dropoff'; purpose: 'continue' | 'save' } | null>(null);
   const saveDialog = usePresence(inlineSaveOpen !== null, 150);
   const saveStopRef = useRef<'pickup' | 'dropoff' | null>(null);
   if (inlineSaveOpen) saveStopRef.current = inlineSaveOpen;
@@ -381,14 +385,15 @@ export function BookPage() {
     if (step === 'pickup' || step === 'destination') {
       const which = step === 'pickup' ? 'pickup' : 'dropoff';
       const label = step === 'pickup' ? 'pickup' : 'drop-off';
-      const located = draft[which];
+      let located = draft[which];
       if (!located.address.trim()) {
         setError(`Enter the ${label} address`);
         return;
       }
       if (!hasSelectedCoordinates(located)) {
-        setError('Select an address from the suggestions.');
-        return;
+        const resolved = await resolveTypedStop(which, located, 'continue');
+        if (!resolved) return;
+        located = resolved;
       }
       const details = stopEntryError(located, label);
       if (details) {
@@ -513,14 +518,57 @@ export function BookPage() {
     }
   }
 
-  async function saveDraftStop(side: 'pickup' | 'dropoff') {
-    const stop = draftRef.current[side];
+  async function resolveTypedStop(side: 'pickup' | 'dropoff', stop: StopDraft, purpose: 'continue' | 'save'): Promise<StopDraft | null> {
+    setBusy('locate');
+    setError(null);
+    setInlineSaveError(null);
+    try {
+      const point = await geocodeManualAddress(stop.address);
+      if (!point) {
+        setPinRequest({ side, purpose });
+        return null;
+      }
+      const next = applyManualPoint(stop, point);
+      updateStop(side, next);
+      return next;
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function confirmPin(point: { latitude: string; longitude: string }) {
+    const request = pinRequest;
+    setPinRequest(null);
+    if (!request) return;
+    const next = applyManualPoint(draftRef.current[request.side], point);
+    updateStop(request.side, next);
+    if (request.purpose === 'continue') {
+      const label = request.side === 'pickup' ? 'pickup' : 'drop-off';
+      const details = stopEntryError(next, label);
+      if (details) {
+        setError(details);
+        return;
+      }
+      setStep(request.side === 'pickup' ? 'destination' : 'parcel');
+      return;
+    }
+    void saveDraftStop(request.side, next);
+  }
+
+  async function saveDraftStop(side: 'pickup' | 'dropoff', provided?: StopDraft) {
+    const stop = provided ?? draftRef.current[side];
     const choice = { ...inlineSaveChoice[side], label: inlineSaveChoice[side].label ?? 'HOME' };
     if (choice.status !== 'idle') return;
-    const latitude = Number(stop.latitude);
-    const longitude = Number(stop.longitude);
-    if (!stop.address.trim() || !stop.latitude.trim() || !stop.longitude.trim() || !Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) {
-      setInlineSaveError('Choose a valid address from the suggestions before saving.');
+    let currentStop = stop;
+    if (!hasSelectedCoordinates(currentStop)) {
+      const resolved = await resolveTypedStop(side, currentStop, 'save');
+      if (!resolved) return;
+      currentStop = resolved;
+    }
+    const resolvedLatitude = Number(currentStop.latitude);
+    const resolvedLongitude = Number(currentStop.longitude);
+    if (!currentStop.address.trim() || !Number.isFinite(resolvedLatitude) || !Number.isFinite(resolvedLongitude) || Math.abs(resolvedLatitude) > 90 || Math.abs(resolvedLongitude) > 180) {
+      setInlineSaveError('Confirm the address on the map before saving.');
       return;
     }
     if (!stop.contactName.trim() || !stop.contactPhone.trim()) {
@@ -528,9 +576,9 @@ export function BookPage() {
       return;
     }
     const body = saveRequest({
-      address: stop.address.trim(), latitude, longitude,
-      contactName: stop.contactName.trim(), contactPhone: stop.contactPhone.trim(),
-      placeId: stop.placeId, coordinateSource: stop.coordinateSource ?? 'DEVICE_GEOCODER',
+      address: currentStop.address.trim(), latitude: resolvedLatitude, longitude: resolvedLongitude,
+      contactName: currentStop.contactName.trim(), contactPhone: currentStop.contactPhone.trim(),
+      placeId: currentStop.placeId, coordinateSource: currentStop.coordinateSource ?? 'DEVICE_GEOCODER',
     }, choice);
     if (!body) return;
     setInlineSaveError(null);
@@ -658,12 +706,13 @@ export function BookPage() {
               </Button>
             ) : (
               <Button type="button" disabled={Boolean(busy)} onClick={() => { void goNext(); }}>
-                {busy === 'quote' ? <><ButtonSpinner />Processing…</> : 'Continue'}
+                {busy === 'quote' || busy === 'locate' ? <><ButtonSpinner />Processing…</> : 'Continue'}
               </Button>
             )}
           </div>
         </div>
       </div>
+      {pinRequest ? <AddressPinDialog address={draft[pinRequest.side].address} onCancel={() => setPinRequest(null)} onConfirm={confirmPin} /> : null}
       {saveDialog.mounted && saveStop ? (
         <div className={motionClass('confirm-dialog-backdrop book-save-dialog-backdrop', 'dialog', saveDialog.visible)} onClick={() => { if (inlineSaveChoice[saveStop].status === 'saving') return; setInlineSaveOpen(null); setInlineSaveError(null); }}>
           <div className="confirm-dialog book-save-dialog" role="dialog" aria-modal="true" aria-labelledby="book-save-dialog-title" onClick={(event) => event.stopPropagation()}>

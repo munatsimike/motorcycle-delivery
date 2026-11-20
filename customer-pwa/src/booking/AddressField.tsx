@@ -58,7 +58,9 @@ export function AddressField({
   const [searching, setSearching] = useState(false);
   const [searched, setSearched] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const fieldRef = useRef<HTMLDivElement>(null);
   const typed = useRef(false);
+  const historyPushed = useRef(false);
   const sessionToken = useRef(createPlaceSessionToken());
   const requestId = useRef(0);
   const searchRef = useRef(searchPlaces);
@@ -107,6 +109,55 @@ export function AddressField({
     return () => window.clearTimeout(timer);
   }, [stop.address, stop.latitude, stop.longitude]);
 
+  const suggestionsOpen = suggestions.length > 0;
+
+  useEffect(() => {
+    if (!suggestionsOpen) return undefined;
+    window.history.pushState({ addressSuggestions: true }, '');
+    historyPushed.current = true;
+    const onPop = () => {
+      historyPushed.current = false;
+      requestId.current += 1;
+      setSuggestions([]);
+      setSearching(false);
+      setSearched(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      requestId.current += 1;
+      setSuggestions([]);
+      setSearching(false);
+      setSearched(false);
+    };
+    const onPointer = (event: PointerEvent) => {
+      if (fieldRef.current?.contains(event.target as Node)) return;
+      requestId.current += 1;
+      setSuggestions([]);
+      setSearching(false);
+      setSearched(false);
+    };
+    window.addEventListener('popstate', onPop);
+    window.addEventListener('keydown', onKey);
+    document.addEventListener('pointerdown', onPointer);
+    return () => {
+      window.removeEventListener('popstate', onPop);
+      window.removeEventListener('keydown', onKey);
+      document.removeEventListener('pointerdown', onPointer);
+      if (historyPushed.current) {
+        historyPushed.current = false;
+        window.history.back();
+      }
+    };
+  }, [suggestionsOpen]);
+
+  function dismissSuggestions() {
+    requestId.current += 1;
+    setSuggestions([]);
+    setSearching(false);
+    setSearched(false);
+  }
+
   async function selectSuggestion(suggestion: PlaceSuggestion) {
     setSearching(true);
     setSearchError(null);
@@ -147,7 +198,7 @@ export function AddressField({
   }
 
   return (
-    <div className="book-address">
+    <div className="book-address" ref={fieldRef}>
       <label className="field">
         Address
         <span className="book-address-control">
@@ -212,13 +263,16 @@ export function AddressField({
         <p className="book-search-status" role="status">No matching addresses.</p>
       ) : null}
       {suggestions.length > 0 ? (
-        <ul className="book-suggestions" role="listbox" aria-label="Address suggestions">
+        <div className="book-suggestions">
+          <button type="button" className="book-suggestions-close" onClick={dismissSuggestions}>Close suggestions</button>
+          <ul role="listbox" aria-label="Address suggestions">
           {suggestions.map((suggestion) => (
             <li key={`${suggestion.placeId ?? suggestion.label}:${suggestion.latitude}`}>
               <button type="button" role="option" onPointerDown={(event) => event.preventDefault()} onClick={() => { void selectSuggestion(suggestion); }}>{suggestion.label}</button>
             </li>
           ))}
-        </ul>
+          </ul>
+        </div>
       ) : null}
     </div>
   );

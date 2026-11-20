@@ -1,6 +1,6 @@
 import { Logger, ServiceUnavailableException } from '@nestjs/common';
 import { loadBackendEnv } from '../load-env.js';
-import { netherlandsCoordinatesAllowed } from './service-area.js';
+import { serviceAreaMode } from './service-area.js';
 
 const logger = new Logger('GooglePlaces');
 
@@ -51,7 +51,7 @@ export function autocompleteBody(
   text: string,
   sessionToken: string,
   bias?: { latitude: number; longitude: number } | null,
-  regionCodes: readonly string[] | null = ['zw'],
+  regionCodes: readonly string[] | null = null,
 ): Record<string, unknown> {
   const body: Record<string, unknown> = {
     input: text,
@@ -165,7 +165,7 @@ export class GooglePlacesClient {
         text,
         sessionToken,
         bias,
-        netherlandsCoordinatesAllowed() ? null : ['zw'],
+        serviceAreaMode() === 'worldwide' ? null : ['zw'],
       )),
     });
     const suggestions = readAutocompleteSuggestions(await response.json());

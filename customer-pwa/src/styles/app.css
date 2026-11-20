@@ -2864,6 +2864,10 @@ button.home-status:disabled {
   line-height: 22px;
   text-align: left;
 }
+.book-suggestions ul { display: grid; gap: var(--space-sm); margin: 0; padding: 0; list-style: none; }
+.book-suggestions-close { text-align: center; font-weight: 650; }
+.address-pin-map { height: 240px; border-radius: 12px; overflow: hidden; }
+.address-pin-dialog { width: min(520px, 100%); }
 
 .book-route,
 .book-price {

@@ -129,6 +129,13 @@ export function resolveManualAddress(
   return { status: 'unresolved' };
 }
 
+export function manualGeocodeAccepts(typedAddress: string, formattedAddress: string): boolean {
+  const tokens = typedAddress.toLowerCase().replace(/[^a-z0-9]+/g, ' ').split(' ').filter((token) => token.length >= 3);
+  if (tokens.length === 0) return false;
+  const formatted = formattedAddress.toLowerCase();
+  return tokens.every((token) => formatted.includes(token));
+}
+
 export function confirmMapPin(area: PlaceSuggestion): ResolvedLocation {
   return {
     label: withoutCountry(area.label),
@@ -161,6 +168,18 @@ const ZIMBABWE_EXTENT: ReadonlyArray<readonly [number, number]> = [
 export const MAX_PICKUP_ACCURACY_METRES = 100;
 export const MAX_PICKUP_FIX_AGE_MS = 30_000;
 
+export type ServiceAreaMode = 'worldwide' | 'zimbabwe';
+
+// Worldwide is the temporary testing default. Set this back to 'zimbabwe' to restore the polygon.
+export const SERVICE_AREA_MODE: ServiceAreaMode = 'worldwide';
+
+function coordinateInsideServiceArea(longitude: number, latitude: number): boolean {
+  if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90) return false;
+  if (!Number.isFinite(longitude) || longitude < -180 || longitude > 180) return false;
+  if (SERVICE_AREA_MODE === 'worldwide') return true;
+  return pointInRing(longitude, latitude, ZIMBABWE_EXTENT);
+}
+
 export function pickupAutofillFix(input: {
   permission: 'granted' | 'prompt' | 'denied' | 'unknown';
   latitude: number;
@@ -172,7 +191,7 @@ export function pickupAutofillFix(input: {
   if (input.permission !== 'granted') return null;
   if (input.accuracyMetres == null || input.accuracyMetres > MAX_PICKUP_ACCURACY_METRES) return null;
   if (input.now - input.capturedAt > MAX_PICKUP_FIX_AGE_MS) return null;
-  if (!pointInRing(input.longitude, input.latitude, ZIMBABWE_EXTENT)) return null;
+  if (!coordinateInsideServiceArea(input.longitude, input.latitude)) return null;
   return { latitude: String(input.latitude), longitude: String(input.longitude) };
 }
 

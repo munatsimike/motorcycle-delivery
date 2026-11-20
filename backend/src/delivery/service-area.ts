@@ -72,6 +72,13 @@ export function netherlandsCoordinateBlockers(env: NodeJS.ProcessEnv = process.e
   return blockers;
 }
 
+export type ServiceAreaMode = 'worldwide' | 'zimbabwe';
+
+// Worldwide is the temporary testing default. Set SERVICE_AREA=zimbabwe to restore the polygon.
+export function serviceAreaMode(env: NodeJS.ProcessEnv = process.env): ServiceAreaMode {
+  return env.SERVICE_AREA?.trim().toLowerCase() === 'zimbabwe' ? 'zimbabwe' : 'worldwide';
+}
+
 export function netherlandsCoordinatesAllowed(env: NodeJS.ProcessEnv = process.env): boolean {
   return netherlandsCoordinateBlockers(env).length === 0;
 }
@@ -86,6 +93,9 @@ export function coordinateIsServable(
   }
   if (!Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
     return false;
+  }
+  if (serviceAreaMode(env) === 'worldwide') {
+    return true;
   }
   if (pointInRing(longitude, latitude, ZIMBABWE_EXTENT)) {
     return true;
