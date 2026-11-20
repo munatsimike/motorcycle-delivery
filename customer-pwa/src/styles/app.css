@@ -2070,8 +2070,12 @@ button.home-status:disabled {
 .track-contact .track-icon-btn svg.whatsapp-icon .whatsapp-outline {
   fill: none;
   stroke: currentColor;
-  stroke-width: 1.5;
+  stroke-width: 1.5px;
   stroke-linejoin: round;
+}
+
+.track-contact .track-icon-btn svg.whatsapp-icon path:not(.whatsapp-outline) {
+  stroke: none;
 }
 
 .track-parcel svg,
