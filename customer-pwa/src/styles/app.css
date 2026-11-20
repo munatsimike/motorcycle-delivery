@@ -1875,18 +1875,15 @@ button.home-status:disabled {
   line-height: 1.2;
 }
 
-.price-label {
+.delivery-facts .facts-price strong {
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
-  gap: var(--space-xs);
+  gap: 8px;
 }
 
-.price-label .payment-badge {
+.facts-price .payment-badge {
   margin-top: 0;
-  font-size: 0.75rem;
-  font-weight: 700;
-  line-height: 1.2;
 }
 
 .payment-badge.payment-badge-cash {

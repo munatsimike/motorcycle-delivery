@@ -1169,11 +1169,11 @@ function DeliveredSummary({ delivery }: { delivery: CustomerDeliveryDetail }) {
       <div className="delivery-facts delivery-price">
         <p><span>Distance</span><strong>{deliveryDistanceLabel(delivery.distanceMeters)}</strong></p>
         <p className="facts-price">
-          <span className="price-label">
-            Price
+          <span className="price-label">Price</span>
+          <strong>
+            {amount ? moneyLabel(delivery.currency, amount) : 'Unavailable'}
             <PaymentBadge method={delivery.paymentMethod} />
-          </span>
-          <strong>{amount ? moneyLabel(delivery.currency, amount) : 'Unavailable'}</strong>
+          </strong>
         </p>
       </div>
       <div className="facts-divider" />
@@ -1217,11 +1217,11 @@ function DeliveryFacts({
       <div className="delivery-facts">
         <p><span>Distance</span><strong>{deliveryDistanceLabel(delivery.distanceMeters)}</strong></p>
         <p className="facts-price">
-          <span className="price-label">
-            {customerOffer ? 'Your offer' : 'Price'}
+          <span className="price-label">{customerOffer ? 'Your offer' : 'Price'}</span>
+          <strong>
+            {moneyLabel(delivery.currency, amount)}
             <PaymentBadge method={delivery.paymentMethod} />
-          </span>
-          <strong>{moneyLabel(delivery.currency, amount)}</strong>
+          </strong>
           {onAdjust ? <button type="button" className="facts-adjust" onClick={onAdjust}><PencilMark />Adjust price</button> : null}
         </p>
       </div>
