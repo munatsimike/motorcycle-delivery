@@ -201,7 +201,8 @@ export function AddressField({
     <div className="book-address" ref={fieldRef}>
       <label className="field">
         Address
-        <span className="book-address-control">
+        <span className={searching || locating ? 'book-address-control is-loading' : 'book-address-control'}>
+          {searching || locating ? <span className="book-address-spinner" role="status" aria-label={locating ? 'Finding your location' : 'Searching addresses'} /> : null}
           <input
             value={stop.address}
             placeholder={placeholder}
@@ -224,7 +225,6 @@ export function AddressField({
             }}
           />
           {onSelectSaved ? <button type="button" className="book-address-book-button" aria-label="Choose from Address Book" aria-expanded={savedOpen} onClick={() => setSavedOpen(true)}><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16v16H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/><path d="M4 17h16"/><circle cx="12" cy="9" r="2"/><path d="M8.5 14c.3-1.7 1.5-2.5 3.5-2.5s3.2.8 3.5 2.5"/></svg></button> : null}
-          {searching || locating ? <span className="book-address-spinner" role="status" aria-label={locating ? 'Finding your location' : 'Searching addresses'} /> : null}
         </span>
       </label>
       {selection.mounted ? (

@@ -61,9 +61,12 @@ import {
   type BookingStep,
 } from '../booking/flow';
 import {
+  canRetryLocation,
   decideAddressAutofill,
+  geolocationFailure,
+  MAX_PICKUP_FIX_AGE_MS,
   pickupAutofillFix,
-  readReverseGeocode,
+  reverseGeocodeOutcome,
   type PlaceSuggestion,
 } from '../booking/places';
 import {
@@ -90,7 +93,6 @@ import {
 
 const LOCATION_DENIED = 'Location permission is needed to detect your pickup point.';
 const LOCATION_UNAVAILABLE = 'We couldn\'t detect your location. Try again or search for your pickup address.';
-const LOCATION_STREET = 'Enter the street address.';
 const ATTEMPT_KEY = 'customer_delivery_create_v1';
 
 type QuotedPrice = DeliveryQuote & { pinKey: string };
@@ -135,7 +137,6 @@ export function BookPage() {
   const prefilled = useRef(false);
   const addressEdited = useRef(draft.pickup.address.trim() !== '' || draft.pickup.latitude.trim() !== '');
   const draftRef = useRef(draft);
-  const locatingRef = useRef(false);
   const pickupAttempt = useRef(0);
   const [locating, setLocating] = useState(false);
   const [locateError, setLocateError] = useState<string | null>(null);
@@ -259,20 +260,32 @@ export function BookPage() {
 
   async function detectPickup(manual: boolean, attemptId = 0) {
     const stale = () => !manual && attemptId !== pickupAttempt.current;
-    if (locatingRef.current) return;
-    const pickup = draftRef.current.pickup;
-    if (!manual && !automaticGpsMayApply({ addressEdited: addressEdited.current, pickup })) return;
+    const note = (reason: string) => {
+      if (import.meta.env.DEV) console.info(`pickup-locate:${reason}`);
+    };
+    const blocked = () => !manual && !automaticGpsMayApply({ addressEdited: addressEdited.current, pickup: draftRef.current.pickup });
+    if (blocked()) {
+      note('kept-manual');
+      return;
+    }
     if (!manual) {
       const permission = await geolocationPermission();
-      if (stale() || permission === 'denied') return;
+      if (stale() || blocked()) return;
+      if (permission === 'denied') {
+        note('denied');
+        setLocateError(LOCATION_DENIED);
+        return;
+      }
     }
-    if (stale() || locatingRef.current) return;
-    locatingRef.current = true;
+    if (stale()) return;
     setLocating(true);
     setLocateError(null);
     try {
       const position = await readCurrentPosition();
-      if (stale() || (!manual && !automaticGpsMayApply({ addressEdited: addressEdited.current, pickup: draftRef.current.pickup }))) return;
+      if (stale() || blocked()) {
+        note('kept-manual');
+        return;
+      }
       const fix = pickupAutofillFix({
         permission: 'granted',
         latitude: position.coords.latitude,
@@ -282,20 +295,22 @@ export function BookPage() {
         now: Date.now(),
       });
       if (!fix) {
-        if (manual) setLocateError(LOCATION_UNAVAILABLE);
+        note('unavailable');
+        setLocateError(LOCATION_UNAVAILABLE);
         return;
       }
       const found = await lookupAddress(Number(fix.latitude), Number(fix.longitude));
-      if (stale() || (!manual && !automaticGpsMayApply({ addressEdited: addressEdited.current, pickup: draftRef.current.pickup }))) return;
-      const decision = decideAddressAutofill(manual ? false : addressEdited.current, found);
-      if (decision.status === 'needs-street') {
-        setLocateError(LOCATION_STREET);
+      if (stale() || blocked()) {
+        note('kept-manual');
         return;
       }
-      if (decision.status !== 'apply') {
-        if (manual) setLocateError(LOCATION_UNAVAILABLE);
+      const decision = decideAddressAutofill(manual ? false : addressEdited.current, found.ok ? found.address : null);
+      if (!found.ok || decision.status !== 'apply') {
+        note(found.ok ? 'geocode-empty' : found.reason);
+        setLocateError(LOCATION_UNAVAILABLE);
         return;
       }
+      note('applied');
       setDraft((current) => {
         if (!manual && !automaticGpsMayApply({ addressEdited: addressEdited.current, pickup: current.pickup })) return current;
         if (manual) addressEdited.current = true;
@@ -315,13 +330,13 @@ export function BookPage() {
         };
       });
     } catch (caught) {
-      if (stale()) return;
-      if (!manual) return;
+      if (stale() || blocked()) return;
       const code = typeof caught === 'object' && caught && 'code' in caught ? Number(caught.code) : 0;
-      setLocateError(code === 1 ? LOCATION_DENIED : LOCATION_UNAVAILABLE);
+      const failure = geolocationFailure(code);
+      note(failure);
+      setLocateError(failure === 'denied' ? LOCATION_DENIED : LOCATION_UNAVAILABLE);
     } finally {
-      locatingRef.current = false;
-      setLocating(false);
+      if (manual || attemptId === pickupAttempt.current) setLocating(false);
     }
   }
 
@@ -1060,14 +1075,24 @@ function geolocationPermission(): Promise<'granted' | 'prompt' | 'denied'> {
   )).catch(() => 'prompt');
 }
 
-function readCurrentPosition(): Promise<GeolocationPosition> {
+function requestPosition(options: PositionOptions): Promise<GeolocationPosition> {
   return new Promise((resolve, reject) => {
     if (!navigator.geolocation) {
       reject({ code: 2 });
       return;
     }
-    navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 12000, maximumAge: 15000 });
+    navigator.geolocation.getCurrentPosition(resolve, reject, options);
   });
+}
+
+async function readCurrentPosition(): Promise<GeolocationPosition> {
+  try {
+    return await requestPosition({ enableHighAccuracy: true, timeout: 8000, maximumAge: 0 });
+  } catch (caught) {
+    const code = typeof caught === 'object' && caught && 'code' in caught ? Number(caught.code) : 2;
+    if (!canRetryLocation(geolocationFailure(code))) throw caught;
+    return requestPosition({ enableHighAccuracy: false, timeout: 10000, maximumAge: MAX_PICKUP_FIX_AGE_MS });
+  }
 }
 
 type GeocodedPlace = {
@@ -1085,15 +1110,19 @@ type GeocoderMaps = {
 };
 
 async function lookupAddress(latitude: number, longitude: number) {
-  await loadGoogleMaps(mapsBrowserKey());
+  try {
+    await loadGoogleMaps(mapsBrowserKey());
+  } catch {
+    return reverseGeocodeOutcome('UNAVAILABLE', null);
+  }
   const Geocoder = (window as Window & { google?: { maps?: GeocoderMaps } }).google?.maps?.Geocoder;
-  if (!Geocoder) return null;
-  const found = await new Promise<GeocodedPlace[] | null>((resolve) => {
+  if (!Geocoder) return reverseGeocodeOutcome('UNAVAILABLE', null);
+  const found = await new Promise<{ results: GeocodedPlace[] | null; status: string }>((resolve) => {
     new Geocoder().geocode({ location: { lat: latitude, lng: longitude } }, (results, status) => {
-      resolve(status === 'OK' ? results ?? null : null);
+      resolve({ results: results ?? null, status });
     });
   });
-  return readReverseGeocode(found);
+  return reverseGeocodeOutcome(found.status, found.results);
 }
 
 

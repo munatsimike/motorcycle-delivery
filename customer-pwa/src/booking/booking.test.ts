@@ -30,7 +30,7 @@ import {
   clearBookingAttempt,
   memoryAttemptStore,
 } from './flow.ts';
-import { acceptSearchResult, decideAddressAutofill, manualGeocodeAccepts, pickupAutofillFix, readGeocodedAddress, readReverseGeocode, resolveManualAddress } from './places.ts';
+import { acceptSearchResult, canRetryLocation, decideAddressAutofill, geolocationFailure, manualGeocodeAccepts, pickupAutofillFix, readGeocodedAddress, readReverseGeocode, resolveManualAddress, reverseGeocodeOutcome } from './places.ts';
 import { bookingSuccessPath, confirmQuoteDecision, nextCustomerOffer, quotesMatch, readDeliveryQuote } from './quote.ts';
 
 test('pickup and drop-off require an address, contact, phone, and resolved point', () => {
@@ -193,8 +193,17 @@ test('pickup autofill accepts a granted, fresh, accurate fix in any country', ()
   const netherlands = pickupAutofillFix({ permission: 'granted', latitude: 52.3, longitude: 4.9, accuracyMetres: 10, capturedAt: now, now });
   assert.equal(netherlands?.latitude, '52.3');
   assert.equal(netherlands?.longitude, '4.9');
-  const coarse = pickupAutofillFix({ permission: 'granted', latitude: 52.37, longitude: 4.89, accuracyMetres: null, capturedAt: now - 1000, now });
+  const coarse = pickupAutofillFix({ permission: 'granted', latitude: 52.37, longitude: 4.89, accuracyMetres: null, capturedAt: now - 45_000, now });
   assert.equal(coarse?.latitude, '52.37');
+  assert.equal(pickupAutofillFix({ permission: 'granted', latitude: 52.37, longitude: 4.89, accuracyMetres: 40, capturedAt: now - 121_000, now }), null);
+  assert.equal(geolocationFailure(1), 'denied');
+  assert.equal(geolocationFailure(3), 'timeout');
+  assert.equal(geolocationFailure(2), 'unavailable');
+  assert.equal(canRetryLocation('timeout'), true);
+  assert.equal(canRetryLocation('denied'), false);
+  assert.equal(reverseGeocodeOutcome('OK', [{ formatted_address: 'Damrak 1, Amsterdam, Netherlands', address_components: [{ long_name: 'Damrak', types: ['route'] }, { long_name: 'Amsterdam', types: ['locality'] }, { long_name: 'Netherlands', types: ['country'] }] }]).ok, true);
+  assert.equal(reverseGeocodeOutcome('REQUEST_DENIED', null).ok, false);
+  assert.equal(reverseGeocodeOutcome('OK', []).ok, false);
   assert.equal(pickupAutofillFix({ permission: 'denied', latitude: 52.3, longitude: 4.9, accuracyMetres: 10, capturedAt: now, now }), null);
   assert.equal(pickupAutofillFix({ permission: 'granted', latitude: 91, longitude: 4.9, accuracyMetres: 10, capturedAt: now, now }), null);
   const address = readGeocodedAddress([

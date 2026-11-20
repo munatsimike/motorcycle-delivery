@@ -2795,17 +2795,22 @@ button.home-status:disabled {
   padding-right: 44px;
 }
 
+.book-address-control.is-loading input {
+  padding-left: 40px;
+}
+
 .book-address-spinner {
   position: absolute;
   top: 50%;
-  right: 14px;
-  width: 17px;
-  height: 17px;
-  margin-top: -8.5px;
+  left: 12px;
+  width: 18px;
+  height: 18px;
+  margin-top: -9px;
   border: 2px solid var(--primary-light);
   border-top-color: var(--primary);
   border-radius: 50%;
   animation: top-spin 0.8s linear infinite;
+  pointer-events: none;
 }
 
 .book-locate {

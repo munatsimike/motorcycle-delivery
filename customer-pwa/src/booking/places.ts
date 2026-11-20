@@ -165,7 +165,29 @@ const ZIMBABWE_EXTENT: ReadonlyArray<readonly [number, number]> = [
   [26.40, -17.10],
 ];
 
-export const MAX_PICKUP_FIX_AGE_MS = 30_000;
+export const MAX_PICKUP_FIX_AGE_MS = 120_000;
+
+export type PickupLocateFailure = 'denied' | 'timeout' | 'unavailable';
+
+export function geolocationFailure(code: number): PickupLocateFailure {
+  if (code === 1) return 'denied';
+  if (code === 3) return 'timeout';
+  return 'unavailable';
+}
+
+export function canRetryLocation(failure: PickupLocateFailure): boolean {
+  return failure !== 'denied';
+}
+
+export function reverseGeocodeOutcome(
+  status: string,
+  results: ReadonlyArray<{ address_components?: readonly GeocoderComponent[] | null; formatted_address?: string | null }> | null | undefined,
+): { ok: true; address: { display: string; fullAddress: string; needsStreet: boolean } } | { ok: false; reason: 'geocode-failed' | 'geocode-empty' } {
+  if (status !== 'OK') return { ok: false, reason: 'geocode-failed' };
+  const address = readReverseGeocode(results);
+  if (!address?.display) return { ok: false, reason: 'geocode-empty' };
+  return { ok: true, address };
+}
 
 export type ServiceAreaMode = 'worldwide' | 'zimbabwe';
 
