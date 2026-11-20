@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
@@ -99,6 +100,23 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+/** Shortest sheet that fills the screen under the status bar and the mint gap. */
+internal fun profileSheetFloor(viewportHeight: Int, statusTop: Int, topGap: Int): Int {
+    return (viewportHeight - statusTop - topGap).coerceAtLeast(0)
+}
+
+/** Scroll only when the sheet content, insets, and gap are taller than the viewport. */
+internal fun profileNeedsScroll(
+    viewportHeight: Int,
+    statusTop: Int,
+    topGap: Int,
+    contentHeight: Int,
+    bottomPadding: Int = 0,
+): Boolean {
+    val sheet = maxOf(profileSheetFloor(viewportHeight, statusTop, topGap), contentHeight)
+    return statusTop + topGap + sheet + bottomPadding > viewportHeight
+}
+
 private val PendingReview = Color(0xFFB86E00)
 private val PendingReviewFill = Color(0xFFFFF4E5)
 
@@ -164,8 +182,14 @@ fun ProfileScreen(
         val avatarOverlap = avatarSize / 2
         val mapGap = 24.dp
         BoxWithConstraints(Modifier.fillMaxSize()) {
-            val statusTop = with(LocalDensity.current) { WindowInsets.statusBars.getTop(this).toDp() }
-            val sheetMinHeight = (maxHeight - statusTop - mapGap).coerceAtLeast(0.dp)
+            val density = LocalDensity.current
+            val sheetMinHeight = with(density) {
+                profileSheetFloor(
+                    viewportHeight = maxHeight.roundToPx(),
+                    statusTop = WindowInsets.statusBars.getTop(this),
+                    topGap = mapGap.roundToPx(),
+                ).toDp()
+            }
             Box(
                 Modifier
                     .fillMaxSize()
@@ -181,8 +205,7 @@ fun ProfileScreen(
                 Modifier
                     .fillMaxSize()
                     .statusBarsPadding()
-                    .verticalScroll(rememberScrollState())
-                    .padding(bottom = RidersSpacing.xxl),
+                    .verticalScroll(rememberScrollState()),
             ) {
                 Spacer(Modifier.height(mapGap))
                 Box(Modifier.fillMaxWidth()) {
@@ -430,8 +453,8 @@ private fun AddressEditor(
     Column(
         Modifier
             .fillMaxSize()
+            .imePadding()
             .verticalScroll(rememberScrollState())
-            .statusBarsPadding()
             .padding(horizontal = RidersSpacing.lg, vertical = RidersSpacing.xl),
         verticalArrangement = Arrangement.spacedBy(RidersSpacing.md),
     ) {
