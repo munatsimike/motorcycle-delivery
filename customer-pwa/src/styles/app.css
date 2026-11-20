@@ -3615,14 +3615,6 @@ html.is-page-transition .page-stage {
   line-height: 18px;
 }
 
-/* Match numbered pins in Parcel details sheet to the Deliveries cards. */
-.deliveries-sheet .delivery-facts-card .delivery-stop svg {
-  width: 32px;
-  height: 32px;
-  margin-left: -8px;
-  margin-right: -6px;
-}
-
 /* Send Parcel form actions use the same pill treatment as other primary actions. */
 .book-actions .button {
   border-radius: 999px;
@@ -4598,12 +4590,13 @@ html.is-page-transition .page-stage {
   opacity: 1;
 }
 
-/* Parcel details: legible location markers and balanced pickup/drop-off spacing. */
-.deliveries-sheet .delivery-facts-card .delivery-stop svg {
-  width: 38px;
-  height: 38px;
-  margin-left: -10px;
-  margin-right: -8px;
+/* Parcel details and the details page use the same pin size as Deliveries. */
+.delivery-facts-card .delivery-stop svg,
+.delivered-summary .delivery-stop svg {
+  width: 32px;
+  height: 32px;
+  margin-left: -8px;
+  margin-right: -6px;
 }
 .deliveries-sheet .delivery-facts-card .delivery-stop {
   min-height: 38px;
