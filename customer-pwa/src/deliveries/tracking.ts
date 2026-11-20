@@ -200,10 +200,44 @@ export function arrivalLabel(seconds: number): string | null {
   return `${Math.max(1, Math.round(seconds / 60))} min`;
 }
 
+const EARTH_RADIUS_METRES = 6_371_000;
+const PICKUP_ARRIVAL_METRES = 100;
+
+export function straightLineMetres(latitudeA: number, longitudeA: number, latitudeB: number, longitudeB: number): number {
+  const latitudeARadians = toRadians(latitudeA);
+  const latitudeBRadians = toRadians(latitudeB);
+  const deltaLatitude = latitudeBRadians - latitudeARadians;
+  const deltaLongitude = toRadians(longitudeB - longitudeA);
+  const haversine = Math.sin(deltaLatitude / 2) ** 2
+    + Math.cos(latitudeARadians) * Math.cos(latitudeBRadians) * Math.sin(deltaLongitude / 2) ** 2;
+  const arc = 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
+  return Math.floor(EARTH_RADIUS_METRES * arc + 0.5);
+}
+
+function toRadians(degrees: number): number {
+  return degrees * Math.PI / 180;
+}
+
+/** Straight-line metres from the accepted rider's fresh GPS to the stored pickup. Road-route metres are not used. */
+export function pickupStraightLineMetres(
+  delivery: Pick<CustomerDeliveryDetail, 'status' | 'pickupLatitude' | 'pickupLongitude' | 'riderLocation'>,
+  now: number,
+): number | null {
+  if (delivery.status !== 'ASSIGNED' && delivery.status !== 'RIDER_ASSIGNED' && delivery.status !== 'COLLECTING') return null;
+  const rider = delivery.riderLocation;
+  const pickupLatitude = delivery.pickupLatitude;
+  const pickupLongitude = delivery.pickupLongitude;
+  if (!rider || !riderFixIsFresh(rider.updatedAt, now)) return null;
+  if (pickupLatitude == null || pickupLongitude == null) return null;
+  if (!Number.isFinite(rider.latitude) || !Number.isFinite(rider.longitude)) return null;
+  if (!Number.isFinite(pickupLatitude) || !Number.isFinite(pickupLongitude)) return null;
+  return straightLineMetres(rider.latitude, rider.longitude, pickupLatitude, pickupLongitude);
+}
+
 export function trackingHeadline(status: DeliveryStatus, distanceMetres?: number | null): string | null {
   if (status === 'ASSIGNED' || status === 'ARRIVED_AT_PICKUP' || status === 'RIDER_ASSIGNED' || status === 'COLLECTING') {
     if (status === 'ARRIVED_AT_PICKUP') return 'Rider arrived';
-    if (distanceMetres != null && Number.isFinite(distanceMetres) && distanceMetres >= 0 && distanceMetres <= 100) return 'Rider arrived';
+    if (distanceMetres != null && Number.isFinite(distanceMetres) && distanceMetres >= 0 && distanceMetres <= PICKUP_ARRIVAL_METRES) return 'Rider arrived';
     return status === 'RIDER_ASSIGNED' || status === 'COLLECTING' ? 'Rider coming' : 'Rider on the way';
   }
   if (status === 'PICKED_UP' || status === 'COLLECTED' || status === 'OUT_FOR_DELIVERY') return 'Parcel collected';

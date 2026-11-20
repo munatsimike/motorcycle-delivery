@@ -24,7 +24,11 @@ import {
   activeOfferCountLabel,
   receivedOfferCountLabel,
   readRouteLine,
+  pickupStraightLineMetres,
   riderFixIsFresh,
+  roadDistanceLabel,
+  straightLineMetres,
+  trackingHeadline,
   offerRiderName,
   riderPhotoPresentation,
   shouldPollDelivery,
@@ -347,6 +351,70 @@ test('a cancelled delivery keeps the actor and omits the rider note', () => {
   }]);
   assert.equal(offers[0]?.currency, 'ZWG');
   assert.equal(moneyLabel(offers[0]?.currency, offers[0]?.amount ?? ''), 'ZiG 99');
+});
+
+const EARTH_RADIUS_METRES = 6_371_000;
+
+function riderNorthOf(metres: number, updatedAt: string) {
+  return {
+    latitude: -17.82 + (metres / EARTH_RADIUS_METRES) * (180 / Math.PI),
+    longitude: 31.05,
+    updatedAt,
+  };
+}
+
+test('arrival uses straight-line distance and ignores the road route', () => {
+  const fresh = new Date(NOW - 10_000).toISOString();
+  const at = (metres: number, status: CustomerDeliveryDetail['status'] = 'COLLECTING') => detail({
+    status,
+    riderLocation: riderNorthOf(metres, fresh),
+    pickupApproach: { metres: 484, seconds: 90, line: [] },
+  });
+
+  assert.equal(pickupStraightLineMetres(at(50), NOW), 50);
+  assert.equal(trackingHeadline('COLLECTING', pickupStraightLineMetres(at(50), NOW)), 'Rider arrived');
+  assert.equal(pickupStraightLineMetres(at(99), NOW), 99);
+  assert.equal(trackingHeadline('RIDER_ASSIGNED', pickupStraightLineMetres(at(99, 'RIDER_ASSIGNED'), NOW)), 'Rider arrived');
+  assert.equal(pickupStraightLineMetres(at(101), NOW), 101);
+  assert.equal(trackingHeadline('COLLECTING', pickupStraightLineMetres(at(101), NOW)), 'Rider coming');
+
+  const nearDoor = at(75);
+  assert.equal(nearDoor.pickupApproach?.metres, 484);
+  assert.equal(roadDistanceLabel(nearDoor.pickupApproach?.metres ?? 0), '484 m');
+  assert.equal(pickupStraightLineMetres(nearDoor, NOW), 75);
+  assert.equal(trackingHeadline(nearDoor.status, pickupStraightLineMetres(nearDoor, NOW)), 'Rider arrived');
+  assert.equal(straightLineMetres(nearDoor.riderLocation!.latitude, nearDoor.riderLocation!.longitude, nearDoor.pickupLatitude!, nearDoor.pickupLongitude!), 75);
+});
+
+test('missing or stale GPS does not claim the rider has arrived', () => {
+  const close = riderNorthOf(10, new Date(NOW - 61_000).toISOString());
+  const stale = detail({ status: 'COLLECTING', riderLocation: close, pickupApproach: { metres: 20, seconds: 30, line: [] } });
+  assert.equal(pickupStraightLineMetres(stale, NOW), null);
+  assert.equal(trackingHeadline(stale.status, pickupStraightLineMetres(stale, NOW)), 'Rider coming');
+
+  const missing = detail({ status: 'RIDER_ASSIGNED', riderLocation: null, pickupApproach: { metres: 10, seconds: 20, line: [] } });
+  assert.equal(pickupStraightLineMetres(missing, NOW), null);
+  assert.equal(trackingHeadline(missing.status, pickupStraightLineMetres(missing, NOW)), 'Rider coming');
+
+  const unpinned = detail({ status: 'COLLECTING', pickupLatitude: null, pickupLongitude: null });
+  assert.equal(pickupStraightLineMetres(unpinned, NOW), null);
+  assert.equal(trackingHeadline(unpinned.status, pickupStraightLineMetres(unpinned, NOW)), 'Rider coming');
+});
+
+test('collected deliveries keep their status headlines', () => {
+  assert.equal(trackingHeadline('COLLECTED', 50), 'Parcel collected');
+  assert.equal(trackingHeadline('OUT_FOR_DELIVERY', 50), 'Parcel collected');
+  assert.equal(trackingHeadline('PICKED_UP', 50), 'Parcel collected');
+  assert.equal(trackingHeadline('IN_TRANSIT', 75), 'Your parcel is on the way');
+  assert.equal(trackingHeadline('ARRIVED_AT_DROPOFF', 75), 'Your parcel is on the way');
+  assert.equal(trackingHeadline('DELIVERED', 0), 'Parcel delivered');
+  const collected = detail({
+    status: 'COLLECTED',
+    riderLocation: riderNorthOf(50, new Date(NOW - 5_000).toISOString()),
+    pickupApproach: { metres: 484, seconds: 90, line: [] },
+  });
+  assert.equal(pickupStraightLineMetres(collected, NOW), null);
+  assert.equal(trackingHeadline(collected.status, pickupStraightLineMetres(collected, NOW)), 'Parcel collected');
 });
 
 function memoryStore() {

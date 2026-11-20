@@ -38,6 +38,7 @@ import {
   riderDialUrl,
   riderMarkerForMap,
   riderWhatsAppUrl,
+  pickupStraightLineMetres,
   roadDistanceLabel,
   shouldPollDelivery,
   shouldShowRiderConfirmed,
@@ -480,7 +481,7 @@ export function DeliveryDetailsPage() {
     || (screen === 'offers' && delivery.pickupLatitude !== null && delivery.pickupLongitude !== null)
     || (screen !== 'outcome' && mapView.kind !== 'hidden');
   const approach = live ? delivery.pickupApproach : null;
-  const headline = trackingHeadline(delivery.status, approach?.metres);
+  const headline = trackingHeadline(delivery.status, pickupStraightLineMetres(delivery, now));
   const subtitle = trackingSubtitle(headline, delivery.dropoffAddress);
   const distance = approach ? roadDistanceLabel(approach.metres) : null;
   const eta = approach ? arrivalLabel(approach.seconds) : null;
