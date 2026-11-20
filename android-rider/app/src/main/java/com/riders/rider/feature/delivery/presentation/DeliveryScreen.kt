@@ -238,11 +238,11 @@ fun DeliveryScreen(
             navigationBottom = navigationBottom,
         )
     } else if (collected) {
-        RidersPullRefresh(
-            refreshing = ui.refreshing,
-            onRefresh = { model.load(deliveryId, fromUser = true, completed = completed) },
-            modifier = Modifier.fillMaxSize(),
-        ) {
+    RidersPullRefresh(
+        refreshing = ui.refreshing,
+        onRefresh = { model.load(deliveryId, fromUser = true, completed = completed) },
+        modifier = Modifier.fillMaxSize(),
+    ) {
             CollectedPage(
                 ui = ui,
                 deliveryId = deliveryId,
@@ -356,7 +356,7 @@ fun DeliveryScreen(
                         },
                         bottom = RidersSpacing.lg + navigationBottom,
                     ),
-            ) {
+    ) {
         when {
             ui.missing -> RidersEmptyState(
                 title = "This delivery is no longer active",
@@ -501,8 +501,8 @@ private fun CollectionMapPage(
                 modifier = Modifier.size(22.dp),
             )
         }
-        Column(
-            Modifier
+                Column(
+                    Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .onSizeChanged { sheetHeight = with(density) { it.height.toDp() } }
@@ -591,14 +591,14 @@ private fun DeliveryActionBlock(
     onNavigate: () -> Unit,
     destinationNote: String? = null,
 ) {
-    val target = navigationTarget(
-        status = ui.status,
-        contacts = ui.contacts,
-        pickupAddress = ui.pickupAddress,
-        pickupLandmark = ui.pickupLandmark,
-        dropoffAddress = ui.dropoffAddress,
-        dropoffLandmark = ui.dropoffLandmark,
-    )
+                val target = navigationTarget(
+                    status = ui.status,
+                    contacts = ui.contacts,
+                    pickupAddress = ui.pickupAddress,
+                    pickupLandmark = ui.pickupLandmark,
+                    dropoffAddress = ui.dropoffAddress,
+                    dropoffLandmark = ui.dropoffLandmark,
+                )
     val collecting = readyForCollection(ui.status) &&
         ui.marketplaceParcel &&
         ui.nextLabel == "Confirm pickup" &&
@@ -696,10 +696,10 @@ private fun DeliveryActionBlock(
                 RidersSecondaryButton(
                     label = navigationLabel,
                     onClick = onNavigate,
-                    enabled = !blocked,
-                    modifier = Modifier.fillMaxWidth(),
-                    soft = false,
-                )
+                        enabled = !blocked,
+                        modifier = Modifier.fillMaxWidth(),
+                        soft = false,
+                    )
             }
             destinationNote?.let { note ->
                 Text(
@@ -710,9 +710,9 @@ private fun DeliveryActionBlock(
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
-        }
-        if (ui.error != null) {
-            RidersFailureNotice(
+                }
+                if (ui.error != null) {
+                    RidersFailureNotice(
                 message = ui.error,
                 onRetry = { model.load(ui.deliveryId, fromUser = true, completed = completed) },
             )
@@ -723,17 +723,17 @@ private fun DeliveryActionBlock(
                 style = RidersType.bodyStrong,
                 color = RidersColors.text,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-        ui.cancellationMessage?.let { message ->
-            Text(message, style = RidersType.bodyStrong, color = RidersColors.text)
-            RidersPrimaryButton(
-                label = "Back to deliveries",
-                onClick = onFinished,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                ui.cancellationMessage?.let { message ->
+                    Text(message, style = RidersType.bodyStrong, color = RidersColors.text)
+                    RidersPrimaryButton(
+                        label = "Back to deliveries",
+                        onClick = onFinished,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
         if (!collecting && ui.marketplaceParcel && ui.completionMessage == null && ui.cancellationMessage == null && !ui.readOnly) ui.nextLabel?.let { label ->
             val confirmDelivery = {
                 if (label == "Confirm pickup" || label == "Mark as delivered") {
@@ -755,32 +755,33 @@ private fun DeliveryActionBlock(
                 RidersPrimaryButton(
                     label = label,
                     onClick = confirmDelivery,
-                    enabled = !blocked,
-                    loading = ui.busy == DeliveryBusy.Advance,
-                    loadingLabel = label,
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                        enabled = !blocked,
+                        loading = ui.busy == DeliveryBusy.Advance,
+                        loadingLabel = label,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
             }
-        }
-        if (ui.status == "DELIVERED") {
-            DeliveryDetailsSummary(
-                description = ui.parcelDescription,
-                deliveryId = ui.deliveryId,
-                createdAt = ui.createdAt,
-                dateCaption = if (ui.completedAt != null) "Completed" else "Date",
+                }
+                if (ui.status == "DELIVERED") {
+                    DeliveryDetailsSummary(
+                        description = ui.parcelDescription,
+                        deliveryId = ui.deliveryId,
+                        createdAt = ui.createdAt,
+                        dateCaption = if (ui.completedAt != null) "Completed" else "Date",
                 spacious = true,
-                pickup = ui.pickupAddress,
-                dropoff = ui.dropoffAddress,
-                distanceMeters = ui.distanceMeters,
-                price = ui.agreedPrice,
+                        pickup = ui.pickupAddress,
+                        dropoff = ui.dropoffAddress,
+                        distanceMeters = ui.distanceMeters,
+                        price = ui.agreedPrice,
                 currency = ui.currency,
-                modifier = Modifier.fillMaxWidth(),
-                pickupContact = { StopContactLine(ui, sender = true) },
-                dropoffContact = { StopContactLine(ui, sender = false) },
+                paymentMethod = ui.paymentMethod,
+                        modifier = Modifier.fillMaxWidth(),
+                        pickupContact = { StopContactLine(ui, sender = true) },
+                        dropoffContact = { StopContactLine(ui, sender = false) },
                 pickupDetail = { StopNotes(ui.pickupAddress, ui.pickupLandmark, ui.pickupInstructions) },
                 dropoffDetail = { StopNotes(ui.dropoffAddress, ui.dropoffLandmark, ui.dropoffInstructions) },
-            )
-        } else {
+                    )
+                } else {
             val canCancel = readyForCollection(ui.status) &&
                 ui.marketplaceParcel &&
                 ui.cancelVisible &&
@@ -792,8 +793,8 @@ private fun DeliveryActionBlock(
                     .fillMaxWidth()
                     .padding(vertical = if (collected) 0.dp else RidersSpacing.sm),
                 horizontalArrangement = if (canCancel) Arrangement.SpaceBetween else Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                 if (canCancel) {
                     Text(
                         "Cancel delivery",
@@ -812,26 +813,26 @@ private fun DeliveryActionBlock(
                             },
                         )
                         .clickable(role = Role.Button, onClick = onOpenDetails),
-                    horizontalArrangement = Arrangement.spacedBy(RidersSpacing.xs),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        "Parcel details",
+                            horizontalArrangement = Arrangement.spacedBy(RidersSpacing.xs),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                "Parcel details",
                         style = RidersType.body.copy(fontWeight = FontWeight.Medium),
-                        color = RidersColors.primary,
-                    )
-                    Icon(
-                        painter = painterResource(R.drawable.ic_chevron_up),
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                        tint = RidersColors.primary,
-                    )
+                                color = RidersColors.primary,
+                            )
+                            Icon(
+                                painter = painterResource(R.drawable.ic_chevron_up),
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                                tint = RidersColors.primary,
+                            )
+                        }
+                    }
+                }
                 }
             }
         }
-        }
-    }
-}
 
 @Composable
 private fun CollectionActions(
@@ -901,6 +902,7 @@ private fun ParcelDetailsSheet(
                 distanceMeters = ui.distanceMeters,
                 price = ui.agreedPrice,
                 currency = ui.currency,
+                paymentMethod = ui.paymentMethod,
                 modifier = Modifier.fillMaxWidth(),
                 framed = false,
                 parcelSheet = true,
@@ -960,8 +962,8 @@ private fun CancelDeliveryModal(
             window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
         }
         Box(Modifier.fillMaxSize()) {
-            Box(
-                Modifier
+                Box(
+                    Modifier
                     .fillMaxSize()
                     .background(Color(0xFF17211D).copy(alpha = 0.4f))
                     .clickable(
@@ -976,7 +978,7 @@ private fun CancelDeliveryModal(
                     .align(Alignment.Center)
                     .padding(horizontal = RidersSpacing.lg)
                     .widthIn(max = 420.dp)
-                    .fillMaxWidth()
+                        .fillMaxWidth()
                     .heightIn(max = maxHeight)
                     .clip(cardShape)
                     .background(RidersColors.background)
@@ -1244,7 +1246,7 @@ private fun DeliveredPage(
                 sheetOverlap = if (sheetHeight > 0.dp) sheetHeight else 240.dp,
                 modifier = Modifier.fillMaxSize(),
             )
-        } else {
+    } else {
             Box(
                 Modifier
                     .fillMaxSize()
@@ -1303,10 +1305,11 @@ private fun DeliveredPage(
                     distanceMeters = ui.distanceMeters,
                     price = ui.agreedPrice,
                 currency = ui.currency,
-                    modifier = Modifier.fillMaxWidth(),
+                paymentMethod = ui.paymentMethod,
+        modifier = Modifier.fillMaxWidth(),
                     senderName = ui.contacts?.pickupName.orEmpty(),
                     customerSender = true,
-                )
+    )
             }
         }
     }
@@ -1319,9 +1322,9 @@ private fun DeliveryStatusHero(status: String, dropoffAddress: String, pickupAdd
     }
     val problem = status == "CANCELLED" || status == "FAILED"
     Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = RidersSpacing.lg)
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = RidersSpacing.lg)
             .padding(
                 top = when {
                     readyForCollection(status) || status == "COLLECTED" -> RidersSpacing.xs
@@ -1332,16 +1335,16 @@ private fun DeliveryStatusHero(status: String, dropoffAddress: String, pickupAdd
         horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md),
     ) {
         if (!readyForCollection(status) && status != "COLLECTED") {
-            Box(
-                Modifier
+                Box(
+                    Modifier
                     .size(48.dp)
                     .clip(CircleShape)
                     .background(if (problem) Color(0xFFFDECEC) else RidersColors.primaryLight),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_nav_deliveries),
-                    contentDescription = null,
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_nav_deliveries),
+                        contentDescription = null,
                     tint = if (problem) RidersColors.error else RidersColors.primaryDark,
                     modifier = Modifier.size(22.dp),
                 )

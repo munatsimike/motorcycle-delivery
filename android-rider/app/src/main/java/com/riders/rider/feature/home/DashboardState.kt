@@ -30,6 +30,10 @@ const val OFFLINE_WITH_DELIVERIES_TITLE = "Go offline?"
 const val OFFLINE_WITH_DELIVERIES_MESSAGE =
     "You will stop receiving new requests. Deliveries you already accepted stay assigned to you."
 
+fun shouldRefreshWalletOnHomeVisit(visitsSoFar: Int): Boolean = visitsSoFar > 0
+
+fun deliveryStatusRefreshesWallet(status: String): Boolean = status == "DELIVERED"
+
 fun dashboardActiveCount(assignments: List<CommittedParcel>): Int {
     return committedAssignmentsForDisplay(assignments, null, null).size
 }

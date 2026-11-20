@@ -8,6 +8,9 @@ import com.riders.rider.feature.wallet.domain.WalletEntry
 import com.riders.rider.feature.wallet.domain.walletReceiptLabel
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 
 data class WalletPage(
     val entries: List<WalletEntry>,
@@ -18,7 +21,16 @@ data class WalletPage(
 class WalletRepository @Inject constructor(
     private val riders: RiderService,
 ) {
-    suspend fun summary(): ApiResult<WalletSummaryResponse> = apiCall { riders.wallet() }
+    private val updatesFlow = MutableSharedFlow<WalletSummaryResponse>(extraBufferCapacity = 1)
+    val updates: SharedFlow<WalletSummaryResponse> = updatesFlow.asSharedFlow()
+
+    suspend fun summary(): ApiResult<WalletSummaryResponse> {
+        val result = apiCall { riders.wallet() }
+        if (result is ApiResult.Ok) {
+            updatesFlow.tryEmit(result.value)
+        }
+        return result
+    }
 
     suspend fun transactions(cursor: String?, currency: String = "USD"): ApiResult<WalletPage> {
         return when (val result = apiCall { riders.walletTransactions(limit = PAGE_SIZE, cursor = cursor, currency = currency) }) {

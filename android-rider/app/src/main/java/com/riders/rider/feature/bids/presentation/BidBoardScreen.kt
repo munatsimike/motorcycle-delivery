@@ -3,12 +3,10 @@ package com.riders.rider.feature.bids.presentation
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -17,10 +15,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
@@ -50,6 +51,7 @@ import com.riders.rider.feature.delivery.presentation.ContentIcon
 import com.riders.rider.feature.delivery.presentation.ContentLabel
 import com.riders.rider.feature.delivery.presentation.DeliveryRoute
 import com.riders.rider.feature.offers.domain.OFFER_REFRESH_INTERVAL_MS
+import com.riders.rider.feature.offers.domain.shouldPollMarketplace
 import com.riders.rider.feature.delivery.presentation.deliveryContentMatches
 import com.riders.rider.feature.delivery.presentation.filteredContentTitle
 import com.riders.rider.feature.offers.domain.offerPriceLabel
@@ -58,26 +60,40 @@ import com.riders.rider.feature.offers.domain.offerPriceLabel
 fun BidBoardScreen(
     contentKind: String? = null,
     sort: DeliveryListSort = DeliveryListSort.Newest,
+    availability: String? = null,
+    receiving: Boolean? = null,
     modifier: Modifier = Modifier,
     model: BidBoardViewModel = hiltViewModel(),
 ) {
     val ui by model.ui.collectAsStateWithLifecycle()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    LaunchedEffect(Unit) {
-        model.refresh()
-        while (true) {
-            delay(OFFER_REFRESH_INTERVAL_MS)
-            model.refresh()
-        }
-    }
+    var appVisible by remember { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) }
     DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                model.refresh()
+            when (event) {
+                Lifecycle.Event.ON_START -> appVisible = true
+                Lifecycle.Event.ON_STOP -> appVisible = false
+                else -> Unit
             }
         }
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
+    }
+    val poll = shouldPollMarketplace(appVisible, availability, receiving)
+    LaunchedEffect(Unit) {
+        if (!poll) {
+            model.refresh()
+        }
+    }
+    LaunchedEffect(poll) {
+        if (!poll) {
+            return@LaunchedEffect
+        }
+        model.refresh()
+        while (isActive) {
+            delay(OFFER_REFRESH_INTERVAL_MS)
+            model.refresh()
+        }
     }
     val pending = pendingBids(ui.bids)
     val phase = bidBoardPhase(ui.loading, requestCount = 0, bidCount = pending.size, error = ui.error)
@@ -127,17 +143,13 @@ fun BidBoardScreen(
                             color = Color(0xFFB45309),
                         )
                     }
-                    Column(Modifier.fillMaxWidth()) {
-                        shown.forEachIndexed { index, bid ->
-                            if (index == 0) {
-                                BidCardDivider()
-                            }
+                    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm)) {
+                        shown.forEach { bid ->
                             OwnBidRow(
                                 bid = bid,
                                 withdrawing = ui.withdrawingBidId == bid.bidId,
                                 onWithdraw = { model.withdraw(bid.bidId) },
                             )
-                            BidCardDivider()
                         }
                     }
                     if (ui.nextCursor != null) {
@@ -208,18 +220,4 @@ private fun WithdrawAction(withdrawing: Boolean, onWithdraw: () -> Unit) {
             modifier = Modifier.clickable(enabled = !withdrawing, role = Role.Button, onClick = onWithdraw),
         )
     }
-}
-
-@Composable
-private fun BidCardDivider() {
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .height(1.dp)
-            .background(
-                Brush.horizontalGradient(
-                    listOf(Color.Transparent, RidersColors.border, Color.Transparent),
-                ),
-            ),
-    )
 }

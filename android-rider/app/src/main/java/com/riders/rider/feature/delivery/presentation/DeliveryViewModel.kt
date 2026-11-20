@@ -37,6 +37,8 @@ import com.riders.rider.feature.delivery.domain.deliveryStatusLabel
 import com.riders.rider.feature.delivery.domain.deliveryStepTitle
 import com.riders.rider.feature.delivery.domain.syncOpenDelivery
 import com.riders.rider.feature.offers.data.OfferRepository
+import com.riders.rider.feature.home.deliveryStatusRefreshesWallet
+import com.riders.rider.feature.wallet.data.WalletRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -77,6 +79,7 @@ data class DeliveryUi(
     val finished: Boolean = false,
     val agreedPrice: String? = null,
     val currency: String = "USD",
+    val paymentMethod: String? = null,
     val distanceMeters: Int? = null,
     val createdAt: String? = null,
     val completedAt: String? = null,
@@ -99,6 +102,7 @@ class DeliveryViewModel @Inject constructor(
     private val availability: AvailabilityRepository,
     private val onboarding: OnboardingRepository,
     private val transitions: TransitionKeyStore,
+    private val wallets: WalletRepository,
 ) : ViewModel() {
     private val state = MutableStateFlow(DeliveryUi())
     val ui: StateFlow<DeliveryUi> = state.asStateFlow()
@@ -223,6 +227,7 @@ class DeliveryViewModel @Inject constructor(
             contacts = parcel.contacts,
             agreedPrice = parcel.agreedPrice,
             currency = parcel.currency,
+            paymentMethod = parcel.paymentMethod,
             distanceMeters = parcel.distanceMeters,
             createdAt = parcel.createdAt,
             completedAt = parcel.completedAt,
@@ -291,6 +296,7 @@ class DeliveryViewModel @Inject constructor(
                     DeliverySyncKind.Leave -> {
                         if (stored != null) {
                             deliveries.clear()
+                            refreshWallet()
                         }
                         state.update { it.copy(syncing = false, finished = true, error = null, contacts = null) }
                     }
@@ -334,6 +340,7 @@ class DeliveryViewModel @Inject constructor(
                         transitions.clearProgress(current.deliveryId)
                         assignments.refreshList()
                         availability.applySharing()
+                        refreshWallet()
                         state.update {
                             it.copy(
                                 cancellationMessage = cancellationResultMessage(result.value.reopened),
@@ -388,6 +395,9 @@ class DeliveryViewModel @Inject constructor(
                         assignments.confirmStatus(current.deliveryId, confirmed)
                         assignments.refreshList()
                         availability.applySharing()
+                        if (deliveryStatusRefreshesWallet(confirmed)) {
+                            refreshWallet()
+                        }
                         if (confirmed == "DELIVERED") {
                             state.update {
                                 it.copy(
@@ -413,6 +423,10 @@ class DeliveryViewModel @Inject constructor(
                 state.update { it.copy(busy = DeliveryBusy.None) }
             }
         }
+    }
+
+    private fun refreshWallet() {
+        viewModelScope.launch { wallets.summary() }
     }
 
     private suspend fun settleProgressFailure(deliveryId: String, targetStatus: String, message: String, error: com.riders.rider.core.network.ApiError) {
@@ -478,6 +492,7 @@ class DeliveryViewModel @Inject constructor(
             contacts = parcel.contacts,
             agreedPrice = parcel.agreedPrice,
             currency = parcel.currency,
+            paymentMethod = parcel.paymentMethod,
             distanceMeters = parcel.distanceMeters,
             createdAt = parcel.createdAt,
             completedAt = parcel.completedAt,
@@ -518,6 +533,7 @@ class DeliveryViewModel @Inject constructor(
             contacts = contacts,
             agreedPrice = delivery.agreedPrice,
             currency = delivery.currency,
+            paymentMethod = delivery.paymentMethod,
             distanceMeters = delivery.distanceMeters,
             createdAt = delivery.createdAt,
             agreedPriceLabel = agreedPriceLabel(delivery.agreedPrice, delivery.currency),

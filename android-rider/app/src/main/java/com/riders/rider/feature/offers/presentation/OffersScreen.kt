@@ -28,7 +28,6 @@ import androidx.compose.material3.Text
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -109,6 +108,7 @@ import com.riders.rider.feature.bids.domain.resolvedSubmittedAmount
 import com.riders.rider.feature.offers.domain.offerSentConfirmation
 import com.riders.rider.feature.offers.domain.senderChoosesRider
 import com.riders.rider.feature.offers.domain.requestAmountLabel
+import com.riders.rider.feature.offers.domain.shouldPollMarketplace
 import com.riders.rider.feature.offers.domain.requestCurrencyLabel
 import com.riders.rider.feature.delivery.domain.DeliveryListSort
 import com.riders.rider.feature.delivery.domain.sortDeliveries
@@ -120,6 +120,8 @@ import com.riders.rider.navigation.bidOptionsExit
 fun OffersScreen(
     onAccepted: (String) -> Unit,
     inShell: Boolean = false,
+    availability: String? = null,
+    receiving: Boolean? = null,
     modifier: Modifier = Modifier,
     offerAssignmentId: String? = null,
     onRequestHandled: () -> Unit = {},
@@ -146,6 +148,10 @@ fun OffersScreen(
             lifecycle.removeObserver(observer)
             model.setScreenResumed(false)
         }
+    }
+    val requestsEnabled = shouldPollMarketplace(appVisible = true, availability, receiving)
+    LaunchedEffect(requestsEnabled) {
+        model.setRequestsEnabled(requestsEnabled)
     }
     LaunchedEffect(offerAssignmentId) {
         val assignmentId = offerAssignmentId ?: return@LaunchedEffect
@@ -595,6 +601,7 @@ private fun BidPage(
                     cents += BID_STEP_CENTS
                 }
             }
+            RequestPaymentMark(offer.paymentMethod)
             Text(
                 "Suggested offer (based on distance and demand)",
                 style = RidersType.caption,
@@ -690,7 +697,7 @@ private fun SentOfferCard(offer: OfferResponse, amount: String) {
     RidersCard(modifier = Modifier.fillMaxWidth()) {
         SentOfferHeading()
         SentOfferNote(offer, amount)
-        HorizontalDivider()
+        Spacer(Modifier.height(RidersSpacing.md))
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -775,9 +782,9 @@ private fun OfferDetailsSheet(visible: Boolean, offer: OfferResponse, amount: St
                     },
                 )
             }
-            HorizontalDivider()
             DetailLine("Distance", offerDistanceLabel(offer.distanceMeters))
             DetailLine("Customer price", requestAmountLabel(offer.currency, offer.offeredPrice))
+            RequestPaymentMark(offer.paymentMethod)
             DetailLine("Your offer", requestAmountLabel(offer.currency, amount))
         }
     }
@@ -788,7 +795,7 @@ private fun SentOfferDetails(offer: OfferResponse, amount: String) {
     RidersCard(modifier = Modifier.fillMaxWidth()) {
         SentOfferHeading()
         SentOfferNote(offer, amount)
-        HorizontalDivider()
+        Spacer(Modifier.height(RidersSpacing.md))
         Column(Modifier.fillMaxWidth()) {
             OfferStop(offerStopLine(offer.pickup.address, offer.pickup.landmark), pickup = true, connected = false)
             Spacer(Modifier.height(8.dp))
@@ -848,20 +855,6 @@ private fun DetailLine(label: String, value: String) {
         Text(label, style = RidersType.body, color = RidersColors.textSecondary)
         Text(value, style = RidersType.bodyStrong, color = RidersColors.text)
     }
-}
-
-@Composable
-private fun HorizontalDivider() {
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .height(1.dp)
-            .background(
-                Brush.horizontalGradient(
-                    listOf(Color.Transparent, RidersColors.border, Color.Transparent),
-                ),
-            ),
-    )
 }
 
 private fun readableOfferValue(value: String): String {
@@ -970,12 +963,7 @@ private fun OfferSummary(offer: OfferResponse, nowMillis: Long, detailed: Boolea
             Text(it, style = RidersType.caption, color = RidersColors.textSecondary)
         }
     }
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .height(1.dp)
-            .background(RidersColors.border),
-    )
+    Spacer(Modifier.height(RidersSpacing.md))
     Row(
         Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -991,6 +979,7 @@ private fun OfferSummary(offer: OfferResponse, nowMillis: Long, detailed: Boolea
         ) {
             Text("Customer offers", style = RidersType.caption, color = RidersColors.textSecondary)
             Text(requestAmountLabel(offer.currency, offer.offeredPrice), style = RidersType.heading, color = RidersColors.text)
+            RequestPaymentMark(offer.paymentMethod)
         }
     }
 }

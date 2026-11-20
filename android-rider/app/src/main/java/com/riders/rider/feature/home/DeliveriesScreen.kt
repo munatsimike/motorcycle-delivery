@@ -160,6 +160,8 @@ fun DeliveriesScreen(
             DeliveryBoardTab.New -> OffersScreen(
                 onAccepted = onOpenDelivery,
                 inShell = true,
+                availability = availability,
+                receiving = ui.onboarding?.receiving,
                 modifier = Modifier.weight(1f),
                 contentKind = contentKind,
                 sort = sort,
@@ -170,6 +172,8 @@ fun DeliveriesScreen(
             DeliveryBoardTab.Pending -> BidBoardScreen(
                 contentKind = contentKind,
                 sort = sort,
+                availability = availability,
+                receiving = ui.onboarding?.receiving,
                 modifier = Modifier.weight(1f),
             )
             DeliveryBoardTab.Completed -> CompletedDeliveriesPane(

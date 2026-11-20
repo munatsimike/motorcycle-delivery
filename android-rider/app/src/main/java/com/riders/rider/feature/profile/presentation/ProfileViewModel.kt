@@ -189,6 +189,7 @@ class ProfileViewModel @Inject constructor(
                     }
                 }
                 is ApiResult.Ok -> {
+                    verification.invalidateDocuments()
                     pendingPhoto = null
                     state.update { current ->
                         current.copy(
@@ -220,13 +221,16 @@ class ProfileViewModel @Inject constructor(
                         photoPreview = null,
                     )
                 }
-                is ApiResult.Ok -> state.update { latest ->
-                    latest.copy(
-                        board = latest.board.copy(hasProfilePhoto = false),
-                        photo = profilePhotoRemoved(latest.photo),
-                        photoBitmap = null,
-                        photoPreview = null,
-                    )
+                is ApiResult.Ok -> {
+                    verification.invalidateDocuments()
+                    state.update { latest ->
+                        latest.copy(
+                            board = latest.board.copy(hasProfilePhoto = false),
+                            photo = profilePhotoRemoved(latest.photo),
+                            photoBitmap = null,
+                            photoPreview = null,
+                        )
+                    }
                 }
             }
         }
@@ -266,6 +270,7 @@ class ProfileViewModel @Inject constructor(
         endAvailabilityForSignOut()
         offerPush.forget()
         auth.logout()
+        verification.invalidateDocuments()
         assignments.clearSession()
         availability.applySharing()
         deliveries.clear()

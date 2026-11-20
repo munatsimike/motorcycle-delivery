@@ -31,6 +31,19 @@ data class RiderIdentity(
 class VerificationRepository @Inject constructor(
     private val riders: RiderService,
 ) {
+    private var approvedDocumentsConfirmed = false
+
+    fun documentsConfirmedFor(approvalStatus: String?): Boolean {
+        return approvalStatus == "APPROVED" && approvedDocumentsConfirmed
+    }
+
+    fun confirmApprovedDocuments() {
+        approvedDocumentsConfirmed = true
+    }
+
+    fun invalidateDocuments() {
+        approvedDocumentsConfirmed = false
+    }
     suspend fun profile(): ApiResult<RiderIdentity> {
         return when (val result = apiCall { riders.profile() }) {
             is ApiResult.Ok -> ApiResult.Ok(RiderIdentity(result.value.fullName, result.value.phone, result.value.address, result.value.hasProfilePhoto))
@@ -40,7 +53,10 @@ class VerificationRepository @Inject constructor(
 
     suspend fun updateAddress(address: String): ApiResult<RiderIdentity> {
         return when (val result = apiCall { riders.updateAddress(RiderAddressRequest(address)) }) {
-            is ApiResult.Ok -> ApiResult.Ok(RiderIdentity(result.value.fullName, result.value.phone, result.value.address, result.value.hasProfilePhoto))
+            is ApiResult.Ok -> {
+                invalidateDocuments()
+                ApiResult.Ok(RiderIdentity(result.value.fullName, result.value.phone, result.value.address, result.value.hasProfilePhoto))
+            }
             is ApiResult.Err -> result
         }
     }
@@ -94,14 +110,17 @@ class VerificationRepository @Inject constructor(
             ProgressRequestBody(bytes, type.toMediaType(), onProgress),
         )
         return when (val result = apiCall { riders.uploadLicence(part) }) {
-            is ApiResult.Ok -> ApiResult.Ok(
-                StoredLicence(
-                    id = result.value.id,
-                    reviewStatus = result.value.reviewStatus,
-                    contentType = result.value.contentType,
-                    byteSize = result.value.byteSize,
-                ),
-            )
+            is ApiResult.Ok -> {
+                invalidateDocuments()
+                ApiResult.Ok(
+                    StoredLicence(
+                        id = result.value.id,
+                        reviewStatus = result.value.reviewStatus,
+                        contentType = result.value.contentType,
+                        byteSize = result.value.byteSize,
+                    ),
+                )
+            }
             is ApiResult.Err -> result
         }
     }
@@ -126,14 +145,20 @@ class VerificationRepository @Inject constructor(
             apiCall { riders.updateMotorcycle(id, body) }
         }
         return when (result) {
-            is ApiResult.Ok -> ApiResult.Ok(result.value.toDomain())
+            is ApiResult.Ok -> {
+                invalidateDocuments()
+                ApiResult.Ok(result.value.toDomain())
+            }
             is ApiResult.Err -> result
         }
     }
 
     suspend fun selectMotorcycle(id: String): ApiResult<MotorcycleDetails> {
         return when (val result = apiCall { riders.selectMotorcycle(id) }) {
-            is ApiResult.Ok -> ApiResult.Ok(result.value.toDomain())
+            is ApiResult.Ok -> {
+                invalidateDocuments()
+                ApiResult.Ok(result.value.toDomain())
+            }
             is ApiResult.Err -> result
         }
     }

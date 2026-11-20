@@ -41,6 +41,7 @@ data class OpenBidRequest(
     val parcelSize: String,
     val distanceMeters: Int? = null,
     val currency: String? = null,
+    val paymentMethod: String? = null,
 )
 
 data class OwnBid(
@@ -230,7 +231,7 @@ fun bidRequestOffer(request: OpenBidRequest): OfferResponse? {
         offeredPrice = price,
         currency = currency,
         payer = "",
-        paymentMethod = "",
+        paymentMethod = request.paymentMethod?.trim().orEmpty(),
         parcel = ParcelResponse(description = request.parcelDescription, size = request.parcelSize),
         pickup = StopResponse(
             address = request.pickupAddress,
@@ -301,7 +302,7 @@ fun suggestedPriceLabel(amount: String?, currency: String = "USD"): String? {
     if (value.isEmpty()) {
         return null
     }
-    return "Suggested price ${com.riders.rider.core.money.moneyLabel(currency, value)}"
+    return "Suggested price ${com.riders.rider.feature.offers.domain.requestAmountLabel(currency, value)}"
 }
 
 fun openBidFor(bids: List<OwnBid>, deliveryId: String): OwnBid? {

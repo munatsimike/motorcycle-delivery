@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -39,8 +40,11 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -50,6 +54,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.riders.rider.BuildConfig
 import com.riders.rider.R
+import com.riders.rider.core.design.LocalAppDark
 import com.riders.rider.core.design.RidersChangingText
 import com.riders.rider.core.design.RidersColors
 import com.riders.rider.core.design.RidersEmptyState
@@ -258,19 +263,43 @@ private fun WalletBackdrop(modifier: Modifier = Modifier) {
 
 @Composable
 private fun WalletPicker(selected: String, onSelect: (String) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm)) {
+    val dark = LocalAppDark.current
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .shadow(
+                elevation = if (dark) 6.dp else 3.dp,
+                shape = RoundedCornerShape(RidersRadius.pill),
+                clip = false,
+                ambientColor = Color.Black,
+                spotColor = Color.Black,
+            )
+            .clip(RoundedCornerShape(RidersRadius.pill))
+            .background(RidersColors.surface)
+            .padding(RidersSpacing.xs),
+        horizontalArrangement = Arrangement.spacedBy(RidersSpacing.xs),
+    ) {
         listOf("USD" to "USD Wallet", "ZWG" to "ZiG Wallet").forEach { (currency, title) ->
             val active = selected == currency
-            Text(
-                title,
-                style = RidersType.bodyStrong,
-                color = if (active) RidersColors.textInverse else RidersColors.text,
-                modifier = Modifier
+            Box(
+                Modifier
+                    .weight(1f)
+                    .defaultMinSize(minHeight = 40.dp)
                     .clip(RoundedCornerShape(RidersRadius.pill))
-                    .background(if (active) RidersColors.primary else RidersColors.background)
+                    .background(if (active) RidersColors.background else Color.Transparent)
                     .clickable(role = Role.Button) { onSelect(currency) }
-                    .padding(horizontal = RidersSpacing.lg, vertical = RidersSpacing.sm),
-            )
+                    .semantics { this.selected = active }
+                    .padding(horizontal = RidersSpacing.xs, vertical = RidersSpacing.sm),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    title,
+                    style = RidersType.caption.copy(fontWeight = if (active) FontWeight.Bold else FontWeight.Medium),
+                    color = if (active) RidersColors.primaryDark else RidersColors.textSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }

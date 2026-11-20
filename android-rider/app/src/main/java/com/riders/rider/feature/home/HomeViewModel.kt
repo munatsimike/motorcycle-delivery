@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import com.riders.rider.core.network.ApiError
 import com.riders.rider.core.network.ApiResult
 import com.riders.rider.core.network.OfferResponse
+import com.riders.rider.core.network.WalletSummaryResponse
 import com.riders.rider.core.network.text
 import com.riders.rider.feature.availability.data.AvailabilityRepository
 import com.riders.rider.feature.availability.domain.LOCATION_PERMISSION_REQUIRED
@@ -31,6 +32,9 @@ import com.riders.rider.feature.bids.domain.OwnBid
 import com.riders.rider.feature.bids.domain.availableRequests
 import com.riders.rider.feature.bids.domain.newMarketplaceOffers
 import com.riders.rider.feature.offers.domain.OFFER_REFRESH_INTERVAL_MS
+import com.riders.rider.feature.offers.domain.shouldLoadHomeDocuments
+import com.riders.rider.feature.offers.domain.shouldPollMarketplace
+import com.riders.rider.feature.offers.notification.PendingOffer
 import com.riders.rider.feature.onboarding.data.OnboardingRepository
 import com.riders.rider.feature.onboarding.data.VerificationRepository
 import com.riders.rider.feature.onboarding.domain.RiderOnboarding
@@ -91,6 +95,7 @@ class HomeViewModel @Inject constructor(
     private val identity: VerificationRepository,
     private val wallets: WalletRepository,
     private val bids: BidRepository,
+    private val pendingOffers: PendingOffer,
 ) : ViewModel() {
     private val state = MutableStateFlow(HomeUi())
     val ui: StateFlow<HomeUi> = state.asStateFlow()
@@ -108,9 +113,21 @@ class HomeViewModel @Inject constructor(
                 state.value = state.value.copy(locationSharingPaused = paused)
             }
         }
+        viewModelScope.launch {
+            wallets.updates.collect { wallet ->
+                applyWallet(wallet)
+            }
+        }
+        viewModelScope.launch {
+            pendingOffers.acceptedArrivals.collect {
+                wallets.summary()
+            }
+        }
     }
     private var recoveryAttempts = 0
     private var offerWatch: Job? = null
+    private var hasLoaded = false
+    private var homeVisits = 0
     private val connectivity = context.getSystemService(ConnectivityManager::class.java)
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
@@ -149,15 +166,52 @@ class HomeViewModel @Inject constructor(
     }
 
     fun refresh() {
+        startRefresh(fromUser = false)
+    }
+
+    fun pullRefresh() {
+        startRefresh(fromUser = true)
+    }
+
+    fun onHomeShown() {
+        val visitsSoFar = homeVisits
+        homeVisits += 1
+        if (shouldRefreshWalletOnHomeVisit(visitsSoFar)) {
+            refreshWallet()
+        }
+    }
+
+    private fun refreshWallet() {
+        viewModelScope.launch { wallets.summary() }
+    }
+
+    private fun startRefresh(fromUser: Boolean) {
         if (dashboardBusy) {
             return
         }
         dashboardBusy = true
-        val showIndicator = state.value.readiness != null || state.value.error != null
-        state.value = state.value.copy(refreshing = showIndicator)
+        val current = state.value
+        val showIndicator = current.readiness != null || current.error != null
+        state.value = current.copy(refreshing = showIndicator)
+        val launch = !hasLoaded
+        hasLoaded = true
+        val marketplace = fromUser || launch || shouldPollMarketplace(
+            appVisible = true,
+            availability = current.onboarding?.availability,
+            receiving = current.onboarding?.receiving,
+        )
+        val wallet = fromUser || launch || current.walletBalance == null
+        val profile = fromUser || launch || current.fullName.isBlank()
         viewModelScope.launch {
             try {
-                load(confirmedAvailability = null, notice = null, confirmedReceiving = null)
+                load(
+                    confirmedAvailability = null,
+                    notice = null,
+                    confirmedReceiving = null,
+                    includeWallet = wallet,
+                    includeMarketplace = marketplace,
+                    includeProfile = profile,
+                )
             } finally {
                 dashboardBusy = false
                 scheduleAssignmentRecovery()
@@ -200,7 +254,14 @@ class HomeViewModel @Inject constructor(
                             result.value.availability,
                             result.value.message,
                         )
-                        load(confirmed.availability, confirmed.error, confirmedReceiving = null)
+                        load(
+                            confirmed.availability,
+                            confirmed.error,
+                            confirmedReceiving = null,
+                            includeWallet = false,
+                            includeMarketplace = online,
+                            includeProfile = state.value.fullName.isBlank(),
+                        )
                     }
                     is ApiResult.Err -> {
                         val failed = failAvailability(
@@ -221,7 +282,14 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    private suspend fun load(confirmedAvailability: String?, notice: String?, confirmedReceiving: Boolean?) {
+    private suspend fun load(
+        confirmedAvailability: String?,
+        notice: String?,
+        confirmedReceiving: Boolean?,
+        includeWallet: Boolean = true,
+        includeMarketplace: Boolean = true,
+        includeProfile: Boolean = true,
+    ) {
         val stored = deliveries.read()
         val previous = state.value
         state.value = previous.copy(
@@ -238,24 +306,32 @@ class HomeViewModel @Inject constructor(
             ),
         )
         val onboard = onboarding.loadCurrent()
-        val profileName = (identity.profile() as? ApiResult.Ok)?.value?.fullName?.trim()?.takeIf { it.isNotEmpty() }
+        val approval = (onboard as? ApiResult.Ok)?.value?.approvalStatus ?: previous.onboarding?.approvalStatus
+        val includeDocuments = shouldLoadHomeDocuments(approval, identity.documentsConfirmedFor(approval))
+        val profileName = if (!includeProfile && previous.fullName.isNotBlank()) {
+            previous.fullName
+        } else {
+            (identity.profile() as? ApiResult.Ok)?.value?.fullName?.trim()?.takeIf { it.isNotEmpty() }
+        }
         val (wallet, requestCount, listed, submitted, offers) = coroutineScope {
-            val walletCall = async { wallets.summary() }
-            val openCall = async { bids.openRequests() }
-            val ownCall = async { bids.refreshOwnBids(null) }
+            val walletCall = if (includeWallet) async { wallets.summary() } else null
+            val openCall = if (includeMarketplace) async { bids.openRequests() } else null
+            val ownCall = if (includeMarketplace) async { bids.refreshOwnBids(null) } else null
             val assignmentsCall = async { assignments.refreshList() }
-            val licenceCall = async { identity.licence() }
-            val motorcyclesCall = async { identity.motorcycles() }
-            val walletResult = walletCall.await()
+            val licenceCall = if (includeDocuments) async { identity.licence() } else null
+            val motorcyclesCall = if (includeDocuments) async { identity.motorcycles() } else null
+            val walletResult = walletCall?.await()
             val assignmentResult = assignmentsCall.await()
-            val licenceResult = licenceCall.await()
-            val motorcycleResult = motorcyclesCall.await()
-            val applicationSubmitted = if (licenceResult is ApiResult.Ok && motorcycleResult is ApiResult.Ok) {
-                val approval = (onboard as? ApiResult.Ok)?.value?.approvalStatus
-                    ?: previous.onboarding?.approvalStatus
-                    ?: "PENDING"
+            val licenceResult = licenceCall?.await()
+            val motorcycleResult = motorcyclesCall?.await()
+            val applicationSubmitted = if (approval == "APPROVED") {
+                if (licenceResult is ApiResult.Ok && motorcycleResult is ApiResult.Ok) {
+                    identity.confirmApprovedDocuments()
+                }
+                false
+            } else if (licenceResult is ApiResult.Ok && motorcycleResult is ApiResult.Ok) {
                 applicationAwaitingReview(
-                    approvalStatus = approval,
+                    approvalStatus = approval ?: "PENDING",
                     hasLicenceImage = licenceResult.value != null,
                     licenceReviewStatus = licenceResult.value?.reviewStatus,
                     motorcycleStatuses = motorcycleResult.value.map { it.verificationStatus },
@@ -264,8 +340,8 @@ class HomeViewModel @Inject constructor(
                 previous.applicationSubmitted
             }
             val loadedWallet = (walletResult as? ApiResult.Ok)?.value
-            val opened = openCall.await()
-            ownCall.await()
+            val opened = openCall?.await()
+            ownCall?.await()
             val actionable = if (opened is ApiResult.Ok) {
                 openRequests = opened.value
                 newMarketplaceOffers(availableRequests(emptyList(), opened.value), bids.ownBidsFlow.value)
@@ -349,13 +425,13 @@ class HomeViewModel @Inject constructor(
                 else -> null
             },
             fullName = profileName ?: previous.fullName,
-            walletBalance = if (wallet == null) previous.walletBalance else dashboardWallet(wallet.activeWallet, wallet.balance, wallet.zig?.balance).balance,
-            walletCurrency = if (wallet == null) previous.walletCurrency else dashboardWallet(wallet.activeWallet, wallet.balance, wallet.zig?.balance).currency,
-            walletInsufficient = if (wallet == null) previous.walletInsufficient else dashboardWallet(wallet.activeWallet, wallet.balance, wallet.zig?.balance).insufficient,
-            usdDebtBalance = if (wallet == null) previous.usdDebtBalance else dashboardWallet(wallet.activeWallet, wallet.balance, wallet.zig?.balance).let { shown ->
+            walletBalance = if (wallet == null) state.value.walletBalance else dashboardWallet(wallet.activeWallet, wallet.balance, wallet.zig?.balance).balance,
+            walletCurrency = if (wallet == null) state.value.walletCurrency else dashboardWallet(wallet.activeWallet, wallet.balance, wallet.zig?.balance).currency,
+            walletInsufficient = if (wallet == null) state.value.walletInsufficient else dashboardWallet(wallet.activeWallet, wallet.balance, wallet.zig?.balance).insufficient,
+            usdDebtBalance = if (wallet == null) state.value.usdDebtBalance else dashboardWallet(wallet.activeWallet, wallet.balance, wallet.zig?.balance).let { shown ->
                 if (shown.showUsdDebt) shown.usdBalance else null
             },
-            walletRestricted = wallet?.newDeliveriesRestricted ?: previous.walletRestricted,
+            walletRestricted = wallet?.newDeliveriesRestricted ?: state.value.walletRestricted,
             activeRequestCount = requestCount ?: previous.activeRequestCount,
             activeDeliveryTotal = when {
                 assignmentsUnknown -> null
@@ -398,23 +474,28 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    private fun applyWallet(wallet: WalletSummaryResponse) {
+        val shown = dashboardWallet(wallet.activeWallet, wallet.balance, wallet.zig?.balance)
+        state.value = state.value.copy(
+            walletBalance = shown.balance,
+            walletCurrency = shown.currency,
+            walletInsufficient = shown.insufficient,
+            usdDebtBalance = if (shown.showUsdDebt) shown.usdBalance else null,
+            walletRestricted = wallet.newDeliveriesRestricted,
+        )
+    }
+
     private suspend fun refreshOfferCount() {
         if (dashboardBusy) {
             return
         }
-        val opened = bids.openRequests()
-        val wallet = wallets.summary()
-        if (dashboardBusy || opened !is ApiResult.Ok) {
+        val current = state.value.onboarding
+        if (!shouldPollMarketplace(appVisible = true, current?.availability, current?.receiving)) {
             return
         }
-        if (wallet is ApiResult.Ok) {
-            val shown = dashboardWallet(wallet.value.activeWallet, wallet.value.balance, wallet.value.zig?.balance)
-            state.value = state.value.copy(
-                walletBalance = shown.balance,
-                walletCurrency = shown.currency,
-                walletInsufficient = shown.insufficient,
-                usdDebtBalance = if (shown.showUsdDebt) shown.usdBalance else null,
-            )
+        val opened = bids.openRequests()
+        if (dashboardBusy || opened !is ApiResult.Ok) {
+            return
         }
         openRequests = opened.value
         bids.refreshOwnBids(null)

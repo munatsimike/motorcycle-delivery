@@ -145,5 +145,5 @@ fun deliveryPriceLabel(amount: String?, currency: String = "USD"): String? {
     if (value.isEmpty()) {
         return null
     }
-    return com.riders.rider.core.money.moneyLabel(currency, value)
+    return com.riders.rider.feature.offers.domain.requestAmountLabel(currency, value)
 }

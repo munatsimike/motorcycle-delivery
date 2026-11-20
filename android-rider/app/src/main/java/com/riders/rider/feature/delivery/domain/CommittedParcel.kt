@@ -1,6 +1,6 @@
 package com.riders.rider.feature.delivery.domain
 
-import com.riders.rider.core.money.moneyLabel
+import com.riders.rider.feature.offers.domain.requestAmountLabel
 import com.riders.rider.core.network.ActiveAssignmentBody
 
 data class CommittedParcel(
@@ -11,6 +11,7 @@ data class CommittedParcel(
     val deliverBy: String? = null,
     val agreedPrice: String? = null,
     val currency: String = "USD",
+    val paymentMethod: String? = null,
     val parcelDescription: String = "",
     val parcelSize: String = "",
     val parcelInstructions: String? = null,
@@ -35,6 +36,7 @@ fun ActiveAssignmentBody.toCommittedParcel(): CommittedParcel {
         deliverBy = deliverBy,
         agreedPrice = agreedPrice,
         currency = currency,
+        paymentMethod = paymentMethod,
         parcelDescription = parcel.description,
         parcelSize = parcel.size,
         parcelInstructions = parcel.instructions,
@@ -94,7 +96,7 @@ fun agreedPriceLabel(agreedPrice: String?, currency: String = "USD"): String? {
     if (amount.isEmpty()) {
         return null
     }
-    return "Agreed price ${moneyLabel(currency, amount)}"
+    return "Agreed price ${requestAmountLabel(currency, amount)}"
 }
 
 fun isCommittedV2Parcel(serviceClass: String?): Boolean {

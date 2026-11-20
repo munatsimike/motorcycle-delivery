@@ -67,6 +67,7 @@ class BidRepository @Inject constructor(
                     parcelSize = request.parcelSize,
                     distanceMeters = request.distanceMeters,
                     currency = request.currency,
+                    paymentMethod = request.paymentMethod,
                 )
             })
             is ApiResult.Err -> result

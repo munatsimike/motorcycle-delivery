@@ -1,6 +1,5 @@
 package com.riders.rider.feature.offers.domain
 
-import com.riders.rider.core.money.moneyLabel
 import java.time.Instant
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
@@ -28,7 +27,15 @@ fun marketplaceOffersError(openRequestsLoaded: Boolean, legacyOffersError: Strin
 }
 
 fun offerPriceLabel(currency: String, offeredPrice: String): String {
-    return moneyLabel(currency, offeredPrice)
+    return requestAmountLabel(currency, offeredPrice)
+}
+
+fun requestPaymentBadge(paymentMethod: String?): String? {
+    return when (paymentMethod?.trim()?.uppercase()) {
+        "CASH" -> "Cash"
+        "ECOCASH" -> "EcoCash"
+        else -> null
+    }
 }
 
 fun requestCurrencyLabel(currency: String): String {
@@ -39,11 +46,21 @@ fun requestCurrencyLabel(currency: String): String {
     }
 }
 
+fun displayMoneyAmount(amount: String): String {
+    val match = Regex("""^(\d+)\.(\d{2})$""").matchEntire(amount.trim()) ?: return amount.trim()
+    val whole = match.groupValues[1].trimStart('0').ifEmpty { "0" }
+    return when (match.groupValues[2]) {
+        "00" -> whole
+        "50" -> "$whole.50"
+        else -> "$whole.${match.groupValues[2]}"
+    }
+}
+
 fun requestAmountLabel(currency: String, amount: String): String {
     val trimmed = amount.trim().removePrefix("+")
     val negative = trimmed.startsWith("-")
     val digits = if (negative) trimmed.removePrefix("-") else trimmed
-    val label = "${requestCurrencyLabel(currency)} $digits"
+    val label = "${requestCurrencyLabel(currency)} ${displayMoneyAmount(digits)}"
     return if (negative) "−$label" else label
 }
 
@@ -132,6 +149,23 @@ private fun normalizePlace(value: String): String {
 }
 
 fun shouldPollOffers(resumed: Boolean): Boolean = resumed
+
+fun shouldPollMarketplace(appVisible: Boolean, availability: String?, receiving: Boolean?): Boolean {
+    if (!appVisible) {
+        return false
+    }
+    if (receiving == true) {
+        return true
+    }
+    return availability == "AVAILABLE" || availability == "BUSY"
+}
+
+fun shouldLoadHomeDocuments(approvalStatus: String?, approvedDocumentsConfirmed: Boolean): Boolean {
+    if (approvalStatus == "APPROVED" && approvedDocumentsConfirmed) {
+        return false
+    }
+    return true
+}
 
 fun offerUnavailableAfterRefresh(hadSelection: Boolean, stillPresent: Boolean, refreshSucceeded: Boolean): Boolean {
     return refreshSucceeded && hadSelection && !stillPresent

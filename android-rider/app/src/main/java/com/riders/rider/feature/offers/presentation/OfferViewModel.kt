@@ -42,6 +42,7 @@ import com.riders.rider.feature.offers.domain.marketplaceOffersError
 import com.riders.rider.feature.offers.domain.offerBoardAfterLoad
 import com.riders.rider.feature.offers.domain.matchingOfferIndex
 import com.riders.rider.feature.offers.domain.offerUnavailableAfterRefresh
+import com.riders.rider.feature.wallet.data.WalletRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -81,6 +82,7 @@ class OfferViewModel @Inject constructor(
     private val availability: AvailabilityRepository,
     private val freshness: LocationFreshness,
     private val pending: PendingOffer,
+    private val wallets: WalletRepository,
 ) : ViewModel() {
     private val state = MutableStateFlow(OfferUi(nowMillis = System.currentTimeMillis()))
     val ui: StateFlow<OfferUi> = state.asStateFlow()
@@ -94,6 +96,7 @@ class OfferViewModel @Inject constructor(
         tick = { publishNow() },
     )
     private var screenResumed = false
+    private var requestsEnabled = true
 
     init {
         viewModelScope.launch {
@@ -130,7 +133,16 @@ class OfferViewModel @Inject constructor(
         if (resumed) {
             publishNow()
         }
-        watch.setResumed(resumed)
+        watch.setResumed(resumed && requestsEnabled)
+    }
+
+    fun setRequestsEnabled(enabled: Boolean) {
+        val becameEnabled = enabled && !requestsEnabled
+        requestsEnabled = enabled
+        watch.setResumed(screenResumed && enabled)
+        if (becameEnabled && screenResumed) {
+            viewModelScope.launch { refreshOffers() }
+        }
     }
 
     fun openFromNotification(assignmentId: String) {
@@ -304,6 +316,7 @@ class OfferViewModel @Inject constructor(
                     is ApiResult.Ok -> {
                         availability.applySharing()
                         assignments.refreshList()
+                        viewModelScope.launch { wallets.summary() }
                         val saved = try {
                             deliveries.write(offer.toActiveDelivery(result.value.deliveryId, result.value.assignmentId, result.value.status))
                             true

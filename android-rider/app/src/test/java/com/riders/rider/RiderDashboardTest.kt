@@ -17,6 +17,8 @@ import com.riders.rider.feature.home.dashboardFailure
 import com.riders.rider.feature.delivery.domain.CommittedParcel
 import com.riders.rider.feature.home.activeDeliveryCount
 import com.riders.rider.feature.home.dashboardActiveCount
+import com.riders.rider.feature.home.deliveryStatusRefreshesWallet
+import com.riders.rider.feature.home.shouldRefreshWalletOnHomeVisit
 import com.riders.rider.feature.home.homeShift
 import com.riders.rider.feature.home.OFFLINE_WITH_DELIVERIES_MESSAGE
 import com.riders.rider.feature.home.offlineConfirmationRequired
@@ -51,6 +53,7 @@ import com.riders.rider.feature.offers.domain.deliveryCategoryTitle
 import com.riders.rider.feature.offers.domain.DECLINE_REQUEST
 import com.riders.rider.feature.offers.domain.offerPriceLabel
 import com.riders.rider.feature.offers.domain.requestAmountLabel
+import com.riders.rider.feature.offers.domain.requestPaymentBadge
 import com.riders.rider.feature.offers.domain.requestCurrencyLabel
 import com.riders.rider.feature.offers.domain.offerSentConfirmation
 import com.riders.rider.feature.offers.domain.opensDeliveriesAfterListedOffer
@@ -59,6 +62,8 @@ import com.riders.rider.feature.offers.domain.sentOffersAfterRefresh
 import com.riders.rider.feature.offers.domain.submittedOfferAmount
 import com.riders.rider.feature.offers.domain.offerStopLine
 import com.riders.rider.feature.offers.domain.offerUnavailableAfterRefresh
+import com.riders.rider.feature.offers.domain.shouldLoadHomeDocuments
+import com.riders.rider.feature.offers.domain.shouldPollMarketplace
 import com.riders.rider.feature.offers.domain.shouldPollOffers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.CompletableDeferred
@@ -209,7 +214,8 @@ class RiderDashboardTest {
     @Test
     fun offeredPriceShowsCurrencyWithoutCallingItEarnings() {
         val label = offerPriceLabel("USD", "2.00")
-        assertEquals("US$2.00", label)
+        assertEquals("USD 2", label)
+        assertEquals("ZiG 20.05", offerPriceLabel("ZWG", "20.05"))
         assertEquals("Accept", acceptOfferLabel())
         assertEquals("Your offer", OFFER_YOUR_PRICE)
         assertEquals("Awaiting customer", AWAITING_CUSTOMER)
@@ -219,8 +225,17 @@ class RiderDashboardTest {
         assertFalse(label.contains("earning", ignoreCase = true))
         assertEquals("USD", requestCurrencyLabel("USD"))
         assertEquals("ZiG", requestCurrencyLabel("ZWG"))
-        assertEquals("USD 2.00", requestAmountLabel("USD", "2.00"))
+        assertEquals("USD 2", requestAmountLabel("USD", "2.00"))
+        assertEquals("USD 20.05", requestAmountLabel("USD", "20.05"))
+        assertEquals("USD 20.50", requestAmountLabel("USD", "20.50"))
+        assertEquals("ZiG 21", requestAmountLabel("ZWG", "21.00"))
         assertEquals("ZiG 7.50", requestAmountLabel("zwg", "7.50"))
+        assertEquals("ZiG 20.05", requestAmountLabel("ZWG", "20.05"))
+        assertEquals("Cash", requestPaymentBadge("CASH"))
+        assertEquals("EcoCash", requestPaymentBadge("ecocash"))
+        assertEquals(null, requestPaymentBadge(null))
+        assertEquals(null, requestPaymentBadge(""))
+        assertEquals(null, requestPaymentBadge("ZIPIT"))
         assertEquals("Decline", DECLINE_REQUEST)
     }
 
@@ -312,6 +327,21 @@ class RiderDashboardTest {
     fun offersRefreshOnlyWhileTheScreenIsResumedAndStopWhenItLeaves() = runTest {
         assertTrue(shouldPollOffers(true))
         assertFalse(shouldPollOffers(false))
+        assertTrue(shouldPollMarketplace(appVisible = true, availability = "AVAILABLE", receiving = false))
+        assertTrue(shouldPollMarketplace(appVisible = true, availability = "BUSY", receiving = false))
+        assertTrue(shouldPollMarketplace(appVisible = true, availability = "OFFLINE", receiving = true))
+        assertFalse(shouldPollMarketplace(appVisible = true, availability = "OFFLINE", receiving = false))
+        assertFalse(shouldPollMarketplace(appVisible = true, availability = "OFFLINE", receiving = null))
+        assertFalse(shouldPollMarketplace(appVisible = false, availability = "AVAILABLE", receiving = true))
+        assertFalse(shouldRefreshWalletOnHomeVisit(0))
+        assertTrue(shouldRefreshWalletOnHomeVisit(1))
+        assertTrue(deliveryStatusRefreshesWallet("DELIVERED"))
+        assertFalse(deliveryStatusRefreshesWallet("COLLECTED"))
+        assertFalse(deliveryStatusRefreshesWallet("OUT_FOR_DELIVERY"))
+        assertFalse(shouldLoadHomeDocuments("APPROVED", approvedDocumentsConfirmed = true))
+        assertTrue(shouldLoadHomeDocuments("APPROVED", approvedDocumentsConfirmed = false))
+        assertTrue(shouldLoadHomeDocuments("PENDING", approvedDocumentsConfirmed = true))
+        assertTrue(shouldLoadHomeDocuments(null, approvedDocumentsConfirmed = false))
         assertEquals(20_000L, OFFER_REFRESH_INTERVAL_MS)
         assertEquals(1_000L, OFFER_CLOCK_INTERVAL_MS)
         var refreshes = 0

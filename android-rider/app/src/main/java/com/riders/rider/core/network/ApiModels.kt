@@ -245,6 +245,7 @@ data class ActiveAssignmentBody(
     val deliverBy: String? = null,
     val agreedPrice: String? = null,
     val currency: String = "USD",
+    val paymentMethod: String? = null,
     val distanceMeters: Int? = null,
     val createdAt: String? = null,
     val completedAt: String? = null,
@@ -358,6 +359,7 @@ data class BidRequestBody(
     val dropoffLongitude: String? = null,
     val parcelDescription: String = "",
     val parcelSize: String = "",
+    val paymentMethod: String? = null,
 )
 
 @Serializable

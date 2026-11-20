@@ -30,6 +30,7 @@ data class ActiveDelivery(
     val createdAt: String? = null,
     val agreedPrice: String? = null,
     val currency: String = "USD",
+    val paymentMethod: String? = null,
 )
 
 data class DeliveryContacts(
@@ -63,6 +64,7 @@ fun OfferResponse.toActiveDelivery(deliveryId: String, assignmentId: String, sta
         distanceMeters = distanceMeters,
         agreedPrice = offeredPrice,
         currency = currency,
+        paymentMethod = paymentMethod,
     )
 }
 
@@ -85,6 +87,7 @@ fun ActiveAssignmentBody.toActiveDelivery(): ActiveDelivery {
         createdAt = createdAt,
         agreedPrice = agreedPrice,
         currency = currency,
+        paymentMethod = paymentMethod,
     )
 }
 

@@ -187,7 +187,7 @@ class RiderDeliveryTest {
         assertEquals("Avondale", destinationSuburb("Avondale, Harare"))
         assertEquals("Budiriro", destinationSuburb("Budiriro"))
         assertEquals("#VERY1", shortDeliveryReference("delivery-1"))
-        assertEquals("US$12.50", deliveryPriceLabel("12.50"))
+        assertEquals("USD 12.50", deliveryPriceLabel("12.50"))
         assertEquals("ZiG 12.50", deliveryPriceLabel("12.50", "ZWG"))
         assertEquals("19 Oct 2026 • 12:00", deliveryWhenLabel("2026-10-19T12:00:00.000Z", java.time.ZoneOffset.UTC))
     }

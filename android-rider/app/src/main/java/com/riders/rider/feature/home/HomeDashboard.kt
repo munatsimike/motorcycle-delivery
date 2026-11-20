@@ -41,6 +41,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -119,6 +122,7 @@ import com.riders.rider.feature.bids.domain.displayedBidProblem
 import com.riders.rider.feature.bids.domain.marketplaceBidButtonsVisible
 import com.riders.rider.feature.bids.domain.resolvedSubmittedAmount
 import com.riders.rider.feature.offers.domain.shouldAskNotificationPermission
+import com.riders.rider.feature.offers.domain.shouldPollMarketplace
 import com.riders.rider.feature.offers.notification.markNotificationPermissionAsked
 import com.riders.rider.feature.offers.notification.notificationPermissionWasAsked
 import com.riders.rider.feature.onboarding.domain.RiderOnboarding
@@ -147,8 +151,23 @@ fun HomeScreen(
 ) {
     val ui by model.ui.collectAsStateWithLifecycle()
     val offersUi by offersModel.ui.collectAsStateWithLifecycle()
-    DisposableEffect(model) {
-        model.watchOffers(true)
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    var appVisible by remember { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) }
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> appVisible = true
+                Lifecycle.Event.ON_STOP -> appVisible = false
+                else -> Unit
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
+    LaunchedEffect(Unit) { model.onHomeShown() }
+    val pollOffers = shouldPollMarketplace(appVisible, ui.onboarding?.availability, ui.onboarding?.receiving)
+    DisposableEffect(model, pollOffers) {
+        model.watchOffers(pollOffers)
         onDispose { model.watchOffers(false) }
     }
     var confirmOffline by remember { mutableStateOf(false) }
@@ -271,7 +290,7 @@ fun HomeScreen(
         offerBids = offersUi.ownBids,
         onWallet = onWallet,
         onDelivery = onDelivery,
-        onRefresh = model::refresh,
+        onRefresh = model::pullRefresh,
         onRetryLocation = {
             val allowed = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
             if (allowed) {

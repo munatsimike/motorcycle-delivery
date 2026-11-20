@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -32,7 +33,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
@@ -46,6 +46,7 @@ import com.riders.rider.core.design.RidersSpacing
 import com.riders.rider.core.design.RidersType
 import com.riders.rider.feature.delivery.domain.deliveryCardAddress
 import com.riders.rider.feature.delivery.domain.deliveryPriceLabel
+import com.riders.rider.feature.offers.presentation.RequestPaymentMark
 import com.riders.rider.feature.delivery.domain.deliveryListBadge
 import com.riders.rider.feature.delivery.domain.deliveryStatusLabel
 import com.riders.rider.feature.delivery.domain.deliveryWhenLabel
@@ -211,13 +212,6 @@ fun DeliverySummaryCard(
                     .padding(horizontal = RidersSpacing.sm, vertical = RidersSpacing.xs),
             )
         }
-        Box(
-            Modifier
-                .padding(horizontal = RidersSpacing.lg)
-                .fillMaxWidth()
-                .height(0.5.dp)
-                .background(RidersColors.border),
-        )
     }
 }
 
@@ -257,6 +251,7 @@ fun DeliveryDetailsSummary(
     distanceMeters: Int?,
     price: String?,
     currency: String = "USD",
+    paymentMethod: String? = null,
     modifier: Modifier = Modifier,
     dateCaption: String = "Date",
     framed: Boolean = true,
@@ -357,35 +352,21 @@ fun DeliveryDetailsSummary(
             }
         }
         if (parcelSheet && !spacious) {
-            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                SheetDivider()
-                DistancePrice(distanceMeters, price, currency)
+            Column(Modifier.fillMaxWidth()) {
+                Spacer(Modifier.height(RidersSpacing.md))
+                DistancePrice(distanceMeters, price, currency, paymentMethod)
             }
         } else {
             if (customerSender || !spacious) {
-                SheetDivider()
+                Spacer(Modifier.height(RidersSpacing.md))
             }
-            DistancePrice(distanceMeters, price, currency)
+            DistancePrice(distanceMeters, price, currency, paymentMethod)
         }
     }
 }
 
 @Composable
-private fun SheetDivider() {
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .height(1.dp)
-            .background(
-                Brush.horizontalGradient(
-                    listOf(Color.Transparent, RidersColors.border, Color.Transparent),
-                ),
-            ),
-    )
-}
-
-@Composable
-private fun DistancePrice(distanceMeters: Int?, price: String?, currency: String) {
+private fun DistancePrice(distanceMeters: Int?, price: String?, currency: String, paymentMethod: String?) {
     Row(
         Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -409,6 +390,7 @@ private fun DistancePrice(distanceMeters: Int?, price: String?, currency: String
                 style = RidersType.heading,
                 color = RidersColors.text,
             )
+            RequestPaymentMark(paymentMethod)
         }
     }
 }

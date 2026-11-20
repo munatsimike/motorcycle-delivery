@@ -500,14 +500,12 @@ private fun DetailsCard(
                 Text(phone, style = RidersType.bodyStrong, color = RidersColors.text)
             }
         }
-        Hairline()
         InfoRow(
             icon = R.drawable.ic_profile_marker_outline,
             label = "Address",
             value = address.ifBlank { "Not added" },
             onEdit = onEditAddress,
         )
-        Hairline()
         InfoRow(
             icon = R.drawable.ic_card_outline,
             label = "Driving licence",
@@ -521,14 +519,12 @@ private fun DetailsCard(
                 modifier = Modifier.padding(start = 34.dp, bottom = RidersSpacing.sm),
             )
         }
-        Hairline()
         InfoRow(
             icon = R.drawable.ic_mdi_motorbike,
             label = "Motorbike",
             value = motorcycleSummary(motorcycles),
             onClick = onMotorcycles,
         )
-        Hairline()
         InfoRow(
             icon = R.drawable.ic_theme_light_dark,
             label = "Appearance",
@@ -629,21 +625,6 @@ private fun appearanceLabel(mode: AppearanceMode): String {
         AppearanceMode.LIGHT -> "Light"
         AppearanceMode.DARK -> "Dark"
     }
-}
-
-@Composable
-private fun Hairline() {
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .padding(start = 34.dp)
-            .height(1.dp)
-            .background(
-                Brush.horizontalGradient(
-                    listOf(Color.Transparent, RidersColors.border, Color.Transparent),
-                ),
-            ),
-    )
 }
 
 @Composable
