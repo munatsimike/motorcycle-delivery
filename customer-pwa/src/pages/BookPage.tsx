@@ -915,10 +915,12 @@ function ReviewForm({
         {quote && !quoting ? (
           <>
             <div className="book-price-row">
-              <div>
-                <p>Suggested price</p>
+              <div className="book-suggested">
+                <p className="price-label">
+                  Suggested price
+                  <PaymentBadge method={draft.paymentMethod} />
+                </p>
                 <strong>{moneyLabel(quote.suggestedPrice, quote.currency)}</strong>
-                <PaymentBadge method={draft.paymentMethod} />
               </div>
               <div className="book-distance">
                 <p>Distance</p>

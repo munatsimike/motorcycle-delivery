@@ -879,7 +879,6 @@ export function DeliveryDetailsPage() {
                 </div>
                 <div className="offer-price">
                   <span>{moneyLabel(bid.currency, bid.amount)}</span>
-                  <PaymentBadge method={delivery.paymentMethod} />
                 </div>
                 </div>
                 {canAccept ? (
@@ -1169,7 +1168,13 @@ function DeliveredSummary({ delivery }: { delivery: CustomerDeliveryDetail }) {
       ) : null}
       <div className="delivery-facts delivery-price">
         <p><span>Distance</span><strong>{deliveryDistanceLabel(delivery.distanceMeters)}</strong></p>
-        <p><span>Price</span><strong>{amount ? moneyLabel(delivery.currency, amount) : 'Unavailable'}</strong><PaymentBadge method={delivery.paymentMethod} /></p>
+        <p className="facts-price">
+          <span className="price-label">
+            Price
+            <PaymentBadge method={delivery.paymentMethod} />
+          </span>
+          <strong>{amount ? moneyLabel(delivery.currency, amount) : 'Unavailable'}</strong>
+        </p>
       </div>
       <div className="facts-divider" />
       <div className="support-row">
@@ -1212,9 +1217,11 @@ function DeliveryFacts({
       <div className="delivery-facts">
         <p><span>Distance</span><strong>{deliveryDistanceLabel(delivery.distanceMeters)}</strong></p>
         <p className="facts-price">
-          <span>{customerOffer ? 'Your offer' : 'Price'}</span>
+          <span className="price-label">
+            {customerOffer ? 'Your offer' : 'Price'}
+            <PaymentBadge method={delivery.paymentMethod} />
+          </span>
           <strong>{moneyLabel(delivery.currency, amount)}</strong>
-          <PaymentBadge method={delivery.paymentMethod} />
           {onAdjust ? <button type="button" className="facts-adjust" onClick={onAdjust}><PencilMark />Adjust price</button> : null}
         </p>
       </div>
