@@ -2060,8 +2060,9 @@ button.home-status:disabled {
   fill: currentColor;
 }
 
-.track-contact .track-icon-btn svg {
-  fill: none;
+.track-contact .track-icon-btn svg.whatsapp-icon {
+  fill: currentColor;
+  stroke: none;
 }
 
 .track-parcel svg,
