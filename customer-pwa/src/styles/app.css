@@ -2799,6 +2799,29 @@ button.home-status:disabled {
   padding-left: 40px;
 }
 
+.book-address-control.is-searching input {
+  color: transparent;
+  caret-color: var(--text);
+}
+
+.book-address-status {
+  position: absolute;
+  top: 50%;
+  left: 12px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 68px);
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: var(--body);
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
 .book-address-spinner {
   position: absolute;
   top: 50%;
@@ -2811,6 +2834,12 @@ button.home-status:disabled {
   border-radius: 50%;
   animation: top-spin 0.8s linear infinite;
   pointer-events: none;
+}
+
+.book-address-status .book-address-spinner {
+  position: static;
+  flex: none;
+  margin: 0;
 }
 
 .book-locate {
@@ -2874,6 +2903,9 @@ button.home-status:disabled {
   line-height: 22px;
   text-align: left;
 }
+.book-suggestions ul button {
+  background: var(--primary-light);
+}
 .book-suggestions ul {
   display: grid;
   gap: var(--space-xs);
@@ -2897,7 +2929,7 @@ button.home-status:disabled {
   border-radius: 0;
   background: #fff1f2;
   color: #dc2626;
-  font-weight: 650;
+  font-weight: 400;
   text-align: center;
   touch-action: manipulation;
 }
@@ -2939,8 +2971,8 @@ button.home-status:disabled {
 }
 
 .book-stop-pin {
-  width: 22px;
-  height: 22px;
+  width: 32px;
+  height: 32px;
 }
 
 .book-stop-pin.is-pickup { fill: #169b62; }
@@ -3100,37 +3132,6 @@ button.home-status:disabled {
 
 .book-counter {
   justify-self: end;
-}
-
-.book-confirmed {
-  position: fixed;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  background: var(--overlay);
-}
-
-.book-confirmed-card {
-  display: grid;
-  justify-items: center;
-  gap: var(--space-md);
-}
-
-.book-confirmed-card span {
-  display: grid;
-  place-items: center;
-  width: 4rem;
-  height: 4rem;
-  border-radius: 999px;
-  background: var(--primary-light);
-  color: var(--primary-dark);
-  font-size: 1.75rem;
-}
-
-.book-confirmed-card p {
-  margin: 0;
-  color: var(--primary-dark);
-  font-size: var(--heading);
 }
 
 .profile-screen {
@@ -3815,21 +3816,6 @@ html.is-page-transition .page-stage {
   white-space: nowrap;
 }
 
-.book-save-actions {
-  display: grid;
-  gap: var(--space-sm);
-  width: min(100%, 20rem);
-}
-
-.book-save-actions button {
-  min-height: 44px;
-  padding: 0 var(--space-md);
-  border: 0;
-  border-radius: 999px;
-  background: var(--background);
-  color: var(--text);
-}
-
 .book-save-side {
   display: grid;
   gap: 8px;
@@ -3859,13 +3845,6 @@ html.is-page-transition .page-stage {
   color: var(--text);
 }
 
-.book-confirmed-card .book-save-actions + p {
-  max-width: 20rem;
-  color: var(--background);
-  font-size: var(--body);
-  text-align: center;
-}
-
 /* More tab and inline saved-address picker */
 .profile-addresses { justify-content: space-between; }
 .profile-addresses span { color: var(--text-secondary); font-size: 24px; }
@@ -3887,7 +3866,7 @@ html.is-page-transition .page-stage {
 .book-address-book-button { right: 10px; color: var(--text); }
 .book-address-book-button svg { width: 24px; height: 24px; }
 .book-address-control input { padding-right: 56px; }
-.book-address-spinner { right: 48px; }
+.book-address-control.is-loading:not(.is-searching) .book-address-spinner { right: auto; left: 12px; }
 .book-scroll { padding-left: max(var(--space-lg), 24px); padding-right: max(var(--space-lg), 24px); }
 .centered-loading { min-height: 48vh; width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; color: var(--text-secondary); font-size: var(--body); text-align: center; }
 .centered-loading-spinner { width: 32px; height: 32px; border: 3px solid var(--primary-light); border-top-color: var(--primary); border-radius: 50%; animation: top-spin .8s linear infinite; }
@@ -3936,8 +3915,25 @@ html.is-page-transition .page-stage {
 /* Booking address save dialog follows the existing confirmation dialog style. */
 .book-inline-save { display: flex; justify-content: flex-end; }
 .book-inline-save-toggle { font-weight: 600; }
-.book-save-radio-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 20px; }
-.book-save-radio-option { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: var(--body); white-space: nowrap; }
+.book-save-dialog .book-save-radio-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 16px;
+  width: max-content;
+  max-width: 100%;
+  margin-top: 20px;
+}
+.book-save-dialog .book-save-radio-option {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  width: auto;
+  cursor: pointer;
+  font-size: var(--body);
+  white-space: nowrap;
+}
 .book-save-radio-option input { accent-color: var(--primary); width: 17px; height: 17px; margin: 0; }
 .book-save-dialog .book-inline-save-error { margin-top: 12px; color: var(--danger, #b42318); }
 .book-save-dialog .confirm-dialog-actions { align-items: center; }

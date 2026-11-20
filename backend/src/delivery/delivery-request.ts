@@ -340,14 +340,14 @@ function readPerson(value: unknown, message: string): string {
 }
 
 function readPhone(value: unknown, message: string): string {
-  if (typeof value !== 'string') {
+  if (typeof value !== 'string' || !value.trim()) {
     throw new BadRequestException(message);
   }
   try {
     return normalizeAuthPhone(value);
   } catch (error) {
     if (error instanceof InvalidPhoneNumberError) {
-      throw new BadRequestException(message);
+      throw new BadRequestException('Invalid phone number');
     }
     throw error;
   }

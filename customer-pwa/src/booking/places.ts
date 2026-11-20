@@ -49,7 +49,7 @@ export function readPlaceSuggestions(value: unknown): PlaceSuggestion[] {
     const longitude = coordinate(item.longitude, 180);
     if ((latitude === null || longitude === null) && !placeId) continue;
     suggestions.push({
-      label: item.label.trim(),
+      label: suggestionAddress(item.label.trim()),
       latitude: latitude === null ? '' : latitude.toFixed(7),
       longitude: longitude === null ? '' : longitude.toFixed(7),
       exact: item.exact,
@@ -70,7 +70,7 @@ export function readResolvedPlace(value: unknown): ResolvedPlace {
   const suburb = typeof value.suburb === 'string' && value.suburb.trim() ? value.suburb.trim() : undefined;
   const locality = typeof value.locality === 'string' && value.locality.trim() ? value.locality.trim() : undefined;
   return {
-    label: value.label.trim(),
+    label: suggestionAddress(value.label.trim()),
     latitude: latitude.toFixed(7),
     longitude: longitude.toFixed(7),
     ...(suburb ? { suburb } : {}),
@@ -79,17 +79,12 @@ export function readResolvedPlace(value: unknown): ResolvedPlace {
 }
 
 export function selectedAddressLabel(suggestionLabel: string, place: { label?: string; suburb?: string; locality?: string }): string {
+  const formatted = suggestionAddress(place.label?.trim() || suggestionLabel);
   const suburb = place.suburb?.trim() ?? '';
-  const locality = place.locality?.trim() ?? '';
-  let parts = suggestionLabel.split(',').map((part) => part.trim()).filter((part) => part.length > 0);
-  if (parts.length > 1 && parts[parts.length - 1]?.toLowerCase() === 'zimbabwe') parts.pop();
-  if (parts.length === 0) return place.label?.trim() ?? '';
-  if (suburb && locality && parts.length > 1) {
-    const withoutCity = parts.filter((part) => part.toLowerCase() !== locality.toLowerCase());
-    if (withoutCity.length > 0) parts = withoutCity;
-  }
-  if (suburb && !parts.some((part) => part.toLowerCase().includes(suburb.toLowerCase()))) parts.push(suburb);
-  return parts.join(', ');
+  const parts = addressParts(formatted);
+  if (!suburb) return formatted || suggestionAddress(suggestionLabel);
+  if (parts.length === 0 || parts[0].toLowerCase() === suburb.toLowerCase()) return suburb;
+  return `${parts[0]}, ${suburb}`;
 }
 
 export function resolveManualAddress(
@@ -340,9 +335,27 @@ export function decideAddressAutofill(userEdited: boolean, result: { display: st
 }
 
 function withoutCountry(label: string): string {
-  const parts = label.split(',').map((part) => part.trim()).filter((part) => part.length > 0);
+  return suggestionAddress(label);
+}
+
+export function suggestionAddress(label: string): string {
+  let parts = addressParts(label);
   if (parts.length > 1 && parts[parts.length - 1]?.toLowerCase() === 'zimbabwe') parts.pop();
-  return parts.join(', ');
+  if (parts.length >= 3) parts = [parts[0], localityName(parts[1])];
+  else if (parts.length === 2) parts = [parts[0], localityName(parts[1])];
+  return parts.filter((part) => part.length > 0).join(', ');
+}
+
+function localityName(part: string): string {
+  const words = part.split(/\s+/).filter((word) => word.length > 0);
+  let index = 0;
+  while (index < words.length - 1 && /\d/.test(words[index])) index += 1;
+  while (index < words.length - 1 && /^[A-Z]{1,3}$/.test(words[index])) index += 1;
+  return words.slice(index).join(' ');
+}
+
+function addressParts(label: string): string[] {
+  return label.split(',').map((part) => part.trim()).filter((part) => part.length > 0);
 }
 
 function coordinate(value: unknown, limit: number): number | null {

@@ -219,6 +219,11 @@ export function deliveryContactPhone(input: string): string | null {
   return zimbabweMobileE164(input) ?? dutchMobileE164(input);
 }
 
+export function contactPhoneError(input: string, emptyMessage: string): string | null {
+  if (!input.trim()) return emptyMessage;
+  return zimbabweMobileE164(input) ? null : 'Invalid phone number';
+}
+
 export function zimbabweNationalNumber(input: string): string | null {
   const e164 = zimbabweMobileE164(input);
   return e164 ? e164.slice(4) : null;
@@ -425,8 +430,10 @@ function readStopText(stop: StopDraft, label: 'pickup' | 'drop-off') {
   if (instructions === undefined) return { ok: false as const, error: `Enter the ${label} instructions` };
   const contactName = requiredText(stop.contactName, 200);
   if (!contactName) return { ok: false as const, error: `Enter the ${label} contact name` };
-  const contactPhone = deliveryContactPhone(stop.contactPhone);
-  if (!contactPhone) return { ok: false as const, error: `Enter the ${label} contact phone` };
+  const phoneError = contactPhoneError(stop.contactPhone, `Enter the ${label} contact phone`);
+  if (phoneError) return { ok: false as const, error: phoneError };
+  const contactPhone = zimbabweMobileE164(stop.contactPhone);
+  if (!contactPhone) return { ok: false as const, error: 'Invalid phone number' };
   return { ok: true as const, stop: { address, landmark, instructions, contactName, contactPhone } };
 }
 

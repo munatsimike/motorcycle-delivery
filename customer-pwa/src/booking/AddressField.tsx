@@ -204,8 +204,13 @@ export function AddressField({
     <div className="book-address" ref={fieldRef}>
       <label className="field">
         Address
-        <span className={searching || locating ? 'book-address-control is-loading' : 'book-address-control'}>
-          {searching || locating ? <span className="book-address-spinner" role="status" aria-label={locating ? 'Finding your location' : 'Searching addresses'} /> : null}
+        <span className={searching || locating ? `book-address-control is-loading${searching ? ' is-searching' : ''}` : 'book-address-control'}>
+          {searching ? (
+            <span className="book-address-status" role="status">
+              <span className="book-address-spinner" aria-hidden="true" />
+              Searching address
+            </span>
+          ) : locating ? <span className="book-address-spinner" role="status" aria-label="Finding your location" /> : null}
           <input
             value={stop.address}
             placeholder={placeholder}

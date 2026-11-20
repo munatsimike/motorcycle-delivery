@@ -94,7 +94,8 @@ describe('customer saved addresses', () => {
     const service = new CustomerSavedAddressService(memory().prisma);
     await expect(service.create(OWNER, addressBody({ latitude: '91' }), NOW)).rejects.toThrow('Enter a valid location');
     await expect(service.create(OWNER, addressBody({ longitude: '-181' }), NOW)).rejects.toThrow('Enter a valid location');
-    await expect(service.create(OWNER, addressBody({ contactPhone: '123' }), NOW)).rejects.toThrow('Enter the contact phone');
+    await expect(service.create(OWNER, addressBody({ contactPhone: '123' }), NOW)).rejects.toThrow('Invalid phone number');
+    await expect(service.create(OWNER, addressBody({ contactPhone: '   ' }), NOW)).rejects.toThrow('Enter the contact phone');
     await expect(service.create(OWNER, addressBody({ contactName: ' ' }), NOW)).rejects.toThrow('Enter the contact name');
     await expect(service.create(OWNER, addressBody({ contactName: 'Tendai' }), NOW)).rejects.toThrow('Enter your first name and surname.');
     const created = await service.create(OWNER, addressBody({ contactName: "Mary-Ann O'Connor" }), NOW);

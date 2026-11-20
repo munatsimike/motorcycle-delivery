@@ -9,6 +9,8 @@ const DETAILS_URL = 'https://places.googleapis.com/v1/places/';
 const AUTOCOMPLETE_FIELDS = [
   'suggestions.placePrediction.placeId',
   'suggestions.placePrediction.text.text',
+  'suggestions.placePrediction.structuredFormat.mainText.text',
+  'suggestions.placePrediction.structuredFormat.secondaryText.text',
   'suggestions.placePrediction.types',
 ].join(',');
 const DETAILS_FIELDS = 'id,formattedAddress,location,addressComponents';
@@ -91,17 +93,15 @@ export function readAutocompleteSuggestions(body: unknown): PlaceSuggestion[] {
     }
     const prediction = item.placePrediction;
     const placeId = typeof prediction.placeId === 'string' ? prediction.placeId.trim() : '';
-    const text = isRecord(prediction.text) && typeof prediction.text.text === 'string'
-      ? prediction.text.text.trim()
-      : '';
-    if (!isPlaceId(placeId) || !text) {
+    const label = suggestionLabel(prediction);
+    if (!isPlaceId(placeId) || !label) {
       continue;
     }
     const types = Array.isArray(prediction.types)
       ? prediction.types.filter((type): type is string => typeof type === 'string')
       : [];
     suggestions.push({
-      label: withoutCountry(text),
+      label,
       placeId,
       exact: types.some((type) => EXACT_TYPES.has(type)),
     });
@@ -114,7 +114,7 @@ export function readResolvedPlace(body: unknown): ResolvedPlace | null {
     return null;
   }
   const parts = readAddressParts(body.addressComponents);
-  const formatted = typeof body.formattedAddress === 'string' ? withoutCountry(body.formattedAddress.trim()) : '';
+  const formatted = typeof body.formattedAddress === 'string' ? suggestionAddress(body.formattedAddress.trim()) : '';
   const label = streetLabel(parts) || formatted;
   const location = isRecord(body.location) ? body.location : null;
   const latitude = location ? finite(location.latitude) : null;
@@ -340,12 +340,52 @@ function componentText(components: unknown, type: string): string {
   return '';
 }
 
-function withoutCountry(label: string): string {
-  const parts = label.split(',').map((part) => part.trim()).filter((part) => part.length > 0);
-  if (parts.length > 1 && parts[parts.length - 1].toLowerCase() === 'zimbabwe') {
-    parts.pop();
+function suggestionLabel(prediction: Record<string, unknown>): string {
+  const full = nestedText(prediction.text);
+  const structured = isRecord(prediction.structuredFormat) ? prediction.structuredFormat : null;
+  const main = structured ? nestedText(structured.mainText) : '';
+  const secondary = structured ? nestedText(structured.secondaryText) : '';
+  if (main) {
+    const area = areaFromSecondary(secondary, full);
+    if (!area || area.toLowerCase() === main.toLowerCase()) return main;
+    return `${main}, ${area}`;
   }
-  return parts.join(', ');
+  return suggestionAddress(full);
+}
+
+function nestedText(value: unknown): string {
+  if (!isRecord(value) || typeof value.text !== 'string') return '';
+  return value.text.trim();
+}
+
+function areaFromSecondary(secondary: string, full: string): string {
+  const country = addressParts(full).at(-1)?.toLowerCase() ?? '';
+  const areas = addressParts(secondary).filter((part) => part.toLowerCase() !== country && !postalOnly(part));
+  return localityName(areas[0] ?? '');
+}
+
+export function suggestionAddress(label: string): string {
+  let parts = addressParts(label);
+  if (parts.length > 1 && parts[parts.length - 1].toLowerCase() === 'zimbabwe') parts.pop();
+  if (parts.length >= 3) parts = [parts[0], localityName(parts[1])];
+  else if (parts.length === 2) parts = [parts[0], localityName(parts[1])];
+  return parts.filter((part) => part.length > 0).join(', ');
+}
+
+function localityName(part: string): string {
+  const words = part.split(/\s+/).filter((word) => word.length > 0);
+  let index = 0;
+  while (index < words.length - 1 && /\d/.test(words[index])) index += 1;
+  while (index < words.length - 1 && /^[A-Z]{1,3}$/.test(words[index])) index += 1;
+  return words.slice(index).join(' ');
+}
+
+function postalOnly(part: string): boolean {
+  return /\d/.test(part) && !/[A-Za-z]{3,}/.test(part);
+}
+
+function addressParts(label: string): string[] {
+  return label.split(',').map((part) => part.trim()).filter((part) => part.length > 0);
 }
 
 function finite(value: unknown): number | null {

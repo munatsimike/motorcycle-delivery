@@ -23,6 +23,7 @@ import {
   bookingPhoneDisplay,
   bookingPhoneStored,
   deliveryContactPhone,
+  zimbabweMobileE164,
   describeParcel,
   displayPhone,
   bookingDraftFromLocation,
@@ -552,9 +553,14 @@ export function BookPage() {
       setInlineSaveError('Enter the contact name and phone before saving.');
       return;
     }
+    const contactPhone = zimbabweMobileE164(stop.contactPhone);
+    if (!contactPhone) {
+      setInlineSaveError('Invalid phone number');
+      return;
+    }
     const body = saveRequest({
       address: currentStop.address.trim(), latitude: resolvedLatitude, longitude: resolvedLongitude,
-      contactName: currentStop.contactName.trim(), contactPhone: currentStop.contactPhone.trim(),
+      contactName: currentStop.contactName.trim(), contactPhone,
       placeId: currentStop.placeId, coordinateSource: currentStop.coordinateSource ?? 'DEVICE_GEOCODER',
     }, choice);
     if (!body) return;
@@ -908,8 +914,8 @@ function StopSummary({ stop, dropoff }: { stop: StopDraft; dropoff: boolean }) {
   return (
     <div className="book-stop">
       <span className="book-stop-rail">
-        <svg className={dropoff ? 'book-stop-pin is-dropoff' : 'book-stop-pin is-pickup'} viewBox="0 0 24 24" aria-label={dropoff ? 'Drop-off' : 'Pickup'}>
-          <path d="M12 2.2a6.2 6.2 0 0 0-6.2 6.2c0 4.7 6.2 12.2 6.2 12.2s6.2-7.5 6.2-12.2A6.2 6.2 0 0 0 12 2.2z" /><text x="12" y="11.7" textAnchor="middle" fontSize="8.5" fontWeight="700" fill="#ffffff">{dropoff ? '2' : '1'}</text>
+        <svg className={dropoff ? 'book-stop-pin is-dropoff' : 'book-stop-pin is-pickup'} viewBox="4 1 16 22" aria-label={dropoff ? 'Drop-off' : 'Pickup'}>
+          <path d="M12 2.2a6.2 6.2 0 0 0-6.2 6.2c0 4.2 6.2 10.2 6.2 10.2s6.2-6 6.2-10.2A6.2 6.2 0 0 0 12 2.2z" /><text x="12" y="11.7" textAnchor="middle" fontSize="8.5" fontWeight="700" fill="#ffffff">{dropoff ? '2' : '1'}</text>
         </svg>
       </span>
       <div className="book-stop-copy">

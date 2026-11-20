@@ -5,7 +5,7 @@ import { AddressPinDialog } from '../booking/AddressPinDialog';
 import { geocodeManualAddress } from '../booking/forwardGeocode';
 import { createSavedAddress, listSavedAddresses, updateSavedAddress } from '../booking/addressApi';
 import { resolvePlace, searchPlaces } from '../booking/api';
-import { applyManualPoint, bookingPhoneDisplay, bookingPhoneStored, deliveryContactPhone, emptyStop, hasSelectedCoordinates, type StopDraft } from '../booking/draft';
+import { applyManualPoint, bookingPhoneDisplay, bookingPhoneStored, contactPhoneError, emptyStop, hasSelectedCoordinates, zimbabweMobileE164, type StopDraft } from '../booking/draft';
 import { readSavedAddress, readSavedAddresses, type SavedAddressLabel } from '../booking/savedAddress';
 import { isSessionRejection } from '../auth/contracts';
 import { rememberReturnPath } from '../auth/returnPath';
@@ -127,7 +127,7 @@ export function AddressEditorPage() {
       placeId: next.coordinateSource === 'GOOGLE_PLACES' ? next.placeId : null,
       coordinateSource: next.coordinateSource === 'GOOGLE_PLACES' ? 'GOOGLE_PLACES' : 'DEVICE_GEOCODER',
       contactName,
-      contactPhone: deliveryContactPhone(next.contactPhone),
+      contactPhone: zimbabweMobileE164(next.contactPhone),
     };
     try {
       const token = await accessToken();
@@ -218,7 +218,8 @@ function formIssue(label: SavedAddressLabel | null, stop: StopDraft): string | n
   if (!hasSelectedCoordinates(stop)) return 'Confirm the address on the map';
   if (!stop.contactName.trim()) return 'Enter the contact name';
   if (!hasGivenNameAndSurname(stop.contactName)) return 'Enter your first name and surname.';
-  if (!deliveryContactPhone(stop.contactPhone)) return 'Enter the contact phone';
+  const phoneError = contactPhoneError(stop.contactPhone, 'Enter the contact phone');
+  if (phoneError) return phoneError;
   return null;
 }
 

@@ -9,6 +9,7 @@ import {
   readGeocodeBody,
   readPlaceLocation,
   readResolvedPlace,
+  suggestionAddress,
 } from './google-places.js';
 import { readSearchBias } from './places.service.js';
 
@@ -48,13 +49,38 @@ describe('Google Places autocomplete', () => {
             types: ['sublocality', 'political'],
           },
         },
+        {
+          placePrediction: {
+            placeId: 'ChIJhouse00001',
+            text: { text: '66 Mungongoma Road, Mufakose, Harare, Zimbabwe' },
+            structuredFormat: {
+              mainText: { text: '66 Mungongoma Road' },
+              secondaryText: { text: 'Mufakose, Harare, Zimbabwe' },
+            },
+            types: ['street_address'],
+          },
+        },
+        {
+          placePrediction: {
+            placeId: 'ChIJdamrak0001',
+            text: { text: 'Damrak 1, 1012 LG Amsterdam, Netherlands' },
+            structuredFormat: {
+              mainText: { text: 'Damrak 1' },
+              secondaryText: { text: '1012 LG Amsterdam, Netherlands' },
+            },
+            types: ['street_address'],
+          },
+        },
         { queryPrediction: { text: { text: 'Budiriro shops' } } },
       ],
     });
     expect(suggestions).toEqual([
       { label: 'Samora Machel Avenue, Harare', placeId: 'ChIJstreet0001', exact: true },
       { label: 'Mufakose, Harare', placeId: 'ChIJsuburb0001', exact: false },
+      { label: '66 Mungongoma Road, Mufakose', placeId: 'ChIJhouse00001', exact: true },
+      { label: 'Damrak 1, Amsterdam', placeId: 'ChIJdamrak0001', exact: true },
     ]);
+    expect(suggestionAddress('12 Samora Machel Avenue, Harare, Zimbabwe')).toBe('12 Samora Machel Avenue, Harare');
   });
 
   it('reads coordinates only from place details', () => {
@@ -63,7 +89,7 @@ describe('Google Places autocomplete', () => {
       formattedAddress: '66 Mungongoma Road, Mufakose, Harare, Zimbabwe',
       location: { latitude: -17.89, longitude: 30.96 },
     })).toEqual({
-      label: '66 Mungongoma Road, Mufakose, Harare',
+      label: '66 Mungongoma Road, Mufakose',
       latitude: -17.89,
       longitude: 30.96,
     });

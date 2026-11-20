@@ -127,11 +127,11 @@ function readPerson(value: unknown, unchanged?: string): string {
 }
 
 function readPhone(value: unknown): string {
-  if (typeof value !== 'string') throw new BadRequestException('Enter the contact phone');
+  if (typeof value !== 'string' || !value.trim()) throw new BadRequestException('Enter the contact phone');
   try {
     return normalizeAuthPhone(value);
   } catch (error) {
-    if (error instanceof InvalidPhoneNumberError) throw new BadRequestException('Enter the contact phone');
+    if (error instanceof InvalidPhoneNumberError) throw new BadRequestException('Invalid phone number');
     throw error;
   }
 }

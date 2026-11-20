@@ -36,7 +36,7 @@ import {
   clearBookingAttempt,
   memoryAttemptStore,
 } from './flow.ts';
-import { acceptSearchResult, canRetryLocation, decideAddressAutofill, geolocationFailure, manualGeocodeAccepts, pickupAutofillFix, pickupAutofillRejection, pickupLocateDiagnostic, readGeocodedAddress, readReverseGeocode, readReverseGeocodeBody, resolveManualAddress, reverseGeocodeOutcome } from './places.ts';
+import { acceptSearchResult, canRetryLocation, decideAddressAutofill, geolocationFailure, manualGeocodeAccepts, pickupAutofillFix, pickupAutofillRejection, pickupLocateDiagnostic, readGeocodedAddress, readReverseGeocode, readReverseGeocodeBody, resolveManualAddress, reverseGeocodeOutcome, suggestionAddress } from './places.ts';
 import { bookingSuccessPath, confirmQuoteDecision, nextCustomerOffer, quotesMatch, readDeliveryQuote } from './quote.ts';
 
 test('pickup and drop-off require an address, contact, phone, and resolved point', () => {
@@ -48,6 +48,11 @@ test('pickup and drop-off require an address, contact, phone, and resolved point
   assert.equal(stopEntryError(stop, 'drop-off'), 'Enter the drop-off contact phone');
   stop.contactPhone = '771234567';
   assert.equal(stopEntryError(stop, 'drop-off'), null);
+  stop.contactPhone = '+31612345678';
+  assert.equal(stopEntryError(stop, 'drop-off'), 'Invalid phone number');
+  stop.contactPhone = '12345';
+  assert.equal(stopEntryError(stop, 'pickup'), 'Invalid phone number');
+  stop.contactPhone = '771234567';
   const draft = emptyBookingDraft();
   draft.dropoff = { ...stop, coordinateSource: 'GOOGLE_PLACES', placeId: null, latitude: '-17.8', longitude: '31.0' };
   draft.pickup = { ...stop, coordinateSource: 'GOOGLE_PLACES', placeId: 'place-1', latitude: '-17.8', longitude: '31.0' };
@@ -92,6 +97,9 @@ test('address resolution keeps exact places and ignores a stale search', () => {
     placeId: 'place-1',
   }], null);
   assert.equal(exact.status, 'resolved');
+  if (exact.status === 'resolved') assert.equal(exact.location.label, '12 Samora Machel, Harare');
+  assert.equal(suggestionAddress('66 Mungongoma Road, Mufakose, Harare, Zimbabwe'), '66 Mungongoma Road, Mufakose');
+  assert.equal(suggestionAddress('Damrak 1, 1012 LG Amsterdam, Netherlands'), 'Damrak 1, Amsterdam');
   const areas = resolveManualAddress('Unknown street', [{
     label: 'Harare',
     latitude: '-17.8000000',
@@ -248,6 +256,31 @@ test('pickup autofill accepts a granted, fresh, accurate fix in any country', ()
   assert.equal(reverseGeocodeOutcome('OK', [{ formatted_address: 'Damrak 1, Amsterdam, Netherlands', address_components: [{ long_name: 'Damrak', types: ['route'] }, { long_name: 'Amsterdam', types: ['locality'] }, { long_name: 'Netherlands', types: ['country'] }] }]).ok, true);
   assert.equal(reverseGeocodeOutcome('REQUEST_DENIED', null).ok, false);
   assert.equal(reverseGeocodeOutcome('OK', []).ok, false);
+  const deniedBody = { status: 'REQUEST_DENIED', results: [] };
+  const denied = reverseGeocodeOutcome(readReverseGeocodeBody(deniedBody).status, readReverseGeocodeBody(deniedBody).results);
+  assert.equal(denied.ok, false);
+  assert.equal(JSON.stringify(deniedBody).length, 40);
+  const acceptedBody = {
+    status: 'OK',
+    results: [{
+      formatted_address: 'Damrak 1, Amsterdam, Netherlands',
+      address_components: [
+        { long_name: '1', short_name: '1', types: ['street_number'] },
+        { long_name: 'Damrak', short_name: 'Damrak', types: ['route'] },
+        { long_name: 'Amsterdam', short_name: 'Amsterdam', types: ['locality'] },
+        { long_name: 'Netherlands', short_name: 'NL', types: ['country'] },
+      ],
+    }],
+  };
+  const acceptedRead = readReverseGeocodeBody(acceptedBody);
+  const accepted = reverseGeocodeOutcome(acceptedRead.status, acceptedRead.results);
+  assert.equal(accepted.ok, true);
+  if (accepted.ok) {
+    const decision = decideAddressAutofill(false, accepted.address);
+    assert.equal(decision.status, 'apply');
+    assert.equal(decision.display.length > 0, true);
+    assert.equal(decideAddressAutofill(true, accepted.address).status, 'ignore');
+  }
   assert.equal(pickupAutofillFix({ permission: 'denied', latitude: 52.3, longitude: 4.9, accuracyMetres: 10, capturedAt: now, now }), null);
   assert.equal(pickupAutofillFix({ permission: 'granted', latitude: 91, longitude: 4.9, accuracyMetres: 10, capturedAt: now, now }), null);
   const address = readGeocodedAddress([
