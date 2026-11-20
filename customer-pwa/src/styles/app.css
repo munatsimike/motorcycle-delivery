@@ -4683,6 +4683,19 @@ html.is-page-transition .page-stage {
 .deliveries-sheet .delivery-facts-card .delivery-stop + .delivery-stop {
   margin-top: -4px;
 }
+.deliveries-sheet .delivery-facts-card .delivery-stop-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.deliveries-sheet .delivery-facts-card .delivery-stop-copy strong {
+  font-weight: 600;
+  line-height: 21px;
+}
+.deliveries-sheet .delivery-facts-card .delivery-stop-copy span {
+  font-weight: 400;
+  line-height: 21px;
+}
 
 /* More page: balanced, divider-free settings list. */
 .profile-settings { padding-top: 4px; padding-bottom: 4px; }

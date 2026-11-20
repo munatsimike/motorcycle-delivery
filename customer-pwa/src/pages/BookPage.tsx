@@ -24,6 +24,7 @@ import {
   bookingPhoneStored,
   deliveryContactPhone,
   zimbabweMobileE164,
+  ZIMBABWE_PHONE_ERROR,
   describeParcel,
   displayPhone,
   bookingDraftFromLocation,
@@ -555,7 +556,7 @@ export function BookPage() {
     }
     const contactPhone = zimbabweMobileE164(stop.contactPhone);
     if (!contactPhone) {
-      setInlineSaveError('Invalid phone number');
+      setInlineSaveError(ZIMBABWE_PHONE_ERROR);
       return;
     }
     const body = saveRequest({

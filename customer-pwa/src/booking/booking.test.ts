@@ -49,9 +49,9 @@ test('pickup and drop-off require an address, contact, phone, and resolved point
   stop.contactPhone = '771234567';
   assert.equal(stopEntryError(stop, 'drop-off'), null);
   stop.contactPhone = '+31612345678';
-  assert.equal(stopEntryError(stop, 'drop-off'), 'Invalid phone number');
+  assert.equal(stopEntryError(stop, 'drop-off'), 'Enter a valid Zimbabwean number');
   stop.contactPhone = '12345';
-  assert.equal(stopEntryError(stop, 'pickup'), 'Invalid phone number');
+  assert.equal(stopEntryError(stop, 'pickup'), 'Enter a valid Zimbabwean number');
   stop.contactPhone = '771234567';
   const draft = emptyBookingDraft();
   draft.dropoff = { ...stop, coordinateSource: 'GOOGLE_PLACES', placeId: null, latitude: '-17.8', longitude: '31.0' };

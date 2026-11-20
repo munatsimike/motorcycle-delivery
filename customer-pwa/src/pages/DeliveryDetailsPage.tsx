@@ -1192,6 +1192,18 @@ function DeliveredSummary({ delivery }: { delivery: CustomerDeliveryDetail }) {
   );
 }
 
+function stopCopy(name: string | null | undefined, address: string) {
+  const place = deliveryCardAddress(address);
+  const contact = name?.trim();
+  if (!contact) return <span>{place}</span>;
+  return (
+    <span className="delivery-stop-copy">
+      <strong>{contact}</strong>
+      <span>{place}</span>
+    </span>
+  );
+}
+
 function DeliveryFacts({
   delivery,
   showContacts = false,
@@ -1219,8 +1231,8 @@ function DeliveryFacts({
         <strong>{shortDeliveryReference(delivery.id)}</strong>
       </div>
       {when ? <p className="facts-date"><CalendarMark />{when}</p> : null}
-      <p className="delivery-stop"><PinMark dropoff={false} /><span>{showContacts && delivery.senderName ? `${delivery.senderName}, ` : ''}{deliveryCardAddress(delivery.pickupAddress)}</span></p>
-      <p className="delivery-stop"><PinMark dropoff /><span>{showContacts && delivery.recipientName ? `${delivery.recipientName}, ` : ''}{deliveryCardAddress(delivery.dropoffAddress)}</span></p>
+      <p className="delivery-stop"><PinMark dropoff={false} />{stopCopy(showContacts ? delivery.senderName : null, delivery.pickupAddress)}</p>
+      <p className="delivery-stop"><PinMark dropoff />{stopCopy(showContacts ? delivery.recipientName : null, delivery.dropoffAddress)}</p>
       <div className="delivery-facts">
         <p><span>Distance</span><strong>{deliveryDistanceLabel(delivery.distanceMeters)}</strong></p>
         <p className="facts-price">
