@@ -30,7 +30,7 @@ import {
   clearBookingAttempt,
   memoryAttemptStore,
 } from './flow.ts';
-import { acceptSearchResult, canRetryLocation, decideAddressAutofill, geolocationFailure, manualGeocodeAccepts, pickupAutofillFix, readGeocodedAddress, readReverseGeocode, resolveManualAddress, reverseGeocodeOutcome } from './places.ts';
+import { acceptSearchResult, canRetryLocation, decideAddressAutofill, geolocationFailure, manualGeocodeAccepts, pickupAutofillFix, pickupAutofillRejection, pickupLocateDiagnostic, readGeocodedAddress, readReverseGeocode, readReverseGeocodeBody, resolveManualAddress, reverseGeocodeOutcome } from './places.ts';
 import { bookingSuccessPath, confirmQuoteDecision, nextCustomerOffer, quotesMatch, readDeliveryQuote } from './quote.ts';
 
 test('pickup and drop-off require an address, contact, phone, and resolved point', () => {
@@ -196,6 +196,14 @@ test('pickup autofill accepts a granted, fresh, accurate fix in any country', ()
   const coarse = pickupAutofillFix({ permission: 'granted', latitude: 52.37, longitude: 4.89, accuracyMetres: null, capturedAt: now - 45_000, now });
   assert.equal(coarse?.latitude, '52.37');
   assert.equal(pickupAutofillFix({ permission: 'granted', latitude: 52.37, longitude: 4.89, accuracyMetres: 40, capturedAt: now - 121_000, now }), null);
+  assert.equal(pickupAutofillRejection({ permission: 'granted', latitude: 52.37, longitude: 4.89, accuracyMetres: 40, capturedAt: now - 121_000, now }), 'stale-location');
+  assert.equal(pickupAutofillRejection({ permission: 'granted', latitude: 52.37, longitude: 4.89, accuracyMetres: -1, capturedAt: now, now }), 'invalid-accuracy');
+  assert.equal(pickupLocateDiagnostic('geocode-failed:REQUEST_DENIED'), 'geocode-failed:REQUEST_DENIED');
+  assert.equal(pickupLocateDiagnostic('52.3700,4.8900'), 'unknown');
+  assert.equal(pickupLocateDiagnostic('stale-location'), 'stale-location');
+  const parsed = readReverseGeocodeBody({ status: 'OK', results: [{ formatted_address: 'Damrak 1, Amsterdam', address_components: [{ long_name: 'Damrak', types: ['route'] }], geometry: { location: { lat: 1, lng: 2 } } }] });
+  assert.equal(parsed.results[0]?.formatted_address, 'Damrak 1, Amsterdam');
+  assert.equal('geometry' in parsed.results[0], false);
   assert.equal(geolocationFailure(1), 'denied');
   assert.equal(geolocationFailure(3), 'timeout');
   assert.equal(geolocationFailure(2), 'unavailable');

@@ -47,6 +47,15 @@ export class PlacesController {
     );
   }
 
+  @Get('reverse')
+  @ApiOperation({ summary: 'Read the address at the customer device location' })
+  @ApiQuery({ name: 'latitude', required: true, schema: { type: 'string' } })
+  @ApiQuery({ name: 'longitude', required: true, schema: { type: 'string' } })
+  @ApiOkResponse({ description: 'Address text for the coordinate, without returning the coordinate.' })
+  reverse(@Query('latitude') latitude: unknown, @Query('longitude') longitude: unknown) {
+    return this.places.reverse(readNumber(latitude), readNumber(longitude));
+  }
+
   @Get('map')
   @Header('Cache-Control', 'private, max-age=86400')
   @ApiOperation({ summary: 'Download a map preview for one coordinate' })

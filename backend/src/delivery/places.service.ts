@@ -5,6 +5,7 @@ import {
   GooglePlacesRequestError,
   isPlaceId,
   isSessionToken,
+  type GeocodeAddressResult,
   type PlaceSuggestion,
   type ResolvedPlace,
 } from './google-places.js';
@@ -39,6 +40,16 @@ export class PlacesService {
     }
     try {
       return await this.googlePlaces.details(placeId, sessionToken);
+    } catch (error) {
+      throw placesFailure(error);
+    }
+  }
+
+  async reverse(latitude: number, longitude: number): Promise<{ status: string; results: GeocodeAddressResult[] }> {
+    assertCoordinate(latitude, 90);
+    assertCoordinate(longitude, 180);
+    try {
+      return await this.googlePlaces.reverseGeocode(latitude, longitude);
     } catch (error) {
       throw placesFailure(error);
     }

@@ -1,6 +1,6 @@
 import { apiRequest } from '../api/client';
 import { quoteBody, v2CreateBody, type PreparedBooking } from './draft';
-import { readPlaceSuggestions, readResolvedPlace, type PlaceSuggestion, type ResolvedPlace } from './places';
+import { readPlaceSuggestions, readResolvedPlace, readReverseGeocodeBody, type PlaceSuggestion, type ResolvedPlace } from './places';
 import { readDeliveryQuote, readOpenBidRequest, type DeliveryQuote, type OpenBidRequest } from './quote';
 
 const SEARCH_CACHE_MS = 30_000;
@@ -29,6 +29,11 @@ export function searchPlaces(
     }
     return suggestions;
   });
+}
+
+export function reverseGeocodePlace(accessToken: string, latitude: number, longitude: number) {
+  const params = new URLSearchParams({ latitude: String(latitude), longitude: String(longitude) });
+  return apiRequest<unknown>(`/customers/me/places/reverse?${params.toString()}`, { accessToken }).then(readReverseGeocodeBody);
 }
 
 export function resolvePlace(accessToken: string, placeId: string, sessionToken: string): Promise<ResolvedPlace> {

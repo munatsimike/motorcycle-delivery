@@ -6,6 +6,7 @@ import {
   isPlaceId,
   isSessionToken,
   readAutocompleteSuggestions,
+  readGeocodeBody,
   readPlaceLocation,
   readResolvedPlace,
 } from './google-places.js';
@@ -121,5 +122,35 @@ describe('Google Places autocomplete', () => {
     expect(cacheMode).toBe('no-store');
     expect(cacheHeader).toBe('no-cache');
     expect(readPlaceLocation({ location: { latitude: 91, longitude: 0 } })).toBeNull();
+  });
+
+  it('keeps only the address from a reverse geocode response', async () => {
+    let requested = '';
+    const client = new GooglePlacesClient('test-maps-key', async (url) => {
+      requested = String(url);
+      return new Response(JSON.stringify({
+        status: 'REQUEST_DENIED',
+        error_message: 'Request received from IP address 2001:db8::1',
+        results: [{ formatted_address: 'Hidden', geometry: { location: { lat: 52.37, lng: 4.89 } } }],
+      }));
+    });
+    const denied = await client.reverseGeocode(52.37, 4.89);
+    expect(denied).toEqual({ status: 'REQUEST_DENIED', results: [] });
+    expect(JSON.stringify(denied)).not.toContain('2001:db8');
+    expect(requested).toContain('latlng=');
+    expect(readGeocodeBody({
+      status: 'OK',
+      results: [{
+        formatted_address: 'Damrak 1, Amsterdam, Netherlands',
+        address_components: [{ long_name: 'Damrak', short_name: 'Damrak', types: ['route'] }],
+        geometry: { location: { lat: 52.37, lng: 4.89 } },
+      }],
+    })).toEqual({
+      status: 'OK',
+      results: [{
+        formatted_address: 'Damrak 1, Amsterdam, Netherlands',
+        address_components: [{ long_name: 'Damrak', short_name: 'Damrak', types: ['route'] }],
+      }],
+    });
   });
 });

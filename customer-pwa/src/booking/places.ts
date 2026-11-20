@@ -182,11 +182,38 @@ export function canRetryLocation(failure: PickupLocateFailure): boolean {
 export function reverseGeocodeOutcome(
   status: string,
   results: ReadonlyArray<{ address_components?: readonly GeocoderComponent[] | null; formatted_address?: string | null }> | null | undefined,
-): { ok: true; address: { display: string; fullAddress: string; needsStreet: boolean } } | { ok: false; reason: 'geocode-failed' | 'geocode-empty' } {
-  if (status !== 'OK') return { ok: false, reason: 'geocode-failed' };
+): { ok: true; address: { display: string; fullAddress: string; needsStreet: boolean } } | { ok: false; reason: 'geocode-failed' | 'geocode-empty'; status: string } {
+  const safeStatus = GEOCODE_DIAGNOSTICS.has(status) ? status : 'UNKNOWN_ERROR';
+  if (safeStatus !== 'OK') return { ok: false, reason: 'geocode-failed', status: safeStatus };
   const address = readReverseGeocode(results);
-  if (!address?.display) return { ok: false, reason: 'geocode-empty' };
+  if (!address?.display) return { ok: false, reason: 'geocode-empty', status: 'OK' };
   return { ok: true, address };
+}
+
+export function readReverseGeocodeBody(value: unknown): { status: string; results: Array<{ formatted_address: string; address_components: GeocoderComponent[] }> } {
+  if (!isRecord(value) || typeof value.status !== 'string') return { status: 'UNAVAILABLE', results: [] };
+  const results: Array<{ formatted_address: string; address_components: GeocoderComponent[] }> = [];
+  if (Array.isArray(value.results)) {
+    for (const item of value.results) {
+      if (!isRecord(item)) continue;
+      const components: GeocoderComponent[] = [];
+      if (Array.isArray(item.address_components)) {
+        for (const component of item.address_components) {
+          if (!isRecord(component)) continue;
+          const types = Array.isArray(component.types) ? component.types.filter((type): type is string => typeof type === 'string') : [];
+          components.push({
+            long_name: typeof component.long_name === 'string' ? component.long_name : '',
+            short_name: typeof component.short_name === 'string' ? component.short_name : '',
+            types,
+          });
+        }
+      }
+      const formatted = typeof item.formatted_address === 'string' ? item.formatted_address : '';
+      if (!formatted && components.length === 0) continue;
+      results.push({ formatted_address: formatted, address_components: components });
+    }
+  }
+  return { status: value.status, results };
 }
 
 export type ServiceAreaMode = 'worldwide' | 'zimbabwe';
@@ -201,6 +228,47 @@ function coordinateInsideServiceArea(longitude: number, latitude: number): boole
   return pointInRing(longitude, latitude, ZIMBABWE_EXTENT);
 }
 
+export type PickupAutofillRejection = 'denied' | 'invalid-accuracy' | 'stale-location' | 'outside-area';
+
+const LOCATE_DIAGNOSTICS = new Set([
+  'denied',
+  'timeout',
+  'unavailable',
+  'stale-location',
+  'invalid-accuracy',
+  'outside-area',
+  'geocode-failed',
+  'geocode-empty',
+  'kept-manual',
+  'applied',
+]);
+
+const GEOCODE_DIAGNOSTICS = new Set(['OK', 'ZERO_RESULTS', 'OVER_QUERY_LIMIT', 'REQUEST_DENIED', 'INVALID_REQUEST', 'UNKNOWN_ERROR', 'UNAVAILABLE']);
+
+export function pickupLocateDiagnostic(reason: string): string {
+  const parts = reason.split(':');
+  const name = parts[0] ?? '';
+  const status = parts[1] ?? '';
+  if (parts.length > 2 || !LOCATE_DIAGNOSTICS.has(name)) return 'unknown';
+  if (!status) return name;
+  return GEOCODE_DIAGNOSTICS.has(status) ? `${name}:${status}` : name;
+}
+
+export function pickupAutofillRejection(input: {
+  permission: 'granted' | 'prompt' | 'denied' | 'unknown';
+  latitude: number;
+  longitude: number;
+  accuracyMetres: number | null;
+  capturedAt: number;
+  now: number;
+}): PickupAutofillRejection | null {
+  if (input.permission !== 'granted') return 'denied';
+  if (input.accuracyMetres != null && (!Number.isFinite(input.accuracyMetres) || input.accuracyMetres < 0)) return 'invalid-accuracy';
+  if (input.now - input.capturedAt > MAX_PICKUP_FIX_AGE_MS) return 'stale-location';
+  if (!coordinateInsideServiceArea(input.longitude, input.latitude)) return 'outside-area';
+  return null;
+}
+
 export function pickupAutofillFix(input: {
   permission: 'granted' | 'prompt' | 'denied' | 'unknown';
   latitude: number;
@@ -209,10 +277,7 @@ export function pickupAutofillFix(input: {
   capturedAt: number;
   now: number;
 }): { latitude: string; longitude: string } | null {
-  if (input.permission !== 'granted') return null;
-  if (input.accuracyMetres != null && (!Number.isFinite(input.accuracyMetres) || input.accuracyMetres < 0)) return null;
-  if (input.now - input.capturedAt > MAX_PICKUP_FIX_AGE_MS) return null;
-  if (!coordinateInsideServiceArea(input.longitude, input.latitude)) return null;
+  if (pickupAutofillRejection(input)) return null;
   return { latitude: String(input.latitude), longitude: String(input.longitude) };
 }
 
