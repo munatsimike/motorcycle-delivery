@@ -80,5 +80,13 @@ function PackageIcon({ filled }: { filled: boolean }) {
 }
 
 function MoreIcon({ filled }: { filled: boolean }) {
-  return <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z" opacity={filled ? 1 : 0.7} /></svg>;
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M6 10a2 2 0 1 1 0 4 2 2 0 0 1 0-4m6 0a2 2 0 1 1 0 4 2 2 0 0 1 0-4m6 0a2 2 0 1 1 0 4 2 2 0 0 1 0-4"
+        opacity={filled ? 1 : 0.7}
+      />
+    </svg>
+  );
 }
