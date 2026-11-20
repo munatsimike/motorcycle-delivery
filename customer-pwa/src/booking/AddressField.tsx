@@ -264,7 +264,6 @@ export function AddressField({
       ) : null}
       {suggestions.length > 0 ? (
         <div className="book-suggestions">
-          <button type="button" className="book-suggestions-close" onClick={dismissSuggestions}>Close suggestions</button>
           <ul role="listbox" aria-label="Address suggestions">
           {suggestions.map((suggestion) => (
             <li key={`${suggestion.placeId ?? suggestion.label}:${suggestion.latitude}`}>
@@ -272,6 +271,12 @@ export function AddressField({
             </li>
           ))}
           </ul>
+          <button type="button" className="book-suggestions-close" onClick={dismissSuggestions}>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+            Close suggestions
+          </button>
         </div>
       ) : null}
     </div>

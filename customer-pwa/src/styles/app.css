@@ -2843,13 +2843,18 @@ button.home-status:disabled {
   left: 0;
   right: 0;
   z-index: 3;
-  display: grid;
-  gap: var(--space-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
   margin: 0;
   padding: 0;
   list-style: none;
   max-height: min(280px, 50vh);
-  overflow: auto;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--background);
+  box-shadow: 0 8px 24px rgba(23, 33, 29, 0.16);
 }
 
 .book-suggestions button {
@@ -2857,15 +2862,48 @@ button.home-status:disabled {
   padding: var(--space-sm) var(--space-md);
   border: 0;
   border-radius: var(--radius-md);
-  background: var(--primary-light);
+  background: transparent;
   color: var(--text);
   font: inherit;
   font-size: var(--body);
   line-height: 22px;
   text-align: left;
 }
-.book-suggestions ul { display: grid; gap: var(--space-sm); margin: 0; padding: 0; list-style: none; }
-.book-suggestions-close { text-align: center; font-weight: 650; }
+.book-suggestions ul {
+  display: grid;
+  gap: var(--space-xs);
+  margin: 0;
+  padding: var(--space-xs);
+  overflow: auto;
+  list-style: none;
+}
+.book-suggestions .book-suggestions-close {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 44px;
+  margin: 0;
+  padding: var(--space-sm) var(--space-md);
+  border: 0;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  background: #fff1f2;
+  color: #dc2626;
+  font-weight: 650;
+  text-align: center;
+  touch-action: manipulation;
+}
+.book-suggestions .book-suggestions-close svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: #dc2626;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
 .address-pin-map { height: 240px; border-radius: 12px; overflow: hidden; }
 .address-pin-dialog { width: min(520px, 100%); }
 
@@ -3723,7 +3761,7 @@ html.is-page-transition .page-stage {
   right: 0;
   z-index: 8;
   margin-top: 0;
-  padding: var(--space-xs);
+  padding: 0;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface);
