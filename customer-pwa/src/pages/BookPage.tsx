@@ -5,7 +5,6 @@ import { motionClass, usePresence } from '../motion/usePresence';
 import { ApiError } from '../api/client';
 import { loadCustomerAccount } from '../account/profileApi';
 import { offerFieldText } from '../deliveries/tracking';
-import { PaymentBadge } from '../deliveries/PaymentBadge';
 import { deliveryCardAddress, deliveryContentKind, type DeliveryContentKind } from '../deliveries/rules';
 import { deliveryErrorMessage } from '../deliveries/api';
 import type { CustomerAccount } from '../auth/contracts';
@@ -39,7 +38,6 @@ import {
   v2CreateBody,
   type BookingDraft,
   type PaymentMethod,
-  type PreparedStop,
   type ServiceClass,
   type StopDraft,
 } from '../booking/draft';
@@ -112,15 +110,9 @@ export function BookPage() {
   const [offer, setOffer] = useState({ text: '', edited: false, pinKey: null as string | null });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<BookingBusy>(null);
-  const [booked, setBooked] = useState<null | { deliveryId: string; pickup: PreparedStop; dropoff: PreparedStop }>(null);
   const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>([]);
   const [addressesSettled, setAddressesSettled] = useState(false);
   const [savedError, setSavedError] = useState<string | null>(null);
-  const [saveChoice, setSaveChoice] = useState({
-    pickup: emptySaveChoice(),
-    dropoff: emptySaveChoice(),
-    error: null as string | null,
-  });
   const [inlineSaveChoice, setInlineSaveChoice] = useState({ pickup: emptySaveChoice(), dropoff: emptySaveChoice() });
   const [inlineSaveError, setInlineSaveError] = useState<string | null>(null);
   const [inlineSaveOpen, setInlineSaveOpen] = useState<'pickup' | 'dropoff' | null>(null);
@@ -477,7 +469,7 @@ export function BookPage() {
       const idempotencyKey = bookingKeyFor(attempts.current, fingerprint, () => crypto.randomUUID());
       const created = await createDelivery(token, prepared.booking, decision.offeredPrice, idempotencyKey);
       clearBookingAttempt(attempts.current);
-      finish(created.id, prepared.booking.pickup, prepared.booking.dropoff);
+      finish(created.id);
     } catch (caught) {
       if (caught instanceof ApiError && caught.status === 409) clearBookingAttempt(attempts.current);
       setError(deliveryErrorMessage(caught, 'The delivery could not be booked.'));
@@ -487,15 +479,10 @@ export function BookPage() {
     }
   }
 
-  function finish(deliveryId: string, pickup: PreparedStop, dropoff: PreparedStop) {
+  function finish(deliveryId: string) {
     if (leaving.current) return;
-    setBooked({ deliveryId, pickup, dropoff });
-  }
-
-  function openBookedDelivery() {
-    if (!booked || leaving.current) return;
     leaving.current = true;
-    const path = bookingSuccessPath(booked.deliveryId);
+    const path = bookingSuccessPath(deliveryId);
     if (window.history.state?.bookingHold !== true) {
       beginPageTransition(() => navigate(path, { replace: true }));
       return;
@@ -506,33 +493,6 @@ export function BookPage() {
     };
     window.addEventListener('popstate', reveal);
     window.history.back();
-  }
-
-  async function saveBookedStop(side: 'pickup' | 'dropoff') {
-    if (!booked) return;
-    const choice = saveChoice[side];
-    const body = saveRequest(booked[side], choice);
-    if (!body || choice.status !== 'idle') return;
-    setSaveChoice((current) => ({
-      ...current,
-      [side]: { ...current[side], status: 'saving' },
-      error: null,
-    }));
-    try {
-      const token = await accessToken();
-      if (!token) throw new Error('The address could not be saved.');
-      await createSavedAddress(token, body);
-      setSaveChoice((current) => ({
-        ...current,
-        [side]: { ...current[side], status: 'saved' },
-      }));
-    } catch (caught) {
-      setSaveChoice((current) => ({
-        ...current,
-        [side]: { ...current[side], status: 'idle' },
-        error: deliveryErrorMessage(caught, 'The address could not be saved. The delivery is still booked.'),
-      }));
-    }
   }
 
   async function resolveTypedStop(side: 'pickup' | 'dropoff', stop: StopDraft, purpose: 'continue' | 'save'): Promise<StopDraft | null> {
@@ -649,7 +609,7 @@ export function BookPage() {
   return (
     <section className="book page-stage is-entering">
       <header className="book-header">
-        <button type="button" className="book-back" aria-label="Back" disabled={busy !== null || booked !== null} onClick={goBack}>
+        <button type="button" className="book-back" aria-label="Back" disabled={busy !== null} onClick={goBack}>
           <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" fill="currentColor" />
           </svg>
@@ -718,7 +678,7 @@ export function BookPage() {
           {error ? <ErrorMessage>{error}</ErrorMessage> : null}
           <div className="book-actions">
             {step === 'review' || step === 'confirm' ? (
-              <Button type="button" disabled={Boolean(busy) || Boolean(booked) || !quote} onClick={() => { void confirm(); }}>
+              <Button type="button" disabled={Boolean(busy) || !quote} onClick={() => { void confirm(); }}>
                 {busy === 'create' ? <><ButtonSpinner />Booking…</> : 'Confirm'}
               </Button>
             ) : (
@@ -753,73 +713,12 @@ export function BookPage() {
           </div>
         </div>
       ) : null}
-      {booked ? (
-        <div className="book-confirmed" role="status">
-          <div className="book-confirmed-card">
-            <span aria-hidden="true">✓</span>
-            <p>Delivery booked</p>
-            <div className="book-save-actions">
-              <button type="button" onClick={openBookedDelivery}>Continue</button>
-              <SaveAddressChoice
-                title="Save pickup"
-                choice={saveChoice.pickup}
-                onChange={(choice) => setSaveChoice((current) => ({ ...current, pickup: choice, error: null }))}
-                onSave={() => { void saveBookedStop('pickup'); }}
-              />
-              <SaveAddressChoice
-                title="Save delivery"
-                choice={saveChoice.dropoff}
-                onChange={(choice) => setSaveChoice((current) => ({ ...current, dropoff: choice, error: null }))}
-                onSave={() => { void saveBookedStop('dropoff'); }}
-              />
-            </div>
-            {saveChoice.error ? <p>{saveChoice.error}</p> : null}
-          </div>
-        </div>
-      ) : null}
     </section>
   );
 }
 
 function emptySaveChoice(): BookingSaveChoice & { status: SaveState } {
   return { label: null, status: 'idle' };
-}
-
-function SaveAddressChoice({
-  title,
-  choice,
-  onChange,
-  onSave,
-}: {
-  title: string;
-  choice: BookingSaveChoice & { status: SaveState };
-  onChange: (choice: BookingSaveChoice & { status: SaveState }) => void;
-  onSave: () => void;
-}) {
-  const ready = choice.status === 'idle' && bookingSaveLabel(choice) !== null;
-  const labels: Array<'HOME' | 'WORK'> = ['HOME', 'WORK'];
-  return (
-    <div className="book-save-side">
-      <p>{title}</p>
-      <div className="book-save-labels" role="group" aria-label={title}>
-        {labels.map((label) => (
-          <button
-            key={label}
-            type="button"
-            aria-pressed={choice.label === label}
-            className={choice.label === label ? 'is-selected' : undefined}
-            disabled={choice.status !== 'idle'}
-            onClick={() => onChange({ ...choice, label })}
-          >
-            {label === 'HOME' ? 'Home' : 'Work'}
-          </button>
-        ))}
-      </div>
-      <button type="button" disabled={!ready} onClick={onSave}>
-        {choice.status === 'saved' ? 'Saved' : choice.status === 'saving' ? <><ButtonSpinner />Saving…</> : 'Save to Address Book'}
-      </button>
-    </div>
-  );
 }
 
 function StopForm({
@@ -982,10 +881,7 @@ function ReviewForm({
           <>
             <div className="book-price-row">
               <div className="book-suggested">
-                <p className="price-label">
-                  Suggested price
-                  <PaymentBadge method={draft.paymentMethod} />
-                </p>
+                <p className="price-label">Suggested price</p>
                 <strong>{moneyLabel(quote.suggestedPrice, quote.currency)}</strong>
               </div>
               <div className="book-distance">
