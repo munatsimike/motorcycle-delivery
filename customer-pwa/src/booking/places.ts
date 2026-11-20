@@ -165,7 +165,6 @@ const ZIMBABWE_EXTENT: ReadonlyArray<readonly [number, number]> = [
   [26.40, -17.10],
 ];
 
-export const MAX_PICKUP_ACCURACY_METRES = 100;
 export const MAX_PICKUP_FIX_AGE_MS = 30_000;
 
 export type ServiceAreaMode = 'worldwide' | 'zimbabwe';
@@ -189,7 +188,7 @@ export function pickupAutofillFix(input: {
   now: number;
 }): { latitude: string; longitude: string } | null {
   if (input.permission !== 'granted') return null;
-  if (input.accuracyMetres == null || input.accuracyMetres > MAX_PICKUP_ACCURACY_METRES) return null;
+  if (input.accuracyMetres != null && (!Number.isFinite(input.accuracyMetres) || input.accuracyMetres < 0)) return null;
   if (input.now - input.capturedAt > MAX_PICKUP_FIX_AGE_MS) return null;
   if (!coordinateInsideServiceArea(input.longitude, input.latitude)) return null;
   return { latitude: String(input.latitude), longitude: String(input.longitude) };
@@ -208,11 +207,33 @@ export function readGeocodedAddress(
   const suburb = part('sublocality') || part('sublocality_level_1') || part('neighborhood');
   const street = [part('street_number'), part('route')].filter(Boolean).join(' ');
   const zimbabwe = countryCode === 'zw' || country.toLowerCase() === 'zimbabwe';
-  const display = uniqueAddress([...(zimbabwe ? [street, suburb] : [street, suburb, city])]);
-  const fullAddress = uniqueAddress([street, suburb, city, country]) || formatted?.trim() || '';
+  const composed = uniqueAddress(street ? (zimbabwe ? [street, suburb] : [street, suburb, city]) : [suburb, city]);
+  const formattedLabel = readableFormattedAddress(formatted, country);
+  const display = street ? composed : (formattedLabel || composed);
+  const fullAddress = uniqueAddress([street, suburb, city, country]) || formatted?.trim() || display;
   if (!display && !fullAddress) return null;
-  const needsStreet = zimbabwe && street.length === 0;
-  return { display: needsStreet ? '' : display, fullAddress, needsStreet };
+  return { display, fullAddress, needsStreet: display.length === 0 };
+}
+
+export function readReverseGeocode(
+  results: ReadonlyArray<{ address_components?: readonly GeocoderComponent[] | null; formatted_address?: string | null }> | null | undefined,
+): { display: string; fullAddress: string; needsStreet: boolean } | null {
+  let fallback: { display: string; fullAddress: string; needsStreet: boolean } | null = null;
+  for (const result of results ?? []) {
+    const read = readGeocodedAddress(result.address_components, result.formatted_address);
+    if (!read?.display) continue;
+    const hasStreet = result.address_components?.some((component) => component.types?.includes('route') || component.types?.includes('street_number')) === true;
+    if (hasStreet) return read;
+    fallback ??= read;
+  }
+  return fallback;
+}
+
+function readableFormattedAddress(formatted: string | null | undefined, country: string): string {
+  const parts = formatted?.split(',').map((part) => part.trim()).filter((part) => part.length > 0) ?? [];
+  const last = parts[parts.length - 1]?.toLowerCase() ?? '';
+  if (parts.length > 1 && (last === country.trim().toLowerCase() || last === 'zimbabwe')) parts.pop();
+  return parts.join(', ');
 }
 
 function uniqueAddress(parts: string[]): string {

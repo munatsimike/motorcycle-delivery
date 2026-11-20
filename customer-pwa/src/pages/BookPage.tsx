@@ -63,7 +63,7 @@ import {
 import {
   decideAddressAutofill,
   pickupAutofillFix,
-  readGeocodedAddress,
+  readReverseGeocode,
   type PlaceSuggestion,
 } from '../booking/places';
 import {
@@ -1088,12 +1088,12 @@ async function lookupAddress(latitude: number, longitude: number) {
   await loadGoogleMaps(mapsBrowserKey());
   const Geocoder = (window as Window & { google?: { maps?: GeocoderMaps } }).google?.maps?.Geocoder;
   if (!Geocoder) return null;
-  const found = await new Promise<GeocodedPlace | null>((resolve) => {
+  const found = await new Promise<GeocodedPlace[] | null>((resolve) => {
     new Geocoder().geocode({ location: { lat: latitude, lng: longitude } }, (results, status) => {
-      resolve(status === 'OK' ? results?.[0] ?? null : null);
+      resolve(status === 'OK' ? results ?? null : null);
     });
   });
-  return readGeocodedAddress(found?.address_components, found?.formatted_address);
+  return readReverseGeocode(found);
 }
 
 

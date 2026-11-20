@@ -30,7 +30,7 @@ import {
   clearBookingAttempt,
   memoryAttemptStore,
 } from './flow.ts';
-import { acceptSearchResult, manualGeocodeAccepts, pickupAutofillFix, readGeocodedAddress, resolveManualAddress } from './places.ts';
+import { acceptSearchResult, decideAddressAutofill, manualGeocodeAccepts, pickupAutofillFix, readGeocodedAddress, readReverseGeocode, resolveManualAddress } from './places.ts';
 import { bookingSuccessPath, confirmQuoteDecision, nextCustomerOffer, quotesMatch, readDeliveryQuote } from './quote.ts';
 
 test('pickup and drop-off require an address, contact, phone, and resolved point', () => {
@@ -193,6 +193,9 @@ test('pickup autofill accepts a granted, fresh, accurate fix in any country', ()
   const netherlands = pickupAutofillFix({ permission: 'granted', latitude: 52.3, longitude: 4.9, accuracyMetres: 10, capturedAt: now, now });
   assert.equal(netherlands?.latitude, '52.3');
   assert.equal(netherlands?.longitude, '4.9');
+  const coarse = pickupAutofillFix({ permission: 'granted', latitude: 52.37, longitude: 4.89, accuracyMetres: null, capturedAt: now - 1000, now });
+  assert.equal(coarse?.latitude, '52.37');
+  assert.equal(pickupAutofillFix({ permission: 'denied', latitude: 52.3, longitude: 4.9, accuracyMetres: 10, capturedAt: now, now }), null);
   assert.equal(pickupAutofillFix({ permission: 'granted', latitude: 91, longitude: 4.9, accuracyMetres: 10, capturedAt: now, now }), null);
   const address = readGeocodedAddress([
     { long_name: '12', types: ['street_number'] },
@@ -202,7 +205,24 @@ test('pickup autofill accepts a granted, fresh, accurate fix in any country', ()
   ]);
   assert.equal(address?.display, '12 Samora Machel Avenue');
   assert.equal(address?.needsStreet, false);
-  assert.equal(readGeocodedAddress([{ long_name: 'Harare', types: ['locality'] }, { long_name: 'Zimbabwe', short_name: 'ZW', types: ['country'] }])?.needsStreet, true);
+  const dutch = readGeocodedAddress([
+    { long_name: '1', types: ['street_number'] },
+    { long_name: 'Damrak', types: ['route'] },
+    { long_name: 'Amsterdam', types: ['locality'] },
+    { long_name: 'Netherlands', short_name: 'NL', types: ['country'] },
+  ], 'Damrak 1, Amsterdam, Netherlands');
+  assert.equal(dutch?.display, '1 Damrak, Amsterdam');
+  const applied = decideAddressAutofill(false, dutch);
+  assert.equal(applied.status, 'apply');
+  assert.equal(applied.display, '1 Damrak, Amsterdam');
+  assert.equal(decideAddressAutofill(true, dutch).status, 'ignore');
+  const fromFormatted = readReverseGeocode([
+    { address_components: [{ long_name: 'Amsterdam', types: ['locality'] }, { long_name: 'Netherlands', types: ['country'] }], formatted_address: 'Amsterdam, Netherlands' },
+    { address_components: [{ long_name: 'Damrak', types: ['route'] }, { long_name: 'Amsterdam', types: ['locality'] }, { long_name: 'Netherlands', types: ['country'] }], formatted_address: 'Damrak, Amsterdam, Netherlands' },
+  ]);
+  assert.equal(fromFormatted?.display, 'Damrak, Amsterdam');
+  assert.equal(readReverseGeocode(null), null);
+  assert.equal(decideAddressAutofill(false, null).status, 'ignore');
 });
 
 test('the create body carries the resolved stop and offer', () => {
