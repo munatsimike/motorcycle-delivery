@@ -1229,7 +1229,7 @@ function DeliveryFacts({
             {moneyLabel(delivery.currency, amount)}
             <PaymentBadge method={delivery.paymentMethod} />
           </strong>
-          {onAdjust ? <button type="button" className="facts-adjust" onClick={onAdjust}><PencilMark />Adjust price</button> : null}
+          {onAdjust ? <button type="button" className="facts-adjust" onClick={onAdjust}>Adjust price</button> : null}
         </p>
       </div>
     </div>
@@ -1280,10 +1280,6 @@ function PinMark({ dropoff }: { dropoff: boolean }) {
       <path fill={dropoff ? '#1A73E8' : '#169B62'} d="M12 2.2a6.2 6.2 0 0 0-6.2 6.2c0 4.2 6.2 10.2 6.2 10.2s6.2-6 6.2-10.2A6.2 6.2 0 0 0 12 2.2z" /><text x="12" y="11.7" textAnchor="middle" fontSize="8.5" fontWeight="700" fill="#ffffff">{dropoff ? '2' : '1'}</text>
     </svg>
   );
-}
-
-function PencilMark() {
-  return <svg viewBox="0 0 24 24"><path d="M20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.84 1.83 3.75 3.75M3 17.25V21h3.75L17.81 9.93l-3.75-3.75L3 17.25Z" /></svg>;
 }
 
 function SearchIcon() {

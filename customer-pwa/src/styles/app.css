@@ -1775,7 +1775,6 @@ button.home-status:disabled {
 .outcome-icon svg,
 .facts-kind svg,
 .facts-date svg,
-.facts-adjust svg,
 .outcome-search svg {
   width: 22px;
   height: 22px;
@@ -1783,8 +1782,7 @@ button.home-status:disabled {
 }
 
 .facts-kind svg,
-.delivery-class svg,
-.facts-adjust svg {
+.delivery-class svg {
   width: 15px;
   height: 15px;
 }
