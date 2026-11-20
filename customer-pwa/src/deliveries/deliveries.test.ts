@@ -13,6 +13,7 @@ import {
   deliveryOutcomeTitle,
   deliveryWhenLabel,
   moneyLabel,
+  paymentBadge,
   readCustomerDeliveryPage,
   shortDeliveryReference,
   sortDeliveries,
@@ -61,8 +62,16 @@ test('card status, search again, content, and address follow the native rules', 
   assert.match(deliveryOutcomeSupport('NO_RIDER_FOUND'), /No rider was available/);
   assert.equal(deliveryDistanceLabel(850), '850 m');
   assert.equal(deliveryDistanceLabel(1200), '1.2 km');
-  assert.equal(moneyLabel('USD', '4.50'), 'US$4.50');
+  assert.equal(moneyLabel('USD', '4.50'), 'USD 4.50');
+  assert.equal(moneyLabel('USD', '20.00'), 'USD 20');
+  assert.equal(moneyLabel('USD', '20.05'), 'USD 20.05');
+  assert.equal(moneyLabel('ZWG', '21.00'), 'ZiG 21');
   assert.equal(moneyLabel('ZWG', '4.50'), 'ZiG 4.50');
+  assert.equal(paymentBadge('CASH'), 'Cash');
+  assert.equal(paymentBadge('ECOCASH'), 'EcoCash');
+  assert.equal(paymentBadge(null), null);
+  assert.equal(paymentBadge('ZIPIT'), null);
+  assert.equal(paymentBadge(''), null);
   const when = deliveryWhenLabel('2026-11-13T08:05:00.000Z');
   assert.match(when, /13 Nov 2026 • \d{2}:\d{2}/);
 });

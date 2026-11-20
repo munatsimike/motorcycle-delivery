@@ -5,6 +5,7 @@ import { motionClass, usePresence } from '../motion/usePresence';
 import { ApiError } from '../api/client';
 import { loadCustomerAccount } from '../account/profileApi';
 import { offerFieldText } from '../deliveries/tracking';
+import { PaymentBadge } from '../deliveries/PaymentBadge';
 import { deliveryCardAddress, deliveryContentKind, type DeliveryContentKind } from '../deliveries/rules';
 import { deliveryErrorMessage } from '../deliveries/api';
 import type { CustomerAccount } from '../auth/contracts';
@@ -917,6 +918,7 @@ function ReviewForm({
               <div>
                 <p>Suggested price</p>
                 <strong>{moneyLabel(quote.suggestedPrice, quote.currency)}</strong>
+                <PaymentBadge method={draft.paymentMethod} />
               </div>
               <div className="book-distance">
                 <p>Distance</p>
@@ -924,9 +926,9 @@ function ReviewForm({
               </div>
             </div>
             <label className="book-offer">
-              <span>Your offer ({quote.currency === 'ZWG' ? 'ZiG' : 'US$'})</span>
+              <span>Your offer ({quote.currency === 'ZWG' ? 'ZiG' : 'USD'})</span>
               <span className="book-offer-field">
-                <span aria-hidden="true">{quote.currency === 'ZWG' ? 'ZiG' : 'US$'}</span>
+                <span aria-hidden="true">{quote.currency === 'ZWG' ? 'ZiG' : 'USD'}</span>
                 <input inputMode="decimal" maxLength={7} value={offerText} disabled={!editable} placeholder="0.00" onChange={(event) => onOfferChange(event.target.value)} />
               </span>
             </label>

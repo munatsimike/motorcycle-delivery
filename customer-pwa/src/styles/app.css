@@ -1875,6 +1875,24 @@ button.home-status:disabled {
   text-align: right;
 }
 
+.payment-badge {
+  display: inline-flex;
+  width: fit-content;
+  margin-top: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--primary-light);
+  color: var(--primary);
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.delivery-facts .payment-badge,
+.offer-price .payment-badge {
+  color: var(--primary);
+}
+
 .delivery-price p:last-child {
   text-align: right;
 }

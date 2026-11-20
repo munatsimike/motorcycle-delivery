@@ -317,7 +317,7 @@ test('a cancelled delivery keeps the actor and omits the rider note', () => {
     parcel: { description: 'Parcel', size: 'SMALL', instructions: null },
   });
   assert.equal(zig.currency, 'ZWG');
-  assert.equal(moneyLabel(zig.currency, zig.offeredPrice ?? ''), 'ZiG 99.00');
+  assert.equal(moneyLabel(zig.currency, zig.offeredPrice ?? ''), 'ZiG 99');
   const offers = readCustomerBids([{
     id: 'bid-zig',
     deliveryId: 'delivery-zig',
@@ -327,7 +327,7 @@ test('a cancelled delivery keeps the actor and omits the rider note', () => {
     rider: { name: 'Tendai Moyo', completedDeliveries: 2, riderClass: 'SILVER' },
   }]);
   assert.equal(offers[0]?.currency, 'ZWG');
-  assert.equal(moneyLabel(offers[0]?.currency, offers[0]?.amount ?? ''), 'ZiG 99.00');
+  assert.equal(moneyLabel(offers[0]?.currency, offers[0]?.amount ?? ''), 'ZiG 99');
 });
 
 function memoryStore() {

@@ -180,11 +180,27 @@ export function deliveryDistanceLabel(meters: number): string {
   return `${text} km`;
 }
 
+export function displayMoneyAmount(amount: string): string {
+  const match = /^(\d{1,10})\.(\d{2})$/.exec(amount.trim());
+  if (!match) return amount.trim();
+  const whole = match[1].replace(/^0+(?=\d)/, '');
+  if (match[2] === '00') return whole;
+  if (match[2] === '50') return `${whole}.50`;
+  return `${whole}.${match[2]}`;
+}
+
 export function moneyLabel(currency: string | null | undefined, amount: string): string {
   const code = (currency ?? 'USD').trim().toUpperCase();
-  if (code === 'USD') return `US$${amount}`;
-  if (code === 'ZWG') return `ZiG ${amount}`;
-  return `${code} ${amount}`;
+  const shown = displayMoneyAmount(amount);
+  if (code === 'USD') return `USD ${shown}`;
+  if (code === 'ZWG') return `ZiG ${shown}`;
+  return `${code} ${shown}`;
+}
+
+export function paymentBadge(method: string | null | undefined): 'Cash' | 'EcoCash' | null {
+  if (method === 'CASH') return 'Cash';
+  if (method === 'ECOCASH') return 'EcoCash';
+  return null;
 }
 
 export function deliveryOutcomeTitle(status: DeliveryStatus): string {

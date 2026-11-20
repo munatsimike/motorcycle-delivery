@@ -1,3 +1,4 @@
+import { displayMoneyAmount } from '../deliveries/rules.ts';
 import { customerOfferForBooking } from '../deliveries/tracking.ts';
 import type { ServiceClass } from './draft.ts';
 
@@ -78,7 +79,8 @@ export function formatDistance(meters: number): string {
 }
 
 export function moneyLabel(amount: string, currency: 'USD' | 'ZWG' = 'USD'): string {
-  return currency === 'ZWG' ? `ZiG ${amount}` : `US$${amount}`;
+  const shown = displayMoneyAmount(amount);
+  return currency === 'ZWG' ? `ZiG ${shown}` : `USD ${shown}`;
 }
 
 export type OpenBidRequest = {
