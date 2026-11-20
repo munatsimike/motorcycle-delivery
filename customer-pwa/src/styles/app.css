@@ -1882,6 +1882,13 @@ button.home-status:disabled {
   gap: 8px;
 }
 
+.delivery-facts .facts-price.is-offer,
+.delivery-facts .facts-price.is-offer strong {
+  justify-items: start;
+  justify-content: flex-start;
+  text-align: left;
+}
+
 .facts-price .payment-badge {
   margin-top: 0;
 }

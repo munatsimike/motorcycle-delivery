@@ -1216,11 +1216,11 @@ function DeliveryFacts({
       <p className="delivery-stop"><PinMark dropoff /><span>{showContacts && delivery.recipientName ? `${delivery.recipientName}, ` : ''}{deliveryCardAddress(delivery.dropoffAddress)}</span></p>
       <div className="delivery-facts">
         <p><span>Distance</span><strong>{deliveryDistanceLabel(delivery.distanceMeters)}</strong></p>
-        <p className="facts-price">
+        <p className={customerOffer ? 'facts-price is-offer' : 'facts-price'}>
           <span className="price-label">{customerOffer ? 'Your offer' : 'Price'}</span>
           <strong>
-            {moneyLabel(delivery.currency, amount)}
             <PaymentBadge method={delivery.paymentMethod} />
+            {moneyLabel(delivery.currency, amount)}
           </strong>
           {onAdjust ? <button type="button" className="facts-adjust" onClick={onAdjust}><PencilMark />Adjust price</button> : null}
         </p>
