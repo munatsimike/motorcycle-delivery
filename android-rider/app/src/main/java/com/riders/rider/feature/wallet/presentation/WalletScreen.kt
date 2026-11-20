@@ -355,15 +355,15 @@ private fun BalanceCard(summary: WalletSummary, onTopUp: () -> Unit) {
             }
             if (zig) {
                 BalanceOption(
-                    icon = R.drawable.ic_gauge_outline,
-                    label = "Available",
-                    value = walletMoneyLabel(summary.currency, summary.availableCapacity),
+                    icon = R.drawable.ic_hand_coin_outline,
+                    label = "Credit limit",
+                    value = walletMoneyLabel(summary.currency, "0.00"),
                     modifier = Modifier.weight(1f),
                 )
             }
             BalanceOption(
                 icon = R.drawable.ic_gauge_outline,
-                label = "Reserved",
+                label = "Commission",
                 value = walletMoneyLabel(summary.currency, summary.reservedFees),
                 modifier = Modifier.weight(1f),
             )

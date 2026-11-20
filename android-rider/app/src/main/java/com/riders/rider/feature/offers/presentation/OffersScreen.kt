@@ -601,7 +601,6 @@ private fun BidPage(
                     cents += BID_STEP_CENTS
                 }
             }
-            RequestPaymentMark(offer.paymentMethod)
             Text(
                 "Suggested offer (based on distance and demand)",
                 style = RidersType.caption,
@@ -783,8 +782,7 @@ private fun OfferDetailsSheet(visible: Boolean, offer: OfferResponse, amount: St
                 )
             }
             DetailLine("Distance", offerDistanceLabel(offer.distanceMeters))
-            DetailLine("Customer price", requestAmountLabel(offer.currency, offer.offeredPrice))
-            RequestPaymentMark(offer.paymentMethod)
+            OfferPriceLine(offer.currency, offer.offeredPrice, offer.paymentMethod)
             DetailLine("Your offer", requestAmountLabel(offer.currency, amount))
         }
     }
@@ -843,6 +841,24 @@ private fun SentOfferNote(offer: OfferResponse, amount: String) {
         style = RidersType.body,
         color = RidersColors.textSecondary,
     )
+}
+
+@Composable
+private fun OfferPriceLine(currency: String, amount: String, paymentMethod: String?) {
+    Column(
+        Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.End,
+        verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(RidersSpacing.xs),
+        ) {
+            Text("Price", style = RidersType.caption, color = RidersColors.textSecondary)
+            RequestPaymentMark(paymentMethod)
+        }
+        Text(requestAmountLabel(currency, amount), style = RidersType.bodyStrong, color = RidersColors.text)
+    }
 }
 
 @Composable
@@ -977,9 +993,8 @@ private fun OfferSummary(offer: OfferResponse, nowMillis: Long, detailed: Boolea
             horizontalAlignment = Alignment.End,
             verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs),
         ) {
-            Text("Customer offers", style = RidersType.caption, color = RidersColors.textSecondary)
+            Text("Price", style = RidersType.caption, color = RidersColors.textSecondary)
             Text(requestAmountLabel(offer.currency, offer.offeredPrice), style = RidersType.heading, color = RidersColors.text)
-            RequestPaymentMark(offer.paymentMethod)
         }
     }
 }

@@ -89,7 +89,6 @@ import com.riders.rider.feature.onboarding.domain.MotorcycleDetails
 import com.riders.rider.feature.onboarding.domain.RiderOnboarding
 import com.riders.rider.feature.onboarding.domain.approvalStatusTitle
 import com.riders.rider.feature.onboarding.domain.motorcycleStatusTitle
-import com.riders.rider.feature.onboarding.domain.riderReadiness
 import com.riders.rider.core.io.readAtMost
 import com.riders.rider.feature.profile.domain.PROFILE_PHOTO_MAX_BYTES
 import com.riders.rider.feature.profile.domain.ProfilePhotoPhase
@@ -206,7 +205,6 @@ fun ProfileScreen(
                     phone = board.phone,
                     address = board.address,
                     onboarding = board.onboarding,
-                    hasLicence = board.hasLicence,
                     motorcycles = board.motorcycles,
                     appearance = appearanceMode,
                     onAppearance = appearance::select,
@@ -472,7 +470,6 @@ private fun DetailsCard(
     phone: String,
     address: String,
     onboarding: RiderOnboarding?,
-    hasLicence: Boolean,
     motorcycles: List<MotorcycleDetails>,
     appearance: AppearanceMode,
     onAppearance: (AppearanceMode) -> Unit,
@@ -505,11 +502,6 @@ private fun DetailsCard(
             label = "Address",
             value = address.ifBlank { "Not added" },
             onEdit = onEditAddress,
-        )
-        InfoRow(
-            icon = R.drawable.ic_card_outline,
-            label = "Driving licence",
-            value = licenceSummary(onboarding, hasLicence),
         )
         onboarding?.rejectionReason?.takeIf { it.isNotBlank() }?.let { reason ->
             Text(
@@ -698,19 +690,6 @@ private tailrec fun Context.findActivity(): ComponentActivity = when (this) {
     is ComponentActivity -> this
     is ContextWrapper -> baseContext.findActivity()
     else -> error("Appearance is only available inside the rider activity")
-}
-
-private fun licenceSummary(onboarding: RiderOnboarding?, hasLicence: Boolean): String {
-    if (onboarding == null) {
-        return if (hasLicence) "Uploaded" else "Not uploaded"
-    }
-    val status = riderReadiness(onboarding).licenceLabel.takeUnless { it == "Verified" }
-    val parts = listOfNotNull(
-        onboarding.licenceNumber?.takeIf { it.isNotBlank() },
-        onboarding.licenceClass?.takeIf { it.isNotBlank() }?.let { "Class $it" },
-        status,
-    )
-    return parts.joinToString(" · ").ifBlank { "On file" }
 }
 
 private fun motorcycleSummary(motorcycles: List<MotorcycleDetails>): String {

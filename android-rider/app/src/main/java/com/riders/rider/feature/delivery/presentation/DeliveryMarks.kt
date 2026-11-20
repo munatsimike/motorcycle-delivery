@@ -384,13 +384,18 @@ private fun DistancePrice(distanceMeters: Int?, price: String?, currency: String
             horizontalAlignment = Alignment.End,
             verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs),
         ) {
-            Text("Price", style = RidersType.caption, color = RidersColors.textSecondary)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(RidersSpacing.xs),
+            ) {
+                Text("Price", style = RidersType.caption, color = RidersColors.textSecondary)
+                RequestPaymentMark(paymentMethod)
+            }
             Text(
                 deliveryPriceLabel(price, currency) ?: "Unavailable",
                 style = RidersType.heading,
                 color = RidersColors.text,
             )
-            RequestPaymentMark(paymentMethod)
         }
     }
 }
