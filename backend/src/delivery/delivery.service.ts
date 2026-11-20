@@ -20,7 +20,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { readDeliveryDraft, readQuoteRequest, readV2DeliveryDraft, type QuotePins, type QuoteRequest, type V2DeliveryDraft } from './delivery-request.js';
 import { assignedRiderStatus, customerCancellationView, customerRoutesToDropoff, customerSharesRiderLocation, freshRiderPoint, toCustomerDelivery, toCustomerDeliverySummary, withAssignedRider, withCollectingRiderLocation, withCustomerCancellation, withCustomerRating, withPickupApproach, type AssignedRiderView, type PickupApproachView, type RiderPoint, type StoredDelivery } from './delivery-view.js';
 import { PICKUP_APPROACH, type PickupApproachLookup } from './pickup-approach.js';
-import { centsFromDecimal, formatCents } from './money.js';
+import { centsFromDecimal, formatCents, roundSuggestedCents } from './money.js';
 import { lockActiveClassPricing } from './pricing-lock.js';
 import { calculateTariffPrice, PricingCalculationError, type TariffSnapshot } from './pricing-calculator.js';
 import { ROAD_DISTANCE, geoapifyRoadDistance, type RoadDistance } from './geoapify.js';
@@ -334,7 +334,7 @@ export class DeliveryService {
           throw quotedPriceError(error);
         }
         const rate = await readActiveExchangeRate(tx);
-        const suggestedCents = suggestedCentsForCurrency(priced.suggestedPriceCents, draft.currency, rate);
+        const suggestedCents = roundSuggestedCents(suggestedCentsForCurrency(priced.suggestedPriceCents, draft.currency, rate));
         const retrievedAt = new Date();
         const created = await tx.delivery.create({
           data: {
@@ -450,7 +450,7 @@ export class DeliveryService {
       throw quotedPriceError(error);
     }
     const rate = await readActiveExchangeRate(this.prisma);
-    const suggestedCents = suggestedCentsForCurrency(priced.suggestedPriceCents, request.currency, rate);
+    const suggestedCents = roundSuggestedCents(suggestedCentsForCurrency(priced.suggestedPriceCents, request.currency, rate));
     return {
       distanceMeters: priced.distanceMetres,
       pricingVersion: priced.pricingVersion,

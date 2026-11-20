@@ -491,7 +491,7 @@ describe('flagged service-class quotes', () => {
     seedLegacyTariff(ctx, tariff('2.00', '0.50', 100, 100_000));
     ctx.configs.unshift(includedPublished());
     await expect(ctx.deliveries.quote({ ...pins(), serviceClass: 'EXPRESS' })).resolves.toMatchObject({
-      suggestedPrice: '5.80',
+      suggestedPrice: '6.00',
       pricingModel: 'INCLUDED_DISTANCE',
       pricingVersion: 9,
     });
@@ -506,13 +506,13 @@ describe('flagged service-class quotes', () => {
       pricingModel: 'FIXED',
     }, 'included-distance');
     expect(created).toMatchObject({
-      suggestedPrice: '5.80',
+      suggestedPrice: '6.00',
       pricingVersion: 9,
       pricingModel: 'INCLUDED_DISTANCE',
       serviceClass: 'EXPRESS',
       offeredPrice: null,
     });
-    expect(ctx.deliveryRows[0]).toMatchObject({ suggestedPrice: '5.80', customerOffer: '4.00', price: null, pricingVersion: 9 });
+    expect(ctx.deliveryRows[0]).toMatchObject({ suggestedPrice: '6.00', customerOffer: '4.00', price: null, pricingVersion: 9 });
     expect(ctx.configs.find((row) => row.serviceClass === null)).toMatchObject({
       isActive: true,
       baseFee: '2.00',

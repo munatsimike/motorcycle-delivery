@@ -435,7 +435,12 @@ describe('V2 bid lifecycle', () => {
       suggestedPrice: '9.00',
       offeredPrice: '7.50',
       pickupAddress: '12 Samora Machel Avenue',
+      paymentMethod: null,
     })]);
+    ctx.deliveries[0]!.paymentMethod = 'ECOCASH';
+    const payable = await bids.listOpenRequests(RIDER_CONTEXT, NOW);
+    expect(payable[0]?.paymentMethod).toBe('ECOCASH');
+    ctx.deliveries[0]!.paymentMethod = null;
     expect(JSON.stringify(open)).not.toContain('+263');
     await expect(bids.requestRoad(RIDER_CONTEXT, DELIVERY)).resolves.toEqual({ line: [] });
     ctx.deliveries[0]!.deliverBy = new Date(NOW.getTime() - 1_000);
@@ -640,6 +645,7 @@ function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?:
     parcelDescription: string;
     parcelSize: string;
     pickupContactPhone: string;
+    paymentMethod: 'CASH' | 'ECOCASH' | null;
   }> = [{
     id: DELIVERY,
     customerId: 'account-1',
@@ -656,6 +662,7 @@ function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?:
     parcelDescription: 'Documents',
     parcelSize: 'SMALL',
     pickupContactPhone: '+263771234567',
+    paymentMethod: null,
   }];
   const profiles: Profile[] = [
     { id: RIDER, userId: 'user-rider', approvalStatus: RiderApprovalStatus.APPROVED, verificationStatus: RiderVerificationStatus.VERIFIED, availability: RiderAvailability.AVAILABLE, receivingRequests: true, completedDeliveryCount: 0, ratingCount: 0, ratingSum: 0, riderClass: 'SILVER' },

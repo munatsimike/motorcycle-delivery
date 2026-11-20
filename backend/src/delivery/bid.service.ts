@@ -229,6 +229,7 @@ export class BidService {
           dropoffLongitude: true,
           parcelDescription: true,
           parcelSize: true,
+          paymentMethod: true,
         },
       });
       const declined = rows.length === 0
@@ -254,6 +255,7 @@ export class BidService {
         dropoffLongitude: coordinateText(row.dropoffLongitude),
         parcelDescription: row.parcelDescription,
         parcelSize: row.parcelSize,
+        paymentMethod: row.paymentMethod ?? null,
       }));
     });
   }

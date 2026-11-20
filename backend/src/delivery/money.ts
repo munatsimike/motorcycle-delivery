@@ -24,3 +24,13 @@ export function formatCents(cents: number): string {
   const fraction = Math.abs(cents % 100);
   return `${whole}.${String(fraction).padStart(2, '0')}`;
 }
+
+// Nearest 0.50, with an exact halfway remainder rounding up. Integer cents only.
+export function roundSuggestedCents(cents: number): number {
+  if (!Number.isSafeInteger(cents) || cents < 0) {
+    throw new BadRequestException('The suggested price could not be calculated');
+  }
+  const steps = Math.floor(cents / 50);
+  const remainder = cents % 50;
+  return remainder >= 25 ? (steps + 1) * 50 : steps * 50;
+}

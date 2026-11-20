@@ -176,6 +176,7 @@ export type ActiveAssignment = {
   deliverBy: string | null;
   agreedPrice: string | null;
   currency: Currency;
+  paymentMethod: string | null;
   distanceMeters: number | null;
   createdAt: string | null;
 };
@@ -1009,6 +1010,7 @@ export function activeAssignmentFromRows(
     deliverBy: match.delivery.deliverBy instanceof Date ? match.delivery.deliverBy.toISOString() : null,
     agreedPrice: match.acceptedBidAmount == null ? null : moneyText(match.acceptedBidAmount),
     currency: match.delivery.currency,
+    paymentMethod: match.delivery.paymentMethod,
     distanceMeters: typeof match.delivery.distanceMeters === 'number' ? match.delivery.distanceMeters : null,
     createdAt: match.delivery.createdAt instanceof Date ? match.delivery.createdAt.toISOString() : null,
   };
@@ -1046,6 +1048,7 @@ export function completedAssignmentFromRow(
     deliverBy: row.delivery.deliverBy instanceof Date ? row.delivery.deliverBy.toISOString() : null,
     agreedPrice: row.acceptedBidAmount == null ? null : moneyText(row.acceptedBidAmount),
     currency: row.delivery.currency,
+    paymentMethod: row.delivery.paymentMethod,
     distanceMeters: typeof row.delivery.distanceMeters === 'number' ? row.delivery.distanceMeters : null,
     createdAt: row.delivery.createdAt instanceof Date ? row.delivery.createdAt.toISOString() : null,
     completedAt: completedAt.toISOString(),
