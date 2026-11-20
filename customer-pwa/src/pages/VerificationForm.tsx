@@ -269,16 +269,16 @@ function CodeStep({
       <Button type="button" variant="outline" disabled={isLoading || isResending || secondsRemaining > 0} onClick={() => { void resend(); }}>
         {isResending ? <><ButtonSpinner />Processing</> : secondsRemaining > 0 ? `Resend code in ${secondsRemaining}s` : 'Resend code'}
       </Button>
-      <Button
+      <button
         type="button"
-        variant="secondary"
+        className="button auth-different-number"
         onClick={() => {
           clearPendingVerification();
           navigate(flow === 'whatsapp_login' ? '/sign-in' : '/create-account', { replace: true });
         }}
       >
         Use a different number
-      </Button>
+      </button>
     </Page>
     </>
   );

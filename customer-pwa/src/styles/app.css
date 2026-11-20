@@ -4066,6 +4066,19 @@ html.is-page-transition .page-stage {
   background: var(--primary-dark);
 }
 
+.button.auth-different-number,
+:root:not([data-theme="dark"]) .button.auth-different-number:not(.button-outline) {
+  background: var(--background);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1.5px var(--border);
+}
+
+.button.auth-different-number:hover,
+:root:not([data-theme="dark"]) .button.auth-different-number:not(.button-outline):hover {
+  background: var(--surface);
+  color: var(--text);
+}
+
 
 /* Deliveries and More page refinements — light theme only. */
 :root:not([data-theme="dark"]) .deliveries-header {
