@@ -1,11 +1,7 @@
-import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { beginPageTransition } from '../motion/pageTransition';
-import { ErrorMessage } from '../components/ErrorMessage';
-import { deliveryErrorMessage } from './api';
 import {
   contentLabel,
-  deliveryCanSearchAgain,
   deliveryCardAddress,
   deliveryCardStatusLabel,
   deliveryContentKind,
@@ -16,33 +12,14 @@ import {
 
 export function DeliveryCard({
   delivery,
-  onSearchAgain,
 }: {
   delivery: CustomerDelivery;
   cached?: boolean;
-  onSearchAgain: (deliveryId: string) => Promise<void>;
 }) {
   const navigate = useNavigate();
-  const [searching, setSearching] = useState(false);
-  const [searchError, setSearchError] = useState<string | null>(null);
   const kind = deliveryContentKind(delivery.parcelDescription);
   const offers = showsViewBids(delivery);
   const tone = deliveryStatusTone(delivery.status, offers);
-  const canSearch = deliveryCanSearchAgain(delivery);
-
-  async function searchAgain() {
-    if (searching) return;
-    setSearching(true);
-    setSearchError(null);
-    try {
-      await onSearchAgain(delivery.id);
-      beginPageTransition(() => navigate(`/deliveries/${delivery.id}`));
-    } catch (caught) {
-      setSearchError(deliveryErrorMessage(caught, 'Rider search could not be started.'));
-    } finally {
-      setSearching(false);
-    }
-  }
 
   return (
     <article className="delivery-card">
@@ -64,12 +41,6 @@ export function DeliveryCard({
           <span>{deliveryCardAddress(delivery.dropoffAddress)}</span>
         </span>
       </button>
-      {canSearch ? (
-        <button type="button" className="delivery-search" disabled={searching} onClick={() => void searchAgain()}>
-          Search again
-        </button>
-      ) : null}
-      {searchError ? <ErrorMessage>{searchError}</ErrorMessage> : null}
     </article>
   );
 }

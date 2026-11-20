@@ -3,9 +3,7 @@ import { Link } from 'react-router-dom';
 import { useContainedScroll } from '../app/useContainedScroll';
 import parcelBox from '../assets/parcel-box.png';
 import { ErrorMessage } from '../components/ErrorMessage';
-import { useSession } from '../auth/sessionContext';
 import { DeliveryCard } from '../deliveries/DeliveryCard';
-import { searchForRider } from '../deliveries/api';
 import {
   ACTIVE_LIST_STATUSES,
   HISTORY_LIST_STATUSES,
@@ -35,7 +33,6 @@ const FILTERS: { id: DeliveryContentKind | 'all'; label: string; menu: string }[
 ];
 
 export function DeliveriesPage() {
-  const { accessToken } = useSession();
   const [group, setGroup] = useState<DeliveryGroup>('active');
   const [contentKind, setContentKind] = useState<DeliveryContentKind | null>(null);
   const [sort, setSort] = useState<DeliveryListSort>('newest');
@@ -82,13 +79,6 @@ export function DeliveriesPage() {
     node.addEventListener('scroll', onScroll, { passive: true });
     return () => node.removeEventListener('scroll', onScroll);
   }, [scrollRef, ordered.length]);
-
-  async function searchAgain(deliveryId: string) {
-    const token = await accessToken();
-    if (!token) throw new Error('Sign in again.');
-    await searchForRider(token, deliveryId);
-    selected.reload();
-  }
 
   return (
     <div className="deliveries">
@@ -141,7 +131,7 @@ export function DeliveriesPage() {
         ) : null}
         <div className="deliveries-list">
           {ordered.map((delivery) => (
-            <DeliveryCard key={delivery.id} delivery={delivery} cached={Boolean(selected.offlineNote)} onSearchAgain={searchAgain} />
+            <DeliveryCard key={delivery.id} delivery={delivery} cached={Boolean(selected.offlineNote)} />
           ))}
         </div>
         {selected.hasMore ? (

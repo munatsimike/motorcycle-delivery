@@ -1216,19 +1216,6 @@ button.home-status:disabled {
   line-height: 21px;
 }
 
-.delivery-search {
-  justify-self: end;
-  min-height: 32px;
-  padding: 0 var(--space-md);
-  border: 1px solid var(--primary);
-  border-radius: 999px;
-  background: var(--background);
-  color: var(--primary);
-  font-size: var(--caption);
-  font-weight: 700;
-  cursor: pointer;
-}
-
 .deliveries-scroll {
   padding-bottom: max(80px, env(safe-area-inset-bottom));
 }
