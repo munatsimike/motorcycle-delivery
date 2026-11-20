@@ -16,6 +16,7 @@ import {
   parcelError,
   prepareBooking,
   quoteIdentity,
+  replaceBookingStop,
   selectParcelContent,
   stopEntryError,
   v2CreateBody,
@@ -23,6 +24,11 @@ import {
 import {
   bookingBackAction,
   bookingKeyFor,
+  bookingPopResult,
+  bookingStepAfterAddressResult,
+  consumeAddressSuggestionHistory,
+  dismissAddressSuggestionHistory,
+  nextBookingStep,
   persistentAttemptStore,
   bookingMode,
   bookingNavigationDelay,
@@ -176,6 +182,36 @@ test('confirmation cannot start twice and eligibility must be explicit', () => {
   assert.equal(bookingNavigationDelay(false), 380);
   assert.equal(bookingNavigationDelay(true), 0);
   assert.equal(bookingSuccessPath('delivery 1'), '/deliveries/delivery%201');
+});
+
+test('drop-off selection stays on drop-off and keeps both addresses', () => {
+  const pickup = { ...emptyStop(), address: 'Parklaan 45', latitude: '52.3700', longitude: '4.8900', coordinateSource: 'GOOGLE_PLACES' as const };
+  let draft = replaceBookingStop(emptyBookingDraft(), 'pickup', pickup);
+  let step = nextBookingStep('pickup');
+  assert.equal(step, 'destination');
+  const dropoff = { address: 'Damrak 1', latitude: '52.3731', longitude: '4.8922', coordinateSource: 'GOOGLE_PLACES' as const };
+  dismissAddressSuggestionHistory();
+  const closedSuggestions = bookingPopResult(step, null, consumeAddressSuggestionHistory());
+  assert.equal(closedSuggestions.step, 'destination');
+  assert.equal(closedSuggestions.restoreHistory, false);
+  step = closedSuggestions.step;
+  draft = replaceBookingStop(draft, 'dropoff', dropoff);
+  assert.equal(draft.pickup.address, 'Parklaan 45');
+  assert.equal(draft.pickup.latitude, '52.3700');
+  assert.equal(draft.pickup.longitude, '4.8900');
+  assert.equal(draft.dropoff.address, 'Damrak 1');
+  assert.equal(draft.dropoff.latitude, '52.3731');
+  assert.equal(draft.dropoff.longitude, '4.8922');
+  assert.equal(bookingStepAfterAddressResult(step), 'destination');
+  const manualBack = bookingPopResult(step, null, false);
+  assert.equal(manualBack.step, 'pickup');
+  assert.equal(manualBack.restoreHistory, true);
+  assert.equal(replaceBookingStop(draft, 'dropoff', dropoff).pickup.latitude, '52.3700');
+  step = nextBookingStep(manualBack.step);
+  assert.equal(step, 'destination');
+  assert.equal(draft.dropoff.longitude, '4.8922');
+  assert.equal(bookingPopResult('destination', 'locate', false).step, 'destination');
+  assert.equal(bookingStepAfterAddressResult('destination'), 'destination');
 });
 
 test('pickup autofill accepts a granted, fresh, accurate fix in any country', () => {

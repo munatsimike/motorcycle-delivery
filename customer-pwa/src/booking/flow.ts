@@ -33,6 +33,34 @@ export function bookingBackAction(step: BookingStep, busy: BookingBusy): 'blocke
   return step === 'pickup' ? 'exit' : 'previous';
 }
 
+export function bookingPopResult(
+  step: BookingStep,
+  busy: BookingBusy,
+  suggestionDismiss = false,
+): { step: BookingStep; restoreHistory: boolean } {
+  if (suggestionDismiss) return { step, restoreHistory: false };
+  const action = bookingBackAction(step, busy);
+  if (action === 'exit') return { step, restoreHistory: false };
+  if (action === 'blocked') return { step, restoreHistory: true };
+  return { step: previousBookingStep(step), restoreHistory: true };
+}
+
+export function bookingStepAfterAddressResult(step: BookingStep): BookingStep {
+  return step;
+}
+
+let addressSuggestionDismiss = false;
+
+export function dismissAddressSuggestionHistory(): void {
+  addressSuggestionDismiss = true;
+}
+
+export function consumeAddressSuggestionHistory(): boolean {
+  const dismissed = addressSuggestionDismiss;
+  addressSuggestionDismiss = false;
+  return dismissed;
+}
+
 export function canStartBookingSubmit(creating: boolean, busy: BookingBusy): boolean {
   return !creating && busy === null;
 }

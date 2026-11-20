@@ -78,6 +78,10 @@ export function emptyStop(): StopDraft {
   };
 }
 
+export function replaceBookingStop(draft: BookingDraft, side: 'pickup' | 'dropoff', patch: Partial<StopDraft>): BookingDraft {
+  return { ...draft, [side]: { ...draft[side], ...patch } };
+}
+
 export function bookingDraftFromDelivery(source: {
   pickupAddress: string;
   pickupLatitude: number | null;

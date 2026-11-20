@@ -33,6 +33,7 @@ import {
   paymentMethodLabel,
   prepareBooking,
   quoteIdentity,
+  replaceBookingStop,
   selectParcelContent,
   stopEntryError,
   v2CreateBody,
@@ -46,12 +47,14 @@ import {
   bookingBackAction,
   bookingKeyFor,
   bookingMode,
+  bookingPopResult,
   persistentAttemptStore,
   bookingStepIndex,
   bookingStepTitle,
   BOOKING_STEPS,
   canStartBookingSubmit,
   clearBookingAttempt,
+  consumeAddressSuggestionHistory,
   nextBookingStep,
   previousBookingStep,
   type AttemptStore,
@@ -224,13 +227,11 @@ export function BookPage() {
   useEffect(() => {
     function holdBack() {
       if (leaving.current) return;
-      const action = bookingBackAction(stepRef.current, busyRef.current);
-      if (action === 'exit') return;
-      window.history.pushState({ bookingHold: true }, '');
-      if (action === 'previous') {
-        setError(null);
-        setStep(previousBookingStep(stepRef.current));
-      }
+      const result = bookingPopResult(stepRef.current, busyRef.current, consumeAddressSuggestionHistory());
+      if (result.restoreHistory) window.history.pushState({ bookingHold: true }, '');
+      if (result.step === stepRef.current) return;
+      setError(null);
+      setStep(result.step);
     }
     window.addEventListener('popstate', holdBack);
     return () => window.removeEventListener('popstate', holdBack);
@@ -348,7 +349,7 @@ export function BookPage() {
       setQuote(null);
       setOffer({ text: '', edited: false, pinKey: null });
     }
-    setDraft((current) => ({ ...current, [which]: { ...current[which], ...patch } }));
+    setDraft((current) => replaceBookingStop(current, which, patch));
   }
 
   function updateDraft(patch: Partial<BookingDraft>) {

@@ -7,6 +7,7 @@ import { ErrorMessage } from '../components/ErrorMessage';
 import { usePresence } from '../motion/usePresence';
 import { deliveryErrorMessage } from '../deliveries/api';
 import { clearStopLocation, type StopDraft } from './draft';
+import { dismissAddressSuggestionHistory } from './flow';
 import {
   acceptSearchResult,
   confirmMapPin,
@@ -115,8 +116,9 @@ export function AddressField({
     if (!suggestionsOpen) return undefined;
     window.history.pushState({ addressSuggestions: true }, '');
     historyPushed.current = true;
-    const onPop = () => {
+    const onPop = (event: PopStateEvent) => {
       historyPushed.current = false;
+      event.stopImmediatePropagation();
       requestId.current += 1;
       setSuggestions([]);
       setSearching(false);
@@ -137,15 +139,16 @@ export function AddressField({
       setSearching(false);
       setSearched(false);
     };
-    window.addEventListener('popstate', onPop);
+    window.addEventListener('popstate', onPop, true);
     window.addEventListener('keydown', onKey);
     document.addEventListener('pointerdown', onPointer);
     return () => {
-      window.removeEventListener('popstate', onPop);
+      window.removeEventListener('popstate', onPop, true);
       window.removeEventListener('keydown', onKey);
       document.removeEventListener('pointerdown', onPointer);
       if (historyPushed.current) {
         historyPushed.current = false;
+        dismissAddressSuggestionHistory();
         window.history.back();
       }
     };
