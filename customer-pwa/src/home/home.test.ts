@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { HARARE, INITIAL_SPAN, NEIGHBORHOOD_SPAN, cameraFor, shouldAutoFrame } from './camera.ts';
+import { CUSTOMER_LOCATION_DOT, customerLocationIcon } from './customerLocation.ts';
 import { motorcycleMarkerDisplaySize, NATIVE_MOTORCYCLE_MARKER } from './motorcycleMarker.ts';
 import {
   filterValidNearbyRiderPoints,
@@ -123,6 +124,23 @@ test('each available rider keeps one marker and a failed refresh keeps it', () =
   assert.equal(failed[0]?.id, RIDERS[0]);
   const expired: NearbyMarker[] = [{ id: RIDERS[0], latitude: -17.8, longitude: 31.05, expiresAt: past }];
   assert.equal(nextNearbyMarkers(expired, { status: 'failed' }).length, 0);
+  const mixed = nextNearbyMarkers(
+    [
+      { id: RIDERS[0], latitude: -17.8, longitude: 31.05, expiresAt: future },
+      { id: RIDERS[1], latitude: -17.81, longitude: 31.06, expiresAt: past },
+    ],
+    { status: 'failed' },
+  );
+  assert.deepEqual(mixed.map((point) => point.id), [RIDERS[0]]);
+});
+
+test('the customer location marker is a blue dot and not a motorcycle', () => {
+  const icon = customerLocationIcon(0);
+  assert.equal(icon.path, 0);
+  assert.equal(icon.fillColor, '#1A73E8');
+  assert.equal(icon.fillColor, CUSTOMER_LOCATION_DOT.fillColor);
+  assert.equal(icon.scale, 6);
+  assert.equal('url' in icon, false);
 });
 
 test('location and rider status labels match the customer app', () => {

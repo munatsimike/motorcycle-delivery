@@ -231,8 +231,9 @@ describe('V2 bid lifecycle', () => {
     });
     expect(metresFrom(tendai?.rider.mapPoint, -17.824, 31.05)).toBeGreaterThan(0);
     expect(metresFrom(tendai?.rider.mapPoint, -17.824, 31.05)).toBeLessThan(45);
-    expect(metresFrom(rudo?.rider.mapPoint, -17.8, 31.04)).toBeGreaterThan(0);
-    expect(metresFrom(rudo?.rider.mapPoint, -17.8, 31.04)).toBeLessThan(45);
+    expect(rudo?.rider.mapPoint).toBeNull();
+    expect(rudo?.amountCents).toBe(900);
+    expect(rudo?.status).toBe('OPEN');
     expect(JSON.stringify(page)).not.toContain('profile-photos');
     expect(JSON.stringify(page)).not.toContain('-17.824');
   });
@@ -290,8 +291,8 @@ describe('V2 bid lifecycle', () => {
     expect(rudo?.rider.pickupEtaSeconds).toBeNull();
     expect(metresFrom(tendai?.rider.mapPoint, -17.824, 31.05)).toBeGreaterThan(0);
     expect(metresFrom(tendai?.rider.mapPoint, -17.824, 31.05)).toBeLessThan(45);
-    expect(metresFrom(rudo?.rider.mapPoint, -17.8, 31.04)).toBeGreaterThan(0);
-    expect(metresFrom(rudo?.rider.mapPoint, -17.8, 31.04)).toBeLessThan(45);
+    expect(rudo?.rider.mapPoint).toBeNull();
+    expect(rudo?.amountCents).toBe(900);
     expect(calls).toBe(1);
     expect(queries).toEqual([RIDER]);
     expect(JSON.stringify(page)).not.toContain('-17.824');
@@ -320,6 +321,27 @@ describe('V2 bid lifecycle', () => {
     expect(metresFrom(page[0]?.rider.mapPoint, -17.824, 31.05)).toBeGreaterThan(0);
     expect(metresFrom(page[0]?.rider.mapPoint, -17.824, 31.05)).toBeLessThan(45);
     release?.({ metres: 100, seconds: 30, line: [] });
+  });
+
+  it('omits the map point when the bidder is offline or not receiving and keeps the bid', async () => {
+    process.env.V2_MARKETPLACE_ENABLED = 'true';
+    const ctx = store();
+    Object.assign(ctx.deliveries[0]!, { pickupLatitude: -17.8292, pickupLongitude: 31.0522 });
+    ctx.locations.push({ riderProfileId: RIDER, latitude: -17.824, longitude: 31.05, updatedAt: NOW });
+    const bids = new BidService(ctx.prisma);
+    await bids.submit(RIDER_CONTEXT, bidBody(1_500), 'key-offline', NOW);
+    ctx.profiles[0]!.availability = RiderAvailability.OFFLINE;
+    ctx.profiles[0]!.receivingRequests = false;
+    const page = await bids.listForCustomer(CUSTOMER, DELIVERY, NOW);
+    expect(page).toHaveLength(1);
+    expect(page[0]).toMatchObject({ amountCents: 1_500, status: 'OPEN' });
+    expect(page[0]?.rider.mapPoint).toBeNull();
+    ctx.profiles[0]!.availability = RiderAvailability.BUSY;
+    ctx.profiles[0]!.receivingRequests = true;
+    const busy = await bids.listForCustomer(CUSTOMER, DELIVERY, NOW);
+    expect(busy).toHaveLength(1);
+    expect(busy[0]?.rider.mapPoint).toBeNull();
+    expect(busy[0]?.amountCents).toBe(1_500);
   });
 
   it('omits pickupEtaSeconds when routing fails or travel time is missing', async () => {
@@ -968,6 +990,8 @@ function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?:
         ratingCount: profile?.ratingCount ?? 0,
         ratingSum: profile?.ratingSum ?? 0,
         riderClass: profile?.riderClass ?? 'SILVER',
+        availability: profile?.availability ?? RiderAvailability.OFFLINE,
+        receivingRequests: profile?.receivingRequests ?? null,
         user: { fullName: user?.fullName ?? '' },
       },
     };

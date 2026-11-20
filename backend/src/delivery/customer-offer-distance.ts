@@ -1,3 +1,4 @@
+import { RiderAvailability } from '../generated/prisma/client.js';
 import { GPS_FRESH_MS } from './dispatch.constants.js';
 import { straightLineMetres } from './straight-line.js';
 
@@ -10,11 +11,23 @@ export type FreshPickupCoords = {
   riderLongitude: number;
 };
 
-/** Last stored rider fix. Age does not matter; the offers map must not wait for a new upload. */
+/**
+ * Offers-map marker. Only a rider who is available, receiving requests, and
+ * has a GPS fix younger than 60 seconds. The bid itself stays either way.
+ */
 export function knownRiderPoint(
-  location: { latitude: unknown; longitude: unknown } | null,
+  location: { latitude: unknown; longitude: unknown; updatedAt?: Date | null } | null,
+  now: Date,
+  rider: { availability: RiderAvailability | string; receivingRequests: boolean | null },
 ): { latitude: number; longitude: number } | null {
-  if (!location) {
+  if (!location || rider.availability !== RiderAvailability.AVAILABLE || rider.receivingRequests !== true) {
+    return null;
+  }
+  const updatedAt = location.updatedAt;
+  if (!(updatedAt instanceof Date) || Number.isNaN(updatedAt.getTime())) {
+    return null;
+  }
+  if (!(updatedAt.getTime() > now.getTime() - CUSTOMER_OFFER_LOCATION_FRESH_MS)) {
     return null;
   }
   const latitude = readCoordinate(location.latitude);

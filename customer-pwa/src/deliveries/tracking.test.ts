@@ -35,6 +35,9 @@ import {
   trackingCameraRegion,
   trackingCameraShouldMove,
   trackingMapView,
+  offerMapMarkers,
+  riderMarkerForMap,
+  withoutBidMapPoints,
   type CustomerBid,
   type CustomerDeliveryDetail,
 } from './tracking.ts';
@@ -133,6 +136,11 @@ test('tracking stays hidden when the rider GPS is stale and follows the destinat
     riderLocation: { latitude: -17.821, longitude: 31.051, updatedAt: new Date(NOW - 61_000).toISOString() },
   }), NOW);
   assert.equal(stale.kind, 'awaiting');
+  assert.equal(riderMarkerForMap(stale), null);
+  assert.deepEqual(riderMarkerForMap(fresh), { latitude: -17.821, longitude: 31.051 });
+  const offlineAssigned = trackingMapView(detail(), NOW);
+  assert.equal(offlineAssigned.kind, 'live');
+  assert.deepEqual(riderMarkerForMap(offlineAssigned), { latitude: -17.821, longitude: 31.051 });
   assert.equal(riderFixIsFresh(new Date(NOW - 10_000).toISOString(), NOW), true);
   assert.equal(riderFixIsFresh(null, NOW), false);
   assert.equal(locationAgeLabel(new Date(NOW - 5_000).toISOString(), NOW), 'Updated 5 seconds ago');
@@ -188,6 +196,17 @@ function bid(id: string, amount: string, rides: number): CustomerBid {
     mapPoint: null,
   };
 }
+
+test('offer markers follow the latest bid point and drop when it is gone', () => {
+  const placed = { ...bid('ada', '4.00', 1), riderName: 'Ada', mapPoint: { latitude: -17.82, longitude: 31.05 } };
+  const hidden = bid('busi', '5.00', 2);
+  assert.deepEqual(offerMapMarkers([placed, hidden]), [{ latitude: -17.82, longitude: 31.05, title: 'Ada' }]);
+  const cleared = withoutBidMapPoints([placed, hidden]);
+  assert.equal(cleared[0]?.mapPoint, null);
+  assert.equal(cleared[0]?.amount, '4.00');
+  assert.equal(cleared[0]?.status, 'OPEN');
+  assert.deepEqual(offerMapMarkers(cleared), []);
+});
 
 test('the bids heading counts only active offers', () => {
   const dismissed = new Set(['gone']);

@@ -375,6 +375,8 @@ export class BidService {
               ratingCount: true,
               ratingSum: true,
               riderClass: true,
+              availability: true,
+              receivingRequests: true,
               user: { select: { fullName: true } },
             },
           },
@@ -429,7 +431,10 @@ export class BidService {
             motorcycle: motorcycleByRider.get(row.riderProfileId)?.motorcycle ?? null,
             registrationNumber: motorcycleByRider.get(row.riderProfileId)?.registrationNumber ?? null,
             hasProfilePhoto: photoRiders.has(row.riderProfileId),
-            point: knownRiderPoint(location),
+            point: knownRiderPoint(location, now, {
+              availability: row.riderProfile.availability,
+              receivingRequests: row.riderProfile.receivingRequests,
+            }),
             pickup: freshPickupCoords(
               delivery.pickupLatitude,
               delivery.pickupLongitude,

@@ -29,12 +29,14 @@ import {
   keepsAcceptanceKey,
   offerFieldText,
   offersMissingSince,
+  offerMapMarkers,
   offerRiderName,
   pickupEtaLabel,
   riderBikeLine,
   riderClassLabel,
   riderRatingLine,
   riderDialUrl,
+  riderMarkerForMap,
   riderWhatsAppUrl,
   roadDistanceLabel,
   shouldPollDelivery,
@@ -47,6 +49,7 @@ import {
   trackingHeadline,
   trackingMapView,
   trackingSubtitle,
+  withoutBidMapPoints,
   type CustomerBid,
   type CustomerDeliveryDetail,
   type OfferSort,
@@ -311,6 +314,7 @@ export function DeliveryDetailsPage() {
             }
           } catch (caught) {
             if (!stopped) {
+              setOffers((current) => withoutBidMapPoints(current));
               setOffersError(deliveryErrorMessage(caught, 'Offers are unavailable.'));
               setOffersLoaded(true);
             }
@@ -733,8 +737,8 @@ export function DeliveryDetailsPage() {
           line={[]}
           summary={null}
           extraMarkers={[
-            ...orderedOffers.flatMap((bid) => bid.mapPoint ? [{ ...bid.mapPoint, title: bid.riderName }] : []),
-            ...nearby.map((point) => ({ id: point.id, latitude: point.latitude, longitude: point.longitude, title: 'Available rider' })),
+            ...offerMapMarkers(orderedOffers),
+            ...filterValidNearbyRiderPoints(nearby).map((point) => ({ id: point.id, latitude: point.latitude, longitude: point.longitude, title: 'Available rider' })),
           ]}
           neighborhood
           interactive={false}
@@ -745,7 +749,7 @@ export function DeliveryDetailsPage() {
         <TrackingMap
           deliveryId={mapView.deliveryId}
           live={live}
-          rider={mapView.kind === 'live' ? mapView.rider : storedRiderPoint(delivery)}
+          rider={riderMarkerForMap(mapView)}
           stop={mapView.stop}
           headingToDropoff={mapView.headingToDropoff}
           pickupLabel={!mapView.headingToDropoff ? 'Pickup location' : null}

@@ -116,6 +116,21 @@ export type TrackingMapView =
   | { kind: 'awaiting'; deliveryId: string; stop: RoutePoint | null; headingToDropoff: boolean }
   | { kind: 'live'; deliveryId: string; rider: RoutePoint; stop: RoutePoint | null; headingToDropoff: boolean };
 
+/** Awaiting a fresh fix must not reuse the last stored rider coordinate. */
+export function riderMarkerForMap(view: TrackingMapView): RoutePoint | null {
+  return view.kind === 'live' ? view.rider : null;
+}
+
+export function offerMapMarkers(
+  bids: readonly { mapPoint: RoutePoint | null; riderName: string }[],
+): Array<RoutePoint & { title: string }> {
+  return bids.flatMap((bid) => (bid.mapPoint ? [{ ...bid.mapPoint, title: bid.riderName }] : []));
+}
+
+export function withoutBidMapPoints<T extends { mapPoint: RoutePoint | null }>(bids: readonly T[]): T[] {
+  return bids.map((bid) => (bid.mapPoint ? { ...bid, mapPoint: null } : bid));
+}
+
 export function trackingMapView(delivery: CustomerDeliveryDetail, now: number): TrackingMapView {
   if (!keepsRiderLocation(delivery.status)) return { kind: 'hidden' };
   const headingToDropoff = delivery.status === 'COLLECTED' || delivery.status === 'OUT_FOR_DELIVERY';

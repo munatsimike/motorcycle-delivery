@@ -1,4 +1,3 @@
-import riderMarker from '../assets/rider-motorcycle-marker.png';
 import {
   HARARE,
   INITIAL_SPAN,
@@ -9,6 +8,7 @@ import {
   shouldAutoFrame,
   type MapPoint,
 } from './camera';
+import { customerLocationIcon } from './customerLocation';
 import { motorcycleMarkerIcon } from './motorcycleMarker';
 import type { NearbyMarker } from './nearby';
 import { bindMapTheme } from '../theme/mapStyle';
@@ -18,6 +18,7 @@ type MapListener = { remove: () => void };
 type GoogleMarker = {
   setMap: (map: GoogleMap | null) => void;
   setPosition: (position: { lat: number; lng: number }) => void;
+  setIcon: (icon: unknown) => void;
 };
 
 type GoogleMap = {
@@ -31,6 +32,7 @@ type GoogleMaps = {
   Marker: new (options: Record<string, unknown>) => GoogleMarker;
   Size: new (width: number, height: number) => unknown;
   Point: new (x: number, y: number) => unknown;
+  SymbolPath?: { CIRCLE: number };
   event: {
     addListener: (instance: object, name: string, handler: () => void) => MapListener;
     clearInstanceListeners: (instance: object) => void;
@@ -157,8 +159,10 @@ export function createHomeMap(element: HTMLElement, iconUrl: string, onAuthFailu
       return;
     }
     const position = { lat: customer.latitude, lng: customer.longitude };
+    const icon = customerLocationIcon(maps.SymbolPath?.CIRCLE ?? 0);
     if (customerMarker) {
       customerMarker.setPosition(position);
+      customerMarker.setIcon(icon);
       return;
     }
     customerMarker = new maps.Marker({
@@ -168,7 +172,7 @@ export function createHomeMap(element: HTMLElement, iconUrl: string, onAuthFailu
       clickable: false,
       optimized: false,
       zIndex: 1,
-      icon: motorcycleMarkerIcon(maps, riderMarker),
+      icon,
     });
   };
 
