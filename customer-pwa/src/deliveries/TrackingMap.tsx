@@ -506,24 +506,22 @@ function deliveredMarkerIcon(maps: Maps, callout: DeliveredCallout) {
   const width = 236;
   const padX = 12;
   const padY = 8;
-  const titleH = 18;
-  const lineH = 17;
+  const titleH = 26;
+  const lineH = 19;
   const cardH = padY * 2 + titleH + (lines.length + (callout.when ? 1 : 0)) * (lineH + 3);
   const pin = 36;
   const height = cardH + 8 + pin;
   const text = [
     `<circle cx="${padX + 8}" cy="${padY + 8}" r="8" fill="#ffffff"/>`,
     `<path d="M${padX + 4.2} ${padY + 8.2}l2.4 2.4 5.2-5.4" fill="none" stroke="#16845B" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>`,
-    `<text x="${padX + 22}" y="${padY + 13}" font-family="Arial, sans-serif" font-size="14" font-weight="700" fill="#ffffff">Delivered</text>`,
+    `<text x="${padX + 22}" y="${padY + 14}" font-family="Arial, sans-serif" font-size="16" font-weight="700" fill="#ffffff">Delivered</text>`,
   ];
   lines.forEach((line, index) => {
-    text.push(`<text x="${padX}" y="${padY + titleH + 6 + index * (lineH + 3)}" font-family="Arial, sans-serif" font-size="13" font-weight="${index === 0 && callout.name ? '600' : '400'}" fill="#ffffff">${escapeXml(truncate(line, 28))}</text>`);
+    text.push(`<text x="${padX}" y="${padY + titleH + 6 + index * (lineH + 3)}" font-family="Arial, sans-serif" font-size="14" font-weight="${index === 0 && callout.name ? '600' : '400'}" fill="#ffffff">${escapeXml(truncate(line, 28))}</text>`);
   });
   if (callout.when) {
     const y = padY + titleH + 6 + lines.length * (lineH + 3);
-    text.push(`<circle cx="${padX + 6}" cy="${y - 4}" r="5.5" fill="none" stroke="#ffffff" stroke-width="1.2"/>`);
-    text.push(`<path d="M${padX + 6} ${y - 7}v3.2l2.2 1.3" fill="none" stroke="#ffffff" stroke-width="1.2" stroke-linecap="round"/>`);
-    text.push(`<text x="${padX + 16}" y="${y}" font-family="Arial, sans-serif" font-size="13" font-weight="500" fill="#ffffff">${escapeXml(callout.when)}</text>`);
+    text.push(`<text x="${padX}" y="${y}" font-family="Arial, sans-serif" font-size="14" font-weight="500" fill="#ffffff">${escapeXml(callout.when)}</text>`);
   }
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect x="2" y="3" width="${width - 4}" height="${cardH}" rx="16" fill="rgba(23,33,29,0.2)"/><rect width="${width}" height="${cardH}" rx="16" fill="#16845B"/>${text.join('')}<svg x="${(width - pin) / 2}" y="${cardH + 5}" width="${pin}" height="${pin}" viewBox="0 0 24 24"><path fill="#1A73E8" d="M12 2.2a6.2 6.2 0 0 0-6.2 6.2c0 4.2 6.2 10.2 6.2 10.2s6.2-6 6.2-10.2A6.2 6.2 0 0 0 12 2.2z"/><text x="12" y="11.7" text-anchor="middle" font-family="Arial, sans-serif" font-size="8.5" font-weight="700" fill="#ffffff">2</text></svg></svg>`;
   return {

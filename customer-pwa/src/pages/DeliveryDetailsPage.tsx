@@ -1201,7 +1201,6 @@ function DeliveredSummary({ delivery }: { delivery: CustomerDeliveryDetail }) {
       </div>
       {delivery.senderName?.trim() || delivery.pickupAddress ? (
         <p className="delivery-stop">
-          <PinMark dropoff={false} />
           <span className="stop-copy">
             {delivery.senderName?.trim() ? <strong>{delivery.senderName.trim()}</strong> : null}
             {delivery.pickupAddress ? <span>{deliveryCardAddress(delivery.pickupAddress)}</span> : null}
@@ -1218,7 +1217,6 @@ function DeliveredSummary({ delivery }: { delivery: CustomerDeliveryDetail }) {
           </strong>
         </p>
       </div>
-      <div className="facts-divider" />
       <div className="support-row">
         <p>Questions or complaints?</p>
         <ContactLinks phone={SUPPORT_PHONE} message={message} callLabel="Call support" whatsAppLabel="WhatsApp support" />
