@@ -422,6 +422,41 @@ export function DeliveryDetailsPage() {
   const responseSeconds = delivery ? offerResponseSeconds(delivery, now) : null;
   const cooldownSeconds = delivery ? routeCooldownSeconds(delivery, now) : 0;
   const responseElapsed = responseSeconds === 0;
+  // Offers and delivery details share this route. Hold a clean expiry screen
+  // until the authoritative outcome arrives and the message has been visible.
+  const expiryKey = delivery?.offerResponseExpiresAt
+    ? `${delivery.id}:${delivery.offerResponseExpiresAt}` : null;
+  const [expiryNotice, setExpiryNotice] = useState<{ key: string; until: number } | null>(null);
+  const [expiryNoticeElapsed, setExpiryNoticeElapsed] = useState<string | null>(null);
+  const observedOfferKey = useRef<string | null>(null);
+  const expiredOutcome = delivery?.status === 'NO_RIDER_FOUND' && delivery.offerResponseExpired;
+  const showExpiryTrigger = !!expiryKey && (
+    responseElapsed || (expiredOutcome && observedOfferKey.current === expiryKey)
+  );
+  useEffect(() => {
+    if (delivery && showsRiderOffers(delivery) && expiryKey) {
+      observedOfferKey.current = expiryKey;
+    }
+    if (!showExpiryTrigger || !expiryKey) return;
+    setExpiryNotice((previous) => previous?.key === expiryKey
+      ? previous : { key: expiryKey, until: Date.now() + 2000 });
+    setConfirm(null);
+    setDecline(null);
+    setSortOpen(false);
+    setParcelOpen(false);
+    setPriceOpen(false);
+  }, [delivery, expiryKey, showExpiryTrigger]);
+  useEffect(() => {
+    if (!expiryNotice) return;
+    const timer = window.setTimeout(() => setExpiryNoticeElapsed(expiryNotice.key),
+      Math.max(0, expiryNotice.until - Date.now()));
+    return () => window.clearTimeout(timer);
+  }, [expiryNotice]);
+  const showExpiryNotice = !!expiryKey && (
+    responseElapsed ||
+    (expiredOutcome && (showExpiryTrigger || expiryNotice?.key === expiryKey)
+      && expiryNoticeElapsed !== expiryKey)
+  );
   const trackingClock = delivery !== null && (keepsRiderLocation(delivery.status) || responseSeconds !== null || cooldownSeconds > 0);
   useEffect(() => {
     if (!responseElapsed && !delivery?.offerResponseExpired) return;
@@ -477,6 +512,23 @@ export function DeliveryDetailsPage() {
         </Link>
         <ErrorMessage>{error ?? 'Delivery details are unavailable.'}</ErrorMessage>
         <button type="button" className="deliveries-retry" onClick={() => setAttempt((value) => value + 1)}>Try again</button>
+      </div>
+    );
+  }
+
+  if (showExpiryNotice) {
+    return (
+      <div className="track track-plain page-stage is-entering">
+        <section className="offer-expiry-screen" role="status" aria-live="polite">
+          <span className="offer-expiry-icon" aria-hidden="true">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="9" />
+              <path d="M12 7v5l3 2" />
+            </svg>
+          </span>
+          <h1>Offer expired</h1>
+          <p>You did not choose a rider in time.</p>
+        </section>
       </div>
     );
   }

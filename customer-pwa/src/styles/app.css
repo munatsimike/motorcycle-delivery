@@ -4724,3 +4724,32 @@ html.is-page-transition .page-stage {
 }
 .offer-response-timer strong { font-size: 20px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 [data-theme="dark"] .offer-response-timer { background: #3D2024; color: #FDA29B; }
+
+/* Brief offer expiry transition; no active search controls remain visible. */
+.offer-expiry-screen {
+  flex: 1;
+  min-height: 60dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 32px 24px;
+  gap: 12px;
+}
+.offer-expiry-icon {
+  display: grid;
+  place-items: center;
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  background: #FFF0DD;
+  color: #B45309;
+  margin-bottom: 8px;
+}
+.offer-expiry-screen h1 { margin: 0; font-size: 26px; }
+.offer-expiry-screen p { margin: 0; color: var(--text); opacity: .72; }
+[data-theme="dark"] .offer-expiry-icon {
+  background: #44321E;
+  color: #FBBF64;
+}
