@@ -4719,8 +4719,8 @@ html.is-page-transition .page-stage {
 
 .offer-response-timer {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 12px 14px; border-radius: 12px; background: var(--surface); color: var(--text);
+  padding: 12px 14px; border-radius: 12px; background: #FDF0F0; color: #B42318;
   margin-bottom: 12px; font-size: 14px;
 }
 .offer-response-timer strong { font-size: 20px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.offer-response-timer.is-urgent { background: var(--error-surface); }
+[data-theme="dark"] .offer-response-timer { background: #3D2024; color: #FDA29B; }

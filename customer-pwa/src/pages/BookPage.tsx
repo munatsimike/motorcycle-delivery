@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { beginPageTransition } from '../motion/pageTransition';
 import { motionClass, usePresence } from '../motion/usePresence';
+import { routeCooldownErrorDeadline, offerResponseLabel } from '../deliveries/offerResponse';
 import { ApiError } from '../api/client';
 import { loadCustomerAccount } from '../account/profileApi';
 import { offerFieldText } from '../deliveries/tracking';
@@ -111,6 +112,15 @@ export function BookPage() {
   const [quote, setQuote] = useState<QuotedPrice | null>(null);
   const [offer, setOffer] = useState({ text: '', edited: false, pinKey: null as string | null });
   const [error, setError] = useState<string | null>(null);
+  const [routeDeadline, setRouteDeadline] = useState<number | null>(null);
+  useEffect(() => { setRouteDeadline(null); }, [draft.pickup.latitude, draft.pickup.longitude, draft.dropoff.latitude, draft.dropoff.longitude]);
+  const [routeNow, setRouteNow] = useState(Date.now);
+  const routeSeconds = routeDeadline === null ? 0 : Math.max(0, Math.ceil((routeDeadline-routeNow)/1000));
+  useEffect(() => {
+    if (routeDeadline === null) return;
+    const timer = window.setInterval(() => setRouteNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [routeDeadline]);
   const [busy, setBusy] = useState<BookingBusy>(null);
   const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>([]);
   const [addressesSettled, setAddressesSettled] = useState(false);
@@ -437,7 +447,7 @@ export function BookPage() {
   }
 
   async function confirm() {
-    if (!canStartBookingSubmit(creating.current, busy) || leaving.current) return;
+    if (!canStartBookingSubmit(creating.current, busy) || leaving.current || (routeDeadline !== null && Date.now() < routeDeadline)) return;
     const prepared = prepareBooking(draft);
     if (!prepared.ok) {
       setError(prepared.error);
@@ -474,7 +484,10 @@ export function BookPage() {
       finish(created.id);
     } catch (caught) {
       if (caught instanceof ApiError && caught.status === 409) clearBookingAttempt(attempts.current);
-      setError(deliveryErrorMessage(caught, 'The delivery could not be booked.'));
+      const message = deliveryErrorMessage(caught, 'The delivery could not be booked.');
+      const deadline = routeCooldownErrorDeadline(message);
+      if (deadline !== null) { setRouteDeadline(deadline); setRouteNow(Date.now()); }
+      else setError(message);
     } finally {
       creating.current = false;
       setBusy(null);
@@ -682,10 +695,11 @@ export function BookPage() {
               }}
             />
           ) : null}
+          {routeSeconds > 0 ? <div className="offer-response-timer"><span>Your previous request for these addresses expired. Try again in</span><strong role="timer">{offerResponseLabel(routeSeconds)}</strong></div> : null}
           {error ? <ErrorMessage>{error}</ErrorMessage> : null}
           <div className="book-actions">
             {step === 'review' || step === 'confirm' ? (
-              <Button type="button" disabled={Boolean(busy) || !quote} onClick={() => { void confirm(); }}>
+              <Button type="button" disabled={Boolean(busy) || !quote || routeSeconds > 0} onClick={() => { void confirm(); }}>
                 {busy === 'create' ? <><ButtonSpinner />Booking…</> : 'Confirm'}
               </Button>
             ) : (
