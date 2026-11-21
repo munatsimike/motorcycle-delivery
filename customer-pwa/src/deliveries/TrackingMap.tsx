@@ -36,6 +36,7 @@ export function TrackingMap({
   stop,
   headingToDropoff,
   line,
+  hideRoute = false,
   summary,
   extraMarkers = [],
   pickup = null,
@@ -51,6 +52,7 @@ export function TrackingMap({
   stop: RoutePoint | null;
   headingToDropoff: boolean;
   line: RoutePoint[];
+  hideRoute?: boolean;
   summary: string | null;
   extraMarkers?: Array<RoutePoint & { title: string; id?: string }>;
   pickup?: RoutePoint | null;
@@ -79,8 +81,8 @@ export function TrackingMap({
   const labelMarker = useRef<Marker | null>(null);
   const deliveredMarker = useRef<Marker | null>(null);
   const heldOffers = useRef<{ width: number; height: number; frame: OffersMapFrame } | null>(null);
-  const props = useRef({ deliveryId, live, rider, stop, headingToDropoff, line, summary, extraMarkers, pickup, interactive, stroke, deliveredCallout, neighborhood, pickupLabel });
-  props.current = { deliveryId, live, rider, stop, headingToDropoff, line, summary, extraMarkers, pickup, interactive, stroke, deliveredCallout, neighborhood, pickupLabel };
+  const props = useRef({ deliveryId, live, rider, stop, headingToDropoff, line, hideRoute, summary, extraMarkers, pickup, interactive, stroke, deliveredCallout, neighborhood, pickupLabel });
+  props.current = { deliveryId, live, rider, stop, headingToDropoff, line, hideRoute, summary, extraMarkers, pickup, interactive, stroke, deliveredCallout, neighborhood, pickupLabel };
   const markerKey = extraMarkers.map((point) => `${point.id ?? ''}:${point.latitude.toFixed(5)}:${point.longitude.toFixed(5)}`).join('|');
   const routeKey = line.length > 1 ? `${line.length}:${line[0].latitude.toFixed(4)}:${line[line.length - 1].latitude.toFixed(4)}` : '';
   const stopKey = stop ? `${stop.latitude.toFixed(5)}:${stop.longitude.toFixed(5)}` : '';
@@ -192,7 +194,7 @@ export function TrackingMap({
 
   useEffect(() => {
     drawRef.current();
-  }, [rider?.latitude, rider?.longitude, headingToDropoff, summary, line.length, extraMarkers.length, pickup?.latitude, pickup?.longitude, deliveredCallout?.name, deliveredCallout?.address, deliveredCallout?.when, pickupLabel]);
+  }, [rider?.latitude, rider?.longitude, headingToDropoff, hideRoute, summary, line.length, extraMarkers.length, pickup?.latitude, pickup?.longitude, deliveredCallout?.name, deliveredCallout?.address, deliveredCallout?.when, pickupLabel]);
 
   function zoomForFrame(next: { latitudeDelta: number; longitudeDelta: number }) {
     const height = node.current?.clientHeight || 480;
@@ -252,7 +254,7 @@ export function TrackingMap({
     const map = mapRef.current;
     if (!maps || !map) return;
     const current = props.current;
-    const route = trackingRoute(current.line, current.rider, current.stop, current.pickup);
+    const route = current.hideRoute ? [] : trackingRoute(current.line, current.rider, current.stop, current.pickup);
     const path = route.map((point) => ({ lat: point.latitude, lng: point.longitude }));
     const strokeColor = current.stroke === '#17211D' && document.documentElement.dataset.theme === 'dark' ? '#F3F7F5' : current.stroke;
     const strokeWeight = current.pickup ? 5 : 4;
