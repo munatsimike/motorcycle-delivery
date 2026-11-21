@@ -4,6 +4,7 @@ import { useSession } from '../auth/sessionContext';
 import { ErrorMessage } from '../components/ErrorMessage';
 import { TopSpinner } from '../components/TopSpinner';
 import { acceptOffer, adjustOffer, cancelDelivery, deliveryErrorMessage, dismissOffer, loadDelivery, loadDeliveryRoute, loadOffers, rateDelivery, searchForRider } from '../deliveries/api';
+import { offerResponseSeconds, offerResponseLabel } from '../deliveries/offerResponse';
 import { PaymentBadge } from '../deliveries/PaymentBadge';
 import { RiderPhoto } from '../deliveries/RiderPhoto';
 import { TrackingMap } from '../deliveries/TrackingMap';
@@ -298,6 +299,7 @@ export function DeliveryDetailsPage() {
       try {
         const loaded = await loadDelivery(token, id);
         if (stopped) return;
+        setNow(Date.now());
         latest.current = loaded;
         setDelivery(loaded);
         setError(null);
@@ -353,7 +355,7 @@ export function DeliveryDetailsPage() {
       void load();
     }, TRACKING_POLL_MS);
     const onVisible = () => {
-      if (document.visibilityState === 'visible') void load();
+      if (document.visibilityState === 'visible') { setNow(Date.now()); void load(); }
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => {
@@ -417,7 +419,15 @@ export function DeliveryDetailsPage() {
     return () => window.clearTimeout(timer);
   }, [acceptedId, confirmedDismissed, id]);
 
-  const trackingClock = delivery !== null && keepsRiderLocation(delivery.status);
+  const responseSeconds = delivery ? offerResponseSeconds(delivery, now) : null;
+  const responseElapsed = responseSeconds === 0;
+  const trackingClock = delivery !== null && (keepsRiderLocation(delivery.status) || responseSeconds !== null);
+  useEffect(() => {
+    if (!responseElapsed && !delivery?.offerResponseExpired) return;
+    if (busy) return;
+    setConfirm((current) => current && current !== 'cancel' && current !== 'delete' ? null : current);
+    setDecline(null);
+  }, [responseElapsed, delivery?.offerResponseExpired, busy]);
   useEffect(() => {
     if (!trackingClock) return undefined;
     const timer = window.setInterval(() => {
@@ -588,6 +598,11 @@ export function DeliveryDetailsPage() {
 
   async function confirmRider(bid: CustomerBid) {
     if (busyRef.current) return;
+    const current = latest.current;
+    if (!current || !showsRiderOffers(current) || offerResponseSeconds(current, Date.now()) === 0) {
+      setConfirm(null);
+      return;
+    }
     const started = accepting.current.begin();
     const blocked = duplicateAcceptanceNotice(started);
     if (blocked) {
@@ -600,6 +615,7 @@ export function DeliveryDetailsPage() {
     try {
       const sessionToken = await accessToken();
       if (!sessionToken) throw new Error('Sign in again.');
+      if (offerResponseSeconds(currentDelivery, Date.now()) === 0) throw new Error('The offer response window has ended.');
       const key = acceptanceKeyFor(sessionStorage, currentDelivery.id, bid.id, () => crypto.randomUUID());
       let accepted;
       try {
@@ -674,7 +690,16 @@ export function DeliveryDetailsPage() {
       if (!sessionToken) throw new Error('Sign in again.');
       await searchForRider(sessionToken, currentDelivery.id);
       try {
-        setDelivery(await loadDelivery(sessionToken, currentDelivery.id));
+        const next = await loadDelivery(sessionToken, currentDelivery.id);
+        dismissedOffers.current = new Set();
+        seenOffers.current = [];
+        setOffers([]);
+        setOffersLoaded(false);
+        setOfferNotice(null);
+        setNow(Date.now());
+        latest.current = next;
+        setDelivery(next);
+        setAttempt((value) => value + 1);
       } catch {
         setActionError('The search started, but this delivery could not be refreshed.');
         return;
@@ -834,6 +859,13 @@ export function DeliveryDetailsPage() {
         ) : null}
         {screen === 'offers' ? (
           <div className="track-offers">
+            {responseSeconds !== null ? (
+              <div className={`offer-response-timer${responseSeconds <= 60 ? ' is-urgent' : ''}`}>
+                <span>{responseElapsed ? 'Response time ended' : 'Choose a rider before time runs out'}</span>
+                <strong role="timer" aria-label="Time remaining">{offerResponseLabel(responseSeconds)}</strong>
+              </div>
+            ) : null}
+            {responseElapsed ? <p className="track-meta" role="status">Waiting for the server to confirm expiry…</p> : null}
             {offerNotice ? <p className="track-meta">{offerNotice}</p> : null}
             {!offersLoaded && orderedOffers.length === 0 ? (
               <div className="offer-skeletons" role="status" aria-label="Loading offers">
@@ -886,8 +918,8 @@ export function DeliveryDetailsPage() {
                 </div>
                 {canAccept ? (
                 <div className="offer-actions">
-                  <button type="button" className="offer-decline" disabled={busy} onClick={(event) => { if (busy) return; setDeclineError(null); declineTriggerRef.current = event.currentTarget; setDecline(bid); }}>Decline</button>
-                  <button type="button" className="offer-choose" disabled={busy} onClick={(event) => { if (busy) return; setConfirmError(null); chooseTriggerRef.current = event.currentTarget; setConfirm(bid); }}>Choose Rider</button>
+                  <button type="button" className="offer-decline" disabled={busy || responseElapsed} onClick={(event) => { if (busy || responseElapsed) return; setDeclineError(null); declineTriggerRef.current = event.currentTarget; setDecline(bid); }}>Decline</button>
+                  <button type="button" className="offer-choose" disabled={busy || responseElapsed} onClick={(event) => { if (busy || responseElapsed) return; setConfirmError(null); chooseTriggerRef.current = event.currentTarget; setConfirm(bid); }}>Choose Rider</button>
                 </div>
                 ) : <p>This offer is no longer available.</p>}
               </article>
@@ -953,7 +985,7 @@ export function DeliveryDetailsPage() {
             {confirmError ? <ErrorMessage>{confirmError}</ErrorMessage> : null}
             <div className="confirm-dialog-actions">
               <button ref={keepComparingRef} type="button" className="confirm-keep" disabled={busy} onClick={() => { if (busy) return; setConfirmError(null); setConfirm(null); }}>Keep comparing</button>
-              <button type="button" className="confirm-accept" disabled={busy} onClick={() => void confirmRider(shownRider)}>{busy ? 'Confirming…' : 'Confirm rider'}</button>
+              <button type="button" className="confirm-accept" disabled={busy || responseElapsed || !showsRiderOffers(delivery)} onClick={() => void confirmRider(shownRider)}>{busy ? 'Confirming…' : 'Confirm rider'}</button>
             </div>
           </div>
         </div>
@@ -1110,8 +1142,8 @@ function OutcomeSummary({
         <span className={customerOffer ? 'outcome-icon outcome-icon-no-rider' : 'outcome-icon'} style={customerOffer ? undefined : { background: tone.background, color: tone.color }} aria-hidden="true">
           <StatusGlyph status={delivery.status} />
         </span>
-        <h1 style={{ color: tone.color, fontWeight: delivery.status === 'CANCELLED' ? 500 : 700 }}>{cancelled ? cancelled.title : deliveryOutcomeTitle(delivery.status)}</h1>
-        <p>{cancelled ? cancelled.support : deliveryOutcomeSupport(delivery.status)}</p>
+        <h1 style={{ color: tone.color, fontWeight: delivery.status === 'CANCELLED' ? 500 : 700 }}>{cancelled ? cancelled.title : delivery.offerResponseExpired ? 'Request expired' : deliveryOutcomeTitle(delivery.status)}</h1>
+        <p>{cancelled ? cancelled.support : delivery.offerResponseExpired ? 'You did not choose a rider in time. Search again to receive new offers.' : deliveryOutcomeSupport(delivery.status)}</p>
       </div>
       {cancelled?.bookAgain ? (
         <Link className="outcome-search" to="/book" state={{ rebook: bookingDraftFromDelivery(delivery) }}>Book another rider</Link>

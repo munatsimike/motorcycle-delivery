@@ -39,6 +39,8 @@ export type CustomerDeliveryDetail = {
   customerOffer: string | null;
   serviceClass: ServiceClass | null;
   deliverBy: string | null;
+  offerResponseExpiresAt?: string | null;
+  offerResponseExpired?: boolean;
   distanceMeters: number;
   pickupAddress: string;
   senderName: string | null;
@@ -734,6 +736,8 @@ export function readCustomerDeliveryDetail(value: unknown): CustomerDeliveryDeta
     customerOffer: moneyOrNull(value.customerOffer) ?? null,
     serviceClass,
     deliverBy,
+    offerResponseExpiresAt: readInstant(value.offerResponseExpiresAt),
+    offerResponseExpired: value.offerResponseExpired === true,
     distanceMeters: value.distanceMeters,
     pickupAddress,
     senderName: text(value.pickup.contactName),

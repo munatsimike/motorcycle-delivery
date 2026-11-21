@@ -36,6 +36,8 @@ export type CustomerDelivery = {
   distanceMeters: number | null;
   parcelDescription: string | null;
   openBidCount: number;
+  offerResponseExpiresAt?: string | null;
+  offerResponseExpired?: boolean;
 };
 
 const ACTIVE = new Set<DeliveryStatus>([
@@ -102,7 +104,8 @@ export function deliveryGroup(status: DeliveryStatus): DeliveryGroup {
   return ACTIVE.has(status) ? 'active' : 'history';
 }
 
-export function deliveryCardStatusLabel(delivery: Pick<CustomerDelivery, 'status' | 'serviceClass' | 'deliverBy' | 'openBidCount'>): string {
+export function deliveryCardStatusLabel(delivery: Pick<CustomerDelivery, 'status' | 'serviceClass' | 'deliverBy' | 'openBidCount' | 'offerResponseExpired'>): string {
+  if (delivery.status === 'NO_RIDER_FOUND' && delivery.offerResponseExpired) return 'Request expired';
   const count = showsViewBids(delivery) ? delivery.openBidCount : 0;
   if (count === 1) return '1 offer received';
   if (count > 1) return `${count} offers received`;
@@ -371,6 +374,8 @@ function readCustomerDelivery(value: unknown): CustomerDelivery {
     distanceMeters: readDistance(value.distanceMeters),
     parcelDescription: readParcelDescription(value.parcel),
     openBidCount,
+    offerResponseExpiresAt: readDeadline(value.offerResponseExpiresAt) ?? null,
+    offerResponseExpired: value.offerResponseExpired === true,
   };
 }
 
