@@ -52,7 +52,65 @@ fun reliableBearing(
     if (accuracy != null && (!accuracy.isFinite() || accuracy > RELIABLE_BEARING_MAX_ACCURACY)) {
         return null
     }
-    return ((bearing % 360f) + 360f) % 360f
+    return normalizeBearing(bearing)
+}
+
+fun normalizeBearing(degrees: Float): Float = ((degrees % 360f) + 360f) % 360f
+
+/** Signed turn from [from] to [to], in the range -180 to 180. */
+fun shortestBearingDelta(from: Float, to: Float): Float {
+    return normalizeBearing(to - from + 180f) - 180f
+}
+
+/**
+ * Keeps the last reliable heading when the rider is stationary.
+ * A new reading replaces it; smoothing is left to the map animation.
+ */
+fun retainedHeading(held: Float?, reading: Float?): Float? {
+    return reading?.let(::normalizeBearing) ?: held
+}
+
+/** Clockwise degrees from north. Identical points have no direction. */
+fun geographicBearing(from: GeoPoint, to: GeoPoint): Float? {
+    if (!from.latitude.isFinite() || !from.longitude.isFinite() || !to.latitude.isFinite() || !to.longitude.isFinite()) {
+        return null
+    }
+    if (haversineMetres(from, to) < 1) {
+        return null
+    }
+    val latitudeA = Math.toRadians(from.latitude)
+    val latitudeB = Math.toRadians(to.latitude)
+    val deltaLongitude = Math.toRadians(to.longitude - from.longitude)
+    val y = Math.sin(deltaLongitude) * Math.cos(latitudeB)
+    val x = Math.cos(latitudeA) * Math.sin(latitudeB) -
+        Math.sin(latitudeA) * Math.cos(latitudeB) * Math.cos(deltaLongitude)
+    return normalizeBearing(Math.toDegrees(Math.atan2(y, x)).toFloat())
+}
+
+/** Direction of the first route segment that actually leaves its start point. */
+fun routeDepartureBearing(line: List<GeoPoint>): Float? {
+    if (line.size < 2) {
+        return null
+    }
+    for (index in 0 until line.lastIndex) {
+        geographicBearing(line[index], line[index + 1])?.let { return it }
+    }
+    return geographicBearing(line.first(), line.last())
+}
+
+/**
+ * GPS travel bearing wins. While the rider has not moved, the route's opening
+ * direction is used, then the straight line from the rider to the active stop.
+ * A stored travel bearing is kept when the rider is stationary.
+ */
+fun cameraHeading(
+    travelHeading: Float?,
+    route: List<GeoPoint>,
+    rider: GeoPoint?,
+    stop: GeoPoint?,
+): Float? {
+    travelHeading?.let { return normalizeBearing(it) }
+    return routeDepartureBearing(route) ?: if (rider != null && stop != null) geographicBearing(rider, stop) else null
 }
 
 fun projectOntoPath(point: GeoPoint, path: List<GeoPoint>): PathProjection? {

@@ -4,8 +4,9 @@ data class GeoPoint(val latitude: Double, val longitude: Double)
 
 const val ROUTE_REFRESH_METRES = 50.0
 const val ROUTE_REFRESH_INTERVAL_MS = 20_000L
-const val PICKUP_ARRIVAL_METRES = 100.0
-const val DROPOFF_ARRIVAL_METRES = 100.0
+
+/** Straight-line arrival at the active pickup or drop-off. */
+const val ARRIVAL_METRES = 50.0
 
 /** Two markers closer than this share one street-level camera instead of a bounds fit. */
 const val SAME_PLACE_METRES = 40.0
@@ -42,12 +43,12 @@ fun parseGeoPoint(latitude: String?, longitude: String?): GeoPoint? {
     return GeoPoint(lat, lng)
 }
 
-fun riderReachedPickup(rider: GeoPoint, pickup: GeoPoint, radiusMetres: Double = PICKUP_ARRIVAL_METRES): Boolean {
-    return metresBetween(rider, pickup) <= radiusMetres
+fun riderReachedPickup(rider: GeoPoint, pickup: GeoPoint, radiusMetres: Double = ARRIVAL_METRES): Boolean {
+    return haversineMetres(rider, pickup) <= radiusMetres
 }
 
-fun riderReachedDropoff(rider: GeoPoint, dropoff: GeoPoint, radiusMetres: Double = DROPOFF_ARRIVAL_METRES): Boolean {
-    return metresBetween(rider, dropoff) <= radiusMetres
+fun riderReachedDropoff(rider: GeoPoint, dropoff: GeoPoint, radiusMetres: Double = ARRIVAL_METRES): Boolean {
+    return haversineMetres(rider, dropoff) <= radiusMetres
 }
 
 /** A missing, stale, or unusable fix is not arrival. */
@@ -204,7 +205,7 @@ fun collectionMarkerPaddingPx(clearanceDp: Float, density: Float): Int {
  */
 const val PICKUP_ARRIVED_TAG = "0 m · 0 min"
 
-/** Same Haversine rounding the customer site uses for the 100-metre pickup check. */
+/** Same Haversine rounding the customer site uses for the arrival check. */
 fun haversineMetres(from: GeoPoint, to: GeoPoint): Int {
     val earth = 6_371_000.0
     val latitudeA = Math.toRadians(from.latitude)
@@ -218,13 +219,13 @@ fun haversineMetres(from: GeoPoint, to: GeoPoint): Int {
 }
 
 /**
- * Pickup marker tag. Within 100 straight-line metres the tag is zero.
- * A missing fix keeps the driving distance. This does not change the route.
+ * Distance tag for the active stop. Within [ARRIVAL_METRES] straight-line metres the tag is zero.
+ * A missing fix keeps the driving distance. This does not change the stored route.
  */
-fun pickupTagLabel(rider: GeoPoint?, pickup: GeoPoint?, roadMetres: Double?, roadSeconds: Int?): String? {
-    if (rider != null && pickup != null) {
-        val straight = haversineMetres(rider, pickup)
-        if (straight in 0..PICKUP_ARRIVAL_METRES.toInt()) {
+fun pickupTagLabel(rider: GeoPoint?, stop: GeoPoint?, roadMetres: Double?, roadSeconds: Int?): String? {
+    if (rider != null && stop != null) {
+        val straight = haversineMetres(rider, stop)
+        if (straight in 0..ARRIVAL_METRES.toInt()) {
             return PICKUP_ARRIVED_TAG
         }
     }

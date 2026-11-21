@@ -12,7 +12,7 @@ import com.riders.rider.feature.delivery.data.CollectionLocationWatch
 import com.riders.rider.feature.delivery.data.PickupRouteRepository
 import com.riders.rider.feature.delivery.domain.GeoPoint
 import com.riders.rider.feature.delivery.domain.deliveryRouteKey
-import com.riders.rider.feature.delivery.domain.approachSummary
+import com.riders.rider.feature.delivery.domain.pickupTagLabel
 import com.riders.rider.feature.delivery.domain.dropoffArrivalReading
 import com.riders.rider.feature.delivery.domain.isRiderDropoffRoad
 import com.riders.rider.feature.delivery.domain.shouldRequestPickupRoute
@@ -51,6 +51,8 @@ class CollectedRouteModel @Inject constructor(
     private val confirmedDropoffs = mutableMapOf<String, GeoPoint>()
     private var lastOrigin: GeoPoint? = null
     private var lastRequestAtMillis: Long? = null
+    private var roadMetres: Double? = null
+    private var roadSeconds: Int? = null
 
     fun load(assignmentId: String, pickup: GeoPoint?, dropoff: GeoPoint?) {
         if (assignmentId.isBlank() || pickup == null || dropoff == null) {
@@ -95,6 +97,8 @@ class CollectedRouteModel @Inject constructor(
         if (changed) {
             lastOrigin = null
             lastRequestAtMillis = null
+            roadMetres = null
+            roadSeconds = null
             liveLine = emptyList()
             approachLabel = null
         }
@@ -127,6 +131,8 @@ class CollectedRouteModel @Inject constructor(
         followingDropoff = null
         lastOrigin = null
         lastRequestAtMillis = null
+        roadMetres = null
+        roadSeconds = null
         rider = null
         liveLine = emptyList()
     }
@@ -144,6 +150,8 @@ class CollectedRouteModel @Inject constructor(
         val usable = shared != null && age != null && isDispatchUsable(age, null)
         val fix = if (usable) shared?.fix else null
         rider = fix
+        val riderPoint = fix?.let { GeoPoint(it.latitude, it.longitude) }
+        approachLabel = pickupTagLabel(riderPoint, dropoff, roadMetres, roadSeconds)
         val reading = dropoffArrivalReading(
             rider = fix?.let { GeoPoint(it.latitude, it.longitude) },
             dropoff = dropoff,
@@ -172,8 +180,10 @@ class CollectedRouteModel @Inject constructor(
                 return@launch
             }
             lastOrigin = origin
+            roadMetres = road.metres
+            roadSeconds = road.seconds
             liveLine = road.line
-            approachSummary(road.metres, road.seconds)?.let { approachLabel = it }
+            approachLabel = pickupTagLabel(origin, dropoff, road.metres, road.seconds)
         }
     }
 }

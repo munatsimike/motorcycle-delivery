@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Text
@@ -46,6 +47,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -324,6 +326,9 @@ fun DeliveryScreen(
                             sheetOverlap = mapHeight - sheetTop,
                             rider = riderPoint,
                             waitingForLocation = collected && riderPoint == null,
+                            riderSpeedMetresPerSecond = routeModel.rider?.speedMetresPerSecond,
+                            riderBearingDegrees = routeModel.rider?.bearingDegrees,
+                            riderBearingAccuracyDegrees = routeModel.rider?.bearingAccuracyDegrees,
                             routeWidth = 4.dp,
                         )
                     } else {
@@ -1109,7 +1114,7 @@ private fun CancelDeliveryModal(
                     .background(RidersColors.background)
                     .verticalScroll(rememberScrollState())
                     .padding(RidersSpacing.lg),
-                verticalArrangement = Arrangement.spacedBy(RidersSpacing.md),
+                verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
             ) {
                 Row(
                     Modifier.fillMaxWidth(),
@@ -1118,11 +1123,11 @@ private fun CancelDeliveryModal(
                 ) {
                     Column(
                         Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs),
+                        verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
                     ) {
                         Text("Cancel delivery", style = RidersType.heading, color = RidersColors.text)
                         Text(
-                            "Please select a reason for cancellation.",
+                            "Please select a reason",
                             style = RidersType.body,
                             color = RidersColors.textSecondary,
                         )
@@ -1145,13 +1150,8 @@ private fun CancelDeliveryModal(
                                 .fillMaxWidth()
                                 .clip(rowShape)
                                 .background(if (selected) RidersColors.primaryLight else RidersColors.background)
-                                .border(
-                                    1.dp,
-                                    if (selected) RidersColors.primaryLight else RidersColors.border,
-                                    rowShape,
-                                )
                                 .clickable(enabled = !submitting, role = Role.RadioButton, onClick = { onSelect(value) })
-                                .padding(start = RidersSpacing.lg, end = RidersSpacing.sm, top = RidersSpacing.xs, bottom = RidersSpacing.xs),
+                                .padding(start = RidersSpacing.lg, end = RidersSpacing.xs, top = RidersSpacing.sm, bottom = RidersSpacing.sm),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(
@@ -1160,17 +1160,20 @@ private fun CancelDeliveryModal(
                                 color = RidersColors.text,
                                 modifier = Modifier.weight(1f),
                             )
-                            RadioButton(
-                                selected = selected,
-                                onClick = { if (!submitting) onSelect(value) },
-                                enabled = !submitting,
-                                colors = RadioButtonDefaults.colors(
-                                    selectedColor = RidersColors.primary,
-                                    unselectedColor = RidersColors.textSecondary,
-                                    disabledSelectedColor = RidersColors.primary,
-                                    disabledUnselectedColor = RidersColors.textSecondary,
-                                ),
-                            )
+                            CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
+                                RadioButton(
+                                    selected = selected,
+                                    onClick = { if (!submitting) onSelect(value) },
+                                    enabled = !submitting,
+                                    modifier = Modifier.size(32.dp),
+                                    colors = RadioButtonDefaults.colors(
+                                        selectedColor = RidersColors.primary,
+                                        unselectedColor = RidersColors.textSecondary,
+                                        disabledSelectedColor = RidersColors.primary,
+                                        disabledUnselectedColor = RidersColors.textSecondary,
+                                    ),
+                                )
+                            }
                         }
                     }
                 }
@@ -1249,6 +1252,7 @@ private fun CollectedPage(
     val density = LocalDensity.current
     val riderPoint = routeModel.rider?.let { GeoPoint(it.latitude, it.longitude) }
     var sheetHeight by remember { mutableStateOf(0.dp) }
+    var recenter by remember { mutableStateOf(0) }
     val sheetShape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val sheetLimit = (maxHeight - statusTop - 72.dp).coerceAtLeast(0.dp)
@@ -1260,9 +1264,13 @@ private fun CollectedPage(
                 line = if (riderPoint != null) routeModel.liveLine else routeModel.line,
                 modifier = Modifier.fillMaxSize(),
                 sheetOverlap = sheetHeight,
+                recenter = recenter,
                 rider = riderPoint,
                 waitingForLocation = riderPoint == null,
                 approachLabel = routeModel.approachLabel,
+                riderSpeedMetresPerSecond = routeModel.rider?.speedMetresPerSecond,
+                riderBearingDegrees = routeModel.rider?.bearingDegrees,
+                riderBearingAccuracyDegrees = routeModel.rider?.bearingAccuracyDegrees,
                 routeWidth = 4.dp,
             )
         } else {
@@ -1294,6 +1302,22 @@ private fun CollectedPage(
                 contentDescription = "Back",
                 tint = RidersColors.text,
                 modifier = Modifier.size(22.dp),
+            )
+        }
+        if (pickupPoint != null || dropoffPoint != null) {
+            Icon(
+                painter = painterResource(R.drawable.ic_recenter),
+                contentDescription = "Recenter map",
+                tint = RidersColors.text,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = RidersSpacing.md, bottom = sheetHeight + RidersSpacing.md)
+                    .shadow(8.dp, CircleShape, ambientColor = RidersColors.shadow, spotColor = RidersColors.shadow)
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(RidersColors.sheet)
+                    .clickable(role = Role.Button) { recenter += 1 }
+                    .padding(10.dp),
             )
         }
         Column(
@@ -1328,22 +1352,89 @@ private fun CollectedPage(
                         modifier = Modifier.padding(RidersSpacing.lg),
                     )
                     else -> {
-                        DeliveryStatusHero(ui.status, ui.dropoffAddress, ui.pickupAddress)
-                        DeliveryActionBlock(
-                            ui = ui,
-                            riderArrived = riderArrived,
-                            blocked = blocked,
-                            model = model,
-                            onFinished = onFinished,
-                            onConfirm = onConfirm,
-                            onOpenDetails = onOpenDetails,
-                            onStartCancel = onStartCancel,
-                            completed = completed,
-                            atDropoff = routeModel.arrivedAtDropoff,
-                            locationGranted = routeModel.locationGranted,
-                            onNavigate = onNavigate,
-                            destinationNote = destinationNote,
+                        val target = navigationTarget(
+                            status = ui.status,
+                            contacts = ui.contacts,
+                            pickupAddress = ui.pickupAddress,
+                            pickupLandmark = ui.pickupLandmark,
+                            dropoffAddress = ui.dropoffAddress,
+                            dropoffLandmark = ui.dropoffLandmark,
                         )
+                        val canFinish = ui.nextLabel == "Mark as delivered" &&
+                            ui.marketplaceParcel &&
+                            ui.completionMessage == null &&
+                            ui.cancellationMessage == null &&
+                            !ui.readOnly &&
+                            collectedPrimaryAction(
+                                arrived = routeModel.arrivedAtDropoff,
+                                dropoffKnown = dropoffPoint != null,
+                                locationGranted = routeModel.locationGranted,
+                            ) == CollectedPrimaryAction.MarkAsDelivered
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = RidersSpacing.lg),
+                        ) {
+                            DeliveryPlaceLine(
+                                instruction = "Deliver parcel to",
+                                address = ui.dropoffAddress,
+                                fallback = riderDetailsSupport("COLLECTED"),
+                            )
+                            Spacer(Modifier.height(16.dp))
+                            PickupDirections(
+                                targetUri = target?.uri,
+                                blocked = blocked,
+                                note = destinationNote,
+                                onInApp = onNavigate,
+                            )
+                            Box(Modifier.padding(bottom = if (canFinish) RidersSpacing.xl else 22.dp)) {
+                                PartyContact(
+                                    role = "Sender",
+                                    name = ui.contacts?.pickupName.orEmpty(),
+                                    phone = ui.contacts?.pickupPhone.orEmpty(),
+                                    address = ui.pickupAddress,
+                                    compact = true,
+                                    plain = true,
+                                )
+                            }
+                            if (canFinish) {
+                                RidersPrimaryButton(
+                                    label = "Mark as delivered",
+                                    onClick = { onConfirm("Mark as delivered") },
+                                    enabled = !blocked,
+                                    loading = ui.busy == DeliveryBusy.Advance,
+                                    loadingLabel = "Mark as delivered",
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(bottom = RidersSpacing.xl),
+                                )
+                            }
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = RidersSpacing.sm),
+                                horizontalArrangement = Arrangement.End,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Row(
+                                    Modifier.clickable(role = Role.Button, onClick = onOpenDetails),
+                                    horizontalArrangement = Arrangement.spacedBy(RidersSpacing.xs),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        "Parcel details",
+                                        style = RidersType.body.copy(fontWeight = FontWeight.Medium),
+                                        color = RidersColors.primary,
+                                    )
+                                    Icon(
+                                        painter = painterResource(R.drawable.ic_chevron_up),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                        tint = RidersColors.primary,
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1360,6 +1451,7 @@ private fun DeliveredPage(
     val density = LocalDensity.current
     val dropoff = parseGeoPoint(ui.contacts?.dropoffLatitude, ui.contacts?.dropoffLongitude)
     var sheetHeight by remember { mutableStateOf(0.dp) }
+    var recenter by remember { mutableStateOf(0) }
     val sheetShape = RoundedCornerShape(topStart = RidersRadius.xl, topEnd = RidersRadius.xl)
     Box(Modifier.fillMaxSize()) {
         if (dropoff != null) {
@@ -1369,6 +1461,7 @@ private fun DeliveredPage(
                 address = deliveryCardAddress(ui.dropoffAddress),
                 completedAt = ui.completedAt,
                 sheetOverlap = if (sheetHeight > 0.dp) sheetHeight else 240.dp,
+                recenter = recenter,
                 modifier = Modifier.fillMaxSize(),
             )
     } else {
@@ -1402,6 +1495,22 @@ private fun DeliveredPage(
                 modifier = Modifier.size(22.dp),
             )
         }
+        if (dropoff != null) {
+            Icon(
+                painter = painterResource(R.drawable.ic_recenter),
+                contentDescription = "Recenter map",
+                tint = RidersColors.text,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = RidersSpacing.md, bottom = sheetHeight + RidersSpacing.md)
+                    .shadow(8.dp, CircleShape, ambientColor = RidersColors.shadow, spotColor = RidersColors.shadow)
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(RidersColors.sheet)
+                    .clickable(role = Role.Button) { recenter += 1 }
+                    .padding(10.dp),
+            )
+        }
         Column(
             Modifier
                 .align(Alignment.BottomCenter)
@@ -1423,6 +1532,7 @@ private fun DeliveredPage(
                     deliveryId = ui.deliveryId,
                     createdAt = ui.createdAt,
                     dateCaption = "Requested",
+                    dateFirst = true,
                     flat = true,
                     spacious = true,
                     pickup = ui.pickupAddress,
@@ -1489,7 +1599,7 @@ private fun DeliveryStatusHero(status: String, dropoffAddress: String, pickupAdd
             }
             when {
                 status == "COLLECTED" || status == "PICKED_UP" -> DeliveryPlaceLine(
-                    instruction = "Deliver the parcel to",
+                    instruction = "Deliver parcel to",
                     address = dropoffAddress,
                     fallback = riderDetailsSupport("COLLECTED"),
                 )

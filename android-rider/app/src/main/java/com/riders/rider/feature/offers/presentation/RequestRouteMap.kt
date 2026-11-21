@@ -32,6 +32,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -73,7 +74,14 @@ import com.riders.rider.core.design.RidersSpacing
 import com.riders.rider.core.design.RidersType
 import com.riders.rider.core.network.OfferResponse
 import com.riders.rider.feature.bids.data.BidRepository
+import com.riders.rider.feature.delivery.domain.ARRIVAL_METRES
 import com.riders.rider.feature.delivery.domain.GeoPoint
+import com.riders.rider.feature.delivery.domain.haversineMetres
+import com.riders.rider.feature.delivery.domain.cameraHeading
+import com.riders.rider.feature.delivery.domain.reliableBearing
+import com.riders.rider.feature.delivery.domain.retainedHeading
+import com.riders.rider.feature.delivery.presentation.animateHeadingUp
+import com.riders.rider.feature.delivery.presentation.showFittedCamera
 import com.riders.rider.feature.delivery.domain.withMinimumCameraSpan
 import com.riders.rider.feature.delivery.domain.collectionCameraFrame
 import com.riders.rider.feature.delivery.domain.collectionMarkerPaddingPx
@@ -88,6 +96,8 @@ import com.riders.rider.feature.delivery.presentation.riderMarkerIcon
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 // Reusable Google Maps route view for bids and other rider screens.
 // Pin shapes use the same drawable assets as the delivery cards.
@@ -106,6 +116,9 @@ fun RequestRouteMap(
     waitingForLocation: Boolean = false,
     approachLabel: String? = null,
     routeWidth: Dp = 5.dp,
+    riderSpeedMetresPerSecond: Float? = null,
+    riderBearingDegrees: Float? = null,
+    riderBearingAccuracyDegrees: Float? = null,
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
@@ -126,6 +139,24 @@ fun RequestRouteMap(
     var pickupIcon by remember { mutableStateOf<BitmapDescriptor?>(null) }
     var dropoffIcon by remember { mutableStateOf<BitmapDescriptor?>(null) }
     var framedRider by remember(deliveryId) { mutableStateOf(false) }
+    var travelHeading by remember(deliveryId) { mutableStateOf<Float?>(null) }
+    val bearingReading = reliableBearing(
+        riderSpeedMetresPerSecond,
+        riderBearingDegrees,
+        riderBearingAccuracyDegrees,
+    )
+    val travel = retainedHeading(travelHeading, bearingReading)
+    if (travel != travelHeading) {
+        travelHeading = travel
+    }
+    val heading = cameraHeading(
+        travel,
+        if (line.size > 1) line else emptyList(),
+        rider,
+        dropoff,
+    )
+    val headingNow = rememberUpdatedState(heading)
+    val cameraLock = remember(deliveryId) { Mutex() }
     val riderGate = rider != null || framedRider
     val road = line.filter { it.latitude.isFinite() && it.longitude.isFinite() }
     val routeReady = road.size > 1
@@ -168,7 +199,21 @@ fun RequestRouteMap(
             loosened(withMinimumCameraSpan(frame.points)),
             boundsPadding,
         )
-        runCatching { camera.animate(update, 450) }
+        cameraLock.withLock {
+            runCatching { showFittedCamera(camera, update, if (rider != null) headingNow.value else null) }
+        }
+    }
+
+    LaunchedEffect(heading, userMoved, mapLoaded, rider != null) {
+        val target = heading ?: return@LaunchedEffect
+        if (!mapLoaded || userMoved || rider == null) {
+            return@LaunchedEffect
+        }
+        cameraLock.withLock {
+            if (!userMoved && rider != null) {
+                animateHeadingUp(camera, target)
+            }
+        }
     }
 
     LaunchedEffect(road.size) {
@@ -198,7 +243,7 @@ fun RequestRouteMap(
                 compassEnabled = false,
                 myLocationButtonEnabled = false,
                 mapToolbarEnabled = false,
-                rotationGesturesEnabled = false,
+                rotationGesturesEnabled = rider != null,
                 tiltGesturesEnabled = false,
             ),
             onMapLoaded = {
@@ -209,7 +254,9 @@ fun RequestRouteMap(
                 }
             },
         ) {
-            if (road.size > 1) {
+            val atDropoff = rider != null && dropoff != null &&
+                haversineMetres(rider, dropoff) <= ARRIVAL_METRES.toInt()
+            if (road.size > 1 && !atDropoff) {
                 Polyline(
                     points = road.map { LatLng(it.latitude, it.longitude) },
                     color = dropoffPinColor,
@@ -245,6 +292,8 @@ fun RequestRouteMap(
                     state = state,
                     icon = riderMarker.icon,
                     anchor = riderMarker.anchor,
+                    rotation = 0f,
+                    flat = false,
                     zIndex = 3f,
                 )
             }
@@ -291,6 +340,7 @@ fun DeliveredDestinationMap(
     completedAt: String?,
     sheetOverlap: Dp,
     modifier: Modifier = Modifier,
+    recenter: Int = 0,
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
@@ -301,18 +351,47 @@ fun DeliveredDestinationMap(
         position = CameraPosition.fromLatLngZoom(target, 14f)
     }
     var mapLoaded by remember { mutableStateOf(false) }
+    var mapHeightPx by remember { mutableIntStateOf(0) }
     var userMoved by remember { mutableStateOf(false) }
+    var seenRecenter by remember { mutableIntStateOf(recenter) }
     var icon by remember(recipient, address, completedAt) { mutableStateOf<BitmapDescriptor?>(null) }
     var anchorY by remember(recipient, address, completedAt) { mutableStateOf(1f) }
+    var markerHeightPx by remember(recipient, address, completedAt) { mutableIntStateOf(0) }
     val statusTop = with(density) { WindowInsets.statusBars.getTop(this).toDp() }
     val boundsPadding = collectionMarkerPaddingPx(12f, density.density)
-    LaunchedEffect(context, recipient, address, completedAt) {
-        val marker = deliveredConfirmationIcon(context, recipient, address, completedAt)
+    val bottomPad = sheetOverlap + 24.dp
+    val backClearance = statusTop + 56.dp
+    val markerHeight = with(density) { markerHeightPx.toDp() }
+    val mapHeight = with(density) { mapHeightPx.toDp() }
+    val maxTop = if (mapHeightPx > 0) {
+        (mapHeight - bottomPad - 96.dp).coerceAtLeast(backClearance)
+    } else {
+        backClearance
+    }
+    val topPad = if (markerHeightPx > 0) {
+        markerHeight.coerceIn(backClearance, maxTop)
+    } else {
+        backClearance.coerceAtMost(maxTop)
+    }
+    LaunchedEffect(mapLoaded, mapHeightPx, sheetOverlap, context, recipient, address, completedAt) {
+        if (!mapLoaded || mapHeightPx <= 0) {
+            return@LaunchedEffect
+        }
+        val bottomPx = with(density) { bottomPad.roundToPx() }
+        val minViewportPx = with(density) { 96.dp.roundToPx() }
+        val limit = (mapHeightPx - bottomPx - minViewportPx).coerceAtLeast(with(density) { 120.dp.roundToPx() })
+        val marker = deliveredConfirmationIcon(context, recipient, address, completedAt, limit)
         icon = marker?.icon
         anchorY = marker?.anchorY ?: 1f
+        markerHeightPx = marker?.heightPx ?: 0
     }
-    LaunchedEffect(mapLoaded, sheetOverlap, target, userMoved) {
-        if (!mapLoaded || userMoved) {
+    LaunchedEffect(mapLoaded, sheetOverlap, markerHeightPx, target, userMoved, recenter) {
+        val centering = recenter != seenRecenter
+        if (centering) {
+            seenRecenter = recenter
+            userMoved = false
+        }
+        if (!mapLoaded || (userMoved && !centering)) {
             return@LaunchedEffect
         }
         runCatching {
@@ -327,13 +406,15 @@ fun DeliveredDestinationMap(
     }
     Box(modifier) {
         GoogleMap(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .onSizeChanged { mapHeightPx = it.height },
             cameraPositionState = camera,
             contentPadding = PaddingValues(
                 start = 28.dp,
-                top = statusTop + 132.dp,
+                top = topPad,
                 end = 28.dp,
-                bottom = sheetOverlap + 24.dp,
+                bottom = bottomPad,
             ),
             properties = MapProperties(isMyLocationEnabled = false, mapStyleOptions = mapStyles.optionsFor(mapTheme, LocalAppDark.current)),
             uiSettings = MapUiSettings(
@@ -363,42 +444,41 @@ fun DeliveredDestinationMap(
     }
 }
 
-private data class DeliveredMarker(val icon: BitmapDescriptor, val anchorY: Float)
+private data class DeliveredMarker(val icon: BitmapDescriptor, val anchorY: Float, val heightPx: Int)
 
 private fun deliveredConfirmationIcon(
     context: android.content.Context,
     recipient: String,
     address: String,
     completedAt: String?,
+    maxHeightPx: Int,
 ): DeliveredMarker? {
     val density = context.resources.displayMetrics.density
-    val maxText = (220f * density).toInt().coerceAtLeast(1)
-    val titlePaint = markerTextPaint(14f * density, Typeface.create(Typeface.DEFAULT, Typeface.BOLD))
-    val namePaint = markerTextPaint(14f * density, Typeface.create("sans-serif-medium", Typeface.NORMAL))
-    val placePaint = markerTextPaint(13f * density, Typeface.create(Typeface.DEFAULT, Typeface.NORMAL))
-    val timePaint = markerTextPaint(13f * density, Typeface.create(Typeface.DEFAULT, Typeface.NORMAL))
+    val maxText = (268f * density).toInt().coerceAtLeast(1)
+    val titlePaint = markerTextPaint(17f * density, Typeface.create(Typeface.DEFAULT, Typeface.BOLD))
+    val namePaint = markerTextPaint(17f * density, Typeface.create("sans-serif-medium", Typeface.NORMAL))
+    val placePaint = markerTextPaint(16f * density, Typeface.create(Typeface.DEFAULT, Typeface.NORMAL))
+    val timePaint = markerTextPaint(16f * density, Typeface.create(Typeface.DEFAULT, Typeface.NORMAL))
     val name = recipient.trim()
     val place = address.trim()
     val time = deliveryWhenLabel(completedAt)
     val nameLayout = if (name.isEmpty()) null else wrappedMarkerText(name, namePaint, maxText)
     val placeLayout = if (place.isEmpty()) null else wrappedMarkerText(place, placePaint, maxText)
-    val padH = 12f * density
-    val padV = 8f * density
-    val gap = 3f * density
-    val circle = 16f * density
-    val check = 10f * density
+    val padH = 16f * density
+    val padV = 12f * density
+    val gap = 5f * density
+    val circle = 20f * density
+    val check = 12f * density
     val title = "Delivered"
     val titleWidth = titlePaint.measureText(title)
     val titleRow = circle + 6f * density + titleWidth
-    val clockSize = if (time.isEmpty()) 0f else 12f * density
-    val clockGap = if (time.isEmpty()) 0f else 4f * density
-    val timeWidth = if (time.isEmpty()) 0f else clockSize + clockGap + timePaint.measureText(time)
+    val timeWidth = if (time.isEmpty()) 0f else timePaint.measureText(time)
     val contentWidth = maxOf(titleRow, nameLayout.widestLine(), placeLayout.widestLine(), timeWidth)
     val boxWidth = (padH * 2 + contentWidth).toInt().coerceAtLeast(1)
     val titleHeight = titlePaint.fontMetrics.run { descent - ascent }
     val rowHeight = maxOf(circle, titleHeight)
     val timeTextHeight = if (time.isEmpty()) 0f else timePaint.fontMetrics.run { descent - ascent }
-    val timeRow = if (time.isEmpty()) 0f else maxOf(clockSize, timeTextHeight)
+    val timeRow = if (time.isEmpty()) 0f else timeTextHeight
     var textHeight = rowHeight
     if (nameLayout != null) textHeight += gap + nameLayout.height
     if (placeLayout != null) textHeight += gap + placeLayout.height
@@ -419,8 +499,8 @@ private fun deliveredConfirmationIcon(
         shadow,
         boxLeft + boxWidth,
         shadow + boxHeight,
-        14f * density,
-        14f * density,
+        18f * density,
+        18f * density,
         Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x3317211D },
     )
     canvas.drawRoundRect(
@@ -428,8 +508,8 @@ private fun deliveredConfirmationIcon(
         0f,
         boxLeft + boxWidth,
         boxHeight.toFloat(),
-        14f * density,
-        14f * density,
+        18f * density,
+        18f * density,
         Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF16845B.toInt() },
     )
     val contentLeft = boxLeft + padH
@@ -481,20 +561,10 @@ private fun deliveredConfirmationIcon(
     }
     if (time.isNotEmpty()) {
         cursor += gap
-        val clock = ContextCompat.getDrawable(context, R.drawable.ic_clock)?.mutate()
-        clock?.setTint(android.graphics.Color.WHITE)
-        val clockTop = cursor + (timeRow - clockSize) / 2f
-        clock?.setBounds(
-            contentLeft.toInt(),
-            clockTop.toInt(),
-            (contentLeft + clockSize).toInt(),
-            (clockTop + clockSize).toInt(),
-        )
-        clock?.draw(canvas)
         canvas.drawText(
             time,
-            contentLeft + clockSize + clockGap,
-            cursor + (timeRow - timeTextHeight) / 2f - timePaint.fontMetrics.ascent,
+            contentLeft,
+            cursor - timePaint.fontMetrics.ascent,
             timePaint,
         )
     }
@@ -506,8 +576,21 @@ private fun deliveredConfirmationIcon(
     )
     pin?.draw(canvas)
     val tip = (boxHeight + pinGap + pinHeight * 55f / 58f) / height.toFloat()
-    val descriptor = runCatching { BitmapDescriptorFactory.fromBitmap(bitmap) }.getOrNull() ?: return null
-    return DeliveredMarker(descriptor, tip.coerceIn(0f, 1f))
+    val longest = maxOf(bitmap.width, bitmap.height)
+    val heightLimit = if (maxHeightPx > 0) minOf(bitmap.height, maxHeightPx) else bitmap.height
+    val scale = minOf(1f, heightLimit.toFloat() / bitmap.height, if (longest > 1024) 1024f / longest else 1f)
+    val rendered = if (scale < 1f) {
+        Bitmap.createScaledBitmap(
+            bitmap,
+            (bitmap.width * scale).toInt().coerceAtLeast(1),
+            (bitmap.height * scale).toInt().coerceAtLeast(1),
+            true,
+        )
+    } else {
+        bitmap
+    }
+    val descriptor = runCatching { BitmapDescriptorFactory.fromBitmap(rendered) }.getOrNull() ?: return null
+    return DeliveredMarker(descriptor, tip.coerceIn(0f, 1f), rendered.height)
 }
 
 private fun markerTextPaint(textSize: Float, typeface: Typeface): TextPaint {

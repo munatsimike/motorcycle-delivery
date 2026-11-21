@@ -4,7 +4,12 @@ import com.riders.rider.feature.delivery.domain.GeoPoint
 import com.riders.rider.feature.delivery.domain.ROUTE_REFRESH_INTERVAL_MS
 import com.riders.rider.feature.delivery.domain.RouteManeuver
 import com.riders.rider.feature.delivery.domain.isOffRoute
+import com.riders.rider.feature.delivery.domain.cameraHeading
+import com.riders.rider.feature.delivery.domain.geographicBearing
 import com.riders.rider.feature.delivery.domain.reliableBearing
+import com.riders.rider.feature.delivery.domain.retainedHeading
+import com.riders.rider.feature.delivery.domain.routeDepartureBearing
+import com.riders.rider.feature.delivery.domain.shortestBearingDelta
 import com.riders.rider.feature.delivery.domain.routeProgress
 import com.riders.rider.feature.delivery.domain.shouldReplaceGuidance
 import org.junit.Assert.assertEquals
@@ -84,6 +89,35 @@ class TurnByTurnTest {
         assertNull(reliableBearing(speedMetresPerSecond = 3f, bearingDegrees = 90f, bearingAccuracyDegrees = 50f))
         assertEquals(90f, reliableBearing(speedMetresPerSecond = 3f, bearingDegrees = 90f, bearingAccuracyDegrees = 10f))
         assertEquals(90f, reliableBearing(speedMetresPerSecond = 3f, bearingDegrees = 90f, bearingAccuracyDegrees = null))
+    }
+
+    @Test
+    fun headingFollowsTheShortArcAndStaysPutWhenStationary() {
+        assertEquals(-20f, shortestBearingDelta(10f, 350f), 0.01f)
+        assertEquals(20f, shortestBearingDelta(350f, 10f), 0.01f)
+        assertEquals(90f, shortestBearingDelta(10f, 100f), 0.01f)
+        assertEquals(90f, retainedHeading(held = null, reading = 90f))
+        assertEquals(90f, retainedHeading(held = 90f, reading = null))
+        assertEquals(350f, retainedHeading(held = 10f, reading = 350f))
+        assertNull(retainedHeading(held = null, reading = null))
+    }
+
+    @Test
+    fun openingCameraUsesTheRouteThenTheStopAndKeepsTravelBearing() {
+        val rider = GeoPoint(0.0, 0.0)
+        val east = GeoPoint(0.0, 0.01)
+        val north = GeoPoint(0.01, 0.0)
+        val south = GeoPoint(-0.01, 0.0)
+        assertEquals(90f, geographicBearing(rider, east)!!, 1f)
+        assertEquals(0f, geographicBearing(rider, north)!!, 1f)
+        assertEquals(180f, geographicBearing(rider, south)!!, 1f)
+        assertNull(geographicBearing(rider, rider))
+        val route = listOf(rider, east, north)
+        assertEquals(90f, routeDepartureBearing(route)!!, 1f)
+        assertEquals(90f, cameraHeading(travelHeading = null, route = route, rider = rider, stop = south)!!, 1f)
+        assertEquals(180f, cameraHeading(travelHeading = null, route = emptyList(), rider = rider, stop = south)!!, 1f)
+        assertEquals(35f, cameraHeading(travelHeading = 35f, route = route, rider = rider, stop = south))
+        assertNull(cameraHeading(travelHeading = null, route = emptyList(), rider = null, stop = south))
     }
 
     private fun maneuver(text: String, type: String, street: String, fromIndex: Int, toIndex: Int): RouteManeuver {

@@ -90,7 +90,7 @@ fun v2StatusReached(serverStatus: String, targetStatus: String): Boolean {
 fun trackingStatusLabel(status: String): String = when (status) {
     "RIDER_ASSIGNED", "COLLECTING", "ASSIGNED", "ARRIVED_AT_PICKUP" -> "Rider heading to pickup"
     "COLLECTED", "PICKED_UP" -> "Parcel collected"
-    "OUT_FOR_DELIVERY", "IN_TRANSIT", "ARRIVED_AT_DROPOFF" -> "In transit"
+    "OUT_FOR_DELIVERY", "IN_TRANSIT", "ARRIVED_AT_DROPOFF" -> "Delivering"
     "DELIVERED" -> "Delivered"
     else -> deliveryStatusLabel(status)
 }
@@ -128,16 +128,16 @@ fun collectedDeliverySupport(dropoffAddress: String): String {
     if (place.isEmpty()) {
         return riderDetailsSupport("COLLECTED")
     }
-    return "Deliver the parcel to $place."
+    return "Deliver parcel to $place."
 }
 
 data class DeliveryListBadge(val label: String, val background: Long, val foreground: Long)
 
 /** Badge copy and colors for the Deliveries list. Unmapped statuses keep the existing label. */
 fun deliveryListBadge(status: String): DeliveryListBadge? = when (status) {
-    "RIDER_ASSIGNED" -> DeliveryListBadge("Assigned to you", 0xFFE5F6ED, 0xFF16845B)
+    "RIDER_ASSIGNED" -> DeliveryListBadge("Collecting", 0xFFE5F6ED, 0xFF16845B)
     "COLLECTING" -> DeliveryListBadge("Collecting", 0xFFE7F1FF, 0xFF2563EB)
-    "COLLECTED", "OUT_FOR_DELIVERY", "IN_TRANSIT" -> DeliveryListBadge("In transit", 0xFFE7F1FF, 0xFF2563EB)
+    "COLLECTED", "OUT_FOR_DELIVERY", "IN_TRANSIT" -> DeliveryListBadge("Delivering", 0xFFE7F1FF, 0xFF2563EB)
     "DELIVERED" -> DeliveryListBadge("Delivered", 0xFFDDF5E6, 0xFF137333)
     "CANCELLED" -> DeliveryListBadge("Cancelled", 0xFFF1F3F5, 0xFF606B75)
     else -> null
@@ -151,7 +151,7 @@ fun deliveryStatusLabel(status: String): String = when (status) {
     "ASSIGNED" -> "Assigned"
     "ARRIVED_AT_PICKUP" -> "Arrived at pickup"
     "PICKED_UP" -> "Picked up"
-    "IN_TRANSIT" -> "In transit"
+    "IN_TRANSIT" -> "Delivering"
     "ARRIVED_AT_DROPOFF" -> "Arrived at drop-off"
     "DELIVERED" -> "Delivered"
     "RIDER_ASSIGNED" -> "Rider assigned"

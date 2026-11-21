@@ -33,6 +33,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
@@ -192,6 +193,7 @@ fun DeliverySummaryCard(
     listBadge: Boolean = false,
     serviceClass: String? = null,
     filled: Boolean = true,
+    containerColor: Color? = null,
 ) {
     val shape = RoundedCornerShape(RidersRadius.lg)
     val dark = LocalAppDark.current
@@ -211,7 +213,7 @@ fun DeliverySummaryCard(
                 spotColor = if (filled) Color(0xFF17211D) else Color.Black,
             )
             .clip(shape)
-            .background(if (filled) RidersColors.card else RidersColors.background)
+            .background(containerColor ?: if (filled) RidersColors.card else RidersColors.background)
             .border(1.dp, RidersColors.border, shape)
             .clickable(role = Role.Button, onClick = onClick),
     ) {
@@ -324,6 +326,7 @@ fun DeliveryDetailsSummary(
     parcelSheet: Boolean = false,
     senderName: String = "",
     customerSender: Boolean = false,
+    dateFirst: Boolean = false,
 ) {
     val shape = RoundedCornerShape(RidersRadius.lg)
     val whenLabel = deliveryWhenLabel(createdAt)
@@ -361,7 +364,7 @@ fun DeliveryDetailsSummary(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
             ) {
-                if (framed) {
+                if (framed && !dateFirst) {
                     DetailFact("Delivery", shortDeliveryReference(deliveryId), Modifier.weight(1f))
                 }
                 if (whenLabel.isNotEmpty()) {
@@ -386,6 +389,9 @@ fun DeliveryDetailsSummary(
                     } else {
                         DetailFact(dateCaption, whenLabel, Modifier.weight(1f))
                     }
+                }
+                if (framed && dateFirst) {
+                    DetailFact("Delivery", shortDeliveryReference(deliveryId), Modifier.weight(1f), alignEnd = true)
                 }
             }
         }
@@ -514,57 +520,61 @@ private fun ParcelDetailStop(
 private fun DeliveredSender(name: String, address: String) {
     val shown = name.trim()
     val place = address.trim()
-    val textTop = with(LocalDensity.current) { ((cardLocationPinHeight - 20.sp.toDp()) / 2).coerceAtLeast(0.dp) }
-    Row(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
-        verticalAlignment = Alignment.Top,
-    ) {
-        Box(
-            Modifier.width(cardLocationPinWidth),
-            contentAlignment = Alignment.TopCenter,
-        ) {
-            LocationPin(dropoff = false, width = cardLocationPinWidth, height = cardLocationPinHeight)
-        }
-        Column(Modifier.weight(1f).padding(top = textTop)) {
+    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.Start) {
+        if (shown.isNotEmpty()) {
+            DetailFact("Sender", shown, Modifier.fillMaxWidth())
+        } else {
             Text(
                 "Sender",
-                style = RidersType.caption.copy(platformStyle = noFontPadding),
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Start,
+                style = RidersType.caption,
                 color = RidersColors.textSecondary,
             )
-            if (shown.isNotEmpty()) {
-                Text(
-                    shown,
-                    modifier = Modifier.padding(top = 4.dp),
-                    style = RidersType.bodyStrong.copy(
-                        fontWeight = FontWeight.Bold,
-                        platformStyle = noFontPadding,
-                    ),
-                    color = RidersColors.text,
-                )
-            }
-            if (place.isNotEmpty()) {
-                Text(
-                    place,
-                    modifier = Modifier.padding(top = 4.dp),
-                    style = TextStyle(
-                        fontSize = 16.sp,
-                        lineHeight = 21.sp,
-                        fontWeight = FontWeight.Normal,
-                        platformStyle = noFontPadding,
-                    ),
-                    color = RidersColors.text,
-                )
-            }
+        }
+        if (place.isNotEmpty()) {
+            Text(
+                place,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 6.dp),
+                textAlign = TextAlign.Start,
+                style = TextStyle(
+                    fontSize = 18.sp,
+                    lineHeight = 24.sp,
+                    fontWeight = FontWeight.Normal,
+                    platformStyle = noFontPadding,
+                ),
+                color = RidersColors.text,
+            )
         }
     }
 }
 
 @Composable
-private fun DetailFact(label: String, value: String, modifier: Modifier = Modifier) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs)) {
-        Text(label, style = RidersType.caption, color = RidersColors.textSecondary)
-        Text(value, style = RidersType.bodyStrong, color = RidersColors.text)
+private fun DetailFact(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+    alignEnd: Boolean = false,
+) {
+    Column(
+        modifier,
+        verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs),
+        horizontalAlignment = if (alignEnd) Alignment.End else Alignment.Start,
+    ) {
+        Text(
+            label,
+            style = RidersType.caption,
+            color = RidersColors.textSecondary,
+            textAlign = if (alignEnd) TextAlign.End else TextAlign.Start,
+        )
+        Text(
+            value,
+            style = RidersType.bodyStrong,
+            color = RidersColors.text,
+            textAlign = if (alignEnd) TextAlign.End else TextAlign.Start,
+        )
     }
 }
 

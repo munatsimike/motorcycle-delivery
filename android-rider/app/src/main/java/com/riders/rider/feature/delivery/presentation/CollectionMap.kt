@@ -23,6 +23,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -61,12 +62,19 @@ import com.riders.rider.core.design.RidersColors
 import com.riders.rider.core.design.RidersSpacing
 import com.riders.rider.core.design.RidersType
 import com.riders.rider.feature.delivery.domain.GeoPoint
+import com.riders.rider.feature.delivery.domain.ARRIVAL_METRES
+import com.riders.rider.feature.delivery.domain.haversineMetres
 import com.riders.rider.feature.delivery.domain.pickupTagLabel
+import com.riders.rider.feature.delivery.domain.cameraHeading
+import com.riders.rider.feature.delivery.domain.reliableBearing
+import com.riders.rider.feature.delivery.domain.retainedHeading
 import com.riders.rider.feature.delivery.domain.collectionCameraFrame
 import com.riders.rider.feature.delivery.domain.collectionMarkerPaddingPx
 import com.riders.rider.feature.delivery.domain.parseGeoPoint
 import com.riders.rider.feature.delivery.domain.withMinimumCameraSpan
 import com.riders.rider.feature.offers.presentation.locationDrawableMarker
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 private val routeBlue = Color(0xFF1A73E8)
 private val sideClearance = 40.dp
@@ -107,6 +115,24 @@ fun CollectionMap(
     var framedWithRider by remember(assignmentId, pickup) { mutableStateOf(false) }
     var framedRoute by remember(assignmentId, pickup) { mutableStateOf(false) }
     var recenter by remember { mutableStateOf(0) }
+    var travelHeading by remember(assignmentId) { mutableStateOf<Float?>(null) }
+    val bearingReading = reliableBearing(
+        rider?.speedMetresPerSecond,
+        rider?.bearingDegrees,
+        rider?.bearingAccuracyDegrees,
+    )
+    val travel = retainedHeading(travelHeading, bearingReading)
+    if (travel != travelHeading) {
+        travelHeading = travel
+    }
+    val heading = cameraHeading(
+        travel,
+        if (route.line.size > 1) route.line else emptyList(),
+        rider?.let { GeoPoint(it.latitude, it.longitude) },
+        pickup,
+    )
+    val headingNow = rememberUpdatedState(heading)
+    val cameraLock = remember(assignmentId) { Mutex() }
     val riderPoint = rider?.let { GeoPoint(it.latitude, it.longitude) }
     val riderReady = riderPoint != null
     val riderGate = riderReady || framedWithRider
@@ -151,7 +177,21 @@ fun CollectionMap(
             loosenedBounds(withMinimumCameraSpan(frame.points)),
             boundsPadding,
         )
-        runCatching { camera.animate(update, 450) }
+        cameraLock.withLock {
+            runCatching { showFittedCamera(camera, update, if (riderPoint != null) headingNow.value else null) }
+        }
+    }
+
+    LaunchedEffect(heading, userMoved, mapLoaded) {
+        val target = heading ?: return@LaunchedEffect
+        if (!mapLoaded || userMoved) {
+            return@LaunchedEffect
+        }
+        cameraLock.withLock {
+            if (!userMoved) {
+                animateHeadingUp(camera, target)
+            }
+        }
     }
 
     Box(modifier) {
@@ -176,7 +216,7 @@ fun CollectionMap(
                     compassEnabled = false,
                     myLocationButtonEnabled = false,
                     mapToolbarEnabled = false,
-                    rotationGesturesEnabled = false,
+                    rotationGesturesEnabled = true,
                     tiltGesturesEnabled = false,
                 ),
                 onMapLoaded = {
@@ -186,7 +226,9 @@ fun CollectionMap(
                     }
                 },
             ) {
-                if (route.line.size > 1) {
+                val atStop = riderPoint != null && pickup != null &&
+                    haversineMetres(riderPoint, pickup) <= ARRIVAL_METRES.toInt()
+                if (route.line.size > 1 && !atStop) {
                     Polyline(
                         points = route.line.map { it.toLatLng() },
                         color = routeBlue,
@@ -213,6 +255,8 @@ fun CollectionMap(
                         state = state,
                         icon = riderMarker.icon,
                         anchor = riderMarker.anchor,
+                        rotation = 0f,
+                        flat = false,
                         zIndex = 2f,
                     )
                 }
@@ -354,19 +398,37 @@ internal fun riderMarkerIcon(context: android.content.Context, label: String?): 
         textPaint,
     )
     val source = android.graphics.BitmapFactory.decodeResource(context.resources, R.drawable.rider_motorcycle_yellow_box)
-    val scaled = Bitmap.createScaledBitmap(source, bike, bike, true)
+    val scaled = Bitmap.createScaledBitmap(source, bike, bike, true).facingUp()
     canvas.drawBitmap(scaled, (width - bike) / 2f, bikeTop, null)
     val anchorY = (bikeTop + bike / 2f) / height.toFloat()
     return RiderMarkerIcon(BitmapDescriptorFactory.fromBitmap(bitmap), Offset(0.5f, anchorY.coerceIn(0f, 1f)))
 }
 
-/** Green motorcycle with a yellow delivery box, drawn locally without external images. */
+/** Unrotated artwork for turn-by-turn, which rotates the marker itself. */
 internal fun riderMotorcycleImage(context: android.content.Context): Bitmap {
     val source = android.graphics.BitmapFactory.decodeResource(context.resources, R.drawable.rider_motorcycle_yellow_box)
     val size = (64f * context.resources.displayMetrics.density).toInt().coerceAtLeast(1)
     return Bitmap.createScaledBitmap(source, size, size, true)
 }
 
+/**
+ * On the square bitmap, the front wheel sits 124.4 degrees clockwise from the
+ * rear wheel. Rotating by the negative of that angle puts the front wheel
+ * directly above the rear wheel, with the yellow box at the bottom. The map
+ * marker stays at rotation 0, so this is the only turn applied to the artwork.
+ */
+private const val MOTORCYCLE_NOSE_CLOCKWISE_DEGREES = 124.4f
+
+private fun Bitmap.facingUp(): Bitmap {
+    val turned = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    Canvas(turned).apply {
+        rotate(-MOTORCYCLE_NOSE_CLOCKWISE_DEGREES, width / 2f, height / 2f)
+        drawBitmap(this@facingUp, 0f, 0f, null)
+    }
+    return turned
+}
+
 internal fun riderMotorcycleBitmap(context: android.content.Context): BitmapDescriptor {
-    return BitmapDescriptorFactory.fromBitmap(riderMotorcycleImage(context))
+    val image = riderMotorcycleImage(context).facingUp()
+    return BitmapDescriptorFactory.fromBitmap(image)
 }

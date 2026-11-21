@@ -148,23 +148,38 @@ class CollectionMapTest {
             pickup.longitude,
         )
         assertEquals(150, haversineMetres(north(150), pickup))
-        assertEquals(99, haversineMetres(north(99), pickup))
-        assertEquals(100, haversineMetres(north(100), pickup))
-        assertEquals(101, haversineMetres(north(101), pickup))
+        assertEquals(49, haversineMetres(north(49), pickup))
+        assertEquals(50, haversineMetres(north(50), pickup))
+        assertEquals(51, haversineMetres(north(51), pickup))
         assertEquals("477 m · 2 min", pickupTagLabel(north(150), pickup, roadMetres, roadSeconds))
-        assertEquals("0 m · 0 min", pickupTagLabel(north(99), pickup, roadMetres, roadSeconds))
-        assertEquals("0 m · 0 min", pickupTagLabel(north(100), pickup, roadMetres, roadSeconds))
-        assertEquals("477 m · 2 min", pickupTagLabel(north(101), pickup, roadMetres, roadSeconds))
+        assertEquals("0 m · 0 min", pickupTagLabel(north(49), pickup, roadMetres, roadSeconds))
+        assertEquals("0 m · 0 min", pickupTagLabel(north(50), pickup, roadMetres, roadSeconds))
+        assertEquals("477 m · 2 min", pickupTagLabel(north(51), pickup, roadMetres, roadSeconds))
         assertEquals("477 m · 2 min", pickupTagLabel(null, pickup, roadMetres, roadSeconds))
         assertEquals("477 m · 2 min", pickupTagLabel(north(10), null, roadMetres, roadSeconds))
+        val dropoff = GeoPoint(-17.83, 31.04)
+        fun northOfDropoff(metres: Int) = GeoPoint(
+            dropoff.latitude + (metres / 6_371_000.0) * (180.0 / Math.PI),
+            dropoff.longitude,
+        )
+        assertEquals("0 m · 0 min", pickupTagLabel(northOfDropoff(49), dropoff, roadMetres, roadSeconds))
+        assertEquals("0 m · 0 min", pickupTagLabel(northOfDropoff(50), dropoff, roadMetres, roadSeconds))
+        assertEquals("477 m · 2 min", pickupTagLabel(northOfDropoff(51), dropoff, roadMetres, roadSeconds))
+        assertEquals("477 m · 2 min", pickupTagLabel(null, dropoff, roadMetres, roadSeconds))
     }
 
     @Test
     fun dropoffArrivalUsesAFreshFixInsideOneHundredMetresAndDoesNotFlicker() {
         val dropoff = GeoPoint(pickup.latitude + 0.01, pickup.longitude)
-        val inside = GeoPoint(dropoff.latitude + 80 / 111_320.0, dropoff.longitude)
-        val outside = GeoPoint(dropoff.latitude + 180 / 111_320.0, dropoff.longitude)
+        fun northOf(metres: Int) = GeoPoint(
+            dropoff.latitude + (metres / 6_371_000.0) * (180.0 / Math.PI),
+            dropoff.longitude,
+        )
+        val inside = northOf(49)
+        val boundary = northOf(50)
+        val outside = northOf(51)
         assertTrue(riderReachedDropoff(inside, dropoff))
+        assertTrue(riderReachedDropoff(boundary, dropoff))
         assertFalse(riderReachedDropoff(outside, dropoff))
         assertTrue(isDispatchUsable(1_000L, 30f))
         assertFalse(isDispatchUsable(LOCATION_MAX_FIX_AGE_MS + 1, 30f))
@@ -185,10 +200,13 @@ class CollectionMapTest {
 
     @Test
     fun treatsOneHundredMetresAsArrivalAndKeepsAFarRiderEnRoute() {
-        val nearby = GeoPoint(pickup.latitude + 80 / 111_320.0, pickup.longitude)
-        val away = GeoPoint(pickup.latitude + 180 / 111_320.0, pickup.longitude)
-        assertTrue(riderReachedPickup(nearby, pickup))
-        assertTrue(!riderReachedPickup(away, pickup))
+        fun northOf(metres: Int) = GeoPoint(
+            pickup.latitude + (metres / 6_371_000.0) * (180.0 / Math.PI),
+            pickup.longitude,
+        )
+        assertTrue(riderReachedPickup(northOf(49), pickup))
+        assertTrue(riderReachedPickup(northOf(50), pickup))
+        assertTrue(!riderReachedPickup(northOf(51), pickup))
     }
 
     @Test

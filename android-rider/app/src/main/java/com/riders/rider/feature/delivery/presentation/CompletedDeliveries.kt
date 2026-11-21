@@ -11,6 +11,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import com.riders.rider.core.design.LocalAppDark
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -145,5 +147,6 @@ private fun CompletedDeliveryCard(parcel: CommittedParcel, onOpen: (String) -> U
         modifier = Modifier.fillMaxWidth(),
         listBadge = true,
         serviceClass = parcel.serviceClass,
+        containerColor = if (LocalAppDark.current) null else Color.White,
     )
 }
