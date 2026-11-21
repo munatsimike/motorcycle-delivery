@@ -182,9 +182,9 @@ fun RequestRouteMap(
             modifier = Modifier
                 .fillMaxSize()
                 .onSizeChanged {
-                    mapWidth = it.width
-                    mapHeight = it.height
-                },
+                mapWidth = it.width
+                mapHeight = it.height
+            },
             cameraPositionState = camera,
             contentPadding = PaddingValues(
                 start = 40.dp,
@@ -260,8 +260,8 @@ fun RequestRouteMap(
                     .padding(horizontal = 12.dp, vertical = 6.dp),
                 style = RidersType.small,
                 color = RidersColors.textSecondary,
-            )
-        }
+                )
+            }
         }
     }
     LaunchedEffect(camera.isMoving, camera.cameraMoveStartedReason) {

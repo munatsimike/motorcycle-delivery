@@ -8,7 +8,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.padding
@@ -27,11 +26,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -57,20 +55,19 @@ import com.google.maps.android.compose.Marker
 import com.google.maps.android.compose.MarkerState
 import com.google.maps.android.compose.Polyline
 import com.google.maps.android.compose.rememberCameraPositionState
-import com.riders.rider.BuildConfig
 import com.riders.rider.R
 import com.riders.rider.core.design.LocalAppDark
 import com.riders.rider.core.design.RidersColors
 import com.riders.rider.core.design.RidersSpacing
 import com.riders.rider.core.design.RidersType
 import com.riders.rider.feature.delivery.domain.GeoPoint
-import com.riders.rider.feature.delivery.domain.withMinimumCameraSpan
-import com.riders.rider.feature.delivery.domain.approachSummary
+import com.riders.rider.feature.delivery.domain.pickupTagLabel
 import com.riders.rider.feature.delivery.domain.collectionCameraFrame
 import com.riders.rider.feature.delivery.domain.collectionMarkerPaddingPx
 import com.riders.rider.feature.delivery.domain.parseGeoPoint
+import com.riders.rider.feature.delivery.domain.withMinimumCameraSpan
+import com.riders.rider.feature.offers.presentation.locationDrawableMarker
 
-private val routeGreen = Color(0xFF169B62)
 private val routeBlue = Color(0xFF1A73E8)
 private val sideClearance = 40.dp
 private val pinClearance = 48.dp
@@ -95,11 +92,7 @@ fun CollectionMap(
     val context = LocalContext.current
     val density = LocalDensity.current
     val mapStyles = remember(context) { RiderMapStyles.load(context) }
-    var mapTheme by remember { mutableStateOf(RiderMapTheme.ClassicLight) }
-    LaunchedEffect(Unit) {
-        RiderMapThemeStore.write(context, RiderMapTheme.ClassicLight)
-    }
-    val mapStyle = mapStyles.optionsFor(mapTheme, LocalAppDark.current)
+    val mapStyle = mapStyles.optionsFor(RiderMapTheme.ClassicLight, LocalAppDark.current)
     var pickupIcon by remember { mutableStateOf<BitmapDescriptor?>(null) }
     val initial = pickup ?: rider?.let { GeoPoint(it.latitude, it.longitude) }
     val camera = rememberCameraPositionState {
@@ -120,7 +113,7 @@ fun CollectionMap(
     val routeReady = route.line.size > 1
     val routeGate = routeReady || framedRoute
     val statusTop = with(density) { WindowInsets.statusBars.getTop(this).toDp() }
-    val approachLabel = approachSummary(route.metres, route.seconds)
+    val approachLabel = pickupTagLabel(riderPoint, pickup, route.metres, route.seconds)
     val riderMarker = remember(approachLabel, mapLoaded) {
         if (mapLoaded) riderMarkerIcon(context, approachLabel) else null
     }
@@ -189,7 +182,7 @@ fun CollectionMap(
                 onMapLoaded = {
                     mapLoaded = true
                     if (pickupIcon == null) {
-                        pickupIcon = markerBitmap(context, R.drawable.ic_filled_pickup_marker, routeGreen.toArgb(), 38f, circled = false)
+                        pickupIcon = locationDrawableMarker(context, R.drawable.ic_solid_pickup_location)
                     }
                 },
             ) {
@@ -239,35 +232,6 @@ fun CollectionMap(
                     .background(RidersColors.sheet)
                     .padding(horizontal = RidersSpacing.lg, vertical = RidersSpacing.sm),
             )
-        }
-        if (BuildConfig.DEBUG) {
-            Row(
-                Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(start = RidersSpacing.md, bottom = sheetOverlap + RidersSpacing.md)
-                    .shadow(8.dp, CircleShape, ambientColor = RidersColors.shadow, spotColor = RidersColors.shadow)
-                    .clip(CircleShape)
-                    .background(RidersColors.sheet)
-                    .padding(RidersSpacing.xs),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                RiderMapTheme.entries.forEach { option ->
-                    val selected = option == mapTheme
-                    Text(
-                        if (option == RiderMapTheme.MinimalLight) "Minimal" else "Classic",
-                        style = RidersType.small,
-                        color = if (selected) Color.White else RidersColors.textSecondary,
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            .background(if (selected) RidersColors.primary else Color.Transparent)
-                            .clickable(role = Role.Button) {
-                                mapTheme = option
-                                RiderMapThemeStore.write(context, option)
-                            }
-                            .padding(horizontal = RidersSpacing.sm, vertical = RidersSpacing.xs),
-                    )
-                }
-            }
         }
         Icon(
             painter = painterResource(R.drawable.ic_recenter),

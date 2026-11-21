@@ -15,7 +15,6 @@ import {
   TRACKING_POLL_MS,
   activeCustomerBids,
   activeOfferCountLabel,
-  arrivalLabel,
   customerOfferForBooking,
   deliveryActions,
   deliveryScreen,
@@ -38,8 +37,8 @@ import {
   riderDialUrl,
   riderMarkerForMap,
   riderWhatsAppUrl,
+  pickupDistanceTag,
   pickupStraightLineMetres,
-  roadDistanceLabel,
   shouldPollDelivery,
   shouldShowRiderConfirmed,
   showsCompletedRoute,
@@ -481,12 +480,10 @@ export function DeliveryDetailsPage() {
     || (screen === 'offers' && delivery.pickupLatitude !== null && delivery.pickupLongitude !== null)
     || (screen !== 'outcome' && mapView.kind !== 'hidden');
   const approach = live ? delivery.pickupApproach : null;
-  const headline = trackingHeadline(delivery.status, pickupStraightLineMetres(delivery, now));
-  const pickupArrived = live && !mapView.headingToDropoff && headline === 'Rider arrived';
+  const straightMetres = mapView.kind !== 'hidden' && mapView.headingToDropoff ? null : pickupStraightLineMetres(delivery, now);
+  const headline = trackingHeadline(delivery.status, straightMetres);
   const subtitle = trackingSubtitle(headline, delivery.dropoffAddress);
-  const distance = approach ? roadDistanceLabel(approach.metres) : null;
-  const eta = approach ? arrivalLabel(approach.seconds) : null;
-  const summary = pickupArrived ? '0 m · 0 min' : [distance, eta].filter((part): part is string => Boolean(part)).join(' · ') || null;
+  const summary = pickupDistanceTag(straightMetres, approach?.metres, approach?.seconds);
   const currentDelivery = delivery;
   async function withToken(task: (token: string) => Promise<void>) {
     if (busyRef.current) return;
@@ -756,7 +753,6 @@ export function DeliveryDetailsPage() {
           headingToDropoff={mapView.headingToDropoff}
           pickupLabel={!mapView.headingToDropoff ? 'Pickup location' : null}
           line={approach?.line ?? []}
-          hideRoute={pickupArrived}
           summary={summary}
           stroke="#1A73E8"
         />
@@ -1353,7 +1349,7 @@ function WhatsAppIcon() {
   return (
     <svg className="whatsapp-icon" viewBox="0 0 24 24" aria-hidden="true">
       <path className="whatsapp-outline" d="M20.5 11.6a8.5 8.5 0 0 1-12.4 7.5L3 20.5l1.4-5A8.5 8.5 0 1 1 20.5 11.6Z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M8.4 7.8c-.3-.4-.6-.4-.9-.3-.5.2-.9.8-.9 1.5 0 2.2 3 5.5 5.7 6.8 1.6.8 3 .8 3.8.1.4-.4.6-1 .5-1.3l-2.4-1.1c-.3-.1-.5 0-.7.2l-.7.9c-1.6-.7-2.8-1.9-3.6-3.5l.8-.8c.2-.2.2-.4.1-.7Z" fill="currentColor" stroke="none" />
+      <path d="M8.2 7.4c-.3-.4-.6-.4-.9-.3-.6.2-1.1.9-1.1 1.7 0 2.4 3.2 5.9 6.1 7.2 1.7.8 3.3.8 4.1 0 .5-.5.7-1.1.6-1.5-.1-.2-.3-.3-.5-.4l-2.1-1c-.3-.1-.5-.1-.7.2l-.8 1c-1.7-.8-3-2.1-3.9-3.8l.9-.9c.2-.2.2-.5.1-.7Z" fill="currentColor" stroke="none" />
     </svg>
   );
 }

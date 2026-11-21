@@ -5,9 +5,11 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
@@ -25,12 +27,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.riders.rider.R
+import com.riders.rider.core.design.RidersCard
 import com.riders.rider.core.design.RidersColors
 import com.riders.rider.core.design.RidersEmptyState
 import com.riders.rider.core.design.RidersFailureNotice
@@ -48,7 +52,9 @@ import com.riders.rider.feature.bids.domain.pendingBids
 import com.riders.rider.feature.delivery.domain.DeliveryListSort
 import com.riders.rider.feature.delivery.domain.sortDeliveries
 import com.riders.rider.feature.delivery.presentation.ContentIcon
+import com.riders.rider.feature.delivery.presentation.cardLocationPinWidth
 import com.riders.rider.feature.delivery.presentation.ContentLabel
+import com.riders.rider.feature.delivery.presentation.ServiceClassLabel
 import com.riders.rider.feature.delivery.presentation.DeliveryRoute
 import com.riders.rider.feature.offers.domain.OFFER_REFRESH_INTERVAL_MS
 import com.riders.rider.feature.offers.domain.shouldPollMarketplace
@@ -143,7 +149,7 @@ fun BidBoardScreen(
                             color = Color(0xFFB45309),
                         )
                     }
-                    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm)) {
+                    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(RidersSpacing.md)) {
                         shown.forEach { bid ->
                             OwnBidRow(
                                 bid = bid,
@@ -175,24 +181,15 @@ private fun OwnBidRow(
     withdrawing: Boolean,
     onWithdraw: () -> Unit,
 ) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .padding(vertical = RidersSpacing.md),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
-    ) {
+    RidersCard(modifier = Modifier.fillMaxWidth(), bottomPadding = RidersSpacing.md) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md),
+            horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
         ) {
-            ContentIcon(bid.parcelDescription, size = 22.dp)
-            Row(
-                Modifier.weight(1f),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
-            ) {
-                ContentLabel(bid.parcelDescription)
-            }
+            ContentIcon(bid.parcelDescription, size = 15.dp, muted = true)
+            ContentLabel(bid.parcelDescription, compact = true)
+            ServiceClassLabel(bid.serviceClass)
+            Spacer(Modifier.weight(1f))
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text("Your offer", style = RidersType.caption, color = RidersColors.textSecondary, maxLines = 1)
                 Text(
@@ -203,7 +200,14 @@ private fun OwnBidRow(
                 )
             }
         }
-        DeliveryRoute(bid.pickupAddress, bid.dropoffAddress)
+        DeliveryRoute(
+            bid.pickupAddress,
+            bid.dropoffAddress,
+            modifier = Modifier.offset(x = -((cardLocationPinWidth - 15.dp) / 2)),
+            constantSpacing = true,
+            addressFontSize = 16.sp,
+            addressLineHeight = 21.sp,
+        )
         if (bidCanWithdraw(bid.status)) {
             WithdrawAction(withdrawing, onWithdraw)
         }

@@ -202,6 +202,24 @@ export function arrivalLabel(seconds: number): string | null {
 
 const EARTH_RADIUS_METRES = 6_371_000;
 const PICKUP_ARRIVAL_METRES = 100;
+export const PICKUP_ARRIVED_TAG = '0 m · 0 min';
+
+export function riderWithinPickup(metres: number | null | undefined): boolean {
+  return metres != null && Number.isFinite(metres) && metres >= 0 && metres <= PICKUP_ARRIVAL_METRES;
+}
+
+/** Pickup tag only. A missing or stale fix keeps the road distance instead of showing zero. */
+export function pickupDistanceTag(
+  straightMetres: number | null | undefined,
+  roadMetres: number | null | undefined,
+  roadSeconds: number | null | undefined,
+): string | null {
+  if (riderWithinPickup(straightMetres)) return PICKUP_ARRIVED_TAG;
+  const distance = roadMetres == null ? null : roadDistanceLabel(roadMetres);
+  const eta = roadSeconds == null ? null : arrivalLabel(roadSeconds);
+  const summary = [distance, eta].filter((part): part is string => Boolean(part)).join(' · ');
+  return summary || null;
+}
 
 export function straightLineMetres(latitudeA: number, longitudeA: number, latitudeB: number, longitudeB: number): number {
   const latitudeARadians = toRadians(latitudeA);
@@ -237,7 +255,7 @@ export function pickupStraightLineMetres(
 export function trackingHeadline(status: DeliveryStatus, distanceMetres?: number | null): string | null {
   if (status === 'ASSIGNED' || status === 'ARRIVED_AT_PICKUP' || status === 'RIDER_ASSIGNED' || status === 'COLLECTING') {
     if (status === 'ARRIVED_AT_PICKUP') return 'Rider arrived';
-    if (distanceMetres != null && Number.isFinite(distanceMetres) && distanceMetres >= 0 && distanceMetres <= PICKUP_ARRIVAL_METRES) return 'Rider arrived';
+    if (riderWithinPickup(distanceMetres)) return 'Rider arrived';
     return status === 'RIDER_ASSIGNED' || status === 'COLLECTING' ? 'Rider coming' : 'Rider on the way';
   }
   if (status === 'PICKED_UP' || status === 'COLLECTED' || status === 'OUT_FOR_DELIVERY') return 'Parcel collected';

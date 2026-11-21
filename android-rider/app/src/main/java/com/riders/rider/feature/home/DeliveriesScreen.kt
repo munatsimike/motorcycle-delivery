@@ -39,7 +39,6 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.riders.rider.R
-import com.riders.rider.core.design.LocalAppDark
 import com.riders.rider.core.design.RidersBottomSheet
 import com.riders.rider.core.design.RidersColors
 import com.riders.rider.core.design.RidersRadius
@@ -235,8 +234,6 @@ private fun ToolbarMenu(
     Row(
         Modifier
             .clip(shape)
-            .background(RidersColors.background)
-            .border(1.dp, RidersColors.border, shape)
             .clickable(role = Role.Button, onClick = onClick)
             .padding(horizontal = RidersSpacing.md, vertical = RidersSpacing.xs),
         verticalAlignment = Alignment.CenterVertically,
@@ -388,18 +385,9 @@ private fun DeliveryTabs(
     onSelect: (DeliveryBoardTab) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val dark = LocalAppDark.current
     Row(
         modifier
             .fillMaxWidth()
-            .zIndex(1f)
-            .shadow(
-                elevation = if (dark) 6.dp else 3.dp,
-                shape = RoundedCornerShape(RidersRadius.pill),
-                clip = false,
-                ambientColor = Color.Black,
-                spotColor = Color.Black,
-            )
             .clip(RoundedCornerShape(RidersRadius.pill))
             .background(RidersColors.surface)
             .padding(RidersSpacing.xs),

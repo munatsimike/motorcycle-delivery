@@ -7,6 +7,8 @@ import com.riders.rider.feature.delivery.domain.NEAR_PLACE_ZOOM
 import com.riders.rider.feature.delivery.domain.ROUTE_REFRESH_INTERVAL_MS
 import com.riders.rider.feature.delivery.domain.STREET_LEVEL_ZOOM
 import com.riders.rider.feature.delivery.domain.approachSummary
+import com.riders.rider.feature.delivery.domain.haversineMetres
+import com.riders.rider.feature.delivery.domain.pickupTagLabel
 import com.riders.rider.feature.delivery.domain.collectionCameraFrame
 import com.riders.rider.feature.delivery.domain.collectionMarkerPaddingPx
 import com.riders.rider.feature.delivery.domain.decodeEncodedPolyline
@@ -135,6 +137,26 @@ class CollectionMapTest {
         assertNull(approachSummary(null, 180))
         assertNull(approachSummary(850.0, null))
         assertNull(approachSummary(-1.0, 180))
+    }
+
+    @Test
+    fun pickupTagShowsZeroOnlyInsideOneHundredStraightMetres() {
+        val roadMetres = 477.0
+        val roadSeconds = 120
+        fun north(metres: Int) = GeoPoint(
+            pickup.latitude + (metres / 6_371_000.0) * (180.0 / Math.PI),
+            pickup.longitude,
+        )
+        assertEquals(150, haversineMetres(north(150), pickup))
+        assertEquals(99, haversineMetres(north(99), pickup))
+        assertEquals(100, haversineMetres(north(100), pickup))
+        assertEquals(101, haversineMetres(north(101), pickup))
+        assertEquals("477 m · 2 min", pickupTagLabel(north(150), pickup, roadMetres, roadSeconds))
+        assertEquals("0 m · 0 min", pickupTagLabel(north(99), pickup, roadMetres, roadSeconds))
+        assertEquals("0 m · 0 min", pickupTagLabel(north(100), pickup, roadMetres, roadSeconds))
+        assertEquals("477 m · 2 min", pickupTagLabel(north(101), pickup, roadMetres, roadSeconds))
+        assertEquals("477 m · 2 min", pickupTagLabel(null, pickup, roadMetres, roadSeconds))
+        assertEquals("477 m · 2 min", pickupTagLabel(north(10), null, roadMetres, roadSeconds))
     }
 
     @Test

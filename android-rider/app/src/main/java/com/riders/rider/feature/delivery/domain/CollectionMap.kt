@@ -202,6 +202,35 @@ fun collectionMarkerPaddingPx(clearanceDp: Float, density: Float): Int {
  * Road distance and travel time from the routing service. Missing or invalid
  * values stay hidden rather than being estimated from a straight line.
  */
+const val PICKUP_ARRIVED_TAG = "0 m · 0 min"
+
+/** Same Haversine rounding the customer site uses for the 100-metre pickup check. */
+fun haversineMetres(from: GeoPoint, to: GeoPoint): Int {
+    val earth = 6_371_000.0
+    val latitudeA = Math.toRadians(from.latitude)
+    val latitudeB = Math.toRadians(to.latitude)
+    val deltaLatitude = latitudeB - latitudeA
+    val deltaLongitude = Math.toRadians(to.longitude - from.longitude)
+    val haversine = Math.sin(deltaLatitude / 2).let { it * it } +
+        Math.cos(latitudeA) * Math.cos(latitudeB) * Math.sin(deltaLongitude / 2).let { it * it }
+    val arc = 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine))
+    return Math.floor(earth * arc + 0.5).toInt()
+}
+
+/**
+ * Pickup marker tag. Within 100 straight-line metres the tag is zero.
+ * A missing fix keeps the driving distance. This does not change the route.
+ */
+fun pickupTagLabel(rider: GeoPoint?, pickup: GeoPoint?, roadMetres: Double?, roadSeconds: Int?): String? {
+    if (rider != null && pickup != null) {
+        val straight = haversineMetres(rider, pickup)
+        if (straight in 0..PICKUP_ARRIVAL_METRES.toInt()) {
+            return PICKUP_ARRIVED_TAG
+        }
+    }
+    return approachSummary(roadMetres, roadSeconds)
+}
+
 fun approachSummary(metres: Double?, seconds: Int?): String? {
     if (metres == null || seconds == null || !metres.isFinite() || metres <= 0.0 || seconds < 0) {
         return null

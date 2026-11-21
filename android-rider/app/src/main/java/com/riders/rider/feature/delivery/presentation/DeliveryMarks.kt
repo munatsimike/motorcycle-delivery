@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.riders.rider.R
 import com.riders.rider.core.design.RidersChangingText
+import com.riders.rider.core.design.LocalAppDark
 import com.riders.rider.core.design.RidersColors
 import com.riders.rider.core.design.RidersRadius
 import com.riders.rider.core.design.RidersSpacing
@@ -50,6 +51,7 @@ import com.riders.rider.feature.offers.presentation.RequestPaymentMark
 import com.riders.rider.feature.delivery.domain.deliveryListBadge
 import com.riders.rider.feature.delivery.domain.deliveryStatusLabel
 import com.riders.rider.feature.delivery.domain.deliveryWhenLabel
+import com.riders.rider.feature.delivery.domain.serviceClassLabel
 import com.riders.rider.feature.delivery.domain.shortDeliveryReference
 import com.riders.rider.feature.offers.domain.offerDistanceLabel
 
@@ -117,19 +119,47 @@ val pickupPinColor = Color(0xFF169B62)
 val dropoffPinColor = Color(0xFF1A73E8)
 private val locationPinWidth = 21.dp
 private val locationPinHeight = 25.dp
-/** Circle center in the pin artwork, as a fraction of its height. */
-private const val locationPinHeadCenter = 23f / 58f
+internal val cardLocationPinWidth = 26.dp
+internal val cardLocationPinHeight = 26.dp
+
+@Composable
+fun ServiceClassLabel(serviceClass: String?, modifier: Modifier = Modifier) {
+    val label = serviceClassLabel(serviceClass) ?: return
+    Row(
+        modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Icon(
+            painter = painterResource(if (serviceClass == "EXPRESS") R.drawable.ic_service_urgent else R.drawable.ic_service_flexible),
+            contentDescription = null,
+            modifier = Modifier.size(14.dp),
+            tint = RidersColors.textSecondary,
+        )
+        Text(
+            label,
+            style = TextStyle(
+                fontSize = 13.sp,
+                lineHeight = 18.sp,
+                fontWeight = FontWeight.Medium,
+                platformStyle = noFontPadding,
+            ),
+            color = RidersColors.textSecondary,
+        )
+    }
+}
 
 @Composable
 fun LocationPin(
     dropoff: Boolean,
     modifier: Modifier = Modifier,
-    size: Dp? = null,
+    width: Dp = locationPinWidth,
+    height: Dp = locationPinHeight,
 ) {
     Icon(
         painter = painterResource(if (dropoff) R.drawable.ic_solid_dropoff_location else R.drawable.ic_solid_pickup_location),
         contentDescription = if (dropoff) "Drop-off" else "Pickup",
-        modifier = if (size != null) modifier.size(size) else modifier.size(width = locationPinWidth, height = locationPinHeight),
+        modifier = modifier.size(width = width, height = height),
         tint = Color.Unspecified,
     )
 }
@@ -160,8 +190,11 @@ fun DeliverySummaryCard(
     modifier: Modifier = Modifier,
     details: List<String> = emptyList(),
     listBadge: Boolean = false,
+    serviceClass: String? = null,
+    filled: Boolean = true,
 ) {
     val shape = RoundedCornerShape(RidersRadius.lg)
+    val dark = LocalAppDark.current
     val listed = if (listBadge) deliveryListBadge(status) else null
     val tone = if (listed != null) {
         StatusTone(Color(listed.background), Color(listed.foreground))
@@ -170,9 +203,15 @@ fun DeliverySummaryCard(
     }
     Column(
         modifier
-            .shadow(elevation = 2.dp, shape = shape, ambientColor = Color(0xFF17211D), spotColor = Color(0xFF17211D))
+            .shadow(
+                elevation = if (filled) 2.dp else if (dark) 6.dp else 3.dp,
+                shape = shape,
+                clip = false,
+                ambientColor = if (filled) Color(0xFF17211D) else Color.Black,
+                spotColor = if (filled) Color(0xFF17211D) else Color.Black,
+            )
             .clip(shape)
-            .background(RidersColors.card)
+            .background(if (filled) RidersColors.card else RidersColors.background)
             .border(1.dp, RidersColors.border, shape)
             .clickable(role = Role.Button, onClick = onClick),
     ) {
@@ -194,11 +233,16 @@ fun DeliverySummaryCard(
                 ) {
                     ContentIcon(description, size = 15.dp, muted = true)
                     ContentLabel(description, compact = true)
+                    ServiceClassLabel(serviceClass)
                 }
-                DeliveryRoute(pickup, dropoff, constantSpacing = true, addressFontSize = 16.sp, addressLineHeight = 21.sp)
-                details.forEach { line ->
-                    Text(line, style = RidersType.caption, color = RidersColors.textSecondary)
-                }
+                DeliveryRoute(
+                    pickup,
+                    dropoff,
+                    modifier = Modifier.offset(x = -((cardLocationPinWidth - 15.dp) / 2)),
+                    constantSpacing = true,
+                    addressFontSize = 16.sp,
+                    addressLineHeight = 21.sp,
+                )
             }
             RidersChangingText(
                 value = listed?.label ?: deliveryStatusLabel(status),
@@ -231,15 +275,31 @@ fun DeliveryRoute(
         verticalArrangement = Arrangement.spacedBy(if (constantSpacing) 8.dp else RidersSpacing.sm),
     ) {
         if (pickupLine.isNotBlank()) {
-            DeliveryStop(pickupLine, dropoff = false, connect = false, fontSize = addressFontSize, lineHeight = addressLineHeight)
+            DeliveryStop(
+                pickupLine,
+                dropoff = false,
+                connect = false,
+                pinColumn = cardLocationPinWidth,
+                pinWidth = cardLocationPinWidth,
+                pinHeight = cardLocationPinHeight,
+                fontSize = addressFontSize,
+                lineHeight = addressLineHeight,
+            )
         }
         if (dropoffLine.isNotBlank()) {
-            DeliveryStop(dropoffLine, dropoff = true, connect = false, fontSize = addressFontSize, lineHeight = addressLineHeight)
+            DeliveryStop(
+                dropoffLine,
+                dropoff = true,
+                connect = false,
+                pinColumn = cardLocationPinWidth,
+                pinWidth = cardLocationPinWidth,
+                pinHeight = cardLocationPinHeight,
+                fontSize = addressFontSize,
+                lineHeight = addressLineHeight,
+            )
         }
     }
 }
-
-private val detailPinColumn = locationPinWidth
 
 @Composable
 fun DeliveryDetailsSummary(
@@ -305,7 +365,27 @@ fun DeliveryDetailsSummary(
                     DetailFact("Delivery", shortDeliveryReference(deliveryId), Modifier.weight(1f))
                 }
                 if (whenLabel.isNotEmpty()) {
-                    DetailFact(dateCaption, whenLabel, Modifier.weight(1f))
+                    if (parcelSheet) {
+                        Row(
+                            Modifier.weight(1f),
+                            horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_calendar),
+                                contentDescription = dateCaption,
+                                modifier = Modifier.size(18.dp),
+                                tint = RidersColors.textSecondary,
+                            )
+                            Text(
+                                whenLabel,
+                                style = RidersType.bodyStrong,
+                                color = RidersColors.text,
+                            )
+                        }
+                    } else {
+                        DetailFact(dateCaption, whenLabel, Modifier.weight(1f))
+                    }
                 }
             }
         }
@@ -331,7 +411,9 @@ fun DeliveryDetailsSummary(
                     line = pickupLine,
                     dropoff = false,
                     connect = false,
-                    pinColumn = detailPinColumn,
+                    pinColumn = cardLocationPinWidth,
+                    pinWidth = cardLocationPinWidth,
+                    pinHeight = cardLocationPinHeight,
                     lineHeight = if (spacious) 23.sp else 20.sp,
                     fontSize = if (spacious) 16.sp else 14.sp,
                     above = pickupContact,
@@ -343,7 +425,9 @@ fun DeliveryDetailsSummary(
                     line = dropoffLine,
                     dropoff = true,
                     connect = false,
-                    pinColumn = detailPinColumn,
+                    pinColumn = cardLocationPinWidth,
+                    pinWidth = cardLocationPinWidth,
+                    pinHeight = cardLocationPinHeight,
                     lineHeight = if (spacious) 23.sp else 20.sp,
                     fontSize = if (spacious) 16.sp else 14.sp,
                     above = dropoffContact,
@@ -381,21 +465,21 @@ private fun DistancePrice(distanceMeters: Int?, price: String?, currency: String
             )
         }
         Column(
-            horizontalAlignment = Alignment.End,
+            horizontalAlignment = Alignment.Start,
             verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs),
         ) {
+            Text("Price", style = RidersType.caption, color = RidersColors.textSecondary)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(RidersSpacing.xs),
             ) {
-                Text("Price", style = RidersType.caption, color = RidersColors.textSecondary)
+                Text(
+                    deliveryPriceLabel(price, currency) ?: "Unavailable",
+                    style = RidersType.heading,
+                    color = RidersColors.text,
+                )
                 RequestPaymentMark(paymentMethod)
             }
-            Text(
-                deliveryPriceLabel(price, currency) ?: "Unavailable",
-                style = RidersType.heading,
-                color = RidersColors.text,
-            )
         }
     }
 }
@@ -407,7 +491,8 @@ private fun ParcelDetailStop(
     detail: @Composable () -> Unit,
 ) {
     val density = LocalDensity.current
-    val pinTop = with(density) { 22.sp.toDp() } / 2 - 28.dp * locationPinHeadCenter
+    val contactHeight = with(density) { 22.sp.toDp() }
+    val textTop = ((cardLocationPinHeight - contactHeight) / 2).coerceAtLeast(0.dp)
     Row(
         Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -415,10 +500,10 @@ private fun ParcelDetailStop(
     ) {
         LocationPin(
             dropoff = dropoff,
-            modifier = Modifier.offset(y = pinTop),
-            size = 28.dp,
+            width = cardLocationPinWidth,
+            height = cardLocationPinHeight,
         )
-        Column(Modifier.weight(1f)) {
+        Column(Modifier.weight(1f).padding(top = textTop)) {
             contact()
             detail()
         }
@@ -429,30 +514,19 @@ private fun ParcelDetailStop(
 private fun DeliveredSender(name: String, address: String) {
     val shown = name.trim()
     val place = address.trim()
-    val density = LocalDensity.current
-    val labelHeight = with(density) { 20.sp.toDp() }
-    val nameHeight = with(density) { 22.sp.toDp() }
-    val addressHeight = with(density) { 21.sp.toDp() }
-    val pinAnchor = if (shown.isNotEmpty()) {
-        labelHeight + 4.dp + nameHeight / 2
-    } else {
-        labelHeight + 4.dp + addressHeight / 2
-    }
-    val pinTop = (pinAnchor - locationPinHeight * locationPinHeadCenter).coerceAtLeast(0.dp)
+    val textTop = with(LocalDensity.current) { ((cardLocationPinHeight - 20.sp.toDp()) / 2).coerceAtLeast(0.dp) }
     Row(
         Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
         verticalAlignment = Alignment.Top,
     ) {
         Box(
-            Modifier
-                .width(22.dp)
-                .padding(top = pinTop),
+            Modifier.width(cardLocationPinWidth),
             contentAlignment = Alignment.TopCenter,
         ) {
-            LocationPin(dropoff = false)
+            LocationPin(dropoff = false, width = cardLocationPinWidth, height = cardLocationPinHeight)
         }
-        Column(Modifier.weight(1f)) {
+        Column(Modifier.weight(1f).padding(top = textTop)) {
             Text(
                 "Sender",
                 style = RidersType.caption.copy(platformStyle = noFontPadding),
@@ -501,6 +575,8 @@ fun DeliveryStop(
     connect: Boolean,
     modifier: Modifier = Modifier,
     pinColumn: Dp = markSize,
+    pinWidth: Dp = locationPinWidth,
+    pinHeight: Dp = locationPinHeight,
     lineHeight: TextUnit = 18.sp,
     fontSize: TextUnit = 14.sp,
     above: @Composable () -> Unit = {},
@@ -510,13 +586,12 @@ fun DeliveryStop(
     var aboveHeight by remember { mutableStateOf(0.dp) }
     var belowHeight by remember { mutableStateOf(0.dp) }
     val hasName = aboveHeight > 0.dp
-    // A name above the address owns the pin. Otherwise the pin head sits on the address line.
-    val pinTop = if (hasName) {
-        (aboveHeight / 2 - locationPinHeight * locationPinHeadCenter).coerceAtLeast(0.dp)
+    val lineHeightDp = with(density) { lineHeight.toDp() }
+    // The icon stays at the top. The first line of text is centered on it.
+    val textTop = if (hasName) {
+        ((pinHeight - aboveHeight) / 2).coerceAtLeast(0.dp)
     } else {
-        with(density) {
-            (lineHeight.toDp() / 2 - locationPinHeight * locationPinHeadCenter).coerceAtLeast(0.dp)
-        }
+        ((pinHeight - lineHeightDp) / 2).coerceAtLeast(0.dp)
     }
     Row(
         modifier.fillMaxWidth(),
@@ -524,17 +599,15 @@ fun DeliveryStop(
         verticalAlignment = Alignment.Top,
     ) {
         Box(
-            Modifier
-                .width(pinColumn)
-                .padding(top = pinTop),
+            Modifier.width(pinColumn),
             contentAlignment = Alignment.TopCenter,
         ) {
-            LocationPin(dropoff = dropoff)
+            LocationPin(dropoff = dropoff, width = pinWidth, height = pinHeight)
         }
         Column(
             Modifier
                 .weight(1f)
-                .padding(bottom = if (connect) RidersSpacing.sm else 0.dp),
+                .padding(top = textTop),
         ) {
             Box(
                 Modifier.onSizeChanged { size ->

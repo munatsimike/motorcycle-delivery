@@ -186,5 +186,7 @@ private fun AssignmentCard(parcel: CommittedParcel, onOpen: (String) -> Unit) {
         onClick = { onOpen(parcel.deliveryId) },
         modifier = Modifier.fillMaxWidth(),
         listBadge = true,
+        serviceClass = parcel.serviceClass,
+        filled = false,
     )
 }

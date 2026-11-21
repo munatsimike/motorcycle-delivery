@@ -117,6 +117,9 @@ class DeliveryViewModel @Inject constructor(
         if (opening || state.value.busy != DeliveryBusy.None) {
             return
         }
+        if (state.value.status.isBlank() && state.value.pickupAddress.isBlank() && state.value.parcelDescription.isBlank()) {
+            state.value = DeliveryUi(deliveryId = deliveryId, syncing = true, refreshing = fromUser)
+        }
         opening = true
         viewModelScope.launch {
             try {

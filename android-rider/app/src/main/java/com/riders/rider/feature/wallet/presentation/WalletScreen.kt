@@ -263,17 +263,9 @@ private fun WalletBackdrop(modifier: Modifier = Modifier) {
 
 @Composable
 private fun WalletPicker(selected: String, onSelect: (String) -> Unit) {
-    val dark = LocalAppDark.current
     Row(
         Modifier
             .fillMaxWidth()
-            .shadow(
-                elevation = if (dark) 6.dp else 3.dp,
-                shape = RoundedCornerShape(RidersRadius.pill),
-                clip = false,
-                ambientColor = Color.Black,
-                spotColor = Color.Black,
-            )
             .clip(RoundedCornerShape(RidersRadius.pill))
             .background(RidersColors.surface)
             .padding(RidersSpacing.xs),

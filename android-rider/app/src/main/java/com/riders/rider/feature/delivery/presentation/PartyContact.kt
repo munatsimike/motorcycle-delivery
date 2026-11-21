@@ -232,18 +232,66 @@ private fun PartyContactRow(
                 )
             }
         }
+        val tightName = compact && plain
         Column(
             Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs),
+            verticalArrangement = Arrangement.spacedBy(if (tightName) 0.dp else RidersSpacing.xs),
         ) {
-            Text(role, style = RidersType.caption, color = RidersColors.textSecondary)
             Text(
-                name,
-                style = RidersType.body.copy(fontWeight = FontWeight.Bold),
-                color = RidersColors.text,
-                maxLines = if (plain) Int.MAX_VALUE else 1,
-                overflow = if (plain) TextOverflow.Clip else TextOverflow.Ellipsis,
+                role,
+                style = if (tightName) {
+                    RidersType.caption.copy(
+                        lineHeight = 16.sp,
+                        platformStyle = PlatformTextStyle(includeFontPadding = false),
+                    )
+                } else {
+                    RidersType.caption
+                },
+                color = RidersColors.textSecondary,
             )
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md),
+            ) {
+                Text(
+                    name,
+                    style = RidersType.body.copy(
+                        fontWeight = FontWeight.Bold,
+                        lineHeight = if (tightName) 22.sp else RidersType.body.lineHeight,
+                        platformStyle = if (tightName) PlatformTextStyle(includeFontPadding = false) else RidersType.body.platformStyle,
+                    ),
+                    color = RidersColors.text,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                if (onCall != null || onWhatsApp != null) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (onCall != null) {
+                            ContactActionIcon(
+                                R.drawable.ic_phone_outline,
+                                "Call $name",
+                                onCall,
+                                size = if (tightName) 22.dp else 24.dp,
+                                layoutSize = if (tightName) 24.dp else 40.dp,
+                            )
+                        }
+                        if (onWhatsApp != null) {
+                            ContactActionIcon(
+                                R.drawable.ic_whatsapp,
+                                "WhatsApp $name",
+                                onWhatsApp,
+                                size = if (tightName) 22.dp else 24.dp,
+                                layoutSize = if (tightName) 24.dp else 40.dp,
+                            )
+                        }
+                    }
+                }
+            }
             if (address.isNotEmpty()) {
                 Text(
                     address,
@@ -252,19 +300,6 @@ private fun PartyContactRow(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-            }
-        }
-        if (onCall != null || onWhatsApp != null) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (onCall != null) {
-                    ContactActionIcon(R.drawable.ic_phone_outline, "Call $name", onCall)
-                }
-                if (onWhatsApp != null) {
-                    ContactActionIcon(R.drawable.ic_whatsapp, "WhatsApp $name", onWhatsApp)
-                }
             }
         }
     }

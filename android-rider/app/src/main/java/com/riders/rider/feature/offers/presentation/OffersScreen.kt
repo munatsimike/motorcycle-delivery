@@ -91,6 +91,9 @@ import com.riders.rider.feature.delivery.presentation.partyName
 import com.riders.rider.feature.delivery.presentation.partyPhone
 import com.riders.rider.feature.delivery.presentation.ContentLabel
 import com.riders.rider.feature.delivery.presentation.DeliveryStop
+import com.riders.rider.feature.delivery.presentation.ServiceClassLabel
+import com.riders.rider.feature.delivery.presentation.cardLocationPinHeight
+import com.riders.rider.feature.delivery.presentation.cardLocationPinWidth
 import com.riders.rider.feature.delivery.presentation.deliveryContentLabel
 import com.riders.rider.feature.delivery.domain.NEW_OFFER_BACKGROUND
 import com.riders.rider.feature.delivery.domain.NEW_OFFER_BADGE
@@ -475,7 +478,9 @@ private fun IncomingOfferActions(
             enabled = canAct && !submittingBid,
             loading = accepting || submittingBid,
             loadingLabel = if (senderChoosesRider(offer.serviceClass)) "Sending" else "Accepting",
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = RidersSpacing.sm),
             compact = true,
         )
         RidersSecondaryButton(
@@ -491,8 +496,8 @@ private fun IncomingOfferActions(
         )
         Text(
             if (declining) "Declining" else DECLINE_REQUEST,
-            style = RidersType.caption,
-            color = RidersColors.textSecondary,
+            style = RidersType.body.copy(fontWeight = FontWeight.Medium),
+            color = RidersColors.primary,
             textAlign = TextAlign.Center,
             modifier = Modifier
                 .fillMaxWidth()
@@ -790,7 +795,7 @@ private fun OfferDetailsSheet(visible: Boolean, offer: OfferResponse, amount: St
 
 @Composable
 private fun SentOfferDetails(offer: OfferResponse, amount: String) {
-    RidersCard(modifier = Modifier.fillMaxWidth()) {
+    RidersCard(modifier = Modifier.fillMaxWidth(), bordered = false) {
         SentOfferHeading()
         SentOfferNote(offer, amount)
         Spacer(Modifier.height(RidersSpacing.md))
@@ -845,19 +850,20 @@ private fun SentOfferNote(offer: OfferResponse, amount: String) {
 
 @Composable
 private fun OfferPriceLine(currency: String, amount: String, paymentMethod: String?) {
-    Column(
-        Modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.End,
-        verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs),
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(RidersSpacing.xs),
+    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
+        Column(
+            horizontalAlignment = Alignment.Start,
+            verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs),
         ) {
             Text("Price", style = RidersType.caption, color = RidersColors.textSecondary)
-            RequestPaymentMark(paymentMethod)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(RidersSpacing.xs),
+            ) {
+                Text(requestAmountLabel(currency, amount), style = RidersType.bodyStrong, color = RidersColors.text)
+                RequestPaymentMark(paymentMethod)
+            }
         }
-        Text(requestAmountLabel(currency, amount), style = RidersType.bodyStrong, color = RidersColors.text)
     }
 }
 
@@ -964,6 +970,7 @@ private fun OfferSummary(offer: OfferResponse, nowMillis: Long, detailed: Boolea
         ) {
             ContentIcon(offer.parcel.description, size = 14.dp, muted = true)
             ContentLabel(offer.parcel.description, compact = true)
+            ServiceClassLabel(offer.serviceClass)
         }
         if (hasDeadline || statusLabel != null) {
             OfferExpiry(offer.expiresAt, nowMillis, expired, statusLabel, fresh)
@@ -990,11 +997,17 @@ private fun OfferSummary(offer: OfferResponse, nowMillis: Long, detailed: Boolea
             Text(offerDistanceLabel(offer.distanceMeters), style = RidersType.body, color = RidersColors.text)
         }
         Column(
-            horizontalAlignment = Alignment.End,
+            horizontalAlignment = Alignment.Start,
             verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs),
         ) {
             Text("Price", style = RidersType.caption, color = RidersColors.textSecondary)
-            Text(requestAmountLabel(offer.currency, offer.offeredPrice), style = RidersType.heading, color = RidersColors.text)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(RidersSpacing.xs),
+            ) {
+                Text(requestAmountLabel(offer.currency, offer.offeredPrice), style = RidersType.heading, color = RidersColors.text)
+                RequestPaymentMark(offer.paymentMethod)
+            }
         }
     }
 }
@@ -1063,5 +1076,15 @@ private fun OfferStop(
     connected: Boolean,
     above: @Composable () -> Unit = {},
 ) {
-    DeliveryStop(line, dropoff = !pickup, connect = false, fontSize = 16.sp, lineHeight = 21.sp, above = above)
+    DeliveryStop(
+        line,
+        dropoff = !pickup,
+        connect = false,
+        pinColumn = cardLocationPinWidth,
+        pinWidth = cardLocationPinWidth,
+        pinHeight = cardLocationPinHeight,
+        fontSize = 16.sp,
+        lineHeight = 21.sp,
+        above = above,
+    )
 }

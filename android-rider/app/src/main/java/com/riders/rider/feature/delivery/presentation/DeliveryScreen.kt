@@ -33,10 +33,13 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
+import android.content.Intent
 import android.graphics.drawable.ColorDrawable
+import android.net.Uri
 import android.view.ViewGroup
 import android.view.WindowManager
 import androidx.compose.runtime.SideEffect
@@ -50,6 +53,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
@@ -93,6 +97,7 @@ import com.riders.rider.feature.delivery.domain.collectedPrimaryAction
 import com.riders.rider.feature.delivery.domain.distinctStopDetail
 import com.riders.rider.feature.delivery.domain.riderCancelReasonChoices
 import com.riders.rider.feature.delivery.domain.navigationActionLabel
+import com.riders.rider.feature.delivery.domain.MAPS_UNAVAILABLE
 import com.riders.rider.feature.delivery.domain.navigationTarget
 import com.riders.rider.feature.delivery.domain.showsRecipientOnDelivery
 import com.riders.rider.feature.delivery.domain.GeoPoint
@@ -209,6 +214,31 @@ fun DeliveryScreen(
             onExit = { guidance = null },
             model = guidanceModel,
         )
+        return
+    }
+    if (ui.status.isBlank() && ui.pickupAddress.isBlank() && ui.parcelDescription.isBlank() && !ui.missing && ui.error == null) {
+    Box(
+        Modifier
+            .fillMaxSize()
+                .background(RidersColors.background),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(RidersSpacing.md),
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(36.dp),
+                    color = RidersColors.primary,
+                    strokeWidth = 3.dp,
+                )
+                Text(
+                    "Loading status",
+                    style = RidersType.caption,
+                    color = RidersColors.textSecondary,
+                )
+            }
+        }
         return
     }
     Box(
@@ -641,11 +671,11 @@ private fun DeliveryActionBlock(
             Arrangement.spacedBy(stackSpacing)
         },
     ) {
-        if (!compact) {
+        if (!compact || collecting) {
             CollectionActions(
                 ui = ui,
                 collecting = collecting,
-                riderArrived = riderArrived,
+                riderArrived = riderArrived && !compact,
                 blocked = blocked,
                 targetUri = target?.uri,
                 onConfirm = onConfirm,
@@ -655,32 +685,37 @@ private fun DeliveryActionBlock(
         }
         if (ui.status != "DELIVERED") {
             val recipient = showsRecipientOnDelivery(ui.status)
-            PartyContact(
-                role = if (recipient) "Recipient" else "Sender",
-                name = if (recipient) ui.contacts?.dropoffName.orEmpty() else ui.contacts?.pickupName.orEmpty(),
-                phone = if (recipient) ui.contacts?.dropoffPhone.orEmpty() else ui.contacts?.pickupPhone.orEmpty(),
-                address = if (recipient) ui.dropoffAddress else ui.pickupAddress,
-                compact = compact,
-                tinted = collected && recipient,
-                plain = compact || readyForCollection(ui.status) || collected || ui.status == "PICKED_UP",
-            )
+            Box(
+                Modifier.padding(
+                    top = if (collecting && !recipient && !compact) RidersSpacing.sm else 0.dp,
+                    bottom = when {
+                        compact && collecting && riderArrived -> RidersSpacing.xl
+                        compact -> 22.dp
+                        else -> 0.dp
+                    },
+                ),
+            ) {
+                PartyContact(
+                    role = if (recipient) "Recipient" else "Sender",
+                    name = if (recipient) ui.contacts?.dropoffName.orEmpty() else ui.contacts?.pickupName.orEmpty(),
+                    phone = if (recipient) ui.contacts?.dropoffPhone.orEmpty() else ui.contacts?.pickupPhone.orEmpty(),
+                    address = if (recipient) ui.dropoffAddress else ui.pickupAddress,
+                    compact = compact,
+                    tinted = collected && recipient,
+                    plain = compact || readyForCollection(ui.status) || collected || ui.status == "PICKED_UP",
+                )
+            }
         }
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .padding(top = if (partyThenAction) 20.dp else 0.dp),
-            verticalArrangement = Arrangement.spacedBy(stackSpacing),
-        ) {
-        if (compact) {
-            CollectionActions(
-                ui = ui,
-                collecting = collecting,
-                riderArrived = riderArrived,
-                blocked = blocked,
-                targetUri = target?.uri,
-                onConfirm = onConfirm,
-                onNavigate = onNavigate,
-                destinationNote = destinationNote,
+        if (compact && collecting && riderArrived) {
+            RidersPrimaryButton(
+                label = "Confirm pickup",
+                onClick = { onConfirm("Confirm pickup") },
+                enabled = !blocked,
+                loading = ui.busy == DeliveryBusy.Advance,
+                loadingLabel = "Confirm pickup",
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = RidersSpacing.xl),
             )
         }
         if (!collecting && ui.marketplaceParcel && ui.nextLabel != null && target != null && !confirmCollected) {
@@ -832,7 +867,107 @@ private fun DeliveryActionBlock(
                 }
                 }
             }
+
+@Composable
+private fun PickupDirections(
+    targetUri: String?,
+    blocked: Boolean,
+    note: String?,
+    onInApp: () -> Unit,
+) {
+    val context = LocalContext.current
+    var mapsNote by remember(targetUri) { mutableStateOf<String?>(null) }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(bottom = RidersSpacing.md),
+    ) {
+        Text(
+            "Directions",
+            style = RidersType.caption.copy(
+                lineHeight = 16.sp,
+                platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false),
+            ),
+            color = RidersColors.textSecondary,
+        )
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            DirectionChoice(
+                label = "In-app map",
+                icon = R.drawable.ic_navigation,
+                tint = RidersColors.primary,
+                enabled = !blocked && targetUri != null,
+                onClick = onInApp,
+            )
+            DirectionChoice(
+                label = "Google Maps",
+                icon = R.drawable.ic_google_maps,
+                tint = Color.Unspecified,
+                enabled = !blocked && targetUri != null,
+                onClick = {
+                    val uri = targetUri ?: return@DirectionChoice
+                    mapsNote = if (openGoogleMaps(context, uri)) null else MAPS_UNAVAILABLE
+                },
+            )
         }
+        (mapsNote ?: note)?.let { message ->
+            Text(
+                message,
+                style = RidersType.body,
+                color = RidersColors.text,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = RidersSpacing.sm),
+            )
+        }
+    }
+}
+
+@Composable
+private fun DirectionChoice(
+    label: String,
+    icon: Int,
+    tint: Color,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier
+            .alpha(if (enabled) 1f else 0.6f)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .padding(top = 2.dp, bottom = RidersSpacing.xs),
+        horizontalArrangement = Arrangement.Start,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+    Icon(
+            painter = painterResource(icon),
+            contentDescription = null,
+            modifier = Modifier.size(20.dp),
+            tint = tint,
+        )
+        Spacer(Modifier.width(RidersSpacing.xs))
+        Text(
+            label,
+            style = RidersType.body.copy(fontWeight = FontWeight.Medium),
+            color = RidersColors.primary,
+            maxLines = 1,
+        )
+    }
+}
+
+private fun openGoogleMaps(context: android.content.Context, uri: String): Boolean {
+    val location = Uri.parse(uri)
+    val google = Intent(Intent.ACTION_VIEW, location).setPackage("com.google.android.apps.maps")
+    if (runCatching { context.startActivity(google) }.isSuccess) {
+        return true
+    }
+    return runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, location)) }.isSuccess
+}
 
 @Composable
 private fun CollectionActions(
@@ -845,35 +980,25 @@ private fun CollectionActions(
     onNavigate: () -> Unit,
     destinationNote: String?,
 ) {
-    if (!collecting) {
+    if (collecting) {
+        PickupDirections(
+            targetUri = targetUri,
+            blocked = blocked,
+            note = destinationNote,
+            onInApp = onNavigate,
+        )
+    }
+    if (!collecting || !riderArrived) {
         return
     }
-    if (riderArrived) {
-        RidersPrimaryButton(
-            label = "Confirm pickup",
-            onClick = { onConfirm("Confirm pickup") },
-            enabled = !blocked,
-            loading = ui.busy == DeliveryBusy.Advance,
-            loadingLabel = "Confirm pickup",
-            modifier = Modifier.fillMaxWidth(),
-        )
-    } else if (targetUri != null) {
-        RidersPrimaryButton(
-            label = "Navigate to pickup",
-            onClick = onNavigate,
-            enabled = !blocked,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        destinationNote?.let { note ->
-            Text(
-                note,
-                style = RidersType.body,
-                color = RidersColors.text,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-    }
+    RidersPrimaryButton(
+        label = "Confirm pickup",
+        onClick = { onConfirm("Confirm pickup") },
+        enabled = !blocked,
+        loading = ui.busy == DeliveryBusy.Advance,
+        loadingLabel = "Confirm pickup",
+        modifier = Modifier.fillMaxWidth(),
+    )
 }
 
 @Composable
