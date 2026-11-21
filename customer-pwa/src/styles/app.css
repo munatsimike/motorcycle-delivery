@@ -2075,7 +2075,11 @@ button.home-status:disabled {
 }
 
 .track-contact .track-icon-btn svg.whatsapp-icon path:not(.whatsapp-outline) {
-  stroke: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .track-parcel svg,

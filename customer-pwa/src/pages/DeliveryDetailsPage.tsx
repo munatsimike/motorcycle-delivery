@@ -756,6 +756,7 @@ export function DeliveryDetailsPage() {
           pickupLabel={!mapView.headingToDropoff ? 'Pickup location' : null}
           line={approach?.line ?? []}
           summary={summary}
+          stroke="#1A73E8"
         />
       ) : null}
       {screen === 'status' ? (
