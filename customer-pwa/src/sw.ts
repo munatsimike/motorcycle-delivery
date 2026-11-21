@@ -60,6 +60,7 @@ if (firebaseConfig && firebaseVapidKey()) {
     if (action !== 'show') return;
     await self.registration.showNotification(copy.title ?? 'Riders Delivery', {
       body: copy.body ?? '',
+      icon: '/notification-icon.png',
       data: payload.data,
     });
   });
