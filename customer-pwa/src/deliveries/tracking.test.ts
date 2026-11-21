@@ -24,7 +24,9 @@ import {
   activeOfferCountLabel,
   receivedOfferCountLabel,
   readRouteLine,
+  activeStopStraightLineMetres,
   advanceMotorcycleHeading,
+  dropoffStraightLineMetres,
   pickupDistanceTag,
   pickupStraightLineMetres,
   riderFixIsFresh,
@@ -374,19 +376,19 @@ test('arrival uses straight-line distance and ignores the road route', () => {
     pickupApproach: { metres: 484, seconds: 90, line: [] },
   });
 
+  assert.equal(pickupStraightLineMetres(at(49), NOW), 49);
+  assert.equal(trackingHeadline('COLLECTING', pickupStraightLineMetres(at(49), NOW)), 'Rider arrived');
   assert.equal(pickupStraightLineMetres(at(50), NOW), 50);
-  assert.equal(trackingHeadline('COLLECTING', pickupStraightLineMetres(at(50), NOW)), 'Rider arrived');
-  assert.equal(pickupStraightLineMetres(at(99), NOW), 99);
-  assert.equal(trackingHeadline('RIDER_ASSIGNED', pickupStraightLineMetres(at(99, 'RIDER_ASSIGNED'), NOW)), 'Rider arrived');
-  assert.equal(pickupStraightLineMetres(at(101), NOW), 101);
-  assert.equal(trackingHeadline('COLLECTING', pickupStraightLineMetres(at(101), NOW)), 'Rider coming');
+  assert.equal(trackingHeadline('RIDER_ASSIGNED', pickupStraightLineMetres(at(50, 'RIDER_ASSIGNED'), NOW)), 'Rider arrived');
+  assert.equal(pickupStraightLineMetres(at(51), NOW), 51);
+  assert.equal(trackingHeadline('COLLECTING', pickupStraightLineMetres(at(51), NOW)), 'Rider coming');
 
-  const nearDoor = at(75);
+  const nearDoor = at(40);
   assert.equal(nearDoor.pickupApproach?.metres, 484);
   assert.equal(roadDistanceLabel(nearDoor.pickupApproach?.metres ?? 0), '484 m');
-  assert.equal(pickupStraightLineMetres(nearDoor, NOW), 75);
+  assert.equal(pickupStraightLineMetres(nearDoor, NOW), 40);
   assert.equal(trackingHeadline(nearDoor.status, pickupStraightLineMetres(nearDoor, NOW)), 'Rider arrived');
-  assert.equal(straightLineMetres(nearDoor.riderLocation!.latitude, nearDoor.riderLocation!.longitude, nearDoor.pickupLatitude!, nearDoor.pickupLongitude!), 75);
+  assert.equal(straightLineMetres(nearDoor.riderLocation!.latitude, nearDoor.riderLocation!.longitude, nearDoor.pickupLatitude!, nearDoor.pickupLongitude!), 40);
 });
 
 test('missing or stale GPS does not claim the rider has arrived', () => {
@@ -404,7 +406,7 @@ test('missing or stale GPS does not claim the rider has arrived', () => {
   assert.equal(trackingHeadline(unpinned.status, pickupStraightLineMetres(unpinned, NOW)), 'Rider coming');
 });
 
-test('the pickup tag shows zero only inside 100 metres', () => {
+test('the distance tag shows zero only inside 50 metres', () => {
   const fresh = new Date(NOW - 10_000).toISOString();
   const at = (metres: number, status: CustomerDeliveryDetail['status'] = 'COLLECTING') => detail({
     status,
@@ -412,7 +414,7 @@ test('the pickup tag shows zero only inside 100 metres', () => {
     pickupApproach: { metres: 477, seconds: 120, line: [] },
   });
   const tag = (delivery: CustomerDeliveryDetail) => {
-    const straight = pickupStraightLineMetres(delivery, NOW);
+    const straight = activeStopStraightLineMetres(delivery, NOW);
     return {
       headline: trackingHeadline(delivery.status, straight),
       tag: pickupDistanceTag(straight, delivery.pickupApproach?.metres, delivery.pickupApproach?.seconds),
@@ -422,26 +424,43 @@ test('the pickup tag shows zero only inside 100 metres', () => {
   const far = tag(at(150));
   assert.equal(far.headline, 'Rider coming');
   assert.equal(far.tag, '477 m · 2 min');
-  assert.equal(tag(at(99)).tag, '0 m · 0 min');
-  assert.equal(tag(at(99)).headline, 'Rider arrived');
-  assert.equal(tag(at(100)).tag, '0 m · 0 min');
-  assert.equal(tag(at(100)).headline, 'Rider arrived');
-  assert.equal(tag(at(101)).tag, '477 m · 2 min');
-  assert.equal(tag(at(101)).headline, 'Rider coming');
+  assert.equal(tag(at(49)).tag, '0 m · 0 min');
+  assert.equal(tag(at(49)).headline, 'Rider arrived');
+  assert.equal(tag(at(50)).tag, '0 m · 0 min');
+  assert.equal(tag(at(50)).headline, 'Rider arrived');
+  assert.equal(tag(at(51)).tag, '477 m · 2 min');
+  assert.equal(tag(at(51)).headline, 'Rider coming');
 
   const stale = detail({
     status: 'COLLECTING',
     riderLocation: riderNorthOf(10, new Date(NOW - 61_000).toISOString()),
     pickupApproach: { metres: 477, seconds: 120, line: [] },
   });
-  assert.equal(pickupDistanceTag(pickupStraightLineMetres(stale, NOW), 477, 120), '477 m · 2 min');
+  assert.equal(pickupDistanceTag(activeStopStraightLineMetres(stale, NOW), 477, 120), '477 m · 2 min');
   const missing = detail({ status: 'RIDER_ASSIGNED', riderLocation: null, pickupApproach: { metres: 477, seconds: 120, line: [] } });
-  assert.equal(pickupDistanceTag(pickupStraightLineMetres(missing, NOW), 477, 120), '477 m · 2 min');
+  assert.equal(pickupDistanceTag(activeStopStraightLineMetres(missing, NOW), 477, 120), '477 m · 2 min');
 
-  const collected = at(50, 'COLLECTED');
-  assert.equal(pickupStraightLineMetres(collected, NOW), null);
-  assert.equal(pickupDistanceTag(null, collected.pickupApproach?.metres, collected.pickupApproach?.seconds), '477 m · 2 min');
-  assert.equal(trackingHeadline(collected.status, null), 'Parcel collected');
+  const delivering = (metres: number, updatedAt = fresh) => detail({
+    status: 'COLLECTED',
+    riderLocation: {
+      latitude: -17.83 + (metres / EARTH_RADIUS_METRES) * (180 / Math.PI),
+      longitude: 31.06,
+      updatedAt,
+    },
+    pickupApproach: { metres: 477, seconds: 120, line: [] },
+  });
+  assert.equal(dropoffStraightLineMetres(delivering(49), NOW), 49);
+  assert.equal(tag(delivering(49)).tag, '0 m · 0 min');
+  assert.equal(tag(delivering(49)).headline, 'Parcel collected');
+  assert.equal(tag(delivering(50)).tag, '0 m · 0 min');
+  assert.equal(tag(delivering(51)).tag, '477 m · 2 min');
+  assert.equal(trackingHeadline('COLLECTED', dropoffStraightLineMetres(delivering(51), NOW)), 'Parcel collected');
+  const staleDropoff = delivering(10, new Date(NOW - 61_000).toISOString());
+  assert.equal(dropoffStraightLineMetres(staleDropoff, NOW), null);
+  assert.equal(pickupDistanceTag(activeStopStraightLineMetres(staleDropoff, NOW), 477, 120), '477 m · 2 min');
+  const missingDropoff = detail({ status: 'OUT_FOR_DELIVERY', riderLocation: null, pickupApproach: { metres: 477, seconds: 120, line: [] } });
+  assert.equal(dropoffStraightLineMetres(missingDropoff, NOW), null);
+  assert.equal(pickupDistanceTag(activeStopStraightLineMetres(missingDropoff, NOW), 477, 120), '477 m · 2 min');
 });
 
 test('the motorcycle follows travel direction for collection and delivery', () => {

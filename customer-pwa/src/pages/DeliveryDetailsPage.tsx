@@ -37,8 +37,9 @@ import {
   riderDialUrl,
   riderMarkerForMap,
   riderWhatsAppUrl,
+  activeStopStraightLineMetres,
   pickupDistanceTag,
-  pickupStraightLineMetres,
+  withinArrival,
   shouldPollDelivery,
   shouldShowRiderConfirmed,
   showsCompletedRoute,
@@ -480,7 +481,8 @@ export function DeliveryDetailsPage() {
     || (screen === 'offers' && delivery.pickupLatitude !== null && delivery.pickupLongitude !== null)
     || (screen !== 'outcome' && mapView.kind !== 'hidden');
   const approach = live ? delivery.pickupApproach : null;
-  const straightMetres = mapView.kind !== 'hidden' && mapView.headingToDropoff ? null : pickupStraightLineMetres(delivery, now);
+  const straightMetres = live ? activeStopStraightLineMetres(delivery, now) : null;
+  const arrived = withinArrival(straightMetres);
   const headline = trackingHeadline(delivery.status, straightMetres);
   const subtitle = trackingSubtitle(headline, delivery.dropoffAddress);
   const summary = pickupDistanceTag(straightMetres, approach?.metres, approach?.seconds);
@@ -753,6 +755,7 @@ export function DeliveryDetailsPage() {
           headingToDropoff={mapView.headingToDropoff}
           pickupLabel={!mapView.headingToDropoff ? 'Pickup location' : null}
           line={approach?.line ?? []}
+          hideRoute={arrived}
           summary={summary}
           stroke="#1A73E8"
         />

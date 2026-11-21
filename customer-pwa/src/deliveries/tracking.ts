@@ -209,11 +209,16 @@ export function arrivalLabel(seconds: number): string | null {
 }
 
 const EARTH_RADIUS_METRES = 6_371_000;
-const PICKUP_ARRIVAL_METRES = 100;
+/** Straight-line arrival at the active pickup or drop-off. */
+export const ARRIVAL_METRES = 50;
 export const PICKUP_ARRIVED_TAG = '0 m · 0 min';
 
+export function withinArrival(metres: number | null | undefined): boolean {
+  return metres != null && Number.isFinite(metres) && metres >= 0 && metres <= ARRIVAL_METRES;
+}
+
 export function riderWithinPickup(metres: number | null | undefined): boolean {
-  return metres != null && Number.isFinite(metres) && metres >= 0 && metres <= PICKUP_ARRIVAL_METRES;
+  return withinArrival(metres);
 }
 
 /** Pickup tag only. A missing or stale fix keeps the road distance instead of showing zero. */
@@ -222,7 +227,7 @@ export function pickupDistanceTag(
   roadMetres: number | null | undefined,
   roadSeconds: number | null | undefined,
 ): string | null {
-  if (riderWithinPickup(straightMetres)) return PICKUP_ARRIVED_TAG;
+  if (withinArrival(straightMetres)) return PICKUP_ARRIVED_TAG;
   const distance = roadMetres == null ? null : roadDistanceLabel(roadMetres);
   const eta = roadSeconds == null ? null : arrivalLabel(roadSeconds);
   const summary = [distance, eta].filter((part): part is string => Boolean(part)).join(' · ');
@@ -313,20 +318,43 @@ export function pickupStraightLineMetres(
   now: number,
 ): number | null {
   if (delivery.status !== 'ASSIGNED' && delivery.status !== 'RIDER_ASSIGNED' && delivery.status !== 'COLLECTING') return null;
-  const rider = delivery.riderLocation;
-  const pickupLatitude = delivery.pickupLatitude;
-  const pickupLongitude = delivery.pickupLongitude;
+  return freshStopMetres(delivery.riderLocation, delivery.pickupLatitude, delivery.pickupLongitude, now);
+}
+
+/** Straight-line metres from fresh GPS to the drop-off while the parcel is being delivered. */
+export function dropoffStraightLineMetres(
+  delivery: Pick<CustomerDeliveryDetail, 'status' | 'dropoffLatitude' | 'dropoffLongitude' | 'riderLocation'>,
+  now: number,
+): number | null {
+  if (delivery.status !== 'COLLECTED' && delivery.status !== 'OUT_FOR_DELIVERY') return null;
+  return freshStopMetres(delivery.riderLocation, delivery.dropoffLatitude, delivery.dropoffLongitude, now);
+}
+
+/** Straight-line metres to whichever stop is active. Missing or stale GPS stays null. */
+export function activeStopStraightLineMetres(
+  delivery: Pick<CustomerDeliveryDetail, 'status' | 'pickupLatitude' | 'pickupLongitude' | 'dropoffLatitude' | 'dropoffLongitude' | 'riderLocation'>,
+  now: number,
+): number | null {
+  return dropoffStraightLineMetres(delivery, now) ?? pickupStraightLineMetres(delivery, now);
+}
+
+function freshStopMetres(
+  rider: CustomerDeliveryDetail['riderLocation'],
+  latitude: number | null,
+  longitude: number | null,
+  now: number,
+): number | null {
   if (!rider || !riderFixIsFresh(rider.updatedAt, now)) return null;
-  if (pickupLatitude == null || pickupLongitude == null) return null;
+  if (latitude == null || longitude == null) return null;
   if (!Number.isFinite(rider.latitude) || !Number.isFinite(rider.longitude)) return null;
-  if (!Number.isFinite(pickupLatitude) || !Number.isFinite(pickupLongitude)) return null;
-  return straightLineMetres(rider.latitude, rider.longitude, pickupLatitude, pickupLongitude);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  return straightLineMetres(rider.latitude, rider.longitude, latitude, longitude);
 }
 
 export function trackingHeadline(status: DeliveryStatus, distanceMetres?: number | null): string | null {
   if (status === 'ASSIGNED' || status === 'ARRIVED_AT_PICKUP' || status === 'RIDER_ASSIGNED' || status === 'COLLECTING') {
     if (status === 'ARRIVED_AT_PICKUP') return 'Rider arrived';
-    if (riderWithinPickup(distanceMetres)) return 'Rider arrived';
+    if (withinArrival(distanceMetres)) return 'Rider arrived';
     return status === 'RIDER_ASSIGNED' || status === 'COLLECTING' ? 'Rider coming' : 'Rider on the way';
   }
   if (status === 'PICKED_UP' || status === 'COLLECTED' || status === 'OUT_FOR_DELIVERY') return 'Parcel collected';
