@@ -27,6 +27,7 @@ export const V2_PUSH_TYPE: Record<V2OutboxEventType | 'RIDER_CANCELLED' | 'CUSTO
   DEADLINE_REMINDER: 'v2_deadline_reminder',
   RIDER_OPPORTUNITY: 'rider_offer',
   BID_RECEIVED: 'v2_bid_received',
+  BID_EXPIRED: 'v2_bid_expired',
   COUNTEROFFER: 'v2_counteroffer',
   ACCOUNT_APPROVED: 'rider_account_approved',
   RIDER_CANCELLED: 'v2_rider_cancelled',

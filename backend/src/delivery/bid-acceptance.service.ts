@@ -22,6 +22,7 @@ import { motorcycleForAcceptance } from '../rider/motorcycle-eligibility.js';
 import { assertV2CommissionCapacity, IDEMPOTENCY_CONFLICT, openV2CommissionReservation } from '../rider/wallet-ledger.js';
 import { snapshotCommission } from './commission-calculator.js';
 import { centsFromDecimal, formatCents } from './money.js';
+import { offerResponseElapsed, expireLockedV2Search } from './v2-search.js';
 import { closeUnassignedV2Deliveries, v2RequestRemainsOpen } from './v2-deadline.js';
 import { recordBidAccepted } from './v2-outbox.js';
 import { assertZwgOffersOpen } from './exchange-rate.js';
@@ -129,7 +130,7 @@ export class BidAcceptanceService {
     if (!bid || bid.deliveryId !== delivery.id) {
       throw new NotFoundException('Bid not found');
     }
-    if (delivery.serviceClass && !v2RequestRemainsOpen(delivery.deliverBy, now)) {
+    if (delivery.serviceClass && (!v2RequestRemainsOpen(delivery.deliverBy, now) || offerResponseElapsed(delivery.offerResponseExpiresAt, now))) {
       throw new ConflictException('The bidding window has closed');
     }
     if (
@@ -319,6 +320,10 @@ async function expireDueBids(tx: Prisma.TransactionClient, now: Date, deliveryId
     data: { status: BidStatus.EXPIRED },
   });
   await closeUnassignedV2Deliveries(tx, now, deliveryId);
+  const delivery = await tx.delivery.findUnique({ where: { id: deliveryId } });
+  if (delivery && offerResponseElapsed(delivery.offerResponseExpiresAt, now)) {
+    await expireLockedV2Search(tx, deliveryId, delivery.searchStartedAt, now);
+  }
 }
 
 async function lockDelivery(tx: Prisma.TransactionClient, deliveryId: string) {

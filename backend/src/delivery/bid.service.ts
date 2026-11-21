@@ -35,7 +35,7 @@ import { assertV2CommissionCapacity, currencyFeeCapacityOpen } from '../rider/wa
 import { assertZwgOffersOpen, riderZwgOffersEnabled } from './exchange-rate.js';
 import { commissionCents } from './commission-calculator.js';
 import { closeUnassignedV2Deliveries, v2RequestRemainsOpen } from './v2-deadline.js';
-import { expireDueV2Searches, expireLockedV2Search, v2SearchWindowElapsed } from './v2-search.js';
+import { expireDueV2Searches, expireLockedV2Search, v2SearchWindowElapsed, offerResponseElapsed, offerResponseDeadline } from './v2-search.js';
 import { recordCustomerBidNotice } from './v2-outbox.js';
 import { averageRating } from './rider-class.js';
 
@@ -193,7 +193,6 @@ export class BidService {
     this.requireMarketplace();
     return this.prisma.$transaction(async (tx) => {
       await expireClosedBids(tx, now);
-      await expireDueV2Searches(tx, now);
       if (!(await riderCanReceiveRequests(tx, rider.riderProfileId))) {
         return [];
       }
@@ -558,14 +557,14 @@ export class BidService {
     if (!current) {
       throw new NotFoundException('Delivery not found');
     }
-    if (v2SearchWindowElapsed(current.searchStartedAt, now)) {
+    if (offerResponseElapsed(current.offerResponseExpiresAt, now) || v2SearchWindowElapsed(current.searchStartedAt, now)) {
       await expireLockedV2Search(tx, current.id, current.searchStartedAt, now);
     }
     const openForBids = await tx.delivery.findUnique({ where: { id: delivery.id } });
     if (!openForBids) {
       throw new NotFoundException('Delivery not found');
     }
-    if (openForBids.serviceClass && !v2RequestRemainsOpen(openForBids.deliverBy, now)) {
+    if (openForBids.serviceClass && (!v2RequestRemainsOpen(openForBids.deliverBy, now) || offerResponseElapsed(openForBids.offerResponseExpiresAt, now))) {
       return { closed: true };
     }
     if (
@@ -643,6 +642,9 @@ export class BidService {
         createdAt: now,
       },
     });
+    if (openForBids.offerResponseExpiresAt == null) {
+      await tx.delivery.update({ where: { id: delivery.id }, data: { offerResponseExpiresAt: offerResponseDeadline(now) } });
+    }
     const offeredSource = openForBids.customerOffer ?? openForBids.suggestedPrice;
     if (offeredSource != null) {
       try {
@@ -710,6 +712,14 @@ async function expireClosedBids(tx: Prisma.TransactionClient, now: Date, deliver
     data: { status: BidStatus.EXPIRED },
   });
   await closeUnassignedV2Deliveries(tx, now, deliveryId);
+  if (deliveryId) {
+    const delivery = await tx.delivery.findUnique({ where: { id: deliveryId } });
+    if (delivery && offerResponseElapsed(delivery.offerResponseExpiresAt, now)) {
+      await expireLockedV2Search(tx, deliveryId, delivery.searchStartedAt, now);
+    }
+  } else {
+    await expireDueV2Searches(tx, now);
+  }
 }
 
 async function riderName(tx: Prisma.TransactionClient, riderProfileId: string) {

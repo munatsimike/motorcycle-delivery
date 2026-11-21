@@ -550,6 +550,7 @@ model Delivery {
  autoRetryCount Int       @default(0) @map("auto_retry_count")
  nextRetryAt    DateTime? @map("next_retry_at") @db.Timestamptz(6)
  searchStartedAt DateTime? @map("search_started_at") @db.Timestamptz(6)
+  offerResponseExpiresAt DateTime? @map("offer_response_expires_at") @db.Timestamptz(6)
   // Null on deliveries created before booking idempotency. A key and its hash are stored together.
   createIdempotencyKey String? @unique @map("create_idempotency_key") @db.VarChar(200)
   createPayloadHash    String? @map("create_payload_hash") @db.Char(64)
@@ -1707,6 +1708,7 @@ enum V2OutboxEventType {
   DEADLINE_REMINDER
   RIDER_OPPORTUNITY
   BID_RECEIVED
+  BID_EXPIRED
   COUNTEROFFER
   ACCOUNT_APPROVED
   RIDER_CANCELLED

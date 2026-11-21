@@ -175,7 +175,7 @@ export function v2ProviderFailure(error: unknown): 'timeout' | 'temporary' {
 }
 
 export function v2FcmBody(message: V2PushMessage) {
-  const copy = message.audience === 'customer' ? customerDeliveryNotification(message.type) : null;
+  const copy = message.type === 'v2_bid_expired' ? { title: 'Offer expired', body: 'The customer did not accept an offer in time.' } : message.audience === 'customer' ? customerDeliveryNotification(message.type) : null;
   const data: Record<string, string> = { type: message.type };
   if (message.deliveryId) {
     data.deliveryId = message.deliveryId;

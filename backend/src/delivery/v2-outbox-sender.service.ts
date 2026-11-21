@@ -254,7 +254,7 @@ export class V2OutboxSender {
         .filter((device) => usdOpen.has(device.riderProfileId) || zigOpen.has(device.riderProfileId))
         .map((device) => ({ id: device.id, fcmToken: device.fcmToken }));
     }
-    if (row.eventType === 'BID_ACCEPTED' || row.eventType === 'ACCOUNT_APPROVED' || row.eventType === 'CUSTOMER_CANCELLED') {
+    if (row.eventType === 'BID_ACCEPTED' || row.eventType === 'ACCOUNT_APPROVED' || row.eventType === 'BID_EXPIRED' || row.eventType === 'CUSTOMER_CANCELLED') {
       if (!row.riderProfileId) {
         return [];
       }
@@ -314,7 +314,7 @@ export class V2OutboxSender {
       row.eventType === 'BID_ACCEPTED'
       || row.eventType === 'ACCOUNT_APPROVED'
       || row.eventType === 'RIDER_OPPORTUNITY'
-      || row.eventType === 'CUSTOMER_CANCELLED'
+      || row.eventType === 'BID_EXPIRED' || row.eventType === 'CUSTOMER_CANCELLED'
     ) {
       await this.prisma.riderPushDevice.updateMany({
         where: {

@@ -18,6 +18,7 @@ export type StoredDelivery = {
   pricingBasisPoints?: number | null;
   serviceClass?: ServiceClass | null;
   deliverBy?: Date | null;
+  offerResponseExpiresAt?: Date | null;
   price: string | { toFixed(digits: number): string } | null;
   suggestedPrice: string | { toFixed(digits: number): string };
   customerOffer?: string | { toFixed(digits: number): string } | null;
@@ -58,6 +59,7 @@ export function toCustomerDeliverySummary(delivery: {
   dropoffAddress: string;
   serviceClass?: ServiceClass | null;
   deliverBy?: Date | null;
+  offerResponseExpiresAt?: Date | null;
   currency?: Currency | null;
   suggestedPrice?: string | { toFixed(digits: number): string } | null;
   price?: string | { toFixed(digits: number): string } | null;
@@ -70,6 +72,8 @@ export function toCustomerDeliverySummary(delivery: {
     createdAt: delivery.createdAt,
     serviceClass: delivery.serviceClass ?? null,
     deliverBy: delivery.deliverBy instanceof Date ? delivery.deliverBy.toISOString() : null,
+    offerResponseExpiresAt: delivery.offerResponseExpiresAt instanceof Date ? delivery.offerResponseExpiresAt.toISOString() : null,
+    offerResponseExpired: delivery.status === DeliveryStatus.NO_RIDER_FOUND && delivery.offerResponseExpiresAt != null,
     currency: delivery.currency ?? null,
     suggestedPrice: moneyOrNull(delivery.suggestedPrice),
     offeredPrice: moneyOrNull(delivery.price),
@@ -224,6 +228,8 @@ export function toCustomerDelivery(delivery: StoredDelivery) {
     basisPoints: delivery.pricingBasisPoints ?? null,
     serviceClass: delivery.serviceClass ?? null,
     deliverBy: delivery.deliverBy instanceof Date ? delivery.deliverBy.toISOString() : null,
+    offerResponseExpiresAt: delivery.offerResponseExpiresAt instanceof Date ? delivery.offerResponseExpiresAt.toISOString() : null,
+    offerResponseExpired: delivery.status === DeliveryStatus.NO_RIDER_FOUND && delivery.offerResponseExpiresAt != null,
     suggestedPrice: formatCents(centsFromDecimal(delivery.suggestedPrice)),
     customerOffer: delivery.customerOffer == null ? null : formatCents(centsFromDecimal(delivery.customerOffer)),
     offeredPrice: delivery.price == null ? null : formatCents(centsFromDecimal(delivery.price)),

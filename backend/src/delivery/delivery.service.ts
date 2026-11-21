@@ -263,6 +263,7 @@ export class DeliveryService {
           dropoffAddress: true,
           serviceClass: true,
           deliverBy: true,
+          offerResponseExpiresAt: true,
           currency: true,
           suggestedPrice: true,
           price: true,

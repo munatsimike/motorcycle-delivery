@@ -5,7 +5,7 @@ const OPPORTUNITY_TTL_SECONDS = 5 * 60;
 const CUSTOMER_TTL_SECONDS = 60 * 60;
 const APPROVAL_TTL_SECONDS = 24 * 60 * 60;
 
-export type MarketplaceNoticeKind = 'BID_RECEIVED' | 'COUNTEROFFER' | 'RIDER_OPPORTUNITY' | 'ACCOUNT_APPROVED';
+export type MarketplaceNoticeKind = 'BID_EXPIRED' | 'BID_RECEIVED' | 'COUNTEROFFER' | 'RIDER_OPPORTUNITY' | 'ACCOUNT_APPROVED';
 
 export type OpportunityRider = {
   approvalStatus: string;
@@ -84,6 +84,7 @@ export function v2PushTtlSeconds(type: string): number {
   }
   if (type in {
     v2_bid_received: true,
+    v2_bid_expired: true,
     v2_counteroffer: true,
     v2_bid_accepted: true,
     v2_request_reopened: true,
@@ -105,6 +106,7 @@ export function v2PushAudience(eventType: string): 'customer' | 'rider' {
     eventType === 'BID_ACCEPTED'
     || eventType === 'RIDER_OPPORTUNITY'
     || eventType === 'ACCOUNT_APPROVED'
+    || eventType === 'BID_EXPIRED'
     || eventType === 'CUSTOMER_CANCELLED'
   ) {
     return 'rider';

@@ -3,6 +3,8 @@ import { AssignmentStatus, BidStatus, DeliveryStatus, Prisma } from '../generate
 import { describe, expect, it } from 'vitest';
 import {
   V2_SEARCH_WINDOW_MS,
+  offerResponseDeadline,
+  offerResponseElapsed,
   expireDueV2Searches,
   expireLockedV2Search,
   restartV2Search,
@@ -21,6 +23,7 @@ type Row = {
   serviceClass: 'EXPRESS' | 'FLEXIBLE' | null;
   searchGeneration: number;
   searchStartedAt: Date | null;
+  offerResponseExpiresAt?: Date | null;
   nextRetryAt: Date | null;
   autoRetryCount: number;
   deliverBy: Date | null;
@@ -70,6 +73,10 @@ function store(seed: Row) {
       },
     },
     bid: {
+      async updateMany({ where, data }: { where: { deliveryId: string; status: BidStatus }; data: { status: BidStatus } }) {
+        for (const bid of bids) if (bid.deliveryId === where.deliveryId && bid.status === where.status) bid.status = data.status;
+        return { count: bids.length };
+      },
       async findMany({ where }: { where: { deliveryId: string; status: BidStatus } }) {
         return bids.filter((bid) => bid.deliveryId === where.deliveryId && bid.status === where.status);
       },
@@ -243,5 +250,30 @@ describe('one six-minute V2 search', () => {
       deliverBy: null,
       now: CLOSED,
     })).toBe('keep');
+  });
+});
+
+ describe('five-minute customer response window', () => {
+  it('expires at exactly five minutes even before the search window ends', async () => {
+    const ctx = store(row('EXPRESS'));
+    const deadline = offerResponseDeadline(START);
+    ctx.deliveries[0]!.offerResponseExpiresAt = deadline;
+    ctx.bids.push({ id: 'one', deliveryId: 'express-1', status: BidStatus.OPEN });
+    ctx.bids.push({ id: 'two', deliveryId: 'express-1', status: BidStatus.OPEN });
+    expect(offerResponseElapsed(deadline, new Date(deadline.getTime() - 1))).toBe(false);
+    expect(await expireDueV2Searches(ctx.tx, new Date(deadline.getTime() - 1))).toBe(0);
+    expect(await expireDueV2Searches(ctx.tx, deadline)).toBe(1);
+    expect(ctx.bids.every(bid => bid.status === BidStatus.EXPIRED)).toBe(true);
+    expect(ctx.deliveries[0]!.status).toBe(DeliveryStatus.NO_RIDER_FOUND);
+    expect(await expireDueV2Searches(ctx.tx, deadline)).toBe(0);
+    await restartV2Search(ctx.tx, ctx.deliveries[0]!, 'customer', deadline);
+    expect(ctx.deliveries[0]!.offerResponseExpiresAt).toBeNull();
+  });
+  it('retains the response window after the search window ends', async () => {
+    const ctx = store(row('FLEXIBLE'));
+    ctx.deliveries[0]!.offerResponseExpiresAt = offerResponseDeadline(new Date(CLOSED.getTime() - 1000));
+    ctx.bids.push({ id: 'one', deliveryId: 'flexible-1', status: BidStatus.OPEN });
+    expect(await expireDueV2Searches(ctx.tx, CLOSED)).toBe(0);
+    expect(await expireDueV2Searches(ctx.tx, ctx.deliveries[0]!.offerResponseExpiresAt!)).toBe(1);
   });
 });

@@ -6,9 +6,19 @@ import {
   DeliveryStatus,
   Prisma,
 } from '../generated/prisma/client.js';
+import { insertMarketplaceNotice } from './v2-marketplace-notice.js';
 import { v2RequestRemainsOpen } from './v2-deadline.js';
 
 export const V2_SEARCH_WINDOW_MS = 360_000;
+export const V2_OFFER_RESPONSE_MS = 300_000;
+
+export function offerResponseElapsed(deadline: Date | null | undefined, now: Date): boolean {
+  return deadline != null && deadline.getTime() <= now.getTime();
+}
+
+export function offerResponseDeadline(firstOfferAt: Date): Date {
+  return new Date(firstOfferAt.getTime() + V2_OFFER_RESPONSE_MS);
+}
 
 type SearchDelivery = {
   id: string;
@@ -17,6 +27,7 @@ type SearchDelivery = {
   searchGeneration: number;
   searchStartedAt?: Date | null;
   deliverBy?: Date | null;
+  offerResponseExpiresAt?: Date | null;
 };
 
 export function v2SearchExpiresAt(startedAt: Date): Date {
@@ -54,19 +65,22 @@ export function v2SearchExpiryDecision(input: {
   acceptedAssignments: number;
   deliverBy: Date | null;
   now: Date;
+  offerResponseExpiresAt?: Date | null;
 }): 'expire' | 'keep' | 'ignore' {
   if (
     input.status !== DeliveryStatus.CREATED
     || input.serviceClass == null
     || input.searchGeneration !== 0
-    || input.claimedStartedAt == null
-    || input.searchStartedAt == null
-    || input.searchStartedAt.getTime() !== input.claimedStartedAt.getTime()
+    || (input.searchStartedAt?.getTime() ?? null) !== (input.claimedStartedAt?.getTime() ?? null)
     || !v2RequestRemainsOpen(input.deliverBy, input.now)
   ) {
     return 'ignore';
   }
-  if (input.acceptedAssignments > 0 || input.openBids > 0 || !v2SearchWindowElapsed(input.searchStartedAt, input.now)) {
+  if (input.acceptedAssignments > 0) return 'keep';
+  if (input.offerResponseExpiresAt != null) {
+    return offerResponseElapsed(input.offerResponseExpiresAt, input.now) ? 'expire' : 'keep';
+  }
+  if (input.openBids > 0 || !v2SearchWindowElapsed(input.searchStartedAt, input.now)) {
     return 'keep';
   }
   return 'expire';
@@ -80,11 +94,11 @@ export async function expireDueV2Searches(tx: Prisma.TransactionClient, now: Dat
       serviceClass: { not: null },
     },
     orderBy: [{ searchStartedAt: 'asc' }, { id: 'asc' }],
-    select: { id: true, searchStartedAt: true },
+    select: { id: true, searchStartedAt: true, offerResponseExpiresAt: true },
   });
   let expired = 0;
   for (const candidate of candidates) {
-    if (!v2SearchWindowElapsed(candidate.searchStartedAt, now)) {
+    if (!offerResponseElapsed(candidate.offerResponseExpiresAt, now) && !v2SearchWindowElapsed(candidate.searchStartedAt, now)) {
       continue;
     }
     if (await expireLockedV2Search(tx, candidate.id, candidate.searchStartedAt, now)) {
@@ -110,8 +124,8 @@ export async function expireLockedV2Search(
   }
   const openBids = (await tx.bid.findMany({
     where: { deliveryId, status: BidStatus.OPEN },
-    select: { id: true },
-  })).length;
+    select: { id: true, riderProfileId: true },
+  }));
   const acceptedAssignments = (await tx.deliveryAssignment.findMany({
     where: { deliveryId, status: AssignmentStatus.ACCEPTED },
     select: { id: true },
@@ -122,13 +136,27 @@ export async function expireLockedV2Search(
     searchGeneration: delivery.searchGeneration,
     searchStartedAt: delivery.searchStartedAt,
     claimedStartedAt,
-    openBids,
+    openBids: openBids.length,
     acceptedAssignments,
     deliverBy: delivery.deliverBy,
     now,
+    offerResponseExpiresAt: delivery.offerResponseExpiresAt,
   });
   if (decision !== 'expire') {
     return false;
+  }
+  if (offerResponseElapsed(delivery.offerResponseExpiresAt, now)) {
+    await tx.bid.updateMany({
+      where: { deliveryId: delivery.id, status: BidStatus.OPEN },
+      data: { status: BidStatus.EXPIRED },
+    });
+    for (const bid of openBids) {
+      await insertMarketplaceNotice(tx, {
+        eventType: 'BID_EXPIRED', deliveryId: delivery.id,
+        riderProfileId: bid.riderProfileId, customerAccountId: null,
+        createdAt: now, dedupeKey: `bid:${bid.id}:BID_EXPIRED`,
+      });
+    }
   }
   await tx.delivery.update({
     where: { id: delivery.id },
@@ -172,7 +200,7 @@ export async function restartV2Search(
   const started = v2SearchStartData(now);
   await tx.delivery.update({
     where: { id: delivery.id },
-    data: { status: DeliveryStatus.CREATED, ...started, updatedAt: now },
+    data: { status: DeliveryStatus.CREATED, ...started, offerResponseExpiresAt: null, updatedAt: now },
   });
   await tx.deliveryStatusEvent.create({
     data: {
