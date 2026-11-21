@@ -266,7 +266,8 @@ describe('one six-minute V2 search', () => {
     expect(ctx.bids.every(bid => bid.status === BidStatus.EXPIRED)).toBe(true);
     expect(ctx.deliveries[0]!.status).toBe(DeliveryStatus.NO_RIDER_FOUND);
     expect(await expireDueV2Searches(ctx.tx, deadline)).toBe(0);
-    await restartV2Search(ctx.tx, ctx.deliveries[0]!, 'customer', deadline);
+    await expect(restartV2Search(ctx.tx, ctx.deliveries[0]!, 'customer', deadline)).rejects.toBeInstanceOf(ConflictException);
+    await restartV2Search(ctx.tx, ctx.deliveries[0]!, 'customer', new Date(deadline.getTime() + 300_000));
     expect(ctx.deliveries[0]!.offerResponseExpiresAt).toBeNull();
   });
   it('retains the response window after the search window ends', async () => {

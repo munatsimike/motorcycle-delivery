@@ -1774,3 +1774,17 @@ model V2OutboxEvent {
 
 
 
+
+// Independent of delivery deletion so expired routes cannot bypass the cooldown.
+model RouteOfferCooldown {
+  deliveryId String @map("delivery_id") @db.Uuid
+  customerId String @map("customer_id") @db.Uuid
+  pickupLat Float @map("pickup_lat")
+  pickupLng Float @map("pickup_lng")
+  dropoffLat Float @map("dropoff_lat")
+  dropoffLng Float @map("dropoff_lng")
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+  @@id([deliveryId, expiresAt])
+  @@index([customerId, expiresAt], map: "route_offer_cooldowns_customer_expiry")
+  @@map("route_offer_cooldowns")
+}

@@ -317,6 +317,8 @@ export class DeliveryService {
           return raced;
         }
         assertZwgOffersOpen(draft.currency);
+        const cooldown = await tx.$queryRaw<Array<{ deadline: Date | null }>>`SELECT route_cooldown_until(CAST(${customer.customerAccountId} AS uuid), CAST(${draft.pickupLatitude} AS double precision), CAST(${draft.pickupLongitude} AS double precision), CAST(${draft.dropoffLatitude} AS double precision), CAST(${draft.dropoffLongitude} AS double precision)) AS deadline`;
+        if (cooldown?.[0]?.deadline) throw new ConflictException(`ROUTE_COOLDOWN_UNTIL ${cooldown[0].deadline.toISOString()}`);
         await lockActiveClassPricing(tx, draft.serviceClass);
         const active = await tx.deliveryPricingConfig.findFirst({
           where: { isActive: true, serviceClass: draft.serviceClass },
