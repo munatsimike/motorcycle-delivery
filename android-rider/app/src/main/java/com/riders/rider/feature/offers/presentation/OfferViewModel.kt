@@ -120,6 +120,11 @@ class OfferViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
+            pending.bidExpired.collect {
+                if (screenResumed) refreshOffers()
+            }
+        }
+        viewModelScope.launch {
             pending.arrived.collect {
                 if (screenResumed) {
                     refreshOffers()
@@ -250,7 +255,13 @@ class OfferViewModel @Inject constructor(
             return
         }
         val offer = current.offers.find { it.deliveryId == deliveryId }
-        if (offer != null && !marketplaceBidButtonsVisible(offer.serviceClass, current.ownBidsKnown, current.bidError ?: current.bidListError)) {
+        if (offer == null || (current.offerGone && current.selected?.deliveryId == deliveryId) ||
+            !notificationRequestCanOpen(true, offer.expiresAt, now)) {
+            state.update { it.copy(bidError = REQUEST_UNAVAILABLE, nowMillis = now) }
+            refresh()
+            return
+        }
+        if (!marketplaceBidButtonsVisible(offer.serviceClass, current.ownBidsKnown, current.bidError ?: current.bidListError)) {
             return
         }
         state.update { it.copy(submittingBid = true, error = null, bidError = null, nowMillis = now) }

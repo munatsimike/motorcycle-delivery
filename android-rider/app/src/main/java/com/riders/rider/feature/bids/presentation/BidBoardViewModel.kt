@@ -30,11 +30,18 @@ data class BidBoardUi(
 class BidBoardViewModel @Inject constructor(
     private val bids: BidRepository,
     private val keys: BidAttemptStore,
+    private val pending: com.riders.rider.feature.offers.notification.PendingOffer,
 ) : ViewModel() {
     private val state = MutableStateFlow(BidBoardUi())
     val ui: StateFlow<BidBoardUi> = state.asStateFlow()
     private val withdrawGate = BidSubmitGate()
     private var loadingList = false
+
+    init {
+        viewModelScope.launch {
+            pending.bidExpired.collect { refresh() }
+        }
+    }
 
     fun refresh() {
         if (loadingList) {

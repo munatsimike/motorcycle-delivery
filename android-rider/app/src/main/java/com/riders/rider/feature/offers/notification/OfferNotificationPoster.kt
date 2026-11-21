@@ -105,6 +105,29 @@ class OfferNotificationPoster @Inject constructor(
             .notify(offerNotificationId("accepted:$deliveryId"), notification)
     }
 
+    fun showBidExpired(deliveryId: String) {
+        if (!prepareChannel()) return
+        val manager = context.getSystemService(NotificationManager::class.java)
+        manager.cancel(offerNotificationId(deliveryId))
+        val open = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pending = PendingIntent.getActivity(
+            context, offerNotificationId("expired:$deliveryId"), open,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val notification = NotificationCompat.Builder(context, OFFER_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_bell)
+            .setContentTitle("Offer expired")
+            .setContentText("The customer did not accept an offer in time.")
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .setAutoCancel(true)
+            .setContentIntent(pending)
+            .build()
+        manager.notify(offerNotificationId("expired:$deliveryId"), notification)
+    }
+
     fun showCustomerCancelled(deliveryId: String) {
         if (!prepareChannel()) {
             return

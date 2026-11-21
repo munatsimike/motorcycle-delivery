@@ -74,6 +74,15 @@ class RiderOfferNoticeTest {
     }
 
     @Test
+    fun readsExpiryNoticeOnlyWithDeliveryId() {
+        assertEquals(RiderNoticeAction.ShowBidExpired("delivery-9"), riderNoticeAction(parseRiderNotice(mapOf(
+            "type" to "v2_bid_expired", "deliveryId" to " delivery-9 ",
+        ))))
+        assertNull(parseRiderNotice(mapOf("type" to "v2_bid_expired")))
+        assertNull(parseRiderNotice(mapOf("type" to "v2_bid_expired", "deliveryId" to " ")))
+    }
+
+    @Test
     fun showsACustomerCancellationForTheAssignedDeliveryAndIgnoresOtherTypes() {
         val notice = parseRiderNotice(mapOf(
             "type" to "v2_customer_cancelled",

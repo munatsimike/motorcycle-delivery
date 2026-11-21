@@ -40,6 +40,7 @@ fun parseRiderOffer(data: Map<String, String>): RiderOfferMessage? {
 sealed interface RiderNotice {
     data class Offer(val assignmentId: String, val deliveryId: String, val expiresAt: String) : RiderNotice
     data class BidAccepted(val deliveryId: String) : RiderNotice
+    data class BidExpired(val deliveryId: String) : RiderNotice
     data class CustomerCancelled(val deliveryId: String) : RiderNotice
     data class Approved(val approvedAt: String) : RiderNotice
 }
@@ -47,6 +48,7 @@ sealed interface RiderNotice {
 sealed interface RiderNoticeAction {
     data class ShowOffer(val deliveryId: String, val expiresAt: String) : RiderNoticeAction
     data class ShowAccepted(val deliveryId: String) : RiderNoticeAction
+    data class ShowBidExpired(val deliveryId: String) : RiderNoticeAction
     data class ShowCustomerCancelled(val deliveryId: String) : RiderNoticeAction
     data class ShowApproved(val approvedAt: String) : RiderNoticeAction
     data object Ignore : RiderNoticeAction
@@ -60,6 +62,10 @@ fun parseRiderNotice(data: Map<String, String>): RiderNotice? {
         "v2_bid_accepted" -> {
             val deliveryId = data["deliveryId"]?.trim().orEmpty()
             if (deliveryId.isEmpty()) null else RiderNotice.BidAccepted(deliveryId)
+        }
+        "v2_bid_expired" -> {
+            val deliveryId = data["deliveryId"]?.trim().orEmpty()
+            if (deliveryId.isEmpty()) null else RiderNotice.BidExpired(deliveryId)
         }
         "v2_customer_cancelled" -> {
             val deliveryId = data["deliveryId"]?.trim().orEmpty()
@@ -77,6 +83,7 @@ fun riderNoticeAction(notice: RiderNotice?): RiderNoticeAction {
     return when (notice) {
         is RiderNotice.Offer -> RiderNoticeAction.ShowOffer(notice.deliveryId, notice.expiresAt)
         is RiderNotice.BidAccepted -> RiderNoticeAction.ShowAccepted(notice.deliveryId)
+        is RiderNotice.BidExpired -> RiderNoticeAction.ShowBidExpired(notice.deliveryId)
         is RiderNotice.CustomerCancelled -> RiderNoticeAction.ShowCustomerCancelled(notice.deliveryId)
         is RiderNotice.Approved -> RiderNoticeAction.ShowApproved(notice.approvedAt)
         null -> RiderNoticeAction.Ignore

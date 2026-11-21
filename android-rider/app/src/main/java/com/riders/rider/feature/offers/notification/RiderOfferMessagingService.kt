@@ -31,6 +31,10 @@ class RiderOfferMessagingService : FirebaseMessagingService() {
                 pending.acceptedBidArrived(action.deliveryId)
                 poster.showAccepted(action.deliveryId)
             }
+            is RiderNoticeAction.ShowBidExpired -> {
+                pending.bidExpiredArrived(action.deliveryId)
+                poster.showBidExpired(action.deliveryId)
+            }
             is RiderNoticeAction.ShowCustomerCancelled -> {
                 if (!shown.markIfNew("cancelled:${action.deliveryId}")) {
                     return
