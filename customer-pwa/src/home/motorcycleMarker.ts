@@ -20,6 +20,23 @@ type IconMaps = {
   Point: new (x: number, y: number) => unknown;
 };
 
+/**
+ * The artwork is a three-quarter view. Its front wheel sits about 142 degrees
+ * clockwise from the top of the image. Marker rotation is clockwise from that
+ * image, so this offset is removed before a travel bearing is applied.
+ */
+export const MOTORCYCLE_NOSE_CLOCKWISE_DEGREES = 142;
+
+/** Clockwise degrees to rotate the artwork so its front matches a north-up bearing. No heading leaves the artwork unrotated. */
+export function markerRotation(headingDegrees: number | null): number {
+  if (headingDegrees == null || !Number.isFinite(headingDegrees)) return 0;
+  return normalizeDegrees(headingDegrees - MOTORCYCLE_NOSE_CLOCKWISE_DEGREES);
+}
+
+function normalizeDegrees(degrees: number): number {
+  return ((degrees % 360) + 360) % 360;
+}
+
 export function motorcycleMarkerIcon(maps: IconMaps, url: string, devicePixelRatio = window.devicePixelRatio): {
   url: string;
   scaledSize: unknown;

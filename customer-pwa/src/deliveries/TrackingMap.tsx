@@ -3,14 +3,20 @@ import { CrosshairIcon } from '../components/CrosshairIcon';
 import riderMarker from '../assets/rider-motorcycle-marker.png';
 import { mapsBrowserKey } from '../config/env';
 import { zoomForSpan } from '../home/camera';
-import { motorcycleMarkerIcon } from '../home/motorcycleMarker';
+import { markerRotation, motorcycleMarkerIcon } from '../home/motorcycleMarker';
 import { loadGoogleMaps } from '../home/googleMap';
 import { SEARCH_PULSE_FRAME_MS, SEARCH_PULSE_MS, searchPulseRings } from './searchPulse';
-import { offersFrameHolds, offersMapCamera, showsTrackingRoute, trackingCameraRegion, trackingCameraShouldMove, TRACKING_MAP_HEIGHT, TRACKING_MARKER_CLEARANCE, TRACKING_SHEET_OVERLAP, TRACKING_ZOOM_DELTA, type OffersMapFrame, type RoutePoint } from './tracking';
+import { advanceMotorcycleHeading, offersFrameHolds, offersMapCamera, shortestBearingDelta, showsTrackingRoute, smoothHeading, trackingCameraRegion, trackingCameraShouldMove, TRACKING_MAP_HEIGHT, TRACKING_MARKER_CLEARANCE, TRACKING_SHEET_OVERLAP, TRACKING_ZOOM_DELTA, type MotorcycleHeading, type OffersMapFrame, type RoutePoint } from './tracking';
 import { bindMapTheme } from '../theme/mapStyle';
 
 type Listener = { remove: () => void };
-type Marker = { setMap: (map: object | null) => void; setPosition: (position: { lat: number; lng: number }) => void; setIcon: (icon: unknown) => void };
+type Marker = {
+  setMap: (map: object | null) => void;
+  setPosition: (position: { lat: number; lng: number }) => void;
+  setIcon: (icon: unknown) => void;
+  setOptions: (options: { rotation?: number }) => void;
+};
+type RiderMarkerPoint = RoutePoint & { bearingDegrees?: number | null };
 type Polyline = { setMap: (map: object | null) => void; setPath: (path: { lat: number; lng: number }[]) => void };
 type Circle = {
   setMap: (map: object | null) => void;
@@ -48,7 +54,7 @@ export function TrackingMap({
 }: {
   deliveryId: string;
   live: boolean;
-  rider: RoutePoint | null;
+  rider: RiderMarkerPoint | null;
   stop: RoutePoint | null;
   headingToDropoff: boolean;
   line: RoutePoint[];
@@ -80,6 +86,11 @@ export function TrackingMap({
   const pickupMarker = useRef<Marker | null>(null);
   const labelMarker = useRef<Marker | null>(null);
   const deliveredMarker = useRef<Marker | null>(null);
+  const headingTrack = useRef<MotorcycleHeading>({ heading: null, anchor: null });
+  const shownHeading = useRef<number | null>(null);
+  const headingTarget = useRef<number | null>(null);
+  const headingClock = useRef(0);
+  const spinTimer = useRef<number | null>(null);
   const heldOffers = useRef<{ width: number; height: number; frame: OffersMapFrame } | null>(null);
   const props = useRef({ deliveryId, live, rider, stop, headingToDropoff, line, hideRoute, summary, extraMarkers, pickup, interactive, stroke, deliveredCallout, neighborhood, pickupLabel });
   props.current = { deliveryId, live, rider, stop, headingToDropoff, line, hideRoute, summary, extraMarkers, pickup, interactive, stroke, deliveredCallout, neighborhood, pickupLabel };
@@ -159,8 +170,19 @@ export function TrackingMap({
       const maps = mapsRef.current;
       if (maps && mapRef.current) maps.event.clearInstanceListeners(mapRef.current);
       mapRef.current = null;
+      if (spinTimer.current !== null) cancelAnimationFrame(spinTimer.current);
+      spinTimer.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    headingTrack.current = { heading: null, anchor: null };
+    shownHeading.current = null;
+    headingTarget.current = null;
+    headingClock.current = 0;
+    if (spinTimer.current !== null) cancelAnimationFrame(spinTimer.current);
+    spinTimer.current = null;
+  }, [deliveryId]);
 
   useEffect(() => {
     const destinationChanged = stopKeyRef.current !== stopKey;
@@ -193,8 +215,37 @@ export function TrackingMap({
   }, [deliveryId, live, stopKey, markerKey, neighborhood, routeKey]);
 
   useEffect(() => {
+    if (props.current.live && rider) followHeading(rider);
     drawRef.current();
-  }, [rider?.latitude, rider?.longitude, headingToDropoff, hideRoute, summary, line.length, extraMarkers.length, pickup?.latitude, pickup?.longitude, deliveredCallout?.name, deliveredCallout?.address, deliveredCallout?.when, pickupLabel]);
+    return () => {
+      if (spinTimer.current !== null) cancelAnimationFrame(spinTimer.current);
+      spinTimer.current = null;
+    };
+  }, [deliveryId, rider?.latitude, rider?.longitude, rider?.bearingDegrees, headingToDropoff, hideRoute, summary, line.length, extraMarkers.length, pickup?.latitude, pickup?.longitude, deliveredCallout?.name, deliveredCallout?.address, deliveredCallout?.when, pickupLabel]);
+
+  function followHeading(point: RiderMarkerPoint) {
+    headingTrack.current = advanceMotorcycleHeading(headingTrack.current, point, point.bearingDegrees);
+    headingTarget.current = headingTrack.current.heading;
+    if (spinTimer.current === null) {
+      headingClock.current = 0;
+      spinTimer.current = requestAnimationFrame(tickHeading);
+    }
+  }
+
+  function tickHeading(now: number) {
+    const previous = headingClock.current;
+    headingClock.current = now;
+    const elapsed = previous === 0 ? 0 : now - previous;
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const target = headingTarget.current;
+    const shown = shownHeading.current;
+    shownHeading.current = shown == null || reduceMotion ? target : smoothHeading(shown, target, elapsed);
+    riderMarkerRef.current?.setOptions({ rotation: markerRotation(shownHeading.current) });
+    const settled = shownHeading.current == null
+      || target == null
+      || Math.abs(shortestBearingDelta(shownHeading.current, target)) < 0.5;
+    spinTimer.current = settled ? null : requestAnimationFrame(tickHeading);
+  }
 
   function zoomForFrame(next: { latitudeDelta: number; longitudeDelta: number }) {
     const height = node.current?.clientHeight || 480;
@@ -313,6 +364,7 @@ export function TrackingMap({
       labelMarker.current.setIcon(summaryIcon(maps, label));
       labelMarker.current.setMap(map);
     }
+    const rotation = current.live ? markerRotation(shownHeading.current) : 0;
     if (!current.rider) {
       riderMarkerRef.current?.setMap(null);
       riderMarkerRef.current = null;
@@ -324,11 +376,13 @@ export function TrackingMap({
         clickable: false,
         optimized: false,
         zIndex: 3,
+        rotation,
         icon: motorcycleMarkerIcon(maps, riderMarker),
       });
     } else {
       riderMarkerRef.current.setPosition({ lat: current.rider.latitude, lng: current.rider.longitude });
       riderMarkerRef.current.setIcon(motorcycleMarkerIcon(maps, riderMarker));
+      riderMarkerRef.current.setOptions({ rotation });
       riderMarkerRef.current.setMap(map);
     }
     extras.current.forEach((marker) => marker.setMap(null));

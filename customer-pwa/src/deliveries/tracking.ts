@@ -8,7 +8,12 @@ export const TRACKING_MAP_HEIGHT = 480;
 export const TRACKING_SHEET_OVERLAP = 72;
 export const TRACKING_MARKER_CLEARANCE = 36;
 
-export type RiderPoint = { latitude: number; longitude: number; updatedAt: string | null };
+export type RiderPoint = {
+  latitude: number;
+  longitude: number;
+  updatedAt: string | null;
+  bearingDegrees?: number | null;
+};
 export type RoutePoint = { latitude: number; longitude: number };
 export type PickupApproach = { metres: number; seconds: number; line: RoutePoint[] };
 export type ServiceClass = 'EXPRESS' | 'FLEXIBLE';
@@ -114,7 +119,7 @@ export function showsLiveTrackingMap(delivery: CustomerDeliveryDetail | null): b
 export type TrackingMapView =
   | { kind: 'hidden' }
   | { kind: 'awaiting'; deliveryId: string; stop: RoutePoint | null; headingToDropoff: boolean }
-  | { kind: 'live'; deliveryId: string; rider: RoutePoint; stop: RoutePoint | null; headingToDropoff: boolean };
+  | { kind: 'live'; deliveryId: string; rider: RoutePoint & { bearingDegrees?: number }; stop: RoutePoint | null; headingToDropoff: boolean };
 
 /** Awaiting a fresh fix must not reuse the last stored rider coordinate. */
 export function riderMarkerForMap(view: TrackingMapView): RoutePoint | null {
@@ -139,7 +144,10 @@ export function trackingMapView(delivery: CustomerDeliveryDetail, now: number): 
     : coordinate(delivery.pickupLatitude, delivery.pickupLongitude);
   const point = delivery.riderLocation;
   if (point && riderFixIsFresh(point.updatedAt, now)) {
-    return { kind: 'live', deliveryId: delivery.id, rider: { latitude: point.latitude, longitude: point.longitude }, stop, headingToDropoff };
+    const rider = point.bearingDegrees == null
+      ? { latitude: point.latitude, longitude: point.longitude }
+      : { latitude: point.latitude, longitude: point.longitude, bearingDegrees: point.bearingDegrees };
+    return { kind: 'live', deliveryId: delivery.id, rider, stop, headingToDropoff };
   }
   return { kind: 'awaiting', deliveryId: delivery.id, stop, headingToDropoff };
 }
@@ -234,6 +242,69 @@ export function straightLineMetres(latitudeA: number, longitudeA: number, latitu
 
 function toRadians(degrees: number): number {
   return degrees * Math.PI / 180;
+}
+
+/** Ignore GPS wander shorter than this so a parked rider does not spin the marker. */
+export const HEADING_MIN_MOVE_METRES = 15;
+/** How quickly the marker catches a new direction. A half turn takes a little over a second. */
+export const HEADING_DEGREES_PER_SECOND = 140;
+
+export type MotorcycleHeading = {
+  heading: number | null;
+  anchor: RoutePoint | null;
+};
+
+export function normalizeBearing(degrees: number): number {
+  return ((degrees % 360) + 360) % 360;
+}
+
+/** Signed turn from [from] to [to], in the range -180 to 180. */
+export function shortestBearingDelta(from: number, to: number): number {
+  return normalizeBearing(to - from + 180) - 180;
+}
+
+/** Clockwise degrees from north, from one GPS fix to the next. */
+export function travelBearing(from: RoutePoint, to: RoutePoint): number {
+  const latitudeA = toRadians(from.latitude);
+  const latitudeB = toRadians(to.latitude);
+  const deltaLongitude = toRadians(to.longitude - from.longitude);
+  const y = Math.sin(deltaLongitude) * Math.cos(latitudeB);
+  const x = Math.cos(latitudeA) * Math.sin(latitudeB) - Math.sin(latitudeA) * Math.cos(latitudeB) * Math.cos(deltaLongitude);
+  return normalizeBearing(Math.atan2(y, x) * 180 / Math.PI);
+}
+
+/**
+ * Direction of travel for collection and delivery alike.
+ * A reported GPS bearing wins. Otherwise the bearing is the movement between
+ * consecutive fixes. Short moves keep the last direction. Pickup and drop-off
+ * are not inputs.
+ */
+export function advanceMotorcycleHeading(
+  state: MotorcycleHeading,
+  point: RoutePoint,
+  bearingDegrees?: number | null,
+): MotorcycleHeading {
+  if (!Number.isFinite(point.latitude) || !Number.isFinite(point.longitude)) return state;
+  const here = { latitude: point.latitude, longitude: point.longitude };
+  if (!state.anchor) return { heading: state.heading, anchor: here };
+  const moved = straightLineMetres(state.anchor.latitude, state.anchor.longitude, point.latitude, point.longitude);
+  if (moved < HEADING_MIN_MOVE_METRES) return state;
+  const heading = bearingDegrees != null && Number.isFinite(bearingDegrees)
+    ? normalizeBearing(bearingDegrees)
+    : travelBearing(state.anchor, point);
+  return { heading, anchor: here };
+}
+
+/** Moves the shown heading toward the target along the short arc. */
+export function smoothHeading(shown: number | null, target: number | null, elapsedMs: number): number | null {
+  if (target == null || !Number.isFinite(target)) return shown;
+  const next = normalizeBearing(target);
+  if (shown == null || !Number.isFinite(shown)) return next;
+  if (!Number.isFinite(elapsedMs) || elapsedMs <= 0) return normalizeBearing(shown);
+  const delta = shortestBearingDelta(shown, next);
+  const step = HEADING_DEGREES_PER_SECOND * elapsedMs / 1000;
+  if (Math.abs(delta) <= step) return next;
+  return normalizeBearing(shown + Math.sign(delta) * step);
 }
 
 /** Straight-line metres from the accepted rider's fresh GPS to the stored pickup. Road-route metres are not used. */
@@ -729,7 +800,15 @@ function readRiderPoint(value: unknown): RiderPoint | null {
   const latitude = num(value.latitude, 90);
   const longitude = num(value.longitude, 180);
   if (latitude === null || longitude === null) return null;
-  return { latitude, longitude, updatedAt: readInstant(value.updatedAt) };
+  const bearingDegrees = readBearing(value.bearingDegrees);
+  return bearingDegrees == null
+    ? { latitude, longitude, updatedAt: readInstant(value.updatedAt) }
+    : { latitude, longitude, updatedAt: readInstant(value.updatedAt), bearingDegrees };
+}
+
+function readBearing(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  return normalizeBearing(value);
 }
 
 function readPickupApproach(value: unknown): PickupApproach | null {

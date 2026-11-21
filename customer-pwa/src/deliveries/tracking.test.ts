@@ -24,10 +24,12 @@ import {
   activeOfferCountLabel,
   receivedOfferCountLabel,
   readRouteLine,
+  advanceMotorcycleHeading,
   pickupDistanceTag,
   pickupStraightLineMetres,
   riderFixIsFresh,
   roadDistanceLabel,
+  smoothHeading,
   straightLineMetres,
   trackingHeadline,
   offerRiderName,
@@ -442,6 +444,58 @@ test('the pickup tag shows zero only inside 100 metres', () => {
   assert.equal(trackingHeadline(collected.status, null), 'Parcel collected');
 });
 
+test('the motorcycle follows travel direction for collection and delivery', () => {
+  const start = { latitude: -17.82, longitude: 31.05 };
+  const idle = { heading: null, anchor: null };
+  const parked = advanceMotorcycleHeading(idle, start);
+  assert.equal(parked.heading, null);
+  assert.deepEqual(parked.anchor, start);
+  const jitter = advanceMotorcycleHeading(parked, northOf(start, 14));
+  assert.equal(jitter.heading, null);
+  assert.deepEqual(jitter.anchor, start);
+  const north = advanceMotorcycleHeading(jitter, northOf(start, 40));
+  assert.equal(north.heading, 0);
+  const east = advanceMotorcycleHeading(north, eastOf(north.anchor ?? start, 40));
+  assert.ok(east.heading != null && Math.abs(east.heading - 90) < 1);
+  const held = advanceMotorcycleHeading(east, northOf(east.anchor ?? start, 8), 180);
+  assert.equal(held.heading, east.heading);
+  const reported = advanceMotorcycleHeading(held, northOf(held.anchor ?? start, 40), 180);
+  assert.equal(reported.heading, 180);
+  const collecting = advanceMotorcycleHeading(advanceMotorcycleHeading(idle, start), northOf(start, 40));
+  const delivering = advanceMotorcycleHeading(advanceMotorcycleHeading(idle, start), northOf(start, 40));
+  assert.equal(collecting.heading, delivering.heading);
+  const awayFromPickup = advanceMotorcycleHeading(
+    advanceMotorcycleHeading(idle, start),
+    eastOf(start, 40),
+  );
+  assert.ok(awayFromPickup.heading != null && Math.abs(awayFromPickup.heading - 90) < 1);
+  assert.equal(smoothHeading(null, 90, 0), 90);
+  assert.equal(smoothHeading(10, 350, 0), 10);
+  assert.equal(Math.round(smoothHeading(10, 350, 100) ?? 0), 356);
+  assert.equal(smoothHeading(10, 350, 200), 350);
+  assert.equal(smoothHeading(0, 90, 500), 70);
+  const withBearing = readCustomerDeliveryDetail({
+    id: 'delivery-1',
+    status: 'COLLECTING',
+    currency: 'USD',
+    offeredPrice: '4.50',
+    suggestedPrice: '3.00',
+    serviceClass: 'EXPRESS',
+    deliverBy: null,
+    distanceMeters: 10,
+    pickup: { address: 'Pickup', latitude: -17.8, longitude: 31 },
+    dropoff: { address: 'Dropoff', latitude: -17.9, longitude: 31.1 },
+    parcel: { description: 'Food' },
+    riderLocation: { latitude: -17.81, longitude: 31.01, updatedAt: new Date(NOW).toISOString(), bearingDegrees: 450 },
+    pickupApproach: { metres: 20, seconds: 40, line: [] },
+    rider: { name: 'Ada Rider', verified: true, hasProfilePhoto: false },
+    rating: { eligible: false, submitted: false },
+  });
+  assert.equal(withBearing.riderLocation?.bearingDegrees, 90);
+  const view = trackingMapView(withBearing, NOW);
+  assert.equal(view.kind === 'live' ? view.rider.bearingDegrees : null, 90);
+});
+
 test('collected deliveries keep their status headlines', () => {
   assert.equal(trackingHeadline('COLLECTED', 50), 'Parcel collected');
   assert.equal(trackingHeadline('OUT_FOR_DELIVERY', 50), 'Parcel collected');
@@ -457,6 +511,21 @@ test('collected deliveries keep their status headlines', () => {
   assert.equal(pickupStraightLineMetres(collected, NOW), null);
   assert.equal(trackingHeadline(collected.status, pickupStraightLineMetres(collected, NOW)), 'Parcel collected');
 });
+
+function northOf(point: { latitude: number; longitude: number }, metres: number) {
+  return {
+    latitude: point.latitude + (metres / 6_371_000) * (180 / Math.PI),
+    longitude: point.longitude,
+  };
+}
+
+function eastOf(point: { latitude: number; longitude: number }, metres: number) {
+  const cos = Math.cos(point.latitude * Math.PI / 180);
+  return {
+    latitude: point.latitude,
+    longitude: point.longitude + (metres / (6_371_000 * cos)) * (180 / Math.PI),
+  };
+}
 
 function memoryStore() {
   const values = new Map<string, string>();

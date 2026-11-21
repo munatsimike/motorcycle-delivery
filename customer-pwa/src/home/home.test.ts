@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { HARARE, INITIAL_SPAN, NEIGHBORHOOD_SPAN, cameraFor, shouldAutoFrame } from './camera.ts';
 import { CUSTOMER_LOCATION_DOT, customerLocationIcon } from './customerLocation.ts';
-import { motorcycleMarkerDisplaySize, NATIVE_MOTORCYCLE_MARKER } from './motorcycleMarker.ts';
+import { markerRotation, motorcycleMarkerDisplaySize, MOTORCYCLE_NOSE_CLOCKWISE_DEGREES, NATIVE_MOTORCYCLE_MARKER } from './motorcycleMarker.ts';
 import {
   filterValidNearbyRiderPoints,
   locationFromGeolocationError,
@@ -66,6 +66,15 @@ const RIDERS = [
   '44444444-4444-4444-8444-444444444444',
   '55555555-5555-4555-8555-555555555555',
 ] as const;
+
+test('the motorcycle artwork offset points its front along a travel bearing', () => {
+  assert.equal(MOTORCYCLE_NOSE_CLOCKWISE_DEGREES, 142);
+  assert.equal(markerRotation(null), 0);
+  assert.equal(markerRotation(Number.NaN), 0);
+  assert.equal(markerRotation(142), 0);
+  assert.equal(markerRotation(0), 218);
+  assert.equal(markerRotation(90), 308);
+});
 
 test('nearby responses keep only unexpired approximate points', () => {
   const map = readNearbyRiderMap({
