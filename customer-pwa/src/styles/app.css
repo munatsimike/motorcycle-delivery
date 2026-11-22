@@ -1936,7 +1936,7 @@ button.home-status:disabled {
 }
 
 .delivery-price p:last-child strong {
-  font-size: 1.25rem;
+  font-size: inherit;
   font-weight: 700;
 }
 
@@ -4977,7 +4977,7 @@ html.is-page-transition .page-stage {
 }
 .delivery-facts-card .facts-price .facts-price-amount {
   color: var(--text);
-  font-size: 20px;
+  font-size: inherit;
   font-weight: 700;
-  line-height: 1.25;
+  line-height: inherit;
 }
