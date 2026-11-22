@@ -4156,19 +4156,27 @@ html.is-page-transition .page-stage {
   background: var(--primary-dark);
 }
 
-.button.auth-different-number,
+/* Verification: secondary action is a simple green text button. */
+.auth-screen .button.auth-different-number,
 :root:not([data-theme="dark"]) .button.auth-different-number:not(.button-outline) {
-  background: var(--background);
-  color: var(--text);
-  box-shadow: inset 0 0 0 1.5px var(--border);
+  background: transparent;
+  color: #16845b;
+  border: 0;
+  box-shadow: none;
+  padding: 8px 12px;
+  min-height: 44px;
+  width: 100%;
 }
-
-.button.auth-different-number:hover,
+.auth-screen .button.auth-different-number:hover,
 :root:not([data-theme="dark"]) .button.auth-different-number:not(.button-outline):hover {
-  background: var(--surface);
-  color: var(--text);
+  background: transparent;
+  color: #126b49;
+  box-shadow: none;
 }
-
+.auth-screen .button.auth-different-number:focus-visible {
+  outline: 2px solid #16845b;
+  outline-offset: 2px;
+}
 
 /* Deliveries and More page refinements — light theme only. */
 :root:not([data-theme="dark"]) .deliveries-header {
