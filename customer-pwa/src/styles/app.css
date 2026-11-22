@@ -4797,3 +4797,11 @@ html.is-page-transition .page-stage {
   font-size: 17px;
   line-height: 1.35;
 }
+
+/* Delivered details: keep the reference at the right edge. */
+.delivered-summary > .delivery-facts:first-of-type > p:last-child {
+  flex: 0 0 auto;
+  margin-left: auto;
+  text-align: right;
+  justify-items: end;
+}

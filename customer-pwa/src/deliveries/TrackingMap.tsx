@@ -754,38 +754,38 @@ export function TrackingMap({
 type DeliveredCallout = { name: string; address: string; when: string };
 
 function deliveredMarkerIcon(maps: Maps, callout: DeliveredCallout) {
-  // Keep the full destination address readable instead of truncating it.
-  const width = 280;
   const padX = 16;
   const lineH = 22;
-  const addressLines = wrapDeliveredAddress(callout.address, 31);
   const nameLines = wrapDeliveredAddress(callout.name, 29);
+  const addressLines = wrapDeliveredAddress(callout.address, 31);
   const details = [
     ...nameLines.map((value) => ({ value, bold: true })),
     ...addressLines.map((value) => ({ value, bold: false })),
     ...(callout.when ? [{ value: callout.when, bold: false }] : []),
   ];
-  const titleY = 31;
-  const detailStartY = 58;
+  // Size the card to its contents, keeping matching horizontal padding.
+  const maxLineLength = Math.max(20, ...details.map(({ value }) => value.length));
+  const width = Math.max(218, Math.min(310, Math.ceil(maxLineLength * 8.1) + padX * 2));
+  const detailStartY = 57;
   const cardH = detailStartY + Math.max(0, details.length - 1) * lineH + 18;
-  const pin = 40;
-  const gap = 8;
+  const pin = 46;
+  const gap = 6;
   const height = cardH + gap + pin;
   const text = [
     `<circle cx="${padX + 12}" cy="25" r="11" fill="#ffffff"/>`,
     `<path d="M${padX + 6} 25l4 4 8-9" fill="none" stroke="#16845B" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>`,
-    `<text x="${padX + 32}" y="${titleY}" font-family="Arial, sans-serif" font-size="19" font-weight="700" fill="#ffffff">Delivered</text>`,
+    `<text x="${padX + 32}" y="31" font-family="Arial, sans-serif" font-size="19" font-weight="700" fill="#ffffff">Delivered</text>`,
   ];
   details.forEach(({ value, bold }, index) => {
-    text.push(
-      `<text x="${padX}" y="${detailStartY + index * lineH}" font-family="Arial, sans-serif" font-size="16" font-weight="${bold ? "600" : "400"}" fill="#ffffff">${escapeXml(value)}</text>`,
-    );
+    text.push(`<text x="${padX}" y="${detailStartY + index * lineH}" font-family="Arial, sans-serif" font-size="16" font-weight="${bold ? '600' : '400'}" fill="#ffffff">${escapeXml(value)}</text>`);
   });
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect x="2" y="3" width="${width - 4}" height="${cardH}" rx="18" fill="#17211D" opacity="0.18"/><rect width="${width}" height="${cardH}" rx="18" fill="#16845B"/>${text.join("")}<svg x="${(width - pin) / 2}" y="${cardH + gap}" width="${pin}" height="${pin}" viewBox="0 0 24 24"><path fill="#1A73E8" d="M12 2.2a6.2 6.2 0 0 0-6.2 6.2c0 4.2 6.2 10.2 6.2 10.2s6.2-6 6.2-10.2A6.2 6.2 0 0 0 12 2.2z"/><text x="12" y="11.7" text-anchor="middle" font-family="Arial, sans-serif" font-size="8.5" font-weight="700" fill="#ffffff">2</text></svg></svg>`;
+  // Reuse the existing destination pin artwork and its 46px size.
+  const destinationPin = `<path fill="#1A73E8" d="M12 2.2a6.2 6.2 0 0 0-6.2 6.2c0 4.2 6.2 10.2 6.2 10.2s6.2-6 6.2-10.2A6.2 6.2 0 0 0 12 2.2z"/><text x="12" y="11.7" text-anchor="middle" font-family="Arial, sans-serif" font-size="8.5" font-weight="700" fill="#ffffff">2</text>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect x="2" y="3" width="${width - 4}" height="${cardH}" rx="18" fill="#17211D" opacity="0.18"/><rect width="${width}" height="${cardH}" rx="18" fill="#16845B"/>${text.join('')}<svg x="${(width - pin) / 2}" y="${cardH + gap}" width="${pin}" height="${pin}" viewBox="0 0 24 24">${destinationPin}</svg></svg>`;
   return {
     url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
     scaledSize: new maps.Size(width, height),
-    anchor: new maps.Point(width / 2, height - 2),
+    anchor: new maps.Point(width / 2, height - 10),
   };
 }
 
