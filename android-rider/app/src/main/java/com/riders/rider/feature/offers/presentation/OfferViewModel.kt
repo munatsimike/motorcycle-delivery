@@ -40,6 +40,7 @@ import com.riders.rider.feature.offers.domain.canAcceptOffer
 import com.riders.rider.feature.offers.domain.clockOffsetMillis
 import com.riders.rider.feature.offers.domain.marketplaceOffersError
 import com.riders.rider.feature.offers.domain.offerBoardAfterLoad
+import com.riders.rider.feature.offers.domain.offerIsExpired
 import com.riders.rider.feature.offers.domain.matchingOfferIndex
 import com.riders.rider.feature.offers.domain.offerUnavailableAfterRefresh
 import com.riders.rider.feature.wallet.data.WalletRepository
@@ -104,7 +105,14 @@ class OfferViewModel @Inject constructor(
                 state.update {
                     it.copy(
                         ownBids = loaded,
-                        sentAmounts = optimisticAmountsAfterServerRefresh(it.sentAmounts, loaded),
+                        // A renewed search can reuse the delivery ID. Do not keep a
+                        // confirmation from an earlier, now expired/closed bid.
+                        sentAmounts = if (it.ownBidsKnown) it.sentAmounts.filterKeys { id ->
+                            loaded.any { bid -> bid.deliveryId == id && bid.status == "OPEN" }
+                        } else it.sentAmounts,
+                        sentLabels = if (it.ownBidsKnown) it.sentLabels.filterKeys { id ->
+                            loaded.any { bid -> bid.deliveryId == id && bid.status == "OPEN" }
+                        } else it.sentLabels,
                     )
                 }
             }
@@ -211,11 +219,11 @@ class OfferViewModel @Inject constructor(
     }
 
     fun expressInterest(offer: OfferResponse) {
-        submitBidAmount(offer.deliveryId, offer.offeredPrice, offer.currency)
+        submitBidAmount(offer.deliveryId, offer.offeredPrice, offer.currency, offer)
     }
 
-    fun submitBid(deliveryId: String, amountText: String, currency: String) {
-        submitBidAmount(deliveryId, amountText, currency)
+    fun submitBid(deliveryId: String, amountText: String, currency: String, request: OfferResponse? = null) {
+        submitBidAmount(deliveryId, amountText, currency, request)
     }
 
     fun decline(deliveryId: String) {
@@ -243,7 +251,7 @@ class OfferViewModel @Inject constructor(
         }
     }
 
-    private fun submitBidAmount(deliveryId: String, amountText: String, currency: String) {
+    private fun submitBidAmount(deliveryId: String, amountText: String, currency: String, request: OfferResponse? = null) {
         val cents = bidAmountCents(amountText)
         val now = adjustedNowMillis(System.currentTimeMillis(), clockOffset)
         if (cents == null) {
@@ -254,7 +262,10 @@ class OfferViewModel @Inject constructor(
         if (!canStartBidSubmit(current.submittingBid, current.accepting)) {
             return
         }
+        // The Home map and New requests page can have different refresh snapshots.
+        // Use the explicitly displayed request when it matches the submitted delivery.
         val offer = current.offers.find { it.deliveryId == deliveryId }
+            ?: request?.takeIf { it.deliveryId == deliveryId }
         if (offer == null || (current.offerGone && current.selected?.deliveryId == deliveryId) ||
             !notificationRequestCanOpen(true, offer.expiresAt, now)) {
             state.update { it.copy(bidError = REQUEST_UNAVAILABLE, nowMillis = now) }
@@ -298,7 +309,7 @@ class OfferViewModel @Inject constructor(
     }
 
     fun offerListedPrice(offer: OfferResponse) {
-        submitBidAmount(offer.deliveryId, offer.offeredPrice, offer.currency)
+        submitBidAmount(offer.deliveryId, offer.offeredPrice, offer.currency, offer)
     }
 
     fun accept(offer: OfferResponse) {
@@ -307,7 +318,7 @@ class OfferViewModel @Inject constructor(
         if (current.accepting || current.submittingBid) {
             return
         }
-        if (current.offerGone) {
+        if (current.offerGone && current.selected?.deliveryId == offer.deliveryId) {
             state.update { it.copy(error = OFFER_UNAVAILABLE, nowMillis = now) }
             return
         }
@@ -356,7 +367,21 @@ class OfferViewModel @Inject constructor(
 
     private fun publishNow() {
         val now = adjustedNowMillis(System.currentTimeMillis(), clockOffset)
-        state.update { it.copy(nowMillis = now) }
+        state.update { current ->
+            val active = current.offers.filterNot { it.expiresAt.isNotBlank() && offerIsExpired(it.expiresAt, now) }
+            val selectedExpired = current.selected?.let {
+                it.expiresAt.isNotBlank() && offerIsExpired(it.expiresAt, now)
+            } == true
+            current.copy(
+                nowMillis = now,
+                offers = active,
+                selected = if (selectedExpired) null else current.selected,
+                placingBid = if (selectedExpired) false else current.placingBid,
+                offerGone = if (selectedExpired) false else current.offerGone,
+                bidError = if (selectedExpired) null else current.bidError,
+                error = if (selectedExpired) "Offer expired" else current.error,
+            )
+        }
     }
 
     private suspend fun refreshOffers() {
@@ -400,6 +425,7 @@ class OfferViewModel @Inject constructor(
         }
         val now = adjustedNowMillis(System.currentTimeMillis(), clockOffset)
         val visible = availableRequests(listed.offers, openRequests)
+            .filterNot { it.expiresAt.isNotBlank() && offerIsExpired(it.expiresAt, now) }
         state.update { current ->
             val replacement = current.selected?.let { selected ->
                 val index = matchingOfferIndex(
@@ -410,18 +436,22 @@ class OfferViewModel @Inject constructor(
                 )
                 visible.getOrNull(index)
             }
+            val selectedExpired = current.selected?.let {
+                it.expiresAt.isNotBlank() && offerIsExpired(it.expiresAt, now)
+            } == true
             val gone = offerUnavailableAfterRefresh(
-                hadSelection = current.selected != null,
+                hadSelection = current.selected != null && !selectedExpired,
                 stillPresent = replacement != null,
                 refreshSucceeded = true,
             )
             current.copy(
                 loading = false,
                 offers = visible,
-                selected = if (gone) current.selected else replacement,
+                selected = if (selectedExpired) null else if (gone) current.selected else replacement,
+                placingBid = if (selectedExpired) false else current.placingBid,
                 offerGone = gone,
                 nowMillis = now,
-                error = if (gone) OFFER_UNAVAILABLE else if (current.submittingBid) current.error else null,
+                error = if (selectedExpired) "Offer expired" else if (gone) OFFER_UNAVAILABLE else if (current.submittingBid) current.error else null,
                 sentAmounts = sentOffersAfterRefresh(current.sentAmounts),
                 sentLabels = sentOffersAfterRefresh(current.sentLabels),
             )

@@ -1,7 +1,6 @@
 package com.riders.rider.feature.offers.notification
 
 import android.Manifest
-import android.graphics.BitmapFactory
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -39,13 +38,6 @@ import javax.inject.Singleton
 class OfferNotificationPoster @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
-    private val notificationLogo by lazy {
-        BitmapFactory.decodeResource(
-            context.resources,
-            R.drawable.riders_logo
-        )
-    }
-
     fun notificationsEnabled(): Boolean {
         if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) {
             return false
@@ -73,7 +65,7 @@ class OfferNotificationPoster @Inject constructor(
         )
         val notification = NotificationCompat.Builder(context, OFFER_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
-            .setLargeIcon(notificationLogo)
+            .setColor(0xFF169B62.toInt())
             .setContentTitle(OFFER_NOTICE_TITLE)
             .setContentText(OFFER_NOTICE_BODY)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -102,7 +94,7 @@ class OfferNotificationPoster @Inject constructor(
         )
         val notification = NotificationCompat.Builder(context, OFFER_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
-            .setLargeIcon(notificationLogo)
+            .setColor(0xFF169B62.toInt())
             .setContentTitle(ACCEPTED_BID_TITLE)
             .setContentText(ACCEPTED_BID_BODY)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -128,7 +120,7 @@ class OfferNotificationPoster @Inject constructor(
         )
         val notification = NotificationCompat.Builder(context, OFFER_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
-            .setLargeIcon(notificationLogo)
+            .setColor(0xFF169B62.toInt())
             .setContentTitle("Offer expired")
             .setContentText("The customer did not accept an offer in time.")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -155,7 +147,7 @@ class OfferNotificationPoster @Inject constructor(
         )
         val notification = NotificationCompat.Builder(context, OFFER_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
-            .setLargeIcon(notificationLogo)
+            .setColor(0xFF169B62.toInt())
             .setContentTitle(CUSTOMER_CANCELLED_TITLE)
             .setContentText(CUSTOMER_CANCELLED_BODY)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -184,7 +176,7 @@ class OfferNotificationPoster @Inject constructor(
         )
         val notification = NotificationCompat.Builder(context, OFFER_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
-            .setLargeIcon(notificationLogo)
+            .setColor(0xFF169B62.toInt())
             .setContentTitle(ACCOUNT_APPROVED_TITLE)
             .setContentText(ACCOUNT_APPROVED_BODY)
             .setPriority(NotificationCompat.PRIORITY_HIGH)

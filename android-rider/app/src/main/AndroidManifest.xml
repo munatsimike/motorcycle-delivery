@@ -23,7 +23,7 @@
     <application
         android:name=".RiderApplication"
         android:allowBackup="false"
-        android:icon="@drawable/ic_launcher_foreground"
+        android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.Rider"

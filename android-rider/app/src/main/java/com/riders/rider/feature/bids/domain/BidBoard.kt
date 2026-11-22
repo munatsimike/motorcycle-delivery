@@ -227,7 +227,7 @@ fun bidRequestOffer(request: OpenBidRequest): OfferResponse? {
     return OfferResponse(
         assignmentId = "request:${request.id}",
         deliveryId = request.id,
-        expiresAt = deadline.orEmpty(),
+        expiresAt = "", // Marketplace deliverBy is a delivery deadline, not an offer expiry.
         offeredPrice = price,
         currency = currency,
         payer = "",

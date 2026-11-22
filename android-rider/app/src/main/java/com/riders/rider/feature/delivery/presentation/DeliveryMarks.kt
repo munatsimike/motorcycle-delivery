@@ -466,7 +466,7 @@ private fun DistancePrice(distanceMeters: Int?, price: String?, currency: String
             Text("Distance", style = RidersType.caption, color = RidersColors.textSecondary)
             Text(
                 distanceMeters?.let(::offerDistanceLabel) ?: "Unavailable",
-                style = RidersType.body,
+                style = RidersType.heading,
                 color = RidersColors.text,
             )
         }

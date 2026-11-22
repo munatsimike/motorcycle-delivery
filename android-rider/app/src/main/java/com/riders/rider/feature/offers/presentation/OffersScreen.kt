@@ -697,7 +697,6 @@ private fun BidStepButton(label: String, enabled: Boolean, onClick: () -> Unit) 
 
 @Composable
 private fun SentOfferCard(offer: OfferResponse, amount: String) {
-    var open by remember(offer.deliveryId) { mutableStateOf(false) }
     RidersCard(modifier = Modifier.fillMaxWidth()) {
         SentOfferHeading()
         SentOfferNote(offer, amount)
@@ -714,30 +713,7 @@ private fun SentOfferCard(offer: OfferResponse, amount: String) {
                 color = RidersColors.text,
             )
         }
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Row(
-                Modifier.clickable(role = Role.Button, onClick = { open = true }),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    "Parcel details",
-                    style = RidersType.button.copy(fontWeight = FontWeight.Medium),
-                    color = RidersColors.primary,
-                )
-                Icon(
-                    painter = painterResource(R.drawable.ic_chevron_up),
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                    tint = RidersColors.primary,
-                )
-            }
-        }
     }
-    OfferDetailsSheet(visible = open, offer = offer, amount = amount, onDismiss = { open = false })
 }
 
 @Composable
@@ -816,11 +792,7 @@ private fun SentOfferDetails(offer: OfferResponse, amount: String) {
 
 @Composable
 private fun SentOfferHeading() {
-    Row(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm, Alignment.CenterHorizontally),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Box(
             Modifier
                 .size(36.dp)
@@ -830,12 +802,11 @@ private fun SentOfferHeading() {
         ) {
             Icon(
                 painter = painterResource(R.drawable.ic_check),
-                contentDescription = null,
+                contentDescription = "Offer sent",
                 modifier = Modifier.size(20.dp),
                 tint = RidersColors.primary,
             )
         }
-        Text("Offer sent", style = RidersType.bodyStrong, color = RidersColors.text)
     }
 }
 
@@ -994,7 +965,7 @@ private fun OfferSummary(offer: OfferResponse, nowMillis: Long, detailed: Boolea
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs)) {
             Text("Distance", style = RidersType.caption, color = RidersColors.textSecondary)
-            Text(offerDistanceLabel(offer.distanceMeters), style = RidersType.body, color = RidersColors.text)
+            Text(offerDistanceLabel(offer.distanceMeters), style = RidersType.heading, color = RidersColors.text)
         }
         Column(
             horizontalAlignment = Alignment.Start,

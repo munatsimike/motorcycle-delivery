@@ -274,7 +274,7 @@ fun HomeScreen(
             }
         },
         onSubmitBid = { offer, amount ->
-            offersModel.submitBid(offer.deliveryId, amount, offer.currency)
+            offersModel.submitBid(offer.deliveryId, amount, offer.currency, offer)
         },
         onDeclineOffer = { offer -> offersModel.decline(offer.deliveryId) },
         offerDeclining = offersUi.declining,
@@ -314,7 +314,7 @@ fun HomeScreen(
             statusLabel = if (sentAmount == null) offersUi.sentLabels[shownRequest.deliveryId] else null,
             sentAmount = sentAmount,
             bidsOpen = marketplaceBidButtonsVisible(shownRequest.serviceClass, offersUi.ownBidsKnown, offersUi.bidError ?: offersUi.bidListError),
-            error = offersUi.error ?: offersUi.bidError,
+            error = offersUi.bidError,
             onAccept = {
                 if (senderChoosesRider(shownRequest.serviceClass)) {
                     offersModel.offerListedPrice(shownRequest)
@@ -323,7 +323,7 @@ fun HomeScreen(
                 }
             },
             onBid = { offersModel.openBid(shownRequest) },
-            onSubmitBid = { amount -> offersModel.submitBid(shownRequest.deliveryId, amount, shownRequest.currency) },
+            onSubmitBid = { amount -> offersModel.submitBid(shownRequest.deliveryId, amount, shownRequest.currency, shownRequest) },
             onDecline = { offersModel.decline(shownRequest.deliveryId) },
             declining = offersUi.declining,
             onInterest = { offersModel.expressInterest(shownRequest) },
