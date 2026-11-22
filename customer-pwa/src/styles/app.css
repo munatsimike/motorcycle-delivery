@@ -4822,3 +4822,27 @@ html.is-page-transition .page-stage {
 .delivered-summary .facts-badge .delivery-class svg {
   color: var(--text-secondary);
 }
+
+/* Expired request: keep offer, payment method and edit action on one line. */
+.delivery-facts-editable > p:first-child { flex: 0 0 26%; }
+.delivery-facts-editable > .facts-price { flex: 1 1 0; min-width: 0; }
+.delivery-facts-editable .facts-price > strong {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 7px;
+  width: max-content;
+  max-width: 100%;
+  white-space: nowrap;
+  font-size: clamp(0.9rem, 4.2vw, 1.25rem);
+}
+.delivery-facts-editable .facts-price-amount { white-space: nowrap; }
+.delivery-facts-editable .facts-price .payment-badge { flex: 0 0 auto; }
+.delivery-facts-editable .facts-adjust-icon {
+  flex: 0 0 32px;
+  width: 32px;
+  height: 40px;
+  margin-left: 3px;
+  padding: 6px;
+  color: var(--text);
+}

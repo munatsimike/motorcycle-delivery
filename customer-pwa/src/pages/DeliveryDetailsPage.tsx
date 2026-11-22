@@ -1321,17 +1321,16 @@ function DeliveryFacts({
       {when ? <p className="facts-date"><CalendarMark />{when}</p> : null}
       <p className="delivery-stop"><PinMark dropoff={false} />{stopCopy(showContacts ? delivery.senderName : null, delivery.pickupAddress)}</p>
       <p className="delivery-stop"><PinMark dropoff />{stopCopy(showContacts ? delivery.recipientName : null, delivery.dropoffAddress)}</p>
-      <div className="delivery-facts">
+      <div className={`delivery-facts${onAdjust ? ' delivery-facts-editable' : ''}`}>
         <p><span>Distance</span><strong>{deliveryDistanceLabel(delivery.distanceMeters)}</strong></p>
         <p className="facts-price">
           <span className="price-label">{customerOffer ? 'Your offer' : 'Price'}</span>
           <strong>
-            {moneyLabel(delivery.currency, amount)}
+            <span className="facts-price-amount">{moneyLabel(delivery.currency, amount)}</span>
             <PaymentBadge method={delivery.paymentMethod} />
             {onAdjust ? (
               <button type="button" className="facts-adjust-icon" onClick={onAdjust} aria-label="Adjust price" title="Adjust price">
                 <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 20h9" />
                   <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L9 17l-4 1 1-4L16.5 3.5Z" />
                 </svg>
               </button>
