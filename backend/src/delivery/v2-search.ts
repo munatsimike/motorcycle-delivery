@@ -197,11 +197,8 @@ export async function restartV2Search(
   if (delivery.status === DeliveryStatus.CREATED) {
     return { deliveryId: delivery.id, status: DeliveryStatus.CREATED, searchGeneration: delivery.searchGeneration };
   }
-  if (delivery.offerResponseExpiresAt && now.getTime() < delivery.offerResponseExpiresAt.getTime() + 300_000) {
-    throw new ConflictException(`ROUTE_COOLDOWN_UNTIL ${new Date(delivery.offerResponseExpiresAt.getTime() + 300_000).toISOString()}`);
-  }
-  const cooldown = await tx.$queryRaw<Array<{ deadline: Date | null }>>`SELECT route_cooldown_until(customer_id,pickup_latitude::double precision,pickup_longitude::double precision,dropoff_latitude::double precision,dropoff_longitude::double precision) AS deadline FROM deliveries WHERE id=CAST(${delivery.id} AS uuid)`;
-  if (cooldown?.[0]?.deadline) throw new ConflictException(`ROUTE_COOLDOWN_UNTIL ${cooldown[0].deadline.toISOString()}`);
+  // Restarting the same expired delivery is allowed immediately. Route cooldowns
+  // still protect the creation of separate duplicate delivery requests.
   const started = v2SearchStartData(now);
   await tx.delivery.update({
     where: { id: delivery.id },

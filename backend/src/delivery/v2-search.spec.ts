@@ -266,9 +266,22 @@ describe('one six-minute V2 search', () => {
     expect(ctx.bids.every(bid => bid.status === BidStatus.EXPIRED)).toBe(true);
     expect(ctx.deliveries[0]!.status).toBe(DeliveryStatus.NO_RIDER_FOUND);
     expect(await expireDueV2Searches(ctx.tx, deadline)).toBe(0);
-    await expect(restartV2Search(ctx.tx, ctx.deliveries[0]!, 'customer', deadline)).rejects.toBeInstanceOf(ConflictException);
-    await restartV2Search(ctx.tx, ctx.deliveries[0]!, 'customer', new Date(deadline.getTime() + 300_000));
-    expect(ctx.deliveries[0]!.offerResponseExpiresAt).toBeNull();
+    // The response window has expired, but the same delivery can be searched again immediately.
+    const first = await restartV2Search(ctx.tx, ctx.deliveries[0]!, 'customer', deadline);
+    const second = await restartV2Search(ctx.tx, ctx.deliveries[0]!, 'customer', new Date(deadline.getTime() + 2_000));
+    expect(first).toEqual({ deliveryId: 'express-1', status: DeliveryStatus.CREATED, searchGeneration: 0 });
+    expect(second).toEqual(first);
+    expect(ctx.deliveries[0]).toMatchObject({
+      status: DeliveryStatus.CREATED,
+      searchStartedAt: deadline,
+      nextRetryAt: v2SearchExpiresAt(deadline),
+      offerResponseExpiresAt: null,
+    });
+    expect(ctx.bids.every(bid => bid.status === BidStatus.EXPIRED)).toBe(true);
+    expect(ctx.events).toEqual([
+      { previousStatus: DeliveryStatus.CREATED, newStatus: DeliveryStatus.NO_RIDER_FOUND },
+      { previousStatus: DeliveryStatus.NO_RIDER_FOUND, newStatus: DeliveryStatus.CREATED },
+    ]);
   });
   it('retains the response window after the search window ends', async () => {
     const ctx = store(row('FLEXIBLE'));
