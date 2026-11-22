@@ -4846,3 +4846,41 @@ html.is-page-transition .page-stage {
   padding: 6px;
   color: var(--text);
 }
+
+/* Expired request: two aligned facts, with an unbroken offer/action row. */
+.delivery-facts-editable {
+  display: grid;
+  grid-template-columns: minmax(0, 0.82fr) minmax(0, 1.18fr);
+  column-gap: 12px;
+  align-items: start;
+}
+.delivery-facts-editable > p:first-child,
+.delivery-facts-editable > .facts-price {
+  min-width: 0;
+  margin: 0;
+}
+.delivery-facts-editable .facts-price > strong {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  width: max-content;
+  max-width: none;
+  gap: 7px;
+  font-size: inherit;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.delivery-facts-editable .facts-price-amount {
+  color: var(--text);
+  font-size: inherit;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.delivery-facts-editable .facts-adjust-icon {
+  flex: 0 0 28px;
+  width: 28px;
+  height: 36px;
+  margin-left: 4px;
+  padding: 5px;
+  color: var(--text);
+}
