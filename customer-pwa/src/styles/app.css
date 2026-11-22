@@ -4753,3 +4753,47 @@ html.is-page-transition .page-stage {
   background: #44321E;
   color: #FBBF64;
 }
+
+.book-existing-dialog { display:flex; flex-direction:column; align-items:stretch; gap:14px; text-align:center; }
+.book-existing-dialog h2,.book-existing-dialog p { margin:0; }
+.book-existing-dialog .offer-response-timer { margin:0; }
+.book-existing-search { border:0; border-radius:999px; min-height:48px; background:#15945c; color:white; font:inherit; font-weight:600; cursor:pointer; }
+.book-existing-search:disabled { opacity:.5; cursor:not-allowed; }
+.book-existing-cancel { border:0; background:transparent; color:#b42318; font:inherit; font-weight:600; min-height:40px; cursor:pointer; }
+
+/* No rider found: compact price editor beside the payment method. */
+.facts-price .facts-adjust-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  margin-left: 10px;
+  padding: 5px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--primary);
+  cursor: pointer;
+}
+.facts-price .facts-adjust-icon svg {
+  display: block;
+  width: 18px;
+  height: 18px;
+}
+.facts-price .facts-adjust-icon:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* Delivered screen: stronger address hierarchy and Android-style facts order. */
+.delivered-summary .delivery-stop .stop-copy > span {
+  font-size: 18px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.delivered-summary .delivery-stop .stop-copy > strong {
+  font-size: 17px;
+  line-height: 1.35;
+}

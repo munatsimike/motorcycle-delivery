@@ -1251,8 +1251,8 @@ function DeliveredSummary({ delivery }: { delivery: CustomerDeliveryDetail }) {
         ) : null}
       </div>
       <div className="delivery-facts">
-        <p><span>Delivery</span><strong>{shortDeliveryReference(delivery.id)}</strong></p>
         {when ? <p><span>Requested</span><strong>{when}</strong></p> : null}
+        <p><span>Delivery</span><strong>{shortDeliveryReference(delivery.id)}</strong></p>
       </div>
       {delivery.senderName?.trim() || delivery.pickupAddress ? (
         <p className="delivery-stop">
@@ -1328,8 +1328,15 @@ function DeliveryFacts({
           <strong>
             {moneyLabel(delivery.currency, amount)}
             <PaymentBadge method={delivery.paymentMethod} />
+            {onAdjust ? (
+              <button type="button" className="facts-adjust-icon" onClick={onAdjust} aria-label="Adjust price" title="Adjust price">
+                <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 20h9" />
+                  <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L9 17l-4 1 1-4L16.5 3.5Z" />
+                </svg>
+              </button>
+            ) : null}
           </strong>
-          {onAdjust ? <button type="button" className="facts-adjust" onClick={onAdjust}>Adjust price</button> : null}
         </p>
       </div>
     </div>

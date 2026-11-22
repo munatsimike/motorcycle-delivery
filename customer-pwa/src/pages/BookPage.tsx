@@ -7,7 +7,7 @@ import { ApiError } from '../api/client';
 import { loadCustomerAccount } from '../account/profileApi';
 import { offerFieldText } from '../deliveries/tracking';
 import { deliveryCardAddress, deliveryContentKind, type DeliveryContentKind } from '../deliveries/rules';
-import { deliveryErrorMessage } from '../deliveries/api';
+import { deliveryErrorMessage, listDeliveries, loadDelivery, searchForRider } from '../deliveries/api';
 import type { CustomerAccount } from '../auth/contracts';
 import { useSession } from '../auth/sessionContext';
 import { Button } from '../components/Button';
@@ -96,6 +96,14 @@ import {
 
 const LOCATION_DENIED = 'Location permission is needed to detect your pickup point.';
 const LOCATION_UNAVAILABLE = 'We couldn\'t detect your location. Try again or search for your pickup address.';
+function metres(aLat: number, aLng: number, bLat: number, bLng: number): number {
+  const r = Math.PI / 180;
+  const dLat = (bLat - aLat) * r;
+  const dLng = (bLng - aLng) * r;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(aLat * r) * Math.cos(bLat * r) * Math.sin(dLng / 2) ** 2;
+  return 12742000 * Math.asin(Math.sqrt(Math.min(1, Math.max(0, h))));
+}
+
 const ATTEMPT_KEY = 'customer_delivery_create_v1';
 
 type QuotedPrice = DeliveryQuote & { pinKey: string };
@@ -113,14 +121,16 @@ export function BookPage() {
   const [offer, setOffer] = useState({ text: '', edited: false, pinKey: null as string | null });
   const [error, setError] = useState<string | null>(null);
   const [routeDeadline, setRouteDeadline] = useState<number | null>(null);
-  useEffect(() => { setRouteDeadline(null); }, [draft.pickup.latitude, draft.pickup.longitude, draft.dropoff.latitude, draft.dropoff.longitude]);
+  const [existingRequest, setExistingRequest] = useState<{ id: string; deadline: number | null } | null>(null);
+  const [retrying, setRetrying] = useState(false);
+  useEffect(() => { setRouteDeadline(null); setExistingRequest(null); }, [draft.pickup.latitude, draft.pickup.longitude, draft.dropoff.latitude, draft.dropoff.longitude]);
   const [routeNow, setRouteNow] = useState(Date.now);
   const routeSeconds = routeDeadline === null ? 0 : Math.max(0, Math.ceil((routeDeadline-routeNow)/1000));
   useEffect(() => {
-    if (routeDeadline === null) return;
+    if (routeDeadline === null && existingRequest?.deadline == null) return;
     const timer = window.setInterval(() => setRouteNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
-  }, [routeDeadline]);
+  }, [routeDeadline, existingRequest?.deadline]);
   const [busy, setBusy] = useState<BookingBusy>(null);
   const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>([]);
   const [addressesSettled, setAddressesSettled] = useState(false);
@@ -446,6 +456,39 @@ export function BookPage() {
     setStep(nextBookingStep(step));
   }
 
+  async function findExisting(token: string, pickup: { latitude: number; longitude: number }, dropoff: { latitude: number; longitude: number }) {
+    const first = await listDeliveries(token, 1, ['NO_RIDER_FOUND']);
+    const pages = [first];
+    for (let page = 2; page <= first.totalPages; page++) pages.push(await listDeliveries(token, page, ['NO_RIDER_FOUND']));
+    const candidates = pages.flatMap((page) => page.deliveries).filter((item) => item.status === 'NO_RIDER_FOUND')
+      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+    for (const candidate of candidates) {
+      const detail = await loadDelivery(token, candidate.id);
+      if (detail.pickupLatitude === null || detail.pickupLongitude === null || detail.dropoffLatitude === null || detail.dropoffLongitude === null) continue;
+      if (metres(detail.pickupLatitude, detail.pickupLongitude, pickup.latitude, pickup.longitude) > 100 ||
+          metres(detail.dropoffLatitude, detail.dropoffLongitude, dropoff.latitude, dropoff.longitude) > 100) continue;
+      const expiry = detail.offerResponseExpiresAt ? Date.parse(detail.offerResponseExpiresAt) : NaN;
+      return { id: detail.id, deadline: Number.isFinite(expiry) ? expiry + 300000 : null };
+    }
+    return null;
+  }
+
+  async function retryExisting() {
+    if (!existingRequest || retrying || (existingRequest.deadline !== null && Date.now() < existingRequest.deadline)) return;
+    setRetrying(true);
+    try {
+      const token = await accessToken();
+      if (!token) throw new Error('Sign in again.');
+      await searchForRider(token, existingRequest.id);
+      finish(existingRequest.id);
+    } catch (caught) {
+      const message = deliveryErrorMessage(caught, 'Could not search again.');
+      const deadline = routeCooldownErrorDeadline(message);
+      if (deadline !== null) { setExistingRequest((old) => old ? { ...old, deadline } : null); setRouteNow(Date.now()); }
+      else { setExistingRequest(null); setError(message); }
+    } finally { setRetrying(false); }
+  }
+
   async function confirm() {
     if (!canStartBookingSubmit(creating.current, busy) || leaving.current || (routeDeadline !== null && Date.now() < routeDeadline)) return;
     const prepared = prepareBooking(draft);
@@ -477,6 +520,8 @@ export function BookPage() {
         setError(decision.message);
         return;
       }
+      const previous = await findExisting(token, prepared.booking.pickup, prepared.booking.dropoff);
+      if (previous) { setExistingRequest(previous); setRouteNow(Date.now()); return; }
       const fingerprint = JSON.stringify(v2CreateBody(prepared.booking, decision.offeredPrice));
       const idempotencyKey = bookingKeyFor(attempts.current, fingerprint, () => crypto.randomUUID());
       const created = await createDelivery(token, prepared.booking, decision.offeredPrice, idempotencyKey);
@@ -710,6 +755,19 @@ export function BookPage() {
           </div>
         </div>
       </div>
+      {existingRequest ? (
+        <div className="confirm-dialog-backdrop" onClick={() => { if (!retrying) setExistingRequest(null); }}>
+          <div className="confirm-dialog book-existing-dialog" role="dialog" aria-modal="true" aria-labelledby="book-existing-title" onClick={(event) => event.stopPropagation()}>
+            <h2 id="book-existing-title">Request already exists</h2>
+            <p>You have an expired request for these addresses.</p>
+            {existingRequest.deadline !== null && existingRequest.deadline > routeNow ? (
+              <div className="offer-response-timer"><span>Search again in</span><strong role="timer">{offerResponseLabel(Math.ceil((existingRequest.deadline - routeNow) / 1000))}</strong></div>
+            ) : null}
+            <button type="button" className="book-existing-search" disabled={retrying || (existingRequest.deadline !== null && routeNow < existingRequest.deadline)} onClick={() => { void retryExisting(); }}>{retrying ? 'Searching…' : 'Search again'}</button>
+            <button type="button" className="book-existing-cancel" disabled={retrying} onClick={() => setExistingRequest(null)}>Cancel</button>
+          </div>
+        </div>
+      ) : null}
       {pinRequest ? <AddressPinDialog address={draft[pinRequest.side].address} onCancel={() => setPinRequest(null)} onConfirm={confirmPin} /> : null}
       {saveDialog.mounted && saveStop ? (
         <div className={motionClass('confirm-dialog-backdrop book-save-dialog-backdrop', 'dialog', saveDialog.visible)} onClick={() => { if (inlineSaveChoice[saveStop].status === 'saving') return; setInlineSaveOpen(null); setInlineSaveError(null); }}>
