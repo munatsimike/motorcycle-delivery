@@ -1,0 +1,671 @@
+package com.riders.rider.feature.profile.presentation
+
+import android.graphics.Bitmap
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.riders.rider.R
+import com.riders.rider.core.design.RidersButtonTone
+import com.riders.rider.core.design.RidersErrorState
+import com.riders.rider.core.design.RidersColors
+import com.riders.rider.core.design.RidersDialog
+import com.riders.rider.core.design.RidersDialogActions
+import com.riders.rider.core.design.RidersDialogBody
+import com.riders.rider.core.design.RidersDialogTextButton
+import com.riders.rider.core.design.RidersDialogTitle
+import com.riders.rider.core.design.RidersDialogTone
+import com.riders.rider.core.design.RidersFailureNotice
+import com.riders.rider.core.design.RidersLoadingState
+import com.riders.rider.core.design.RidersPullRefresh
+import com.riders.rider.core.design.RidersRadius
+import com.riders.rider.core.design.RidersPrimaryButton
+import com.riders.rider.core.design.RidersSecondaryButton
+import com.riders.rider.core.design.RidersTextField
+import com.riders.rider.core.design.RidersSpacing
+import com.riders.rider.core.design.RidersType
+import com.riders.rider.feature.delivery.presentation.MapBackground
+import com.riders.rider.feature.auth.presentation.RegistrationAddressField
+import com.riders.rider.feature.onboarding.domain.MotorcycleDetails
+import com.riders.rider.feature.onboarding.domain.RiderOnboarding
+import com.riders.rider.feature.onboarding.domain.approvalStatusTitle
+import com.riders.rider.feature.onboarding.domain.motorcycleStatusTitle
+import com.riders.rider.feature.onboarding.domain.riderReadiness
+import com.riders.rider.core.io.readAtMost
+import com.riders.rider.feature.profile.domain.PROFILE_PHOTO_MAX_BYTES
+import com.riders.rider.feature.profile.domain.ProfilePhotoPhase
+import com.riders.rider.feature.profile.domain.ProfilePhotoState
+import com.riders.rider.feature.profile.domain.canStartProfilePhotoAction
+import com.riders.rider.feature.profile.domain.displayedProfilePhoto
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+private val PendingReview = Color(0xFFB86E00)
+private val PendingReviewFill = Color(0xFFFFF4E5)
+
+@Composable
+private fun PasswordCard(
+    saving: Boolean,
+    error: String?,
+    saved: Boolean,
+    onSave: (String, String) -> Unit,
+) {
+    var password by rememberSaveable { mutableStateOf("") }
+    var currentPassword by rememberSaveable { mutableStateOf("") }
+    Column(verticalArrangement = Arrangement.spacedBy(RidersSpacing.md)) {
+        RidersTextField(
+            label = "New password",
+            value = password,
+            onValueChange = { password = it },
+            placeholder = "12 or more characters",
+            enabled = !saving,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Next),
+            visualTransformation = PasswordVisualTransformation(),
+        )
+        RidersTextField(
+            label = "Current password",
+            value = currentPassword,
+            onValueChange = { currentPassword = it },
+            placeholder = "Only if you already have one",
+            enabled = !saving,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+            visualTransformation = PasswordVisualTransformation(),
+        )
+        if (error != null) {
+            RidersFailureNotice(message = error)
+        }
+        if (saved) {
+            Text("Password saved. This phone stays signed in.", style = RidersType.caption, color = RidersColors.primaryDark)
+        }
+        RidersPrimaryButton(
+            label = "Save password",
+            onClick = { onSave(password, currentPassword) },
+            loading = saving,
+            enabled = !saving,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
+
+@Composable
+fun ProfileScreen(
+    onMotorcycles: () -> Unit,
+    model: ProfileViewModel = hiltViewModel(),
+) {
+    val ui by model.ui.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val picker = rememberLauncherForActivityResult(PickVisualMedia()) { uri ->
+        if (uri == null) {
+            return@rememberLauncherForActivityResult
+        }
+        scope.launch {
+            val bytes = withContext(Dispatchers.IO) {
+                try {
+                    context.contentResolver.openInputStream(uri)?.use { stream ->
+                        readAtMost(stream, PROFILE_PHOTO_MAX_BYTES + 1)
+                    }
+                } catch (_: SecurityException) {
+                    null
+                } catch (_: java.io.IOException) {
+                    null
+                }
+            }
+            if (bytes == null) {
+                model.reportPhoto("Choose a profile photo")
+            } else {
+                model.uploadPhoto(bytes)
+            }
+        }
+    }
+    LaunchedEffect(Unit) { model.refresh(force = false) }
+    var confirmRemove by rememberSaveable { mutableStateOf(false) }
+    var editingAddress by rememberSaveable { mutableStateOf(false) }
+    val board = ui.board
+    val hasProfile = board.fullName.isNotBlank() || board.onboarding != null
+    val displayedPhoto = displayedProfilePhoto(ui.photo, ui.photoBitmap, ui.photoPreview)
+    if (editingAddress) {
+        AddressEditor(
+            initial = board.address,
+            saving = ui.savingAddress,
+            error = ui.addressError,
+            onCancel = {
+                model.clearAddressError()
+                editingAddress = false
+            },
+            onSave = { model.saveAddress(it) { editingAddress = false } },
+        )
+    } else RidersPullRefresh(
+        refreshing = ui.refreshing,
+        onRefresh = { model.refresh(force = true) },
+        modifier = Modifier
+            .fillMaxSize()
+            .background(RidersColors.canvas),
+    ) {
+        val sheetShape = RoundedCornerShape(topStart = RidersRadius.xl, topEnd = RidersRadius.xl)
+        val avatarSize = 80.dp
+        val avatarOverlap = avatarSize / 2
+        val mapGap = 24.dp
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            val statusTop = with(LocalDensity.current) { WindowInsets.statusBars.getTop(this).toDp() }
+            val sheetMinHeight = (maxHeight - statusTop - mapGap).coerceAtLeast(0.dp)
+            MapBackground(Modifier.fillMaxSize())
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            0f to RidersColors.canvas.copy(alpha = 0.78f),
+                            0.34f to RidersColors.canvas.copy(alpha = 0.12f),
+                            1f to RidersColors.text.copy(alpha = 0.18f),
+                        ),
+                    ),
+            )
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .verticalScroll(rememberScrollState())
+                    .padding(bottom = RidersSpacing.xxl),
+            ) {
+                Spacer(Modifier.height(mapGap))
+                Box(Modifier.fillMaxWidth()) {
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = sheetMinHeight)
+                            .padding(top = avatarOverlap)
+                            .clip(sheetShape)
+                            .background(RidersColors.background)
+                            .padding(top = avatarOverlap, bottom = RidersSpacing.lg),
+                    ) {
+            ProfileHeader(
+                name = board.fullName,
+                onboarding = board.onboarding,
+                photoState = ui.photo,
+            )
+            if (hasProfile) {
+                DetailsCard(
+                    phone = board.phone,
+                    address = board.address,
+                    onboarding = board.onboarding,
+                    hasLicence = board.hasLicence,
+                    motorcycles = board.motorcycles,
+                    onMotorcycles = onMotorcycles,
+                    onEditAddress = { editingAddress = true },
+                    modifier = Modifier.padding(horizontal = RidersSpacing.lg),
+                )
+            }
+            Column(
+                Modifier
+                    .padding(horizontal = RidersSpacing.lg)
+                    .padding(top = if (hasProfile) RidersSpacing.lg else RidersSpacing.xl),
+                verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
+            ) {
+                when {
+                    !hasProfile && (ui.loading || !board.loaded) -> RidersLoadingState("Loading your profile")
+                    !hasProfile && board.error != null -> RidersFailureNotice(
+                        message = board.error.orEmpty(),
+                        title = "Profile unavailable",
+                        onRetry = { model.refresh(force = true) },
+                    )
+                    else -> {
+                        if (board.error != null) {
+                            RidersFailureNotice(
+                                message = board.error.orEmpty(),
+                                onRetry = { model.refresh(force = true) },
+                            )
+                        }
+                        ui.photo.error?.let { message ->
+                            RidersErrorState(
+                                message = message,
+                                retryLabel = if (ui.photo.retry != null) "Try again" else null,
+                                onRetry = model::retryPhoto,
+                            )
+                        }
+                        RidersSecondaryButton(
+                            label = "Log out",
+                            onClick = model::logout,
+                            enabled = !ui.signingOut,
+                            loading = ui.signingOut,
+                            tone = RidersButtonTone.Danger,
+                            bordered = false,
+                            icon = R.drawable.ic_logout_outline,
+                            regular = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+            }
+                    }
+                    ProfileAvatarOverlap(
+                        name = board.fullName,
+                        photo = displayedPhoto,
+                        photoState = ui.photo,
+                        onChangePhoto = { picker.launch(PickVisualMediaRequest(PickVisualMedia.ImageOnly)) },
+                        onRemovePhoto = { confirmRemove = true },
+                        modifier = Modifier.align(Alignment.TopCenter),
+                    )
+                }
+            }
+        }
+    }
+    if (confirmRemove && ui.photo.hasStoredPhoto && canStartProfilePhotoAction(ui.photo)) {
+        RidersDialog(visible = true, onDismiss = { confirmRemove = false }) {
+            RidersDialogTitle("Remove profile photo?")
+            RidersDialogBody("Customers will see your initials instead.")
+            RidersDialogActions {
+                RidersDialogTextButton(
+                    label = "Keep photo",
+                    tone = RidersDialogTone.Neutral,
+                    onClick = { confirmRemove = false },
+                )
+                RidersDialogTextButton(
+                    label = "Remove photo",
+                    tone = RidersDialogTone.Danger,
+                    onClick = {
+                        confirmRemove = false
+                        model.removePhoto()
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProfileAvatarOverlap(
+    name: String,
+    photo: Bitmap?,
+    photoState: ProfilePhotoState,
+    onChangePhoto: () -> Unit,
+    onRemovePhoto: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(modifier.size(80.dp)) {
+        ProfileAvatar(
+            name = name,
+            photo = photo,
+            busy = !canStartProfilePhotoAction(photoState),
+            onChangePhoto = onChangePhoto,
+        )
+        if (photoState.hasStoredPhoto && canStartProfilePhotoAction(photoState)) {
+            Box(
+                Modifier
+                    .align(Alignment.BottomEnd)
+                    .offset(x = 8.dp, y = 8.dp)
+                    .size(32.dp)
+                    .shadow(elevation = 3.dp, shape = CircleShape)
+                    .clip(CircleShape)
+                    .background(Color.White)
+                    .clickable(role = Role.Button, onClick = onRemovePhoto)
+                    .semantics { contentDescription = "Remove photo" },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_trash_can_outline),
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = RidersColors.error,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProfileHeader(
+    name: String,
+    onboarding: RiderOnboarding?,
+    photoState: ProfilePhotoState,
+) {
+    val status = onboarding?.approvalStatus
+    val pill = if (status == null) "Rider" else approvalStatusTitle(status)
+    val pendingReview = pill == "Pending review"
+    val pillColor = when {
+        pendingReview -> PendingReview
+        pill == "Approved" -> RidersColors.textInverse
+        status == "REJECTED" || status == "SUSPENDED" -> RidersColors.error
+        else -> RidersColors.primaryDark
+    }
+    val pillFill = when {
+        pendingReview -> PendingReviewFill
+        pill == "Approved" -> RidersColors.primary
+        else -> RidersColors.background
+    }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = RidersSpacing.lg)
+            .padding(top = RidersSpacing.sm, bottom = RidersSpacing.lg),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
+    ) {
+                if (photoState.phase == ProfilePhotoPhase.Uploading) {
+                    Text(
+                        "Uploading ${photoState.progress ?: 0}%",
+                        style = RidersType.caption,
+                        color = RidersColors.text,
+                    )
+                }
+                Text(
+                    name.ifBlank { "Profile" },
+                    style = RidersType.title,
+                    color = RidersColors.text,
+                    textAlign = TextAlign.Center,
+                )
+                Text(
+                    pill,
+                    style = RidersType.captionStrong,
+                    color = pillColor,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(RidersRadius.pill))
+                        .background(pillFill)
+                        .padding(horizontal = RidersSpacing.md, vertical = RidersSpacing.xs),
+                )
+    }
+}
+
+@Composable
+private fun ProfileAvatar(
+    name: String,
+    photo: Bitmap?,
+    busy: Boolean,
+    onChangePhoto: () -> Unit,
+) {
+    Box(
+        Modifier
+            .size(80.dp)
+            .clip(RoundedCornerShape(RidersRadius.lg))
+            .background(Color(0xFF3D5A80))
+            .semantics { contentDescription = "Change profile photo" }
+            .then(
+                if (busy) {
+                    Modifier
+                } else {
+                    Modifier.clickable(role = Role.Button, onClick = onChangePhoto)
+                },
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (photo != null) {
+            Image(
+                bitmap = photo.asImageBitmap(),
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+        } else {
+            Text(profileInitials(name), style = RidersType.title, color = RidersColors.textInverse)
+        }
+    }
+}
+
+@Composable
+private fun AddressEditor(
+    initial: String,
+    saving: Boolean,
+    error: String?,
+    onCancel: () -> Unit,
+    onSave: (String) -> Unit,
+) {
+    var address by rememberSaveable { mutableStateOf(initial) }
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .statusBarsPadding()
+            .padding(horizontal = RidersSpacing.lg, vertical = RidersSpacing.xl),
+        verticalArrangement = Arrangement.spacedBy(RidersSpacing.md),
+    ) {
+        Text("Address", style = RidersType.heading, color = RidersColors.text)
+        RegistrationAddressField(
+            value = address,
+            onValueChange = { address = it },
+            enabled = !saving,
+            imeAction = ImeAction.Done,
+        )
+        if (error != null) {
+            Text(error, style = RidersType.caption, color = RidersColors.error)
+        }
+        RidersPrimaryButton(
+            label = "Save address",
+            onClick = { onSave(address) },
+            enabled = !saving && address.isNotBlank(),
+            loading = saving,
+            loadingLabel = "Saving address",
+            modifier = Modifier.fillMaxWidth(),
+        )
+        RidersSecondaryButton(
+            label = "Cancel",
+            onClick = onCancel,
+            enabled = !saving,
+            tone = RidersButtonTone.Danger,
+            bordered = false,
+            regular = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
+
+@Composable
+private fun DetailsCard(
+    phone: String,
+    address: String,
+    onboarding: RiderOnboarding?,
+    hasLicence: Boolean,
+    motorcycles: List<MotorcycleDetails>,
+    onMotorcycles: () -> Unit,
+    onEditAddress: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val shape = RoundedCornerShape(RidersRadius.xl)
+    Column(
+        modifier
+            .fillMaxWidth()
+            .shadow(8.dp, shape, ambientColor = RidersColors.shadow, spotColor = RidersColors.shadow)
+            .clip(shape)
+            .background(RidersColors.background)
+            .padding(horizontal = RidersSpacing.lg, vertical = RidersSpacing.sm),
+    ) {
+        InfoRow(
+            icon = R.drawable.ic_profile_phone_outline,
+            label = "WhatsApp number",
+        ) {
+            if (phone.isBlank()) {
+                Text("Verified phone", style = RidersType.bodyStrong, color = RidersColors.text)
+            } else {
+                Text(phone, style = RidersType.bodyStrong, color = RidersColors.text)
+            }
+        }
+        Hairline()
+        InfoRow(
+            icon = R.drawable.ic_profile_marker_outline,
+            label = "Address",
+            value = address.ifBlank { "Not added" },
+            onEdit = onEditAddress,
+        )
+        Hairline()
+        InfoRow(
+            icon = R.drawable.ic_card_outline,
+            label = "Driving licence",
+            value = licenceSummary(onboarding, hasLicence),
+        )
+        onboarding?.rejectionReason?.takeIf { it.isNotBlank() }?.let { reason ->
+            Text(
+                reason,
+                style = RidersType.caption,
+                color = RidersColors.error,
+                modifier = Modifier.padding(start = 34.dp, bottom = RidersSpacing.sm),
+            )
+        }
+        Hairline()
+        InfoRow(
+            icon = R.drawable.ic_mdi_motorbike,
+            label = "Motorbike",
+            value = motorcycleSummary(motorcycles),
+            onClick = onMotorcycles,
+        )
+        Hairline()
+    }
+}
+
+@Composable
+private fun Hairline() {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .padding(start = 34.dp)
+            .height(1.dp)
+            .background(
+                Brush.horizontalGradient(
+                    listOf(Color.Transparent, RidersColors.border, Color.Transparent),
+                ),
+            ),
+    )
+}
+
+@Composable
+private fun InfoRow(
+    icon: Int,
+    label: String,
+    value: String? = null,
+    caption: String? = null,
+    onClick: (() -> Unit)? = null,
+    onEdit: (() -> Unit)? = null,
+    valueContent: (@Composable () -> Unit)? = null,
+) {
+        Row(
+        Modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier)
+            .padding(vertical = RidersSpacing.md),
+        horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            painter = painterResource(icon),
+            contentDescription = null,
+            modifier = Modifier.size(22.dp),
+            tint = RidersColors.text,
+        )
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs)) {
+            Text(label, style = RidersType.caption, color = RidersColors.textSecondary)
+            if (valueContent != null) {
+                valueContent()
+            } else {
+                Text(value.orEmpty(), style = RidersType.bodyStrong, color = RidersColors.text)
+            }
+            if (caption != null) {
+                Text(caption, style = RidersType.caption, color = RidersColors.textSecondary)
+            }
+        }
+        if (onEdit != null) {
+            Icon(
+                painter = painterResource(R.drawable.ic_pencil_outline),
+                contentDescription = "Edit address",
+                modifier = Modifier
+                    .size(20.dp)
+                    .clickable(role = Role.Button, onClick = onEdit),
+                tint = RidersColors.text,
+            )
+        } else if (onClick != null) {
+            Icon(
+                painter = painterResource(R.drawable.ic_chevron_right_outline),
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint = RidersColors.text,
+            )
+        }
+    }
+}
+
+private fun profileInitials(name: String): String {
+    val letters = name.trim().split(Regex("\\s+")).mapNotNull { word ->
+        word.firstOrNull { it.isLetter() }?.uppercaseChar()?.toString()
+    }
+    return when {
+        letters.isEmpty() -> "R"
+        letters.size == 1 -> letters.first()
+        else -> "${letters.first()}${letters.last()}"
+    }
+}
+
+private fun licenceSummary(onboarding: RiderOnboarding?, hasLicence: Boolean): String {
+    if (onboarding == null) {
+        return if (hasLicence) "Uploaded" else "Not uploaded"
+    }
+    val status = riderReadiness(onboarding).licenceLabel.takeUnless { it == "Verified" }
+    val parts = listOfNotNull(
+        onboarding.licenceNumber?.takeIf { it.isNotBlank() },
+        onboarding.licenceClass?.takeIf { it.isNotBlank() }?.let { "Class $it" },
+        status,
+    )
+    return parts.joinToString(" · ").ifBlank { "On file" }
+}
+
+private fun motorcycleSummary(motorcycles: List<MotorcycleDetails>): String {
+    val chosen = motorcycles.firstOrNull { it.isActive } ?: motorcycles.firstOrNull() ?: return "No motorcycle yet"
+    val name = listOf(chosen.make, chosen.model).filter { it.isNotBlank() }.joinToString(" ")
+    val status = when {
+        chosen.isActive || chosen.verificationStatus == "VERIFIED" -> null
+        else -> motorcycleStatusTitle(chosen.verificationStatus)
+    }
+    return listOfNotNull(chosen.registrationNumber.takeIf { it.isNotBlank() }, name.takeIf { it.isNotBlank() }, status)
+        .joinToString(" · ")
+        .ifBlank { "Motorcycle" }
+}

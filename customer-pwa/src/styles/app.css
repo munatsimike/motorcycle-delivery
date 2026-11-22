@@ -4940,3 +4940,37 @@ html.is-page-transition .page-stage {
   line-height: 1;
   font-variant-numeric: tabular-nums;
 }
+
+/* Shared compact parcel and service labels: identical muted styling everywhere. */
+.delivery-labels {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
+}
+.delivery-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: inherit;
+  font: inherit;
+  white-space: nowrap;
+}
+.delivery-label svg {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  fill: currentColor;
+}
+.delivery-card .delivery-badge .delivery-labels,
+.delivered-summary .facts-badge .delivery-labels,
+.delivery-facts-card .facts-badge .delivery-labels {
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+}

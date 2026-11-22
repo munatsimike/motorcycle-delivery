@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Riders Rider</string>
+    <string name="location_channel">Location sharing</string>
+    <string name="location_notice">Your location is shared while you are available.</string>
+</resources>
