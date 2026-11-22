@@ -457,7 +457,7 @@ export function DeliveryDetailsPage() {
     (expiredOutcome && (showExpiryTrigger || expiryNotice?.key === expiryKey)
       && expiryNoticeElapsed !== expiryKey)
   );
-  const trackingClock = delivery !== null && (keepsRiderLocation(delivery.status) || responseSeconds !== null || cooldownSeconds > 0);
+  const trackingClock = delivery !== null && (keepsRiderLocation(delivery.status) || responseSeconds !== null || cooldownSeconds > 0 || (delivery.status === 'CREATED' && offers.length === 0));
   useEffect(() => {
     if (!responseElapsed && !delivery?.offerResponseExpired) return;
     if (busy) return;
@@ -535,6 +535,20 @@ export function DeliveryDetailsPage() {
 
   const screen = deliveryScreen(delivery);
   const orderedOffers = sortRiderOffers(offers, offerSort);
+  // The existing API exposes the request creation time, not a dedicated search
+  // deadline. Preserve the start of a retry locally so its clock doesn't restart
+  // when this screen is reopened in the same browser.
+  const searchStarted = (() => {
+    const stored = window.localStorage.getItem(`riders:search-start:${delivery.id}`);
+    const retried = stored ? Number(stored) : NaN;
+    const created = delivery.createdAt ? Date.parse(delivery.createdAt) : NaN;
+    return Number.isFinite(retried) && retried >= created ? retried : created;
+  })();
+  const searchSeconds = Number.isFinite(searchStarted)
+    ? Math.max(0, Math.ceil((searchStarted + 6 * 60_000 - now) / 1000))
+    : null;
+  const showSearchTimer = screen === 'offers' && offersLoaded && orderedOffers.length === 0
+    && searchSeconds !== null && searchSeconds > 0;
   const confirmed = shouldShowRiderConfirmed(acceptedId, delivery.id, confirmedDismissed);
   const actions = deliveryActions(delivery, now);
   const mapView = trackingMapView(delivery, now);
@@ -743,6 +757,7 @@ export function DeliveryDetailsPage() {
       const sessionToken = await accessToken();
       if (!sessionToken) throw new Error('Sign in again.');
       await searchForRider(sessionToken, currentDelivery.id);
+      window.localStorage.setItem(`riders:search-start:${currentDelivery.id}`, String(Date.now()));
       try {
         const next = await loadDelivery(sessionToken, currentDelivery.id);
         dismissedOffers.current = new Set();
@@ -875,7 +890,12 @@ export function DeliveryDetailsPage() {
             <div className="track-title-row">
               <h1>{screen === 'offers' ? activeOfferCountLabel(offers.length) : (headline ?? deliveryCardStatusLabel({ status: delivery.status, serviceClass: delivery.serviceClass, deliverBy: delivery.deliverBy, openBidCount: offers.length }))}</h1>
               {live ? <p className="track-live-pill">Live</p> : null}
-              {screen === 'offers' ? (
+              {showSearchTimer ? (
+                <span className="offer-search-countdown" role="timer" aria-label="Rider search time remaining">
+                  {offerResponseLabel(searchSeconds ?? 0)}
+                </span>
+              ) : null}
+              {screen === 'offers' && orderedOffers.length > 0 ? (
                 <button type="button" className="offer-sort" aria-label={`Sort offers, ${offerSortLabel(offerSort)}`} onClick={() => setSortOpen(true)}>
                   <SwapIcon />
                   <span>{offerSortShortLabel(offerSort)}</span>

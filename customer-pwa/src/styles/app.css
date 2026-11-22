@@ -4921,3 +4921,22 @@ html.is-page-transition .page-stage {
   width: 15px;
   height: 15px;
 }
+
+/* Informational rider-search countdown, in the white offers sheet. */
+.offer-search-countdown {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  margin-left: auto;
+  min-width: 58px;
+  min-height: 30px;
+  padding: 4px 9px;
+  border-radius: 7px;
+  background: #e4f6ea;
+  color: #087a3c;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
