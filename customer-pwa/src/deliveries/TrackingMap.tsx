@@ -756,8 +756,8 @@ type DeliveredCallout = { name: string; address: string; when: string };
 function deliveredMarkerIcon(maps: Maps, callout: DeliveredCallout) {
   const padX = 16;
   const lineH = 22;
-  const nameLines = wrapDeliveredAddress(callout.name, 29);
-  const addressLines = wrapDeliveredAddress(callout.address, 31);
+  const nameLines = wrapDeliveredAddress(callout.name, 27);
+  const addressLines = wrapDeliveredAddress(callout.address, 27);
   const details = [
     ...nameLines.map((value) => ({ value, bold: true })),
     ...addressLines.map((value) => ({ value, bold: false })),
@@ -765,7 +765,7 @@ function deliveredMarkerIcon(maps: Maps, callout: DeliveredCallout) {
   ];
   // Size the card to its contents, keeping matching horizontal padding.
   const maxLineLength = Math.max(20, ...details.map(({ value }) => value.length));
-  const width = Math.max(218, Math.min(310, Math.ceil(maxLineLength * 8.1) + padX * 2));
+  const width = Math.max(205, Math.min(280, Math.ceil(maxLineLength * 7.5) + padX * 2));
   const detailStartY = 57;
   const cardH = detailStartY + Math.max(0, details.length - 1) * lineH + 18;
   const pin = 46;

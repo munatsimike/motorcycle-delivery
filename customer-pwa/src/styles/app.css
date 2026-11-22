@@ -4799,9 +4799,18 @@ html.is-page-transition .page-stage {
 }
 
 /* Delivered details: keep the reference at the right edge. */
-.delivered-summary > .delivery-facts:first-of-type > p:last-child {
+.delivered-summary > .delivery-facts:not(.delivery-price) > p:last-child {
   flex: 0 0 auto;
   margin-left: auto;
   text-align: right;
   justify-items: end;
+}
+
+/* Muted service class on the Delivered screen only. */
+.delivered-summary .facts-badge .delivery-class {
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+.delivered-summary .facts-badge .delivery-class svg {
+  color: var(--text-secondary);
 }
