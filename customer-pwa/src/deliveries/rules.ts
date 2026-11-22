@@ -79,7 +79,7 @@ const STATUS_TONES: Record<Exclude<DeliveryStatus, 'NO_RIDER_FOUND'>, { backgrou
   COLLECTED: { background: '#E7F1FF', color: '#2563EB' },
   OUT_FOR_DELIVERY: { background: '#E7F1FF', color: '#2563EB' },
   DELIVERED: { background: '#E9F8EF', color: '#087A4A' },
-  CANCELLED: { background: '#F1F3F5', color: '#606B75' },
+  CANCELLED: { background: '#FDE8E8', color: '#B42318' },
   FAILED: { background: '#FDECEC', color: '#D92D20' },
 };
 
