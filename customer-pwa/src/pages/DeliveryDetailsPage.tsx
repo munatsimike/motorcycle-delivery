@@ -953,7 +953,7 @@ export function DeliveryDetailsPage() {
             ) : null}
             {offersLoaded && !offersError && orderedOffers.length === 0 ? (
               <div className="offers-empty">
-                <div className="offers-check" aria-hidden="true"><CheckMark /></div>
+                <div className="offers-check" aria-hidden="true"><SearchIcon /></div>
                 <h2>Looking for your rider</h2>
                 <p>Your request is live. Offers will appear here as riders respond.</p>
               </div>
