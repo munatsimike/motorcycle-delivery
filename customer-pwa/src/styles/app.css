@@ -4884,3 +4884,40 @@ html.is-page-transition .page-stage {
   padding: 5px;
   color: var(--text);
 }
+
+/* Match the label-to-value spacing in both expired-request fact columns. */
+.delivery-facts-editable > p:first-child,
+.delivery-facts-editable > .facts-price {
+  display: grid;
+  grid-template-rows: auto auto;
+  align-content: start;
+  row-gap: 2px;
+}
+.delivery-facts-editable .facts-price > strong {
+  min-height: 28px;
+  line-height: 28px;
+}
+.delivery-facts-editable .facts-adjust-icon {
+  height: 28px;
+  align-self: center;
+  padding: 3px;
+}
+
+/* Use the same Parcel / Flexible label hierarchy on the Deliveries cards. */
+.delivery-card .delivery-badge {
+  color: var(--text);
+  font-size: var(--body);
+  font-weight: 400;
+}
+.delivery-card .delivery-badge > svg {
+  width: 17px;
+  height: 17px;
+}
+.delivery-card .delivery-badge .delivery-class {
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+.delivery-card .delivery-badge .delivery-class svg {
+  width: 15px;
+  height: 15px;
+}
