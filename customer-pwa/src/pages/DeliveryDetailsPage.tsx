@@ -861,7 +861,7 @@ export function DeliveryDetailsPage() {
             <h1>{statusBandCopy(delivery.status).title}</h1>
             <p>{statusBandCopy(delivery.status).support}</p>
           </div>
-          <DeliveryFacts delivery={delivery} />
+          <DeliveryFacts delivery={delivery} showContacts />
         </section>
       ) : null}
       {screen === 'status' ? null : <section className={screen === 'offers' ? 'track-sheet track-offers-sheet' : 'track-sheet'} aria-label="Delivery details">
@@ -1023,9 +1023,6 @@ export function DeliveryDetailsPage() {
           <div className="deliveries-sheet" role="dialog" aria-label="Parcel details" onClick={(event) => event.stopPropagation()}>
             <div className="parcel-sheet-head">
               <h2>Parcel details</h2>
-              <button type="button" className="parcel-sheet-close" aria-label="Close" onClick={() => setParcelOpen(false)}>
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41Z" /></svg>
-              </button>
             </div>
             <DeliveryFacts delivery={delivery} showContacts />
           </div>
@@ -1250,7 +1247,7 @@ function OutcomeSummary({
       {inTransit ? (
         <button type="button" className="outcome-parcel" onClick={onParcel}>Parcel details<ChevronUp /></button>
       ) : (
-        <DeliveryFacts delivery={delivery} customerOffer={customerOffer} onAdjust={customerOffer ? onAdjust : undefined} />
+        <DeliveryFacts delivery={delivery} showContacts customerOffer={customerOffer} onAdjust={customerOffer ? onAdjust : undefined} />
       )}
     </div>
   );
@@ -1271,14 +1268,8 @@ function DeliveredSummary({ delivery }: { delivery: CustomerDeliveryDetail }) {
         {when ? <p><span>Requested</span><strong>{when}</strong></p> : null}
         <p><span>Delivery</span><strong>{shortDeliveryReference(delivery.id)}</strong></p>
       </div>
-      {delivery.senderName?.trim() || delivery.pickupAddress ? (
-        <p className="delivery-stop">
-          <span className="stop-copy">
-            {delivery.senderName?.trim() ? <strong>{delivery.senderName.trim()}</strong> : null}
-            {delivery.pickupAddress ? <span>{deliveryCardAddress(delivery.pickupAddress)}</span> : null}
-          </span>
-        </p>
-      ) : null}
+      <p className="delivery-stop"><PinMark dropoff={false} />{stopCopy(delivery.senderName, delivery.pickupAddress)}</p>
+      <p className="delivery-stop"><PinMark dropoff />{stopCopy(delivery.recipientName, delivery.dropoffAddress)}</p>
       <div className="delivery-facts delivery-price">
         <p><span>Distance</span><strong>{deliveryDistanceLabel(delivery.distanceMeters)}</strong></p>
         <p className="facts-price">

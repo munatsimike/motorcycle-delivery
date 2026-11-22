@@ -1377,28 +1377,6 @@ button.home-status:disabled {
   text-align: left;
 }
 
-.deliveries-sheet .parcel-sheet-close {
-  display: grid;
-  place-items: center;
-  flex: 0 0 auto;
-  width: 38px;
-  height: 38px;
-  min-height: 38px;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: var(--border);
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-
-.parcel-sheet-close svg {
-  width: 18px;
-  height: 18px;
-  fill: currentColor;
-}
-
 .price-sheet {
   display: grid;
   gap: var(--space-md);
@@ -4702,6 +4680,21 @@ html.is-page-transition .page-stage {
   line-height: 21px;
 }
 .delivery-facts-card .delivery-stop-copy span {
+  font-weight: 400;
+  line-height: 21px;
+}
+
+/* Keep sender and recipient presentation consistent in completed details. */
+.delivered-summary .delivery-stop-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.delivered-summary .delivery-stop-copy strong {
+  font-weight: 600;
+  line-height: 21px;
+}
+.delivered-summary .delivery-stop-copy span {
   font-weight: 400;
   line-height: 21px;
 }
