@@ -29,6 +29,7 @@ data class OpenBidRequest(
     val id: String,
     val serviceClass: String?,
     val deliverBy: String?,
+    val searchStartedAt: String? = null,
     val offerResponseExpiresAt: String? = null,
     val suggestedPrice: String?,
     val offeredPrice: String? = null,
@@ -221,14 +222,19 @@ fun bidRequestOffer(request: OpenBidRequest): OfferResponse? {
     if (request.serviceClass != "EXPRESS" && request.serviceClass != "FLEXIBLE") {
         return null
     }
+    // Until the first bid, the request expires six minutes after search start.
+    // Once a bid arrives, use the customer's shared five-minute response deadline.
     val deadline = request.offerResponseExpiresAt?.takeIf { it.isNotBlank() }
+        ?: request.searchStartedAt?.takeIf { it.isNotBlank() }?.let { started ->
+            runCatching { Instant.parse(started).plusSeconds(360).toString() }.getOrNull()
+        }
     val customerOffer = request.offeredPrice?.trim().orEmpty()
     val price = customerOffer.ifEmpty { request.suggestedPrice?.trim().orEmpty() }.ifEmpty { "0.00" }
     val currency = request.currency?.trim().orEmpty().ifEmpty { "USD" }
     return OfferResponse(
         assignmentId = "request:${request.id}",
         deliveryId = request.id,
-        expiresAt = deadline.orEmpty(), // Shared customer decision deadline, set after the first bid.
+        expiresAt = deadline.orEmpty(), // Search window until first bid, then shared customer deadline.
         offeredPrice = price,
         currency = currency,
         payer = "",
