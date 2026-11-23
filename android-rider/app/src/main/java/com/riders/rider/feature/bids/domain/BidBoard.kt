@@ -29,6 +29,7 @@ data class OpenBidRequest(
     val id: String,
     val serviceClass: String?,
     val deliverBy: String?,
+    val offerResponseExpiresAt: String? = null,
     val suggestedPrice: String?,
     val offeredPrice: String? = null,
     val pickupAddress: String,
@@ -220,14 +221,14 @@ fun bidRequestOffer(request: OpenBidRequest): OfferResponse? {
     if (request.serviceClass != "EXPRESS" && request.serviceClass != "FLEXIBLE") {
         return null
     }
-    val deadline = request.deliverBy?.takeIf { it.isNotBlank() }
+    val deadline = request.offerResponseExpiresAt?.takeIf { it.isNotBlank() }
     val customerOffer = request.offeredPrice?.trim().orEmpty()
     val price = customerOffer.ifEmpty { request.suggestedPrice?.trim().orEmpty() }.ifEmpty { "0.00" }
     val currency = request.currency?.trim().orEmpty().ifEmpty { "USD" }
     return OfferResponse(
         assignmentId = "request:${request.id}",
         deliveryId = request.id,
-        expiresAt = "", // Marketplace deliverBy is a delivery deadline, not an offer expiry.
+        expiresAt = deadline.orEmpty(), // Shared customer decision deadline, set after the first bid.
         offeredPrice = price,
         currency = currency,
         payer = "",

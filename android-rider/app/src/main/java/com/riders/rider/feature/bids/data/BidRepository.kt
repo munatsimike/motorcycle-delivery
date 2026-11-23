@@ -55,6 +55,7 @@ class BidRepository @Inject constructor(
                     id = request.id,
                     serviceClass = request.serviceClass,
                     deliverBy = request.deliverBy,
+                    offerResponseExpiresAt = request.offerResponseExpiresAt,
                     suggestedPrice = request.suggestedPrice,
                     offeredPrice = request.offeredPrice,
                     pickupAddress = request.pickupAddress,

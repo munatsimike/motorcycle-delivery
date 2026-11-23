@@ -1,5 +1,6 @@
 package com.riders.rider.feature.offers.presentation
 
+import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -43,6 +44,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -118,6 +120,7 @@ import com.riders.rider.feature.delivery.domain.sortDeliveries
 import com.riders.rider.feature.offers.domain.offerStopLine
 import com.riders.rider.navigation.bidOptionsEnter
 import com.riders.rider.navigation.bidOptionsExit
+import kotlinx.coroutines.delay
 
 @Composable
 fun OffersScreen(
@@ -322,12 +325,13 @@ private fun OfferDetail(
     onViewDelivery: (String) -> Unit,
     onRetry: () -> Unit,
 ) {
-    val canAct = acceptPressEnabled(canAcceptOffer(offer.expiresAt, nowMillis, accepting, unavailable), confirmed = false)
+    val tickingNow = rememberOfferCountdownNow(nowMillis)
+    val canAct = acceptPressEnabled(canAcceptOffer(offer.expiresAt, tickingNow, accepting, unavailable), confirmed = false)
     val content = offerContent(offer.parcel.description)
     val motion = rememberRidersMotion()
     val bidMs = motion.millis(RiderTransition.BidRise)
     RidersCard(modifier = Modifier.fillMaxWidth()) {
-        OfferSummary(offer, nowMillis, detailed = true, statusLabel = statusLabel, fresh = true)
+        OfferSummary(offer, tickingNow, detailed = true, statusLabel = statusLabel, fresh = true)
     }
     AnimatedContent(
         targetState = placingBid,
@@ -894,12 +898,13 @@ fun OfferRequestCard(
             awaiting = false
         }
     }
+    val tickingNow = rememberOfferCountdownNow(nowMillis)
     val canAct = bidsOpen && acceptPressEnabled(
-        canAcceptOffer(offer.expiresAt, nowMillis, accepting = false, unavailable = false),
+        canAcceptOffer(offer.expiresAt, tickingNow, accepting = false, unavailable = false),
         confirmed = false,
     ) && !accepting && !submittingBid
     RidersCard(modifier = Modifier.fillMaxWidth(), onClick = onOpen, bordered = false, bottomPadding = RidersSpacing.xs) {
-        OfferSummary(offer, nowMillis, detailed = false, statusLabel = statusLabel, fresh = fresh)
+        OfferSummary(offer, tickingNow, detailed = false, statusLabel = statusLabel, fresh = fresh)
         if (bidsOpen || !senderChoosesRider(offer.serviceClass)) {
             if (offer.serviceClass == "EXPRESS" && statusLabel != null) {
                 Text(statusLabel, style = RidersType.body, color = RidersColors.textSecondary)
@@ -983,21 +988,22 @@ private fun OfferSummary(offer: OfferResponse, nowMillis: Long, detailed: Boolea
     }
 }
 
+/** Keep the server-adjusted snapshot clock moving while the offer is visible. */
+@Composable
+private fun rememberOfferCountdownNow(serverNowSnapshot: Long): Long {
+    var now by remember(serverNowSnapshot) { mutableLongStateOf(serverNowSnapshot) }
+    LaunchedEffect(serverNowSnapshot) {
+        val startedAt = SystemClock.elapsedRealtime()
+        while (true) {
+            now = serverNowSnapshot + (SystemClock.elapsedRealtime() - startedAt)
+            delay(250L)
+        }
+    }
+    return now
+}
+
 @Composable
 private fun OfferExpiry(expiresAt: String, nowMillis: Long, expired: Boolean, statusLabel: String? = null, fresh: Boolean = false) {
-    if (fresh && statusLabel == null && !expired) {
-        Text(
-            NEW_OFFER_BADGE,
-            modifier = Modifier
-                .clip(RoundedCornerShape(RidersRadius.pill))
-                .background(Color(NEW_OFFER_BACKGROUND))
-                .padding(horizontal = RidersSpacing.md, vertical = RidersSpacing.xs),
-            style = RidersType.captionStrong,
-            color = Color(NEW_OFFER_FOREGROUND),
-            maxLines = 1,
-        )
-        return
-    }
     if (statusLabel != null) {
         Text(
             statusLabel,
@@ -1010,34 +1016,27 @@ private fun OfferExpiry(expiresAt: String, nowMillis: Long, expired: Boolean, st
         )
         return
     }
-    val motion = rememberRidersMotion()
-    val expiryDuration = motion.duration(RidersMotion.CONTENT_MS)
-    val expiryColor by animateColorAsState(
-        targetValue = if (expired) RidersColors.error else Color(0xFFB45309),
-        animationSpec = tween(expiryDuration),
-        label = "expiry-color",
-    )
-    val expiryFill by animateColorAsState(
-        targetValue = if (expired) RidersColors.dangerSurface else Color(0xFFFEF3C7),
-        animationSpec = tween(expiryDuration),
-        label = "expiry-fill",
-    )
-    Row(
-        Modifier
-            .clip(RoundedCornerShape(RidersRadius.pill))
-            .background(expiryFill)
-            .padding(horizontal = RidersSpacing.md, vertical = RidersSpacing.xs),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(RidersSpacing.xs),
-    ) {
-        Icon(
-            painter = painterResource(R.drawable.ic_clock),
-            contentDescription = null,
-            modifier = Modifier.size(16.dp),
-            tint = expiryColor,
-        )
-        Text(offerExpiryLabel(expiresAt, nowMillis), style = RidersType.captionStrong, color = expiryColor)
+    val expiryText = offerExpiryLabel(expiresAt, nowMillis)
+    val remainingSeconds = if (expired) 0L else {
+        val parts = expiryText.split(':')
+        if (parts.size == 2) {
+            val minutes = parts[0].toLongOrNull()
+            val seconds = parts[1].toLongOrNull()
+            if (minutes != null && seconds != null) minutes * 60L + seconds else 0L
+        } else 0L
     }
+    val color = when {
+        expired -> RidersColors.error
+        remainingSeconds <= 30L -> RidersColors.error
+        remainingSeconds <= 60L -> Color(0xFFB45309)
+        else -> RidersColors.primaryDark
+    }
+    Text(
+        text = if (expired) "Expired" else "Expires in $expiryText",
+        style = RidersType.captionStrong,
+        color = color,
+        maxLines = 1,
+    )
 }
 
 @Composable

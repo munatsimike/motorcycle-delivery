@@ -347,6 +347,7 @@ data class BidRequestBody(
     val id: String,
     val serviceClass: String? = null,
     val deliverBy: String? = null,
+    val offerResponseExpiresAt: String? = null,
     val currency: String? = null,
     val suggestedPrice: String? = null,
     val offeredPrice: String? = null,
