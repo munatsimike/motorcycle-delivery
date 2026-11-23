@@ -204,6 +204,14 @@ export async function restartV2Search(
     where: { id: delivery.id },
     data: { status: DeliveryStatus.CREATED, ...started, offerResponseExpiresAt: null, updatedAt: now },
   });
+  // Declines belong to the previous search window, not this renewed request.
+  // Otherwise riders who declined earlier never see Search again.
+  await tx.riderRequestDecline.deleteMany({ where: { deliveryId: delivery.id } });
+  // A renewed search must not reuse bids left open from the previous window.
+  await tx.bid.updateMany({
+    where: { deliveryId: delivery.id, status: BidStatus.OPEN },
+    data: { status: BidStatus.EXPIRED },
+  });
   await tx.deliveryStatusEvent.create({
     data: {
       deliveryId: delivery.id,

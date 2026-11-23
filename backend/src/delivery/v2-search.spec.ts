@@ -51,6 +51,7 @@ function store(seed: Row) {
   const deliveries = [seed];
   const bids: Array<{ id: string; deliveryId: string; status: BidStatus }> = [];
   const assignments: Array<{ id: string; deliveryId: string; status: AssignmentStatus }> = [];
+  const declines: Array<{ deliveryId: string; riderProfileId: string }> = [];
   const events: Array<{ previousStatus: DeliveryStatus | null; newStatus: DeliveryStatus }> = [];
   let onLock: (() => void) | null = null;
   const db = {
@@ -86,6 +87,14 @@ function store(seed: Row) {
         return assignments.filter((assignment) => assignment.deliveryId === where.deliveryId && assignment.status === where.status);
       },
     },
+    riderRequestDecline: {
+      async deleteMany({ where }: { where: { deliveryId: string } }) {
+        const remaining = declines.filter((item) => item.deliveryId !== where.deliveryId);
+        const count = declines.length - remaining.length;
+        declines.splice(0, declines.length, ...remaining);
+        return { count };
+      },
+    },
     deliveryStatusEvent: {
       async create({ data }: { data: { previousStatus: DeliveryStatus | null; newStatus: DeliveryStatus } }) {
         events.push({ previousStatus: data.previousStatus, newStatus: data.newStatus });
@@ -98,6 +107,7 @@ function store(seed: Row) {
     deliveries,
     bids,
     assignments,
+    declines,
     events,
     set onLock(hook: (() => void) | null) {
       onLock = hook;
@@ -131,6 +141,7 @@ describe('one six-minute V2 search', () => {
       pickupAddress: '12 Samora Machel Avenue',
       parcelDescription: 'Documents',
     });
+    expect(ctx.declines).toEqual([]);
     expect(ctx.assignments).toEqual([]);
     expect(ctx.events).toEqual([{ previousStatus: DeliveryStatus.CREATED, newStatus: DeliveryStatus.NO_RIDER_FOUND }]);
 
@@ -187,6 +198,8 @@ describe('one six-minute V2 search', () => {
     const ctx = store(row('EXPRESS'));
     ctx.deliveries[0]!.status = DeliveryStatus.NO_RIDER_FOUND;
     ctx.deliveries[0]!.nextRetryAt = null;
+    ctx.declines.push({ deliveryId: 'express-1', riderProfileId: 'rider-1' });
+    ctx.bids.push({ id: 'old-bid', deliveryId: 'express-1', status: BidStatus.OPEN });
     const again = new Date(CLOSED.getTime() + 5_000);
 
     const first = await restartV2Search(ctx.tx, ctx.deliveries[0]!, 'customer-1', again);
@@ -207,6 +220,8 @@ describe('one six-minute V2 search', () => {
       suggestedPrice: '9.00',
       serviceClass: 'EXPRESS',
     });
+    expect(ctx.declines).toEqual([]);
+    expect(ctx.bids[0]?.status).toBe(BidStatus.EXPIRED);
     expect(ctx.assignments).toEqual([]);
     expect(ctx.events).toEqual([{ previousStatus: DeliveryStatus.NO_RIDER_FOUND, newStatus: DeliveryStatus.CREATED }]);
   });
