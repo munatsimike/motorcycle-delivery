@@ -28,21 +28,21 @@ type IconMaps = {
 export const MOTORCYCLE_NOSE_CLOCKWISE_DEGREES = 142;
 
 /** Clockwise degrees to rotate the artwork so its front matches a north-up bearing. No heading leaves the artwork unrotated. */
-export function markerRotation(headingDegrees: number | null): number {
+export function markerRotation(headingDegrees: number | null, noseClockwiseDegrees = MOTORCYCLE_NOSE_CLOCKWISE_DEGREES): number {
   if (headingDegrees == null || !Number.isFinite(headingDegrees)) return 0;
-  return normalizeDegrees(headingDegrees - MOTORCYCLE_NOSE_CLOCKWISE_DEGREES);
+  return normalizeDegrees(headingDegrees - noseClockwiseDegrees);
 }
 
 function normalizeDegrees(degrees: number): number {
   return ((degrees % 360) + 360) % 360;
 }
 
-export function motorcycleMarkerIcon(maps: IconMaps, url: string, devicePixelRatio = window.devicePixelRatio): {
+export function motorcycleMarkerIcon(maps: IconMaps, url: string, devicePixelRatio = window.devicePixelRatio, displayWidth?: number): {
   url: string;
   scaledSize: unknown;
   anchor: unknown;
 } {
-  const size = motorcycleMarkerDisplaySize(devicePixelRatio);
+  const size = displayWidth == null ? motorcycleMarkerDisplaySize(devicePixelRatio) : { width: displayWidth, height: Math.round(displayWidth * 115 / 106) };
   return {
     url,
     scaledSize: new maps.Size(size.width, size.height),

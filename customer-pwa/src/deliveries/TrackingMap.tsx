@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { CrosshairIcon } from "../components/CrosshairIcon";
 import riderMarker from "../assets/rider-motorcycle-marker.png";
+import riderRearMarker from "../assets/rider-motorcycle-rear.png";
 import { mapsBrowserKey } from "../config/env";
 import { zoomForSpan } from "../home/camera";
 import { markerRotation, motorcycleMarkerIcon } from "../home/motorcycleMarker";
@@ -28,6 +29,10 @@ import {
   type RoutePoint,
 } from "./tracking";
 import { bindMapTheme } from "../theme/mapStyle";
+
+const TRACKING_MOTORCYCLE_WIDTH = 90;
+// The rear-view artwork points slightly right of straight up.
+const REAR_NOSE_DEGREES = 20;
 
 type Listener = { remove: () => void };
 type Marker = {
@@ -387,7 +392,7 @@ export function TrackingMap({
         ? target
         : smoothHeading(shown, target, elapsed);
     riderMarkerRef.current?.setOptions({
-      rotation: markerRotation(shownHeading.current),
+      rotation: markerRotation(shownHeading.current, props.current.headingToDropoff ? REAR_NOSE_DEGREES : undefined),
     });
     const settled =
       shownHeading.current == null ||
@@ -568,7 +573,8 @@ export function TrackingMap({
       labelMarker.current.setIcon(summaryIcon(maps, label));
       labelMarker.current.setMap(map);
     }
-    const rotation = current.live ? markerRotation(shownHeading.current) : 0;
+    const rotation = current.live ? markerRotation(shownHeading.current, current.headingToDropoff ? REAR_NOSE_DEGREES : undefined) : 0;
+    const activeMotorcycle = current.headingToDropoff ? riderRearMarker : riderMarker;
     if (!current.rider) {
       riderMarkerRef.current?.setMap(null);
       riderMarkerRef.current = null;
@@ -583,14 +589,14 @@ export function TrackingMap({
         optimized: false,
         zIndex: 3,
         rotation,
-        icon: motorcycleMarkerIcon(maps, riderMarker),
+        icon: motorcycleMarkerIcon(maps, activeMotorcycle, undefined, TRACKING_MOTORCYCLE_WIDTH),
       });
     } else {
       riderMarkerRef.current.setPosition({
         lat: current.rider.latitude,
         lng: current.rider.longitude,
       });
-      riderMarkerRef.current.setIcon(motorcycleMarkerIcon(maps, riderMarker));
+      riderMarkerRef.current.setIcon(motorcycleMarkerIcon(maps, activeMotorcycle, undefined, TRACKING_MOTORCYCLE_WIDTH));
       riderMarkerRef.current.setOptions({ rotation });
       riderMarkerRef.current.setMap(map);
     }
@@ -604,7 +610,7 @@ export function TrackingMap({
           clickable: false,
           optimized: false,
           zIndex: 3,
-          icon: motorcycleMarkerIcon(maps, riderMarker),
+          icon: motorcycleMarkerIcon(maps, activeMotorcycle, undefined, TRACKING_MOTORCYCLE_WIDTH),
         }),
     );
     syncSearchPulse();

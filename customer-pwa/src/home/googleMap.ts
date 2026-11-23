@@ -10,6 +10,11 @@ import {
 } from './camera';
 import { customerLocationIcon } from './customerLocation';
 import { motorcycleMarkerIcon } from './motorcycleMarker';
+import nearby0 from '../assets/rider-motorcycle-nearby-0.png';
+import nearby1 from '../assets/rider-motorcycle-nearby-1.png';
+import nearby2 from '../assets/rider-motorcycle-nearby-2.png';
+import nearby3 from '../assets/rider-motorcycle-nearby-3.png';
+import nearby4 from '../assets/rider-motorcycle-nearby-4.png';
 import type { NearbyMarker } from './nearby';
 import { bindMapTheme } from '../theme/mapStyle';
 
@@ -84,7 +89,18 @@ export function loadGoogleMaps(key: string): Promise<void> {
   return loader;
 }
 
-export function createHomeMap(element: HTMLElement, iconUrl: string, onAuthFailure: () => void): HomeMap {
+const NEARBY_MOTORCYCLE_ANGLES = [nearby0, nearby1, nearby2, nearby3, nearby4];
+
+/** Stable visual variety per rider. Nearby API does not provide a travel bearing. */
+export function nearbyMotorcycleVariant(id: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < id.length; i++) {
+    hash = Math.imul(hash ^ id.charCodeAt(i), 16777619);
+  }
+  return (hash >>> 0) % NEARBY_MOTORCYCLE_ANGLES.length;
+}
+
+export function createHomeMap(element: HTMLElement, _iconUrl: string, onAuthFailure: () => void): HomeMap {
   const maps = (window as GoogleWindow).google?.maps;
   if (!maps) {
     throw new Error('Map is unavailable');
@@ -195,7 +211,7 @@ export function createHomeMap(element: HTMLElement, iconUrl: string, onAuthFailu
           clickable: false,
           optimized: false,
           zIndex: 3,
-          icon: motorcycleMarkerIcon(maps, iconUrl),
+          icon: motorcycleMarkerIcon(maps, NEARBY_MOTORCYCLE_ANGLES[nearbyMotorcycleVariant(point.id)], 1, 90),
         }));
       }
       for (const [id, marker] of markers) {
