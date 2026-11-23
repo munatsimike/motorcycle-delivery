@@ -230,6 +230,25 @@ fun offerExpiryLabel(expiresAt: String, nowMillis: Long): String {
     return "$minutes:${seconds.toString().padStart(2, '0')}"
 }
 
+/** Rider-only display. The real action cutoff remains expiresAt. */
+fun riderExpiryDisplay(searchExpiresAt: String?, expiresAt: String, nowMillis: Long): String {
+    val finalDeadline = parseExpiry(expiresAt) ?: return "Expired"
+    val searchDeadline = searchExpiresAt?.let(::parseExpiry) ?: finalDeadline
+    // When customer decision ends before search, show the true earlier cutoff.
+    if (finalDeadline <= searchDeadline) {
+        return if (nowMillis >= finalDeadline) "Expired"
+        else "Expires in ${offerExpiryLabel(expiresAt, nowMillis)}"
+    }
+    if (nowMillis < searchDeadline) {
+        return "Expires in ${offerExpiryLabel(searchDeadline.toInstantString(), nowMillis)}"
+    }
+    // Decide whether the extension is meaningful at the original handoff.
+    if (finalDeadline - searchDeadline <= 7_000L || nowMillis >= finalDeadline) return "Expired"
+    return "Extra time ${offerExpiryLabel(expiresAt, nowMillis)}"
+}
+
+private fun Long.toInstantString(): String = Instant.ofEpochMilli(this).toString()
+
 private fun parseExpiry(expiresAt: String): Long? {
     return try {
         Instant.parse(expiresAt).toEpochMilli()

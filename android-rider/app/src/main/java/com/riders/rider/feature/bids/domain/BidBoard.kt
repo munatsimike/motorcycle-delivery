@@ -222,19 +222,21 @@ fun bidRequestOffer(request: OpenBidRequest): OfferResponse? {
     if (request.serviceClass != "EXPRESS" && request.serviceClass != "FLEXIBLE") {
         return null
     }
-    // Until the first bid, the request expires six minutes after search start.
-    // Once a bid arrives, use the customer's shared five-minute response deadline.
-    val deadline = request.offerResponseExpiresAt?.takeIf { it.isNotBlank() }
-        ?: request.searchStartedAt?.takeIf { it.isNotBlank() }?.let { started ->
-            runCatching { Instant.parse(started).plusSeconds(360).toString() }.getOrNull()
-        }
+    // Keep the original search deadline visible to riders. The customer's
+    // decision deadline may extend the actual bidding window after search ends.
+    val searchDeadline = request.searchStartedAt?.takeIf { it.isNotBlank() }?.let { started ->
+        runCatching { Instant.parse(started).plusSeconds(360).toString() }.getOrNull()
+    }
+    val decisionDeadline = request.offerResponseExpiresAt?.takeIf { it.isNotBlank() }
+    val deadline = decisionDeadline ?: searchDeadline
     val customerOffer = request.offeredPrice?.trim().orEmpty()
     val price = customerOffer.ifEmpty { request.suggestedPrice?.trim().orEmpty() }.ifEmpty { "0.00" }
     val currency = request.currency?.trim().orEmpty().ifEmpty { "USD" }
     return OfferResponse(
         assignmentId = "request:${request.id}",
         deliveryId = request.id,
-        expiresAt = deadline.orEmpty(), // Search window until first bid, then shared customer deadline.
+        expiresAt = deadline.orEmpty(), // Backend customer deadline takes priority once the first bid arrives.
+        searchExpiresAt = searchDeadline,
         offeredPrice = price,
         currency = currency,
         payer = "",

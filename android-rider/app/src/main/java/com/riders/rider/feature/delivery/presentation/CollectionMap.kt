@@ -364,7 +364,7 @@ internal fun riderMarkerIcon(context: android.content.Context, label: String?): 
     val badgeWidth = textWidth + padH * 2f
     val badgeHeight = textHeight + padV * 2f
     val gap = 8f * density
-    val bike = (64f * density).toInt().coerceAtLeast(1)
+    val bike = (90f * density).toInt().coerceAtLeast(1)
     val shadow = 3f * density
     val width = maxOf(badgeWidth + shadow * 2f, bike.toFloat()).toInt().coerceAtLeast(1)
     val bikeTop = badgeHeight + gap
@@ -407,28 +407,14 @@ internal fun riderMarkerIcon(context: android.content.Context, label: String?): 
 /** Unrotated artwork for turn-by-turn, which rotates the marker itself. */
 internal fun riderMotorcycleImage(context: android.content.Context): Bitmap {
     val source = android.graphics.BitmapFactory.decodeResource(context.resources, R.drawable.rider_motorcycle_yellow_box)
-    val size = (64f * context.resources.displayMetrics.density).toInt().coerceAtLeast(1)
-    return Bitmap.createScaledBitmap(source, size, size, true)
+    val size = (90f * context.resources.displayMetrics.density).toInt().coerceAtLeast(1)
+    return Bitmap.createScaledBitmap(source, size, size, true).facingUp()
 }
 
-/**
- * On the square bitmap, the front wheel sits 124.4 degrees clockwise from the
- * rear wheel. Rotating by the negative of that angle puts the front wheel
- * directly above the rear wheel, with the yellow box at the bottom. The map
- * marker stays at rotation 0, so this is the only turn applied to the artwork.
- */
-private const val MOTORCYCLE_NOSE_CLOCKWISE_DEGREES = 124.4f
-
-private fun Bitmap.facingUp(): Bitmap {
-    val turned = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-    Canvas(turned).apply {
-        rotate(-MOTORCYCLE_NOSE_CLOCKWISE_DEGREES, width / 2f, height / 2f)
-        drawBitmap(this@facingUp, 0f, 0f, null)
-    }
-    return turned
-}
+/** The marker PNG already includes the desired upright, slightly-right-facing pose. */
+private fun Bitmap.facingUp(): Bitmap = this
 
 internal fun riderMotorcycleBitmap(context: android.content.Context): BitmapDescriptor {
-    val image = riderMotorcycleImage(context).facingUp()
+    val image = riderMotorcycleImage(context)
     return BitmapDescriptorFactory.fromBitmap(image)
 }

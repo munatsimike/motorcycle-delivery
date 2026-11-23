@@ -265,6 +265,7 @@ data class OfferResponse(
     val assignmentId: String,
     val deliveryId: String,
     val expiresAt: String,
+    val searchExpiresAt: String? = null,
     val offeredPrice: String,
     val currency: String,
     val payer: String,

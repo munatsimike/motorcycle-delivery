@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -949,7 +950,7 @@ private fun OfferSummary(offer: OfferResponse, nowMillis: Long, detailed: Boolea
             ServiceClassLabel(offer.serviceClass)
         }
         if (hasDeadline || statusLabel != null) {
-            OfferExpiry(offer.expiresAt, nowMillis, expired, statusLabel, fresh)
+            OfferExpiry(offer.expiresAt, offer.searchExpiresAt, nowMillis, expired, statusLabel, fresh)
         }
     }
     Column(Modifier.fillMaxWidth()) {
@@ -1003,7 +1004,7 @@ private fun rememberOfferCountdownNow(serverNowSnapshot: Long): Long {
 }
 
 @Composable
-private fun OfferExpiry(expiresAt: String, nowMillis: Long, expired: Boolean, statusLabel: String? = null, fresh: Boolean = false) {
+private fun OfferExpiry(expiresAt: String, searchExpiresAt: String?, nowMillis: Long, expired: Boolean, statusLabel: String? = null, fresh: Boolean = false) {
     if (statusLabel != null) {
         Text(
             statusLabel,
@@ -1016,8 +1017,10 @@ private fun OfferExpiry(expiresAt: String, nowMillis: Long, expired: Boolean, st
         )
         return
     }
-    val expiryText = offerExpiryLabel(expiresAt, nowMillis)
-    val remainingSeconds = if (expired) 0L else {
+    val display = com.riders.rider.feature.offers.domain.riderExpiryDisplay(searchExpiresAt, expiresAt, nowMillis)
+    val isExpiredDisplay = display == "Expired"
+    val remainingSeconds = if (isExpiredDisplay) 0L else {
+        val expiryText = display.substringAfterLast(' ')
         val parts = expiryText.split(':')
         if (parts.size == 2) {
             val minutes = parts[0].toLongOrNull()
@@ -1026,14 +1029,19 @@ private fun OfferExpiry(expiresAt: String, nowMillis: Long, expired: Boolean, st
         } else 0L
     }
     val color = when {
-        expired -> RidersColors.error
-        remainingSeconds <= 30L -> RidersColors.error
-        remainingSeconds <= 60L -> Color(0xFFB45309)
+        isExpiredDisplay -> RidersColors.error
+        remainingSeconds <= 60L -> RidersColors.error
+        remainingSeconds <= 180L -> Color(0xFFB45309)
         else -> RidersColors.primaryDark
     }
     Text(
-        text = if (expired) "Expired" else "Expires in $expiryText",
-        style = RidersType.captionStrong,
+        text = display,
+        modifier = Modifier
+            .clip(RoundedCornerShape(RidersRadius.pill))
+            .background(color.copy(alpha = 0.10f))
+            .padding(horizontal = 10.dp, vertical = 5.dp)
+            .offset(y = (-2).dp),
+        style = RidersType.captionStrong.copy(fontSize = 15.sp),
         color = color,
         maxLines = 1,
     )
