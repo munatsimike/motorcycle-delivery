@@ -5,10 +5,11 @@ import { Button } from '../components/Button';
 import { BackIcon, PhoneIcon } from '../components/icons';
 import { ButtonSpinner } from '../components/ButtonSpinner';
 import { modalActionFeedback, pageActionFeedback, searchAgainControl } from '../components/buttonState';
+import { deliveryCancelledToast, riderConfirmedToast, showSuccessToast } from '../components/successToast';
 import { ErrorMessage } from '../components/ErrorMessage';
 import { TopSpinner } from '../components/TopSpinner';
 import { ContentMark, DeliveryLabels } from '../components/DeliveryLabels';
-import { acceptOffer, adjustOffer, cancelDelivery, deliveryErrorMessage, dismissOffer, loadDelivery, loadDeliveryRoute, loadOffers, rateDelivery, searchForRider } from '../deliveries/api';
+import { acceptOffer, adjustOffer, cancelDelivery, deliveryErrorMessage, dismissOffer, loadDelivery, loadDeliveryRoute, loadOffers, searchForRider } from '../deliveries/api';
 import { offerResponseSeconds, offerResponseLabel, routeCooldownSeconds } from '../deliveries/offerResponse';
 import { PaymentBadge } from '../deliveries/PaymentBadge';
 import { RiderPhoto } from '../deliveries/RiderPhoto';
@@ -47,7 +48,6 @@ import {
   pickupDistanceTag,
   withinArrival,
   shouldPollDelivery,
-  shouldShowRiderConfirmed,
   showsCompletedRoute,
   showsDeliveredDestination,
   statusBandCopy,
@@ -100,8 +100,6 @@ export function DeliveryDetailsPage() {
   const [decline, setDecline] = useState<CustomerBid | null>(null);
   const [declineError, setDeclineError] = useState<string | null>(null);
   const [searching, setSearching] = useState(false);
-  const [acceptedId, setAcceptedId] = useState<string | null>(null);
-  const [confirmedDismissed, setConfirmedDismissed] = useState(false);
   const [offersLoaded, setOffersLoaded] = useState(false);
   const [offersError, setOffersError] = useState<string | null>(null);
   const [offerNotice, setOfferNotice] = useState<string | null>(null);
@@ -430,12 +428,6 @@ export function DeliveryDetailsPage() {
     return () => window.clearInterval(timer);
   }, [nearby.length]);
 
-  useEffect(() => {
-    if (acceptedId !== id || confirmedDismissed) return undefined;
-    const timer = window.setTimeout(() => setConfirmedDismissed(true), 2400);
-    return () => window.clearTimeout(timer);
-  }, [acceptedId, confirmedDismissed, id]);
-
   const responseSeconds = delivery ? offerResponseSeconds(delivery, now) : null;
   const cooldownSeconds = delivery ? routeCooldownSeconds(delivery, now) : 0;
   const responseElapsed = responseSeconds === 0;
@@ -564,7 +556,6 @@ export function DeliveryDetailsPage() {
     : null;
   const showSearchTimer = screen === 'offers' && offersLoaded && orderedOffers.length === 0
     && searchSeconds !== null && searchSeconds > 0;
-  const confirmed = shouldShowRiderConfirmed(acceptedId, delivery.id, confirmedDismissed);
   const actions = deliveryActions(delivery, now);
   const mapView = trackingMapView(delivery, now);
   const live = mapView.kind === 'live';
@@ -579,23 +570,6 @@ export function DeliveryDetailsPage() {
   const subtitle = trackingSubtitle(headline, delivery.dropoffAddress);
   const summary = pickupDistanceTag(straightMetres, approach?.metres, approach?.seconds);
   const currentDelivery = delivery;
-  async function withToken(task: (token: string) => Promise<void>) {
-    if (busyRef.current) return;
-    busyRef.current = true;
-    setBusy(true);
-    setActionError(null);
-    try {
-      const token = await accessToken();
-      if (!token) throw new Error('Sign in again.');
-      await task(token);
-      setConfirm(null);
-    } catch (caught) {
-      setActionError(deliveryErrorMessage(caught, 'This action could not be completed.'));
-    } finally {
-      busyRef.current = false;
-      setBusy(false);
-    }
-  }
 
   function openPrice() {
     if (busyRef.current) return;
@@ -643,6 +617,7 @@ export function DeliveryDetailsPage() {
       const sessionToken = await accessToken();
       if (!sessionToken) throw new Error('Sign in again.');
       await cancelDelivery(sessionToken, currentDelivery.id);
+      showSuccessToast(deliveryCancelledToast(currentDelivery.id));
       cancelLeaving.current = true;
       cancelHistory.current = false;
       if (window.history.state?.cancelDeliveryDialog === true) {
@@ -708,8 +683,7 @@ export function DeliveryDetailsPage() {
         if (latestDelivery.status !== 'RIDER_ASSIGNED' && latestDelivery.status !== 'COLLECTING') throw caught;
         clearAcceptanceKey(sessionStorage, currentDelivery.id, bid.id);
         setDelivery(latestDelivery);
-        setAcceptedId(latestDelivery.id);
-        setConfirmedDismissed(false);
+        showSuccessToast(riderConfirmedToast(latestDelivery.id));
         setConfirm(null);
         return;
       }
@@ -720,8 +694,7 @@ export function DeliveryDetailsPage() {
       setDelivery((current) => current ? { ...current, status: 'RIDER_ASSIGNED', offeredPrice: accepted.acceptedBidAmount, riderLocation: null } : current);
       const next = await loadDelivery(sessionToken, currentDelivery.id).catch(() => null);
       if (next) setDelivery(next);
-      setAcceptedId(currentDelivery.id);
-      setConfirmedDismissed(false);
+      showSuccessToast(riderConfirmedToast(currentDelivery.id));
       setConfirm(null);
     } catch (caught) {
       setConfirmError(deliveryErrorMessage(caught, 'This offer could not be accepted.'));
@@ -890,15 +863,6 @@ export function DeliveryDetailsPage() {
           />
         ) : (
           <>
-            {confirmed && screen === 'tracking' ? (
-              <div className="rider-confirmed-note">
-                <span className="rider-confirmed-mark" aria-hidden="true"><CheckMark /></span>
-                <span>
-                  <strong>Rider confirmed!</strong>
-                  <p>Your rider has been assigned to your delivery.</p>
-                </span>
-              </div>
-            ) : null}
             {delivery.serviceClass === 'EXPRESS' ? <p className="track-kicker">Urgent</p> : null}
             <div className="track-title-row">
               <h1>{screen === 'offers' ? activeOfferCountLabel(offers.length) : (headline ?? deliveryCardStatusLabel({ status: delivery.status, serviceClass: delivery.serviceClass, deliverBy: delivery.deliverBy, openBidCount: offers.length }))}</h1>
@@ -1015,20 +979,13 @@ export function DeliveryDetailsPage() {
           </div>
         ) : null}
         <div className={screen === 'outcome' ? 'outcome-actions' : screen === 'tracking' || screen === 'offers' ? 'track-actions track-footer' : 'track-actions'}>
-          {actions.cancel || actions.offers ? <Button ref={cancelTriggerRef} type="button" variant="destructive" size="compact" disabled={busy} onClick={() => { if (busyRef.current) return; setConfirmError(null); setConfirm('cancel'); }}>{busy && confirm === 'cancel' ? <><ButtonSpinner />{pageActionFeedback('cancel', true)?.label}</> : actions.offers ? 'Cancel request' : 'Cancel delivery'}</Button> : null}
+          {actions.cancel || actions.offers ? <Button ref={cancelTriggerRef} type="button" variant={actions.offers ? 'destructive' : 'tertiary'} size="compact" className={actions.offers ? undefined : 'track-cancel-text'} disabled={busy} onClick={() => { if (busyRef.current) return; setConfirmError(null); setConfirm('cancel'); }}>{busy && confirm === 'cancel' ? <><ButtonSpinner />{pageActionFeedback('cancel', true)?.label}</> : actions.offers ? 'Cancel request' : 'Cancel delivery'}</Button> : null}
           {actions.searchAgain && cooldownSeconds > 0 ? <div className="offer-response-timer"><span>You can search again in</span><strong role="timer">{offerResponseLabel(cooldownSeconds)}</strong></div> : null}
           {actions.searchAgain ? <Button type="button" disabled={searchAgainControl({ searching, busy, coolingDown: cooldownSeconds > 0 }).disabled} onClick={() => void searchAgain()}>{searching ? <><ButtonSpinner />{pageActionFeedback('search', true)?.label}</> : <><SearchIcon />Search again</>}</Button> : null}
           {actions.deleteRequest ? <Button type="button" variant="destructive" size="compact" disabled={busy} onClick={() => { if (busyRef.current) return; setConfirmError(null); setConfirm('delete'); }}>{busy && confirm === 'delete' ? <><ButtonSpinner />{pageActionFeedback('delete', true)?.label}</> : 'Delete'}</Button> : null}
           {actions.adjustPrice && screen !== 'outcome' ? <button type="button" disabled={busy} onClick={openPrice}>Adjust price</button> : null}
           {actions.parcel && screen !== 'outcome' ? <button type="button" className="track-parcel" onClick={() => setParcelOpen(true)}>Parcel details<ChevronUp /></button> : null}
         </div>
-        {actions.rate ? (
-          <div className="track-rating" aria-label="Rate rider">
-            {[1, 2, 3, 4, 5].map((stars) => (
-              <button key={stars} type="button" onClick={() => void withToken(async (token) => { await rateDelivery(token, delivery.id, stars); setDelivery(await loadDelivery(token, delivery.id)); })}>{stars}</button>
-            ))}
-          </div>
-        ) : null}
         {actionError ? <ErrorMessage>{actionError}</ErrorMessage> : null}
       </section>}
       {parcelMotion.mounted ? (

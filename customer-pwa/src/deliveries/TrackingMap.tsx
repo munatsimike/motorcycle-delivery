@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { CrosshairIcon } from "../components/CrosshairIcon";
 import riderRearMarker from "../assets/rider-motorcycle-rear.png";
+import riderFrontMarker from "../assets/rider-motorcycle-front.png";
 import nearby0 from "../assets/rider-motorcycle-nearby-0.png";
 import nearby1 from "../assets/rider-motorcycle-nearby-1.png";
 import nearby2 from "../assets/rider-motorcycle-nearby-2.png";
@@ -37,9 +38,9 @@ import {
 import { bindMapTheme } from "../theme/mapStyle";
 
 const TRACKING_MOTORCYCLE_WIDTH = 90;
-// Home nearby-2 is the forward view. Its front wheel sits about 23 degrees clockwise from straight up.
-const FORWARD_MOTORCYCLE = nearby2;
-const FORWARD_NOSE_DEGREES = 23;
+// The front artwork's wheel points straight down, so a northbound heading turns it 180 degrees.
+const FORWARD_MOTORCYCLE = riderFrontMarker;
+const FORWARD_NOSE_DEGREES = 180;
 // The rear-view artwork points slightly right of straight up.
 const REAR_NOSE_DEGREES = 20;
 

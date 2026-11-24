@@ -2,6 +2,7 @@ import { useEffect, useSyncExternalStore } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { beginPageTransition, samePageLink } from '../motion/pageTransition';
 import { OfflineNotice } from '../components/OfflineNotice';
+import { SuccessToastHost } from '../components/SuccessToastHost';
 import { CustomerPush } from '../pwa/CustomerPush';
 import { UpdateNotice } from '../components/UpdateNotice';
 import { Loading } from '../components/Loading';
@@ -32,6 +33,7 @@ export function App() {
       <OfflineNotice />
       <UpdateNotice />
       <CustomerPush />
+      <SuccessToastHost />
       {visibleTree(status) === 'session-check' ? <SessionCheck /> : status === 'signed-in' ? <SignedInRoutes /> : <SignedOutRoutes />}
       {status === 'signed-out' ? <ReplacementSignOutDialog /> : null}
     </>

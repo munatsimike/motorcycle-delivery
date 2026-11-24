@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
-    "test": "node --experimental-strip-types --test src/auth/auth.test.ts src/auth/replacementSignOut.test.ts src/text/format.test.ts src/auth/refreshCoordination.test.ts src/app/navigation.test.ts src/home/home.test.ts src/deliveries/deliveries.test.ts src/deliveries/tracking.test.ts src/deliveries/searchPulse.test.ts src/booking/booking.test.ts src/booking/savedAddress.test.ts src/theme/appearance.test.ts src/account/profile.test.ts src/account/profileLoad.test.ts src/pwa/navigationFallback.test.ts src/pwa/csp.test.ts src/pwa/pushPolicy.test.ts src/components/buttonState.test.ts"
+    "test": "node --experimental-strip-types --test src/auth/auth.test.ts src/auth/replacementSignOut.test.ts src/text/format.test.ts src/auth/refreshCoordination.test.ts src/app/navigation.test.ts src/home/home.test.ts src/deliveries/deliveries.test.ts src/deliveries/tracking.test.ts src/deliveries/searchPulse.test.ts src/booking/booking.test.ts src/booking/savedAddress.test.ts src/theme/appearance.test.ts src/account/profile.test.ts src/account/profileLoad.test.ts src/pwa/navigationFallback.test.ts src/pwa/csp.test.ts src/pwa/pushPolicy.test.ts src/components/buttonState.test.ts src/components/successToast.test.ts"
   },
   "dependencies": {
     "firebase": "^13.3.0",

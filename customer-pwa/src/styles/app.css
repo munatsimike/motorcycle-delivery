@@ -750,6 +750,84 @@ button.home-status:disabled {
   color: var(--text);
 }
 
+.success-toast-host {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 25;
+  padding: calc(env(safe-area-inset-top, 0px) + var(--success-toast-banner-offset, 0px) + var(--space-md)) max(var(--space-lg), env(safe-area-inset-right, 0px)) var(--space-md) max(var(--space-lg), env(safe-area-inset-left, 0px));
+  pointer-events: none;
+}
+
+.success-toast-host.is-visible {
+  animation: success-toast-in 280ms ease forwards;
+}
+
+.success-toast-host.is-leaving {
+  animation: success-toast-out 280ms ease forwards;
+}
+
+@keyframes success-toast-in {
+  from { transform: translateY(-120%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes success-toast-out {
+  from { transform: translateY(0); opacity: 1; }
+  to { transform: translateY(-120%); opacity: 0; }
+}
+
+.success-toast {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  width: 100%;
+  padding: var(--space-md) var(--space-lg);
+  border-radius: var(--radius-lg);
+  background: var(--primary-light);
+  color: var(--primary-dark);
+  box-shadow: var(--shadow);
+}
+
+.success-toast p {
+  margin: 0;
+  color: var(--primary-dark);
+  font-size: var(--body);
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.success-toast-mark {
+  display: grid;
+  flex: 0 0 18px;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  color: var(--primary-dark);
+}
+
+.success-toast-mark svg {
+  width: 18px;
+  height: 18px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .success-toast-host.is-visible,
+  .success-toast-host.is-leaving {
+    animation: none;
+  }
+
+  .success-toast-host.is-visible {
+    transform: none;
+    opacity: 1;
+  }
+
+  .success-toast-host.is-leaving {
+    opacity: 0;
+  }
+}
+
 .banner-push-actions {
   display: flex;
   gap: var(--space-sm);
@@ -2117,46 +2195,10 @@ button.home-status:disabled {
   border-radius: 50%;
 }
 
-.rider-confirmed-note {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  padding: var(--space-md);
-  border-radius: var(--radius-lg);
-  background: var(--primary-light);
-}
-
-.rider-confirmed-mark {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 14px;
-  background: var(--background);
-  color: var(--primary-dark);
-}
-
-.rider-confirmed-mark svg {
-  width: 18px;
-  height: 18px;
-  fill: currentColor;
-}
-
-.rider-confirmed-note strong {
-  display: block;
-  color: var(--primary-dark);
-  font-weight: 600;
-}
-
-.track-sheet .rider-confirmed-note p,
 .track-sheet .track-note {
   margin: 0;
   color: var(--text-secondary);
   font-size: var(--caption);
-}
-
-.track-sheet .rider-confirmed-note p {
-  color: var(--text);
 }
 
 .track-avatar img {
@@ -3359,8 +3401,9 @@ button.home-status:disabled {
   overflow-wrap: anywhere;
 }
 
-.profile-logout {
-  justify-self: center;
+.profile-sheet > .button.profile-logout {
+  width: 100%;
+  justify-self: stretch;
 }
 
 .profile-sheet-backdrop,
@@ -3644,8 +3687,10 @@ html.is-page-transition .page-stage {
 }
 
 /* Borderless text actions for cancellation and parcel details. */
-.track-actions .track-cancel-action,
-.track-actions .track-parcel,
+.track-actions button.track-parcel,
+.track-actions .button.track-cancel-text,
+.track-actions .button.track-cancel-text:hover,
+.track-actions .button.track-cancel-text:disabled,
 .outcome-actions .track-cancel-action,
 .outcome-parcel {
   border: 0;
@@ -3653,11 +3698,20 @@ html.is-page-transition .page-stage {
   box-shadow: none;
   min-height: 44px;
 }
+.track-actions .button.track-cancel-text,
+.track-actions .button.track-cancel-text:hover,
+.track-actions .button.track-cancel-text:disabled {
+  width: auto;
+  padding: 0;
+  color: var(--error);
+  font-weight: 400;
+}
 .track-actions .track-cancel-action {
   color: var(--error);
   font-weight: 400;
 }
-.track-actions .track-parcel {
+.track-actions button.track-parcel {
+  padding: 0;
   color: var(--primary);
   font-weight: 500;
 }
@@ -4133,11 +4187,11 @@ html.is-page-transition .page-stage {
   box-shadow: none;
 }
 /* Never wash out green CTAs or checked states. */
-:root:not([data-theme="dark"]) .button:not(.button-outline):not(.button-secondary):not(.button-tertiary):not(.button-destructive) {
+:root:not([data-theme="dark"]) .button:not(.button-outline):not(.button-secondary):not(.button-tertiary):not(.button-destructive):not(.auth-different-number) {
   background: var(--primary);
   color: var(--text-inverse);
 }
-:root:not([data-theme="dark"]) .button:not(.button-outline):not(.button-secondary):not(.button-tertiary):not(.button-destructive):hover {
+:root:not([data-theme="dark"]) .button:not(.button-outline):not(.button-secondary):not(.button-tertiary):not(.button-destructive):not(.auth-different-number):hover {
   background: var(--primary-dark);
 }
 
