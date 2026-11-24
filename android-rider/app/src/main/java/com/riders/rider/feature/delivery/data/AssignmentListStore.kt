@@ -53,6 +53,15 @@ class AssignmentListStore @Inject constructor() {
     }
 
     @Synchronized
+    fun removeAssignment(assignmentId: String) {
+        if (assignmentId.isBlank()) {
+            return
+        }
+        generation += 1
+        parcels.value = parcels.value.filter { it.assignmentId != assignmentId }
+    }
+
+    @Synchronized
     fun rememberMarketplace(receivingPresent: Boolean) {
         marketplace = receivingPresent
     }

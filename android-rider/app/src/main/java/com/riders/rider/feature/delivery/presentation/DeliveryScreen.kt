@@ -114,6 +114,7 @@ import com.riders.rider.feature.delivery.domain.riderDetailsSupport
 fun DeliveryScreen(
     deliveryId: String,
     onFinished: () -> Unit,
+    onRiderCancelled: (String) -> Unit = { onFinished() },
     onBack: () -> Unit = onFinished,
     completed: Boolean = false,
     model: DeliveryViewModel = hiltViewModel(),
@@ -141,9 +142,21 @@ fun DeliveryScreen(
         onDispose { lifecycle.removeObserver(observer) }
     }
     androidx.compose.runtime.LaunchedEffect(ui.finished) {
-        if (ui.finished) {
+        if (ui.finished && !ui.riderCancelled) {
             onFinished()
         }
+    }
+    androidx.compose.runtime.LaunchedEffect(ui.riderCancelled) {
+        if (ui.riderCancelled) {
+            guidance = null
+            cancelOpen = false
+            detailsOpen = false
+            onRiderCancelled(ui.assignmentId.ifBlank { ui.deliveryId })
+        }
+    }
+    if (ui.riderCancelled) {
+        Box(Modifier.fillMaxSize().background(RidersColors.background))
+        return
     }
     androidx.compose.runtime.LaunchedEffect(ui.pendingCancelReason) {
         val pending = ui.pendingCancelReason

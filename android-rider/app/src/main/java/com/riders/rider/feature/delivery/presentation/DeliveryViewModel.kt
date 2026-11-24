@@ -93,6 +93,7 @@ data class DeliveryUi(
     val cancelVisible: Boolean = false,
     val completionMessage: String? = null,
     val cancellationMessage: String? = null,
+    val riderCancelled: Boolean = false,
     val pendingCancelReason: String? = null,
     val pendingCancelNote: String? = null,
 )
@@ -117,7 +118,7 @@ class DeliveryViewModel @Inject constructor(
             loadCompleted(deliveryId, fromUser)
             return
         }
-        if (opening || state.value.busy != DeliveryBusy.None) {
+        if (state.value.riderCancelled || opening || state.value.busy != DeliveryBusy.None) {
             return
         }
         if (state.value.status.isBlank() && state.value.pickupAddress.isBlank() && state.value.parcelDescription.isBlank()) {
@@ -146,6 +147,9 @@ class DeliveryViewModel @Inject constructor(
                 )
                 val useCommitted = parcelActionsAllowed(recovery.certainty) &&
                     (openForNewBids || hasCommittedV2(recovery.parcels.map { parcel -> parcel.serviceClass }))
+                if (state.value.riderCancelled) {
+                    return@launch
+                }
                 when {
                     useCommitted -> showCommitted(deliveryId, fromUser, listed)
                     recovery.certainty == AssignmentCertainty.Unknown -> state.value = DeliveryUi(
@@ -247,7 +251,7 @@ class DeliveryViewModel @Inject constructor(
 
     private suspend fun showCommitted(deliveryId: String, fromUser: Boolean, result: ApiResult<List<CommittedParcel>>) {
         val stored = assignments.parcel(deliveryId)
-        if (state.value.completionMessage != null || state.value.cancellationMessage != null) {
+        if (state.value.riderCancelled || state.value.completionMessage != null || state.value.cancellationMessage != null) {
             return
         }
         state.value = if (stored == null) {
@@ -345,12 +349,16 @@ class DeliveryViewModel @Inject constructor(
                     is ApiResult.Ok -> {
                         transitions.clearCancellation(current.assignmentId)
                         transitions.clearProgress(current.deliveryId)
-                        assignments.refreshList()
+                        assignments.dropAssignment(current.assignmentId)
+                        val refreshed = assignments.refreshList()
+                        if (refreshed is ApiResult.Ok && refreshed.value.any { it.assignmentId == current.assignmentId }) {
+                            assignments.dropAssignment(current.assignmentId)
+                        }
                         availability.applySharing()
                         refreshWallet()
                         state.update {
                             it.copy(
-                                cancellationMessage = cancellationResultMessage(result.value.reopened),
+                                riderCancelled = true,
                                 cancelVisible = false,
                                 nextStatus = null,
                                 nextLabel = null,

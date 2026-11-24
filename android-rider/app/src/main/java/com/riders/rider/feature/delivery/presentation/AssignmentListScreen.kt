@@ -75,10 +75,12 @@ class AssignmentListViewModel @Inject constructor(
         val current = state.value
         val blank = !current.loaded && current.assignments.isEmpty() && current.error == null
         val chrome = listedRefresh(fromUser, blank)
+        val known = if (assignments.hasConfirmedAssignments()) assignments.current() else current.assignments
         state.value = current.copy(
             refreshing = chrome.refreshing,
             loading = chrome.loading,
             error = null,
+            assignments = known,
         )
         viewModelScope.launch {
             try {

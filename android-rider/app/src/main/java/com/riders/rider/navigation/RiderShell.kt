@@ -36,10 +36,14 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavBackStackEntry
 import com.riders.rider.R
+import com.riders.rider.core.design.LocalRidersToast
 import com.riders.rider.core.design.NetworkSnackbarClearance
 import com.riders.rider.core.design.RiderTransition
 import com.riders.rider.core.design.RidersColors
+import com.riders.rider.core.design.RidersToastEvent
 import com.riders.rider.core.design.RidersType
+import com.riders.rider.feature.delivery.domain.RIDER_CANCELLED_EVENT
+import com.riders.rider.feature.delivery.domain.riderCancellationLanding
 import com.riders.rider.core.design.rememberRidersMotion
 import com.riders.rider.feature.home.DeliveriesScreen
 import com.riders.rider.feature.home.HomeScreen
@@ -71,6 +75,20 @@ fun RiderShell(
     var tabName by rememberSaveable { mutableStateOf(RiderDestination.Home.name) }
     var deliveriesBoard by rememberSaveable { mutableStateOf(DeliveryBoardTab.Active.name) }
     val tab = RiderDestination.valueOf(tabName)
+    val showToast = LocalRidersToast.current
+    LaunchedEffect(entry) {
+        entry.savedStateHandle.getStateFlow<String?>(RIDER_CANCELLED_EVENT, null).collect { eventId ->
+            val id = eventId?.trim().orEmpty()
+            if (id.isEmpty()) {
+                return@collect
+            }
+            entry.savedStateHandle.remove<String>(RIDER_CANCELLED_EVENT)
+            val landing = riderCancellationLanding(id)
+            tabName = landing.tab.name
+            deliveriesBoard = landing.board.name
+            showToast(RidersToastEvent(landing.eventId, landing.toastMessage))
+        }
+    }
     val offerPush = rememberOfferPush()
     val pendingRequests = rememberOfferInbox()
     val requestTap by pendingRequests.taps.collectAsStateWithLifecycle()

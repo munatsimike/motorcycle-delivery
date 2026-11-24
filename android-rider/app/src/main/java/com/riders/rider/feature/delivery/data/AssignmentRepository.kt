@@ -77,4 +77,8 @@ class AssignmentRepository @Inject constructor(
     fun confirmStatus(deliveryId: String, status: String) {
         committed.confirmStatus(deliveryId, status)
     }
+
+    fun dropAssignment(assignmentId: String) {
+        committed.removeAssignment(assignmentId)
+    }
 }

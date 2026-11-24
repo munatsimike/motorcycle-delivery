@@ -71,7 +71,9 @@ fun RiderTheme(mode: AppearanceMode = AppearanceMode.SYSTEM, content: @Composabl
     SystemBarContrast(dark)
     CompositionLocalProvider(LocalAppDark provides dark) {
         MaterialTheme(colorScheme = scheme, typography = Type) {
-            NetworkNoticeHost(content)
+            NetworkNoticeHost {
+                RidersToastHost(content)
+            }
         }
     }
 }

@@ -34,6 +34,7 @@ import com.riders.rider.feature.auth.presentation.RegisterScreen
 import com.riders.rider.feature.auth.presentation.SignInScreen
 import com.riders.rider.feature.auth.domain.signedOutStart
 import com.riders.rider.feature.auth.presentation.WelcomeScreen
+import com.riders.rider.feature.delivery.domain.RIDER_CANCELLED_EVENT
 import com.riders.rider.feature.delivery.domain.parcelRoute
 import com.riders.rider.feature.delivery.presentation.DeliveryScreen
 import com.riders.rider.feature.onboarding.presentation.OnboardingScreen
@@ -239,6 +240,10 @@ private fun RiderGraph(
                 completed = entry.arguments?.getBoolean("completed") == true,
                 onBack = { controller.popBackStack() },
                 onFinished = { controller.popBackStack(RIDER_SHELL, inclusive = false) },
+                onRiderCancelled = { eventId ->
+                    controller.getBackStackEntry(RIDER_SHELL).savedStateHandle[RIDER_CANCELLED_EVENT] = eventId
+                    controller.popBackStack(RIDER_SHELL, inclusive = false)
+                },
             )
         }
     }
