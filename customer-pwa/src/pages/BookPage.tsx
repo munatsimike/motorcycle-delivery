@@ -784,7 +784,7 @@ export function BookPage() {
             </div>
             {inlineSaveError ? <p role="alert" className="book-inline-save-error">{inlineSaveError}</p> : null}
             <div className="confirm-dialog-actions">
-              <button type="button" className="confirm-keep" disabled={inlineSaveChoice[saveStop].status === 'saving'} onClick={() => { setInlineSaveOpen(null); setInlineSaveError(null); }}>Cancel</button>
+              <button type="button" className="confirm-keep confirm-dismiss" disabled={inlineSaveChoice[saveStop].status === 'saving'} onClick={() => { setInlineSaveOpen(null); setInlineSaveError(null); }}>Cancel</button>
               <button type="button" className="confirm-accept" disabled={inlineSaveChoice[saveStop].status !== 'idle' || !bookingSaveLabel({ ...inlineSaveChoice[saveStop], label: inlineSaveChoice[saveStop].label ?? 'HOME' })} onClick={() => { void saveDraftStop(saveStop); }}>
                 {inlineSaveChoice[saveStop].status === 'saving' ? <><ButtonSpinner />Saving…</> : 'Save address'}
               </button>

@@ -240,7 +240,7 @@ export function ProfilePage() {
             <h2 id="remove-photo-title">Remove profile photo?</h2>
             <p id="remove-photo-copy">Your initials will be shown instead.</p>
             <div className="confirm-dialog-actions">
-              <button type="button" className="confirm-keep" onClick={() => setRemoveOpen(false)}>Keep photo</button>
+              <button type="button" className="confirm-keep confirm-dismiss" onClick={() => setRemoveOpen(false)}>Keep photo</button>
               <button type="button" className="confirm-cancel" onClick={() => { void removePhoto(); }}>Remove photo</button>
             </div>
           </div>

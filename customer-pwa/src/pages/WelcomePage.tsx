@@ -18,7 +18,7 @@ export function WelcomePage() {
             <p className="lede">Trusted motorcycle deliveries for quick and secure parcel transport.</p>
             <div className="welcome-actions">
               <Button to="/sign-in">Sign in</Button>
-              <Button to="/create-account" variant="outline">Create account</Button>
+              <Button to="/create-account" variant="secondary">Create account</Button>
             </div>
           </section>
         </div>

@@ -173,7 +173,7 @@ export function AddressesPage() {
             <h2 id="delete-address-title">Delete address?</h2>
             <p id="delete-address-copy">Are you sure you want to remove this address?</p>
             <div className="confirm-dialog-actions">
-              <button type="button" className="confirm-keep" disabled={deleting} onClick={() => setPendingDelete(null)}>Cancel</button>
+              <button type="button" className="confirm-keep confirm-dismiss" disabled={deleting} onClick={() => setPendingDelete(null)}>Cancel</button>
               <button className="confirm-cancel" type="button" disabled={deleting} onClick={() => { void remove(pendingDelete); }}>{deleting ? <><span className="auth-button-spinner" aria-hidden="true" />Deleting…</> : <>Delete address</>}</button>
             </div>
           </div>

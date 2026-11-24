@@ -1056,7 +1056,7 @@ export function DeliveryDetailsPage() {
             <p id="choose-rider-copy">Confirm {shownRider.riderName} as your rider for {moneyLabel(shownRider.currency, shownRider.amount)}?</p>
             {confirmError ? <ErrorMessage>{confirmError}</ErrorMessage> : null}
             <div className="confirm-dialog-actions">
-              <button ref={keepComparingRef} type="button" className="confirm-keep" disabled={busy} onClick={() => { if (busy) return; setConfirmError(null); setConfirm(null); }}>Keep comparing</button>
+              <button ref={keepComparingRef} type="button" className="confirm-keep confirm-dismiss" disabled={busy} onClick={() => { if (busy) return; setConfirmError(null); setConfirm(null); }}>Keep comparing</button>
               <button type="button" className="confirm-accept" disabled={busy || responseElapsed || !showsRiderOffers(delivery)} onClick={() => void confirmRider(shownRider)}>{busy ? 'Confirming…' : 'Confirm rider'}</button>
             </div>
           </div>
@@ -1078,7 +1078,7 @@ export function DeliveryDetailsPage() {
             <p id="decline-offer-copy">Are you sure you want to decline {offerRiderName(shownDecline.riderName)}&apos;s offer?</p>
             {declineError ? <ErrorMessage>{declineError}</ErrorMessage> : null}
             <div className="confirm-dialog-actions">
-              <button ref={keepOfferRef} type="button" className="confirm-keep" disabled={busy} onClick={() => { if (busy) return; setDeclineError(null); setDecline(null); }}>Keep offer</button>
+              <button ref={keepOfferRef} type="button" className="confirm-keep confirm-dismiss" disabled={busy} onClick={() => { if (busy) return; setDeclineError(null); setDecline(null); }}>Keep offer</button>
               <button type="button" className="confirm-decline" disabled={busy} onClick={() => void declineOffer(shownDecline)}>{busy ? 'Declining…' : 'Decline offer'}</button>
             </div>
           </div>
@@ -1091,7 +1091,7 @@ export function DeliveryDetailsPage() {
             <p id="delete-delivery-copy">This cannot be undone.</p>
             {confirmError ? <ErrorMessage>{confirmError}</ErrorMessage> : null}
             <div className="confirm-dialog-actions">
-              <button type="button" className="confirm-keep" disabled={busy} onClick={() => { if (busy) return; setConfirmError(null); setConfirm(null); }}>Cancel</button>
+              <button type="button" className="confirm-keep confirm-dismiss" disabled={busy} onClick={() => { if (busy) return; setConfirmError(null); setConfirm(null); }}>Cancel</button>
               <button type="button" className="confirm-cancel" disabled={busy} onClick={() => void deleteRequest()}>{busy ? 'Confirming' : 'Delete'}</button>
             </div>
           </div>

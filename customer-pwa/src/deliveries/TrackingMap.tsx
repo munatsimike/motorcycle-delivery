@@ -2,10 +2,17 @@ import { useEffect, useRef } from "react";
 import { CrosshairIcon } from "../components/CrosshairIcon";
 import riderMarker from "../assets/rider-motorcycle-marker.png";
 import riderRearMarker from "../assets/rider-motorcycle-rear.png";
+import nearby0 from "../assets/rider-motorcycle-nearby-0.png";
+import nearby1 from "../assets/rider-motorcycle-nearby-1.png";
+import nearby2 from "../assets/rider-motorcycle-nearby-2.png";
+import nearby3 from "../assets/rider-motorcycle-nearby-3.png";
+import nearby4 from "../assets/rider-motorcycle-nearby-4.png";
 import { mapsBrowserKey } from "../config/env";
 import { zoomForSpan } from "../home/camera";
 import { markerRotation, motorcycleMarkerIcon } from "../home/motorcycleMarker";
-import { loadGoogleMaps } from "../home/googleMap";
+import { loadGoogleMaps, nearbyMotorcycleVariant } from "../home/googleMap";
+
+const NEARBY_MOTORCYCLE_ANGLES = [nearby0, nearby1, nearby2, nearby3, nearby4];
 import {
   SEARCH_PULSE_FRAME_MS,
   SEARCH_PULSE_MS,
@@ -610,7 +617,12 @@ export function TrackingMap({
           clickable: false,
           optimized: false,
           zIndex: 3,
-          icon: motorcycleMarkerIcon(maps, activeMotorcycle, undefined, TRACKING_MOTORCYCLE_WIDTH),
+          icon: motorcycleMarkerIcon(
+            maps,
+            NEARBY_MOTORCYCLE_ANGLES[nearbyMotorcycleVariant(point.id ?? `${point.latitude},${point.longitude}`)],
+            1,
+            TRACKING_MOTORCYCLE_WIDTH,
+          ),
         }),
     );
     syncSearchPulse();

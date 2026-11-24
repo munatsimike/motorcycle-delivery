@@ -1114,9 +1114,9 @@ button.home-status:disabled {
 .deliveries-retry,
 .deliveries-more {
   min-height: 44px;
-  border: 1px solid var(--primary);
+  border: 0;
   border-radius: 999px;
-  background: var(--background);
+  background: var(--surface);
   color: var(--primary-dark);
   font-weight: 700;
   cursor: pointer;
@@ -1293,6 +1293,11 @@ button.home-status:disabled {
   color: var(--text);
 }
 
+.confirm-dismiss {
+  background: #f1f3f4;
+  color: #374151;
+}
+
 .confirm-cancel,
 .confirm-decline {
   border: 0;
@@ -1410,8 +1415,8 @@ button.home-status:disabled {
 }
 
 .deliveries-sheet .price-sheet-cancel {
-  background: transparent;
-  color: var(--text);
+  background: #f1f3f4;
+  color: #374151;
 }
 
 .deliveries-sheet .price-sheet-save {
@@ -2481,7 +2486,7 @@ button.home-status:disabled {
   padding: 0 var(--space-sm);
   border: 0;
   background: transparent;
-  color: var(--text-secondary);
+  color: var(--primary);
   font-size: 16px;
   font-weight: 600;
 }
