@@ -1,6 +1,8 @@
 import { ConflictException } from '@nestjs/common';
-import { AssignmentStatus, BidStatus, DeliveryStatus, Prisma } from '../generated/prisma/client.js';
+import { AssignmentStatus, BidStatus, DeliveryStatus, Prisma, V2OutboxEventType } from '../generated/prisma/client.js';
 import { describe, expect, it } from 'vitest';
+import { opportunityDedupe } from './v2-marketplace-notice.js';
+import { recordDeliveryOpportunity } from './v2-outbox.js';
 import {
   V2_SEARCH_WINDOW_MS,
   offerResponseDeadline,
@@ -8,6 +10,7 @@ import {
   expireDueV2Searches,
   expireLockedV2Search,
   restartV2Search,
+  riderOpportunityExpiresAt,
   v2SearchExpiryDecision,
   v2SearchExpiresAt,
   v2SearchStartData,
@@ -53,11 +56,25 @@ function store(seed: Row) {
   const assignments: Array<{ id: string; deliveryId: string; status: AssignmentStatus }> = [];
   const declines: Array<{ deliveryId: string; riderProfileId: string }> = [];
   const events: Array<{ previousStatus: DeliveryStatus | null; newStatus: DeliveryStatus }> = [];
+  const notices: Array<{ eventType: unknown; deliveryId: unknown; dedupeKey: string }> = [];
+  const seenNotices = new Set<string>();
   let onLock: (() => void) | null = null;
   const db = {
     async $queryRaw() {
       onLock?.();
       return [];
+    },
+    async $executeRawUnsafe(query: string, ...values: unknown[]) {
+      if (!query.includes('INSERT')) {
+        return 0;
+      }
+      const dedupeKey = String(values[5] ?? '');
+      if (seenNotices.has(dedupeKey)) {
+        return 0;
+      }
+      seenNotices.add(dedupeKey);
+      notices.push({ eventType: values[0], deliveryId: values[1], dedupeKey });
+      return 1;
     },
     delivery: {
       async findMany() {
@@ -109,6 +126,7 @@ function store(seed: Row) {
     assignments,
     declines,
     events,
+    notices,
     set onLock(hook: (() => void) | null) {
       onLock = hook;
     },
@@ -224,6 +242,43 @@ describe('one six-minute V2 search', () => {
     expect(ctx.bids[0]?.status).toBe(BidStatus.EXPIRED);
     expect(ctx.assignments).toEqual([]);
     expect(ctx.events).toEqual([{ previousStatus: DeliveryStatus.NO_RIDER_FOUND, newStatus: DeliveryStatus.CREATED }]);
+    expect(ctx.notices).toEqual([{
+      eventType: V2OutboxEventType.RIDER_OPPORTUNITY,
+      deliveryId: 'express-1',
+      dedupeKey: opportunityDedupe('express-1', again),
+    }]);
+  });
+
+  it('records one opportunity for the first search and another only when Search again opens a new window', async () => {
+    const ctx = store(row('EXPRESS'));
+    await restartV2Search(ctx.tx, ctx.deliveries[0]!, 'customer-1', START);
+    await recordDeliveryOpportunity(ctx.tx, { deliveryId: 'express-1', openedAt: START });
+    await recordDeliveryOpportunity(ctx.tx, { deliveryId: 'express-1', openedAt: START });
+    expect(ctx.notices).toEqual([{
+      eventType: V2OutboxEventType.RIDER_OPPORTUNITY,
+      deliveryId: 'express-1',
+      dedupeKey: opportunityDedupe('express-1', START),
+    }]);
+
+    ctx.deliveries[0]!.status = DeliveryStatus.NO_RIDER_FOUND;
+    const again = new Date(CLOSED.getTime() + 5_000);
+    await restartV2Search(ctx.tx, ctx.deliveries[0]!, 'customer-1', again);
+    await restartV2Search(ctx.tx, ctx.deliveries[0]!, 'customer-1', new Date(again.getTime() + 2_000));
+    expect(ctx.notices.map((notice) => notice.dedupeKey)).toEqual([
+      opportunityDedupe('express-1', START),
+      opportunityDedupe('express-1', again),
+    ]);
+    expect(ctx.deliveries[0]?.searchStartedAt).toEqual(again);
+  });
+
+  it('expires the rider offer at the six-minute search deadline and leaves the delivery deadline alone', () => {
+    const deliverBy = new Date('2026-10-29T08:00:00.000Z');
+    const searchDeadline = v2SearchExpiresAt(START);
+    expect(riderOpportunityExpiresAt(START)).toBe(searchDeadline.toISOString());
+    expect(searchDeadline.getTime() - START.getTime()).toBe(360_000);
+    expect(riderOpportunityExpiresAt(START)).not.toBe(deliverBy.toISOString());
+    expect(riderOpportunityExpiresAt(null)).toBe('');
+    expect(riderOpportunityExpiresAt(new Date(Number.NaN))).toBe('');
   });
 
   it('does not restart a passed delivery deadline or an assigned request', async () => {

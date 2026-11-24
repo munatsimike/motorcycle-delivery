@@ -23,6 +23,7 @@ import {
 import { marketplaceRateIsPositive } from '../rider/promotional-credit.js';
 import { riderIdsWithFeeCapacity } from '../rider/wallet-ledger.js';
 import { riderZwgOffersEnabled } from './exchange-rate.js';
+import { riderOpportunityExpiresAt } from './v2-search.js';
 
 type ClaimedNotice = {
   id: string;
@@ -278,7 +279,7 @@ export class V2OutboxSender {
     }
     const delivery = await this.prisma.delivery.findUnique({
       where: { id: deliveryId },
-      select: { status: true, searchGeneration: true, deliverBy: true, serviceClass: true },
+      select: { status: true, searchGeneration: true, deliverBy: true, serviceClass: true, searchStartedAt: true },
     });
     if (!delivery || delivery.status !== 'CREATED' || delivery.searchGeneration !== 0 || delivery.serviceClass == null) {
       return null;
@@ -286,7 +287,7 @@ export class V2OutboxSender {
     if (delivery.deliverBy && delivery.deliverBy.getTime() <= now.getTime()) {
       return null;
     }
-    return { expiresAt: delivery.deliverBy?.toISOString() ?? '' };
+    return { expiresAt: riderOpportunityExpiresAt(delivery.searchStartedAt) };
   }
 
   private async finishWithoutDelivery(row: ClaimedNotice, now: Date, reason: 'not_available'): Promise<void> {

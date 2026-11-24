@@ -8,6 +8,7 @@ import {
 } from '../generated/prisma/client.js';
 import { insertMarketplaceNotice } from './v2-marketplace-notice.js';
 import { v2RequestRemainsOpen } from './v2-deadline.js';
+import { recordDeliveryOpportunity } from './v2-outbox.js';
 
 export const V2_SEARCH_WINDOW_MS = 360_000;
 export const V2_OFFER_RESPONSE_MS = 300_000;
@@ -32,6 +33,13 @@ type SearchDelivery = {
 
 export function v2SearchExpiresAt(startedAt: Date): Date {
   return new Date(startedAt.getTime() + V2_SEARCH_WINDOW_MS);
+}
+
+export function riderOpportunityExpiresAt(searchStartedAt: Date | null | undefined): string {
+  if (searchStartedAt == null || Number.isNaN(searchStartedAt.getTime())) {
+    return '';
+  }
+  return v2SearchExpiresAt(searchStartedAt).toISOString();
 }
 
 export function v2SearchWindowElapsed(startedAt: Date | null | undefined, now: Date): boolean {
@@ -222,5 +230,6 @@ export async function restartV2Search(
       occurredAt: now,
     },
   });
+  await recordDeliveryOpportunity(tx, { deliveryId: delivery.id, openedAt: started.searchStartedAt });
   return { deliveryId: delivery.id, status: DeliveryStatus.CREATED, searchGeneration: 0 };
 }
