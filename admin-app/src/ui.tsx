@@ -117,7 +117,7 @@ export function Dialog({ title, children, confirmLabel, busy, danger, confirmDis
           <button className={danger ? 'button-danger' : 'button'} type="button" disabled={busy || confirmDisabled} onClick={onConfirm}>
             {busy ? 'Working' : confirmLabel}
           </button>
-          <button className="button-secondary" type="button" disabled={busy} onClick={onClose}>Cancel</button>
+          <button className="button-cancel" type="button" disabled={busy} onClick={onClose}>Cancel</button>
         </div>
       </div>
     </div>

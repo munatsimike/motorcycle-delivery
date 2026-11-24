@@ -83,7 +83,7 @@ input:focus, select:focus, textarea:focus, button:focus-visible, a:focus-visible
   border-color: var(--green);
 }
 
-.button, .button-secondary, .button-danger {
+.button, .button-secondary, .button-danger, .button-cancel {
   border: 0;
   border-radius: 999px;
   padding: 8px 16px;
@@ -94,7 +94,8 @@ input:focus, select:focus, textarea:focus, button:focus-visible, a:focus-visible
 .button:hover { background: var(--green-dark); }
 .button-secondary { background: var(--surface); color: var(--green-dark); }
 .button-danger { background: var(--danger-bg); color: var(--danger); }
-.button:disabled, .button-secondary:disabled, .button-danger:disabled { opacity: 0.55; cursor: not-allowed; }
+.button-cancel { background: #f1f3f4; color: #374151; }
+.button:disabled, .button-secondary:disabled, .button-danger:disabled, .button-cancel:disabled { opacity: 0.55; cursor: not-allowed; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; }
 
 .note, .error, .success {
