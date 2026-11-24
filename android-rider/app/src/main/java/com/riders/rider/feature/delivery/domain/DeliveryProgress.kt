@@ -55,6 +55,30 @@ fun v2RiderAction(current: String): String? = when (current) {
     else -> null
 }
 
+fun deliveryActionLoadingLabel(label: String): String = when (label) {
+    "Confirm pickup" -> "Confirming"
+    "Mark as delivered" -> "Completing"
+    else -> label
+}
+
+const val DELIVERY_STATUS_UNAVAILABLE = "This delivery status cannot be changed"
+
+fun blockedDeliveryConfirmationMessage(
+    marketplaceParcel: Boolean,
+    assignmentsConfirmed: Boolean,
+    syncing: Boolean,
+    busy: Boolean,
+    completed: Boolean,
+): String? {
+    if (!marketplaceParcel || completed || busy) {
+        return null
+    }
+    if (!assignmentsConfirmed || syncing) {
+        return ASSIGNMENT_RECOVERY_MESSAGE
+    }
+    return null
+}
+
 // One tap requests only the immediate next status. A stored attempt that is
 // already further along is not reused, so a timeout cannot skip a step.
 fun v2TapTarget(current: String, pendingTarget: String? = null): String? {

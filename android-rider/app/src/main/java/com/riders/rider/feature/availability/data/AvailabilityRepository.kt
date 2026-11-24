@@ -17,11 +17,16 @@ import com.riders.rider.feature.availability.RiderLocationService
 import com.riders.rider.feature.availability.domain.GpsFix
 import com.riders.rider.feature.availability.domain.LocationCommand
 import com.riders.rider.feature.availability.domain.LocationFreshness
+import com.riders.rider.feature.availability.domain.LocationNotice
 import com.riders.rider.feature.availability.domain.LocationRelay
+import com.riders.rider.feature.availability.domain.LocationUploadFailure
 import com.riders.rider.feature.availability.domain.SharingAction
+import com.riders.rider.feature.availability.domain.classifyLocationNotice
 import com.riders.rider.feature.availability.domain.commandAfterUploadFailure
 import com.riders.rider.feature.availability.domain.locationSharingDecision
 import com.riders.rider.feature.availability.domain.locationSharingPaused
+import com.riders.rider.feature.availability.domain.locationUploadFailure
+import com.riders.rider.feature.availability.domain.noticeAfterConnectivityRestored
 import com.riders.rider.feature.availability.domain.sharingRecovery
 import com.riders.rider.feature.availability.domain.shouldRequestAcceptFix
 import com.riders.rider.feature.availability.domain.shouldShareLocation
@@ -50,8 +55,13 @@ class AvailabilityRepository @Inject constructor(
     @param:ApplicationContext private val context: Context,
 ) {
     private val recovery = Mutex()
-    private val paused = MutableStateFlow(false)
-    val locationSharingPaused: StateFlow<Boolean> = paused.asStateFlow()
+    private val noticeLock = Any()
+    private val notice = MutableStateFlow<LocationNotice?>(null)
+    val locationNotice: StateFlow<LocationNotice?> = notice.asStateFlow()
+    private var facts = LocationFacts()
+    private var failure = LocationUploadFailure.None
+    private var sawUnusableFix = false
+    @Volatile private var policyStop = false
 
     suspend fun online(): ApiResult<AvailabilityUpdate> {
         val result = apiCall { riders.online() }.mapAvailability()
@@ -73,12 +83,74 @@ class AvailabilityRepository @Inject constructor(
 
     suspend fun retryLocationSharing() = recover(userRetry = true)
 
+    fun noteServiceStopped() {
+        synchronized(noticeLock) {
+            facts = facts.copy(serviceRunning = false)
+            if (!policyStop) {
+                facts = facts.copy(
+                    showWarning = locationSharingPaused(
+                        serverReached = facts.serverReached,
+                        shouldShare = facts.sharingRequired,
+                        permissionGranted = facts.permissionGranted,
+                        serviceRunning = false,
+                        uploadFresh = facts.uploadFresh,
+                        previouslyEnabled = facts.previouslyEnabled,
+                    ),
+                )
+            }
+            republish()
+        }
+    }
+
+    fun noteUnusableFix() {
+        synchronized(noticeLock) {
+            if (facts.uploadFresh || failure == LocationUploadFailure.Rejected) {
+                return
+            }
+            sawUnusableFix = true
+            republish()
+        }
+    }
+
+    fun noteFixMissing() {
+        synchronized(noticeLock) {
+            if (facts.uploadFresh || failure == LocationUploadFailure.Rejected) {
+                return
+            }
+            val providers = currentFix.locationProvidersEnabled()
+            facts = facts.copy(providersEnabled = providers)
+            if (providers) {
+                sawUnusableFix = true
+            }
+            republish()
+        }
+    }
+
+    suspend fun noteConnectivityRestored() {
+        val reevaluate = synchronized(noticeLock) {
+            if (failure == LocationUploadFailure.Rejected) {
+                return@synchronized false
+            }
+            val next = noticeAfterConnectivityRestored(failure)
+            if (next == failure) {
+                false
+            } else {
+                failure = next
+                republish()
+                facts.showWarning
+            }
+        }
+        if (reevaluate) {
+            applySharing()
+        }
+    }
+
     /**
      * Used by the already-started service. A failed refresh keeps the service
      * running; it never treats remembered availability as permission to start.
      */
     suspend fun sharingStillAllowed(): Boolean {
-        return when (evaluateSharing()) {
+        return when (evaluateSharing().verdict) {
             SharingVerdict.Required, SharingVerdict.Unknown -> true
             SharingVerdict.NotRequired -> false
         }
@@ -86,7 +158,8 @@ class AvailabilityRepository @Inject constructor(
 
     private suspend fun recover(userRetry: Boolean) {
         recovery.withLock {
-            val verdict = evaluateSharing()
+            val evaluation = evaluateSharing()
+            val verdict = evaluation.verdict
             val permitted = fineLocationGranted()
             val running = LocationServiceGate.isRunning()
             val previouslyEnabled = sharing.isEnabled()
@@ -97,18 +170,20 @@ class AvailabilityRepository @Inject constructor(
             }
             val serverReached = verdict != SharingVerdict.Unknown
             val shouldShare = verdict == SharingVerdict.Required
+            val freshBefore = freshness.canAccept(System.currentTimeMillis())
             val action = sharingRecovery(
                 serverReached = serverReached,
                 shouldShare = shouldShare,
                 permissionGranted = permitted,
                 serviceRunning = running,
-                uploadFresh = freshness.canAccept(System.currentTimeMillis()),
+                uploadFresh = freshBefore,
                 userRetry = userRetry,
             )
             val intent = Intent(context, RiderLocationService::class.java).setAction(RiderLocationService.ACTION_SHARE)
             when (action) {
                 SharingAction.Start -> {
                     if (permitted && (!running || userRetry)) {
+                        policyStop = false
                         try {
                             ContextCompat.startForegroundService(context, intent)
                         } catch (error: RuntimeException) {
@@ -121,46 +196,69 @@ class AvailabilityRepository @Inject constructor(
                     }
                 }
                 SharingAction.Stop -> {
+                    policyStop = true
                     freshness.invalidate()
                     context.stopService(intent)
                 }
                 SharingAction.Keep -> {
                     if (!permitted && running) {
+                        policyStop = true
                         context.stopService(intent)
                     }
                 }
             }
-            val serviceForWarning = when (action) {
-                SharingAction.Start -> running
-                SharingAction.Stop -> false
-                SharingAction.Keep -> running && permitted
+            val serviceNow = if (action == SharingAction.Stop) false else LocationServiceGate.isRunning()
+            if (serviceNow) {
+                policyStop = false
             }
-            paused.value = locationSharingPaused(
-                serverReached = serverReached,
-                shouldShare = shouldShare,
-                permissionGranted = permitted,
-                serviceRunning = serviceForWarning,
-                uploadFresh = freshness.canAccept(System.currentTimeMillis()) && action != SharingAction.Stop,
-                previouslyEnabled = previouslyEnabled,
-            )
+            val uploadFresh = freshness.canAccept(System.currentTimeMillis()) && action != SharingAction.Stop
+            synchronized(noticeLock) {
+                val providers = currentFix.locationProvidersEnabled()
+                if (providers && !facts.providersEnabled) {
+                    sawUnusableFix = false
+                }
+                val evaluatedFailure = evaluation.error?.let(::locationUploadFailure)
+                if (failure == LocationUploadFailure.Rejected && evaluatedFailure != LocationUploadFailure.Rejected) {
+                    failure = LocationUploadFailure.None
+                }
+                rememberEvaluateFailure(evaluation.error)
+                facts = LocationFacts(
+                    showWarning = locationSharingPaused(
+                        serverReached = serverReached,
+                        shouldShare = shouldShare,
+                        permissionGranted = permitted,
+                        serviceRunning = serviceNow,
+                        uploadFresh = uploadFresh,
+                        previouslyEnabled = previouslyEnabled,
+                    ),
+                    permissionGranted = permitted,
+                    providersEnabled = providers,
+                    serviceRunning = serviceNow,
+                    uploadFresh = uploadFresh,
+                    sharingRequired = shouldShare,
+                    serverReached = serverReached,
+                    previouslyEnabled = previouslyEnabled,
+                )
+                republish()
+            }
         }
     }
 
-    private suspend fun evaluateSharing(): SharingVerdict {
+    private suspend fun evaluateSharing(): SharingEvaluation {
         if (sessions.read() == null) {
-            return SharingVerdict.NotRequired
+            return SharingEvaluation(SharingVerdict.NotRequired, null)
         }
         val onboard = apiCall { riders.onboarding() }
         if (authoritativeLocationStop(onboard)) {
-            return SharingVerdict.NotRequired
+            return SharingEvaluation(SharingVerdict.NotRequired, (onboard as? ApiResult.Err)?.error)
         }
         if (onboard !is ApiResult.Ok) {
-            return SharingVerdict.Unknown
+            return SharingEvaluation(SharingVerdict.Unknown, (onboard as ApiResult.Err).error)
         }
         committed.rememberShift(onboard.value.availability, onboard.value.receiving)
         val listed = assignments.refreshList()
         if (authoritativeLocationStop(listed)) {
-            return SharingVerdict.NotRequired
+            return SharingEvaluation(SharingVerdict.NotRequired, (listed as? ApiResult.Err)?.error)
         }
         val listedOk = listed as? ApiResult.Ok
         if (listedOk == null || !assignments.lastRefreshApplied()) {
@@ -171,7 +269,12 @@ class AvailabilityRepository @Inject constructor(
                 deliveryStatuses = emptyList(),
                 availability = onboard.value.availability,
             )
-            return if (shiftShares) SharingVerdict.Required else SharingVerdict.Unknown
+            val listedError = (listed as? ApiResult.Err)?.error
+            return if (shiftShares) {
+                SharingEvaluation(SharingVerdict.Required, null)
+            } else {
+                SharingEvaluation(SharingVerdict.Unknown, listedError)
+            }
         }
         val should = locationSharingDecision(
             hasSession = true,
@@ -184,7 +287,10 @@ class AvailabilityRepository @Inject constructor(
             confirmedStatuses = emptyList(),
             confirmedThisProcess = false,
         )
-        return if (should) SharingVerdict.Required else SharingVerdict.NotRequired
+        return SharingEvaluation(
+            if (should) SharingVerdict.Required else SharingVerdict.NotRequired,
+            null,
+        )
     }
 
     suspend fun refreshForAccept(): Boolean {
@@ -208,18 +314,77 @@ class AvailabilityRepository @Inject constructor(
         return when (val result = apiCall { riders.location(LocationRequest(fix.latitude, fix.longitude)) }) {
             is ApiResult.Ok -> {
                 freshness.markConfirmed(System.currentTimeMillis())
-                if (LocationServiceGate.isRunning()) {
-                    paused.value = false
+                synchronized(noticeLock) {
+                    failure = LocationUploadFailure.None
+                    sawUnusableFix = false
+                    val running = LocationServiceGate.isRunning()
+                    val fresh = freshness.canAccept(System.currentTimeMillis())
+                    facts = facts.copy(
+                        serviceRunning = running,
+                        uploadFresh = fresh,
+                        showWarning = locationSharingPaused(
+                            serverReached = facts.serverReached,
+                            shouldShare = facts.sharingRequired,
+                            permissionGranted = facts.permissionGranted,
+                            serviceRunning = running,
+                            uploadFresh = fresh,
+                            previouslyEnabled = facts.previouslyEnabled,
+                        ),
+                    )
+                    republish()
                 }
                 true
             }
             is ApiResult.Err -> {
+                val mapped = locationUploadFailure(result.error)
+                synchronized(noticeLock) {
+                    failure = mapped
+                    val running = LocationServiceGate.isRunning()
+                    facts = facts.copy(
+                        serviceRunning = running,
+                        uploadFresh = false,
+                        showWarning = locationSharingPaused(
+                            serverReached = facts.serverReached,
+                            shouldShare = facts.sharingRequired,
+                            permissionGranted = facts.permissionGranted,
+                            serviceRunning = running,
+                            uploadFresh = false,
+                            previouslyEnabled = facts.previouslyEnabled,
+                        ),
+                    )
+                    republish()
+                }
                 if (commandAfterUploadFailure(result.error) == LocationCommand.Stop) {
                     applySharing()
                 }
                 false
             }
         }
+    }
+
+    private fun rememberEvaluateFailure(error: ApiError?) {
+        if (error == null || failure == LocationUploadFailure.Rejected) {
+            return
+        }
+        when (locationUploadFailure(error)) {
+            LocationUploadFailure.Network -> failure = LocationUploadFailure.Network
+            LocationUploadFailure.Rejected -> failure = LocationUploadFailure.Rejected
+            else -> Unit
+        }
+    }
+
+    private fun republish() {
+        notice.value = classifyLocationNotice(
+            showWarning = facts.showWarning,
+            permissionGranted = facts.permissionGranted,
+            providersEnabled = facts.providersEnabled,
+            serviceRunning = facts.serviceRunning,
+            uploadFresh = facts.uploadFresh,
+            sharingRequired = facts.sharingRequired,
+            serverReached = facts.serverReached,
+            failure = failure,
+            sawUnusableFix = sawUnusableFix,
+        )
     }
 
     private fun fineLocationGranted(): Boolean {
@@ -233,6 +398,19 @@ private fun ApiResult<AvailabilityResponse>.mapAvailability(): ApiResult<Availab
         is ApiResult.Err -> this
     }
 }
+
+private data class LocationFacts(
+    val showWarning: Boolean = false,
+    val permissionGranted: Boolean = false,
+    val providersEnabled: Boolean = true,
+    val serviceRunning: Boolean = false,
+    val uploadFresh: Boolean = false,
+    val sharingRequired: Boolean = false,
+    val serverReached: Boolean = false,
+    val previouslyEnabled: Boolean = false,
+)
+
+private data class SharingEvaluation(val verdict: SharingVerdict, val error: ApiError?)
 
 private sealed interface SharingVerdict {
     data object Required : SharingVerdict

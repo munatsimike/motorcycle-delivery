@@ -23,8 +23,9 @@ import java.io.InterruptedIOException
  * and the HTTP response is lost, the client still holds the old refresh token. Sending that token
  * again is reuse. The backend then revokes every active session in the family, including the
  * replacement this client never received. The API has no way to look that replacement up.
- * A timeout or a dropped connection is therefore not recoverable here: the stored session is kept,
- * and that refresh token is not sent again.
+ * A timeout or a dropped connection is therefore uncertain: the stored session is kept, that
+ * refresh token is not sent again, and the rider can sign in to replace it. The marker is stored
+ * with the session so a new process does not send the same token.
  *
  * A completed HTTP 5xx is different. The transaction only returns a new pair after it commits, so
  * an error response means no replacement was issued. A later user action may try refresh again.
@@ -37,6 +38,7 @@ sealed interface RefreshAttempt {
     data object Unavailable : RefreshAttempt
     data object TimedOut : RefreshAttempt
     data object Unreachable : RefreshAttempt
+    data object Uncertain : RefreshAttempt
 }
 
 class RefreshRecoverableException(val failure: RefreshAttempt) : IOException()
@@ -108,6 +110,7 @@ class RefreshAuthenticator(
                 RefreshAttempt.Unavailable,
                 RefreshAttempt.TimedOut,
                 RefreshAttempt.Unreachable,
+                RefreshAttempt.Uncertain,
                 -> throw RefreshRecoverableException(attempt)
             }
         } ?: return null
@@ -118,8 +121,8 @@ class RefreshAuthenticator(
 
     private suspend fun singleFlight(refreshToken: String): RefreshAttempt {
         val decision = mutex.withLock {
-            if (blockedRefreshToken == refreshToken) {
-                return@withLock Decision.Ready(RefreshAttempt.Unreachable)
+            if (store.refreshUncertain.value || blockedRefreshToken == refreshToken) {
+                return@withLock Decision.Ready(RefreshAttempt.Uncertain)
             }
             val current = flight
             if (current != null && current.token == refreshToken) {
@@ -150,6 +153,7 @@ class RefreshAuthenticator(
             throw error
         }
         if (attempt is RefreshAttempt.TimedOut || attempt is RefreshAttempt.Unreachable) {
+            store.markRefreshUncertain()
             mutex.withLock { blockedRefreshToken = refreshToken }
         }
         deferred.complete(attempt)

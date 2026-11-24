@@ -107,6 +107,69 @@ fun bidSubmissionAfterResult(amount: String, error: String?): BidSubmissionUi {
     }
 }
 
+enum class CustomOfferPhase {
+    Idle,
+    Waiting,
+    InFlight,
+}
+
+data class CustomOfferDialogState(
+    val open: Boolean = false,
+    val amount: String = "",
+    val error: String? = null,
+    val phase: CustomOfferPhase = CustomOfferPhase.Idle,
+    val awaitingError: String? = null,
+)
+
+fun openCustomOfferDialog(listedPrice: String): CustomOfferDialogState {
+    return CustomOfferDialogState(open = true, amount = listedPrice)
+}
+
+fun editCustomOfferAmount(dialog: CustomOfferDialogState, amount: String): CustomOfferDialogState {
+    return dialog.copy(amount = amount, error = null)
+}
+
+fun beginCustomOfferSubmit(dialog: CustomOfferDialogState, currentError: String?): CustomOfferDialogState? {
+    if (!dialog.open || dialog.phase != CustomOfferPhase.Idle) {
+        return null
+    }
+    return dialog.copy(phase = CustomOfferPhase.Waiting, error = null, awaitingError = currentError)
+}
+
+fun observeCustomOfferSubmit(
+    dialog: CustomOfferDialogState,
+    submitting: Boolean,
+    submissionError: String?,
+): CustomOfferDialogState {
+    return when (dialog.phase) {
+        CustomOfferPhase.Idle -> dialog
+        CustomOfferPhase.Waiting -> when {
+            submitting -> dialog.copy(phase = CustomOfferPhase.InFlight)
+            submissionError != dialog.awaitingError && !submissionError.isNullOrBlank() ->
+                dialog.copy(phase = CustomOfferPhase.Idle, error = submissionError)
+            else -> dialog
+        }
+        CustomOfferPhase.InFlight -> if (submitting) {
+            dialog
+        } else if (submissionError.isNullOrBlank()) {
+            dialog.copy(open = false, phase = CustomOfferPhase.Idle, error = null)
+        } else {
+            dialog.copy(phase = CustomOfferPhase.Idle, error = submissionError)
+        }
+    }
+}
+
+fun dismissCustomOfferDialog(dialog: CustomOfferDialogState): CustomOfferDialogState {
+    if (dialog.phase == CustomOfferPhase.InFlight) {
+        return dialog
+    }
+    return dialog.copy(open = false, phase = CustomOfferPhase.Idle, error = null)
+}
+
+fun customOfferButtonLabel(sending: Boolean): String {
+    return if (sending) "Sending..." else "Send offer"
+}
+
 const val OFFER_YOUR_PRICE = "Your offer"
 const val DECLINE_REQUEST = "Decline"
 const val AWAITING_CUSTOMER = "Awaiting customer"

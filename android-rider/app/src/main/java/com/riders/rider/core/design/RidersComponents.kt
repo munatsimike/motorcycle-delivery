@@ -16,9 +16,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -215,15 +220,16 @@ fun RidersSecondaryButton(
     loading: Boolean = false,
     tone: RidersButtonTone = RidersButtonTone.Primary,
     @Suppress("UNUSED_PARAMETER") soft: Boolean = true,
-    bordered: Boolean = true,
+    bordered: Boolean = false,
     compact: Boolean = false,
-    containerColor: Color = RidersColors.background,
+    containerColor: Color = RidersColors.surface,
+    contentColor: Color? = null,
     icon: Int? = null,
     loadingLabel: String? = null,
     regular: Boolean = false,
 ) {
     val inactive = !enabled || loading
-    val accent = if (tone == RidersButtonTone.Danger) RidersColors.error else RidersColors.primary
+    val accent = contentColor ?: if (tone == RidersButtonTone.Danger) RidersColors.error else RidersColors.primary
     val fill = containerColor
     Box(
         modifier = modifier
@@ -262,6 +268,43 @@ fun RidersSecondaryButton(
         } else {
             ButtonLabel(label, accent, icon, regular)
         }
+    }
+}
+
+@Composable
+fun RidersInlineAction(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    loading: Boolean = false,
+    loadingLabel: String? = null,
+    color: Color = RidersColors.primary,
+    style: TextStyle = RidersType.body.copy(fontWeight = FontWeight.Medium),
+    textAlign: TextAlign = TextAlign.Center,
+) {
+    Row(
+        modifier
+            .heightIn(min = 22.dp)
+            .alpha(if (loading) 0.6f else 1f)
+            .clickable(enabled = enabled && !loading, role = Role.Button, onClick = onClick),
+        horizontalArrangement = if (textAlign == TextAlign.End) Arrangement.End else Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (loading) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(22.dp),
+                color = color,
+                strokeWidth = 2.dp,
+            )
+            Spacer(Modifier.width(RidersSpacing.sm))
+        }
+        Text(
+            if (loading && loadingLabel != null) loadingLabel else label,
+            style = style,
+            color = color,
+            textAlign = textAlign,
+        )
     }
 }
 
@@ -379,6 +422,32 @@ fun RidersLoadingState(
     ) {
         CircularProgressIndicator(modifier = Modifier.size(36.dp), color = RidersColors.primary, strokeWidth = 3.dp)
         Text(message, style = RidersType.caption, color = RidersColors.textSecondary, textAlign = TextAlign.Center)
+    }
+}
+
+@Composable
+fun RidersCenteredContent(
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    BoxWithConstraints(modifier) {
+        val viewport = maxHeight
+        Box(
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState()),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = viewport),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                content()
+            }
+        }
     }
 }
 
@@ -505,6 +574,7 @@ fun RidersErrorState(
                 label = retryLabel,
                 onClick = onRetry,
                 bordered = false,
+                containerColor = RidersColors.background,
                 icon = R.drawable.ic_refresh,
                 modifier = Modifier.fillMaxWidth(),
             )

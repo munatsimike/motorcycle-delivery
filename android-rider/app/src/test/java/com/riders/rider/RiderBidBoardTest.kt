@@ -349,7 +349,9 @@ class RiderBidBoardTest {
         val request = OpenBidRequest(
             id = "delivery-9",
             serviceClass = "FLEXIBLE",
-            deliverBy = "2026-10-28T12:00:00Z",
+            deliverBy = "2026-10-29T08:00:00Z",
+            searchStartedAt = "2026-10-28T11:00:00Z",
+            offerResponseExpiresAt = "2026-10-28T12:00:00Z",
             suggestedPrice = "3.00",
             pickupAddress = "Pickup",
             dropoffAddress = "Drop-off",
@@ -362,6 +364,16 @@ class RiderBidBoardTest {
         assertEquals("delivery-9", shown.single().deliveryId)
         assertEquals("request:delivery-9", shown.single().assignmentId)
         assertEquals("2026-10-28T12:00:00Z", shown.single().expiresAt)
+        assertEquals("2026-10-28T11:06:00Z", shown.single().searchExpiresAt)
+        assertFalse(shown.single().expiresAt == request.deliverBy)
+        assertFalse(shown.single().searchExpiresAt == request.deliverBy)
+        val searching = availableRequests(
+            emptyList(),
+            listOf(request.copy(offerResponseExpiresAt = null)),
+        ).single()
+        assertEquals("2026-10-28T11:06:00Z", searching.expiresAt)
+        assertEquals("2026-10-28T11:06:00Z", searching.searchExpiresAt)
+        assertFalse(searching.expiresAt == request.deliverBy)
         assertEquals("3.00", shown.single().offeredPrice)
         val customerPriced = availableRequests(emptyList(), listOf(request.copy(offeredPrice = "4.50"))).single()
         assertEquals("4.50", customerPriced.offeredPrice)
@@ -375,7 +387,10 @@ class RiderBidBoardTest {
         assertEquals(listOf("delivery-9", "legacy-1"), merged.map { it.deliveryId })
         assertTrue(merged.all { it.assignmentId.startsWith("request:") })
         assertTrue(merged.none { it.assignmentId == "assignment-1" || it.assignmentId == "assignment-2" })
-        val openEnded = availableRequests(emptyList(), listOf(request.copy(deliverBy = null))).single()
+        val openEnded = availableRequests(
+            emptyList(),
+            listOf(request.copy(deliverBy = null, searchStartedAt = null, offerResponseExpiresAt = null)),
+        ).single()
         assertEquals("delivery-9", openEnded.deliveryId)
         assertEquals("", openEnded.expiresAt)
         assertEquals("3.00", openEnded.offeredPrice)

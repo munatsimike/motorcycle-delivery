@@ -152,6 +152,99 @@ fun locationSharingPaused(
     return !serverReached && previouslyEnabled
 }
 
+enum class LocationNotice {
+    PermissionMissing,
+    LocationDisabled,
+    WaitingForFix,
+    FixUnavailable,
+    NoInternet,
+    UploadPending,
+    ServiceStopped,
+}
+
+enum class LocationUploadFailure {
+    None,
+    Network,
+    Recoverable,
+    Rejected,
+}
+
+enum class LocationPermissionAction {
+    None,
+    Request,
+    Settings,
+}
+
+fun locationUploadFailure(error: ApiError): LocationUploadFailure {
+    return when (error) {
+        ApiError.Network, ApiError.Timeout -> LocationUploadFailure.Network
+        ApiError.SessionEnded, ApiError.SignedInElsewhere, ApiError.Forbidden -> LocationUploadFailure.Rejected
+        else -> LocationUploadFailure.Recoverable
+    }
+}
+
+fun locationPermissionAction(
+    granted: Boolean,
+    asked: Boolean,
+    shouldShowRationale: Boolean,
+): LocationPermissionAction {
+    if (granted) {
+        return LocationPermissionAction.None
+    }
+    if (!asked || shouldShowRationale) {
+        return LocationPermissionAction.Request
+    }
+    return LocationPermissionAction.Settings
+}
+
+fun noticeAfterConnectivityRestored(failure: LocationUploadFailure): LocationUploadFailure {
+    return if (failure == LocationUploadFailure.Network) LocationUploadFailure.Recoverable else failure
+}
+
+fun classifyLocationNotice(
+    showWarning: Boolean,
+    permissionGranted: Boolean,
+    providersEnabled: Boolean,
+    serviceRunning: Boolean,
+    uploadFresh: Boolean,
+    sharingRequired: Boolean,
+    serverReached: Boolean,
+    failure: LocationUploadFailure,
+    sawUnusableFix: Boolean,
+): LocationNotice? {
+    if (!showWarning || failure == LocationUploadFailure.Rejected) {
+        return null
+    }
+    if (!permissionGranted) {
+        return LocationNotice.PermissionMissing
+    }
+    if (!providersEnabled) {
+        return LocationNotice.LocationDisabled
+    }
+    if (failure == LocationUploadFailure.Network) {
+        return LocationNotice.NoInternet
+    }
+    if (failure == LocationUploadFailure.Recoverable) {
+        return LocationNotice.UploadPending
+    }
+    if (!serverReached) {
+        return LocationNotice.FixUnavailable
+    }
+    if (sharingRequired && !serviceRunning) {
+        return LocationNotice.ServiceStopped
+    }
+    if (sawUnusableFix && !uploadFresh) {
+        return LocationNotice.FixUnavailable
+    }
+    if (serviceRunning && !uploadFresh) {
+        return LocationNotice.WaitingForFix
+    }
+    if (!uploadFresh) {
+        return LocationNotice.FixUnavailable
+    }
+    return null
+}
+
 fun resumeLocationSharing(
     hasSession: Boolean,
     permissionGranted: Boolean,

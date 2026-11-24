@@ -40,7 +40,10 @@ fun progressAttempt(
     targetStatus: String,
     newKey: String,
 ): TransitionAttempt {
-    if (existing?.deliveryId == deliveryId && !v2StoredTargetSkipsAhead(existing.targetStatus, targetStatus)) {
+    if (existing?.deliveryId == deliveryId &&
+        !v2StoredTargetSkipsAhead(existing.targetStatus, targetStatus) &&
+        !v2StoredTargetIsEarlierStep(existing.targetStatus, targetStatus)
+    ) {
         return existing
     }
     return TransitionAttempt(deliveryId, targetStatus, newKey)
@@ -56,6 +59,12 @@ private fun v2StoredTargetSkipsAhead(storedTarget: String, requestedTarget: Stri
         return true
     }
     return stored > requested
+}
+
+private fun v2StoredTargetIsEarlierStep(storedTarget: String, requestedTarget: String): Boolean {
+    val stored = V2DeliveryProgress.indexOf(storedTarget)
+    val requested = V2DeliveryProgress.indexOf(requestedTarget)
+    return stored >= 0 && requested >= 0 && stored < requested
 }
 
 fun progressAttemptAfterRefresh(existing: TransitionAttempt?, serverStatus: String?): TransitionAttempt? {

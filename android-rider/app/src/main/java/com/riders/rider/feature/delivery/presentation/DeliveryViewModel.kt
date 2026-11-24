@@ -14,6 +14,8 @@ import com.riders.rider.feature.delivery.domain.DeliveryActionGate
 import com.riders.rider.feature.delivery.domain.DeliveryContacts
 import com.riders.rider.feature.delivery.domain.DeliverySyncKind
 import com.riders.rider.feature.delivery.domain.DELIVERY_COMPLETED
+import com.riders.rider.feature.delivery.domain.DELIVERY_STATUS_UNAVAILABLE
+import com.riders.rider.feature.delivery.domain.blockedDeliveryConfirmationMessage
 import com.riders.rider.feature.delivery.domain.agreedPriceLabel
 import com.riders.rider.feature.delivery.domain.cancellationNoteError
 import com.riders.rider.feature.delivery.domain.cancellationResultMessage
@@ -367,7 +369,18 @@ class DeliveryViewModel @Inject constructor(
 
     private fun advanceCommitted() {
         val current = state.value
-        if (!assignments.hasConfirmedAssignments() || current.syncing || current.busy != DeliveryBusy.None || current.completionMessage != null) {
+        val blocked = blockedDeliveryConfirmationMessage(
+            marketplaceParcel = current.marketplaceParcel,
+            assignmentsConfirmed = assignments.hasConfirmedAssignments(),
+            syncing = current.syncing,
+            busy = current.busy != DeliveryBusy.None,
+            completed = current.completionMessage != null,
+        )
+        if (blocked != null) {
+            state.update { it.copy(error = blocked) }
+            return
+        }
+        if (!current.marketplaceParcel || current.busy != DeliveryBusy.None || current.completionMessage != null) {
             return
         }
         if (!actions.tryStart()) {
@@ -377,9 +390,14 @@ class DeliveryViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val pending = transitions.clearProgressIfCommitted(current.deliveryId, current.status)
-                val target = v2TapTarget(current.status, pending?.targetStatus) ?: return@launch
+                val target = v2TapTarget(current.status, pending?.targetStatus)
+                if (target == null) {
+                    state.update { it.copy(error = DELIVERY_STATUS_UNAVAILABLE) }
+                    return@launch
+                }
                 val attempt = transitions.progressKey(current.deliveryId, target)
                 if (attempt.targetStatus != target) {
+                    state.update { it.copy(error = DELIVERY_STATUS_UNAVAILABLE) }
                     return@launch
                 }
                 when (val result = offers.progressWithKey(current.deliveryId, attempt.targetStatus, attempt.key)) {
@@ -389,8 +407,8 @@ class DeliveryViewModel @Inject constructor(
                             settleProgressFailure(
                                 current.deliveryId,
                                 attempt.targetStatus,
-                                "This delivery status cannot be changed",
-                                com.riders.rider.core.network.ApiError.Conflict("This delivery status cannot be changed"),
+                                DELIVERY_STATUS_UNAVAILABLE,
+                                com.riders.rider.core.network.ApiError.Conflict(DELIVERY_STATUS_UNAVAILABLE),
                             )
                             return@launch
                         }
@@ -415,7 +433,11 @@ class DeliveryViewModel @Inject constructor(
                                 )
                             }
                         } else {
-                            val selected = assignments.parcel(current.deliveryId)?.copy(status = confirmed) ?: return@launch
+                            val selected = assignments.parcel(current.deliveryId)?.copy(status = confirmed)
+                            if (selected == null) {
+                                state.update { it.copy(error = "Your delivery could not be saved on this device.") }
+                                return@launch
+                            }
                             state.value = presentParcel(selected, null)
                         }
                     }

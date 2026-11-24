@@ -3,6 +3,7 @@ package com.riders.rider.feature.offers.notification
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import com.riders.rider.feature.offers.domain.RiderNoticeAction
+import com.riders.rider.feature.offers.domain.offerAttemptKey
 import com.riders.rider.feature.offers.domain.parseRiderNotice
 import com.riders.rider.feature.offers.domain.riderNoticeAction
 import dagger.hilt.android.AndroidEntryPoint
@@ -18,7 +19,7 @@ class RiderOfferMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
         when (val action = riderNoticeAction(parseRiderNotice(message.data))) {
             is RiderNoticeAction.ShowOffer -> {
-                if (!shown.markIfNew("offer:${action.deliveryId}:${action.expiresAt}")) {
+                if (!shown.markIfNew(offerAttemptKey(action.deliveryId, action.expiresAt))) {
                     return
                 }
                 pending.offerArrived(action.deliveryId)

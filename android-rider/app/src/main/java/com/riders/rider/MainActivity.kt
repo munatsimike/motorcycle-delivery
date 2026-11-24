@@ -13,6 +13,7 @@ import com.riders.rider.core.design.AppearanceViewModel
 import com.riders.rider.core.design.RiderTheme
 import com.riders.rider.feature.auth.domain.AppEntry
 import com.riders.rider.feature.auth.presentation.SessionViewModel
+import com.riders.rider.feature.profile.presentation.ProfileViewModel
 import com.riders.rider.feature.offers.domain.ACCEPTED_BID_EXTRA_DELIVERY_ID
 import com.riders.rider.feature.offers.domain.ACCOUNT_APPROVED_EXTRA
 import com.riders.rider.feature.offers.domain.CUSTOMER_CANCELLED_EXTRA_DELIVERY_ID
@@ -37,6 +38,7 @@ class MainActivity : FragmentActivity() {
             val appearanceMode by appearance.mode.collectAsStateWithLifecycle()
             RiderTheme(mode = appearanceMode) {
                 val session: SessionViewModel = hiltViewModel()
+                val profile: ProfileViewModel = hiltViewModel()
                 val ui by session.ui.collectAsStateWithLifecycle()
                 LaunchedEffect(ui.entry) {
                     if (ui.entry == AppEntry.Home) {
@@ -44,7 +46,11 @@ class MainActivity : FragmentActivity() {
                     }
                 }
                 when (ui.entry) {
-                    AppEntry.Home -> RiderNavHost(signedIn = true)
+                    AppEntry.Home -> RiderNavHost(
+                        signedIn = true,
+                        sessionUncertain = ui.sessionUncertain,
+                        onSignInAgain = profile::logout,
+                    )
                     AppEntry.SignedOut -> RiderNavHost(signedIn = false, notice = ui.notice)
                 }
             }

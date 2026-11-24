@@ -31,3 +31,109 @@ data class RequestOverlay(
         return copy(openId = null, dismissed = dismissed + id)
     }
 }
+
+enum class RequestMapSuccess {
+    Accepted,
+    OfferSent,
+    Declined,
+}
+
+data class RequestMapEvent(
+    val deliveryId: String,
+    val success: RequestMapSuccess,
+)
+
+data class RequestMapHandling(
+    val overlay: RequestOverlay,
+    val openDeliveries: Boolean,
+    val showOfferSent: Boolean,
+)
+
+fun handleRequestMapSuccess(overlay: RequestOverlay, event: RequestMapEvent): RequestMapHandling {
+    if (overlay.openId != event.deliveryId) {
+        return RequestMapHandling(overlay, openDeliveries = false, showOfferSent = false)
+    }
+    val closed = overlay.dismiss()
+    return when (event.success) {
+        RequestMapSuccess.Accepted -> RequestMapHandling(closed, openDeliveries = true, showOfferSent = false)
+        RequestMapSuccess.OfferSent -> RequestMapHandling(closed, openDeliveries = false, showOfferSent = true)
+        RequestMapSuccess.Declined -> RequestMapHandling(closed, openDeliveries = false, showOfferSent = false)
+    }
+}
+
+fun requestMapAutoOpenBlocked(offlineConfirmation: Boolean, offerSentVisible: Boolean): Boolean {
+    return offlineConfirmation || offerSentVisible
+}
+
+fun requestMapNotice(bidError: String?, acceptError: String?): String? {
+    return bidError?.takeIf { it.isNotBlank() } ?: acceptError?.takeIf { it.isNotBlank() }
+}
+
+fun searchAttemptKey(deliveryId: String, searchDeadline: String?): String {
+    val id = deliveryId.trim()
+    val deadline = searchDeadline?.trim().orEmpty()
+    return if (deadline.isEmpty()) id else "$id|$deadline"
+}
+
+fun requestSettled(deliveryId: String, searchDeadline: String?, settled: Set<String>): Boolean {
+    val id = deliveryId.trim()
+    if (id.isEmpty()) {
+        return false
+    }
+    if (searchAttemptKey(id, searchDeadline) in settled) {
+        return true
+    }
+    return searchDeadline.isNullOrBlank() && id in settled
+}
+
+fun requestActionAllowed(
+    deliveryId: String,
+    settled: Set<String>,
+    accepting: Boolean,
+    submitting: Boolean,
+    declining: Boolean,
+    searchDeadline: String? = null,
+): Boolean {
+    return !requestSettled(deliveryId, searchDeadline, settled) && !accepting && !submitting && !declining
+}
+
+fun dismissedForSettledAttempts(
+    offers: List<Pair<String, String?>>,
+    settled: Set<String>,
+): Set<String> {
+    return offers.mapNotNull { (deliveryId, deadline) ->
+        val id = deliveryId.trim()
+        if (id.isNotEmpty() && requestSettled(id, deadline, settled)) id else null
+    }.toSet()
+}
+
+fun sealDismissedAttempt(
+    sealed: Map<String, String>,
+    deliveryId: String,
+    searchDeadline: String?,
+): Map<String, String> {
+    val id = deliveryId.trim()
+    if (id.isEmpty()) {
+        return sealed
+    }
+    return sealed + (id to searchDeadline?.trim().orEmpty())
+}
+
+fun overlayAfterSearchAttempt(
+    overlay: RequestOverlay,
+    sealedAttempts: Map<String, String>,
+    offers: List<Pair<String, String?>>,
+): Pair<RequestOverlay, Map<String, String>> {
+    val current = offers.associate { (deliveryId, deadline) ->
+        deliveryId.trim() to deadline?.trim().orEmpty()
+    }
+    val released = sealedAttempts.keys.filter { id ->
+        val now = current[id] ?: return@filter false
+        val sealed = sealedAttempts[id].orEmpty()
+        id in overlay.dismissed && now.isNotEmpty() && now != sealed
+    }.toSet()
+    if (released.isEmpty()) {
+        return overlay to sealedAttempts
+    }
+    return overlay.copy(dismissed = overlay.dismissed - released) to (sealedAttempts - released)
+}

@@ -19,6 +19,7 @@ sealed interface ApiError {
     data object Timeout : ApiError
     data class Validation(val message: String) : ApiError
     data object SessionEnded : ApiError
+    data object SessionUncertain : ApiError
     data object SignedInElsewhere : ApiError
     data object Forbidden : ApiError
     data class Conflict(val message: String) : ApiError
@@ -32,6 +33,7 @@ fun ApiError.text(): String = when (this) {
     ApiError.Timeout -> "The request timed out. Check your connection and try again."
     is ApiError.Validation -> message
     ApiError.SessionEnded -> "Your session has ended. Sign in again."
+    ApiError.SessionUncertain -> "Your session could not be restored safely."
     ApiError.SignedInElsewhere -> DeviceReplacementNotice.MESSAGE
     ApiError.Forbidden -> "Rider access is required."
     is ApiError.Conflict -> message

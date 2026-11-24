@@ -20,12 +20,15 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.riders.rider.R
+import com.riders.rider.core.design.RidersCenteredContent
 import com.riders.rider.core.design.RidersEmptyState
 import com.riders.rider.core.design.RidersFailureNotice
 import com.riders.rider.core.design.RidersLoadingState
 import com.riders.rider.core.design.RidersPullRefresh
 import com.riders.rider.core.design.RidersSpacing
 import com.riders.rider.core.network.ApiResult
+import com.riders.rider.core.refresh.clearListedRefresh
+import com.riders.rider.core.refresh.listedRefresh
 import com.riders.rider.core.network.text
 import com.riders.rider.feature.delivery.data.AssignmentRepository
 import com.riders.rider.feature.offers.notification.rememberOfferInbox
@@ -56,40 +59,55 @@ class AssignmentListViewModel @Inject constructor(
     val ui: StateFlow<AssignmentListUi> = state.asStateFlow()
     private var busy = false
     private var rerun = false
+    private var rerunFromUser = false
+    private var refreshTicket = 0
 
-    fun refresh() {
+    fun refresh(fromUser: Boolean = false) {
         if (busy) {
             rerun = true
+            if (fromUser) {
+                rerunFromUser = true
+            }
             return
         }
         busy = true
+        val ticket = ++refreshTicket
         val current = state.value
-        val firstLoad = !current.loaded && current.assignments.isEmpty() && current.error == null
+        val blank = !current.loaded && current.assignments.isEmpty() && current.error == null
+        val chrome = listedRefresh(fromUser, blank)
         state.value = current.copy(
-            refreshing = !firstLoad,
-            loading = firstLoad,
+            refreshing = chrome.refreshing,
+            loading = chrome.loading,
             error = null,
         )
         viewModelScope.launch {
             try {
                 when (val result = assignments.refreshList()) {
-                    is ApiResult.Ok -> state.value = AssignmentListUi(assignments = result.value, loaded = true)
-                    is ApiResult.Err -> state.value = state.value.copy(
-                        loading = false,
-                        refreshing = false,
-                        loaded = current.loaded,
-                        assignments = assignments.current(),
-                        error = result.error.text(),
-                    )
+                    is ApiResult.Ok -> if (ticket == refreshTicket) {
+                        state.value = AssignmentListUi(assignments = result.value, loaded = true)
+                    }
+                    is ApiResult.Err -> if (ticket == refreshTicket) {
+                        state.value = state.value.copy(
+                            loading = false,
+                            refreshing = false,
+                            loaded = current.loaded,
+                            assignments = assignments.current(),
+                            error = result.error.text(),
+                        )
+                    }
                 }
             } finally {
-                if (state.value.loading) {
-                    state.value = state.value.copy(loading = false, refreshing = false)
-                }
-                busy = false
-                if (rerun) {
+                val queued = rerun
+                val queuedFromUser = rerunFromUser
+                if (ticket == refreshTicket) {
                     rerun = false
-                    refresh()
+                    rerunFromUser = false
+                    val cleared = clearListedRefresh(ticket, refreshTicket, state.value.loading, state.value.refreshing)
+                    state.value = state.value.copy(loading = cleared.loading, refreshing = cleared.refreshing)
+                    busy = false
+                }
+                if (ticket == refreshTicket && queued) {
+                    refresh(queuedFromUser)
                 }
             }
         }
@@ -141,7 +159,31 @@ fun AssignmentListPane(
         { it.agreedPrice },
         { it.deliveryId },
     )
-    RidersPullRefresh(refreshing = ui.refreshing, onRefresh = model::refresh, modifier = modifier) {
+    val centered = (ui.loading && committed.isEmpty()) || (committed.isEmpty() && ui.error != null) || visible.isEmpty()
+    RidersPullRefresh(refreshing = ui.refreshing, onRefresh = { model.refresh(fromUser = true) }, modifier = modifier) {
+        if (centered) {
+            RidersCenteredContent(
+                Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = RidersSpacing.lg)
+                    .padding(bottom = RidersSpacing.lg),
+            ) {
+                when {
+                    ui.loading && committed.isEmpty() -> RidersLoadingState("Loading your deliveries")
+                    committed.isEmpty() && ui.error != null -> RidersFailureNotice(
+                        message = ui.error.orEmpty(),
+                        title = "Deliveries unavailable",
+                        onRetry = model::refresh,
+                    )
+                    else -> RidersEmptyState(
+                        title = filteredContentTitle(contentKind, "No active deliveries"),
+                        body = "Your assigned deliveries will appear here.",
+                        image = R.drawable.parcel_box,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        } else {
         Column(
             Modifier
                 .fillMaxSize()
@@ -150,28 +192,13 @@ fun AssignmentListPane(
                 .padding(bottom = RidersSpacing.lg),
             verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
         ) {
-            when {
-                ui.loading && committed.isEmpty() -> RidersLoadingState("Loading your deliveries")
-                committed.isEmpty() && ui.error != null -> RidersFailureNotice(
-                    message = ui.error.orEmpty(),
-                    title = "Deliveries unavailable",
-                    onRetry = model::refresh,
-                )
-                visible.isEmpty() -> RidersEmptyState(
-                    title = filteredContentTitle(contentKind, "No active deliveries"),
-                    body = "Your assigned deliveries will appear here.",
-                    image = R.drawable.parcel_box,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                else -> {
-                    visible.forEach { parcel ->
-                        AssignmentCard(parcel, onOpen)
-                    }
-                    if (ui.error != null) {
-                        RidersFailureNotice(message = ui.error.orEmpty(), onRetry = model::refresh)
-                    }
-                }
+            visible.forEach { parcel ->
+                AssignmentCard(parcel, onOpen)
             }
+            if (ui.error != null) {
+                RidersFailureNotice(message = ui.error.orEmpty(), onRetry = model::refresh)
+            }
+        }
         }
     }
 }

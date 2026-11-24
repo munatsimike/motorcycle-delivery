@@ -339,6 +339,8 @@ private fun PendingStep(
         label = "Simulate failure",
         onClick = onFailure,
         tone = com.riders.rider.core.design.RidersButtonTone.Danger,
+        bordered = true,
+        containerColor = RidersColors.background,
         modifier = Modifier.fillMaxWidth(),
     )
     RidersSecondaryButton(label = "Close", onClick = onClose, modifier = Modifier.fillMaxWidth())

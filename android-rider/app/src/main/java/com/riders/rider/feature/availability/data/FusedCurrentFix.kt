@@ -81,6 +81,8 @@ class FusedCurrentFix @Inject constructor(
             ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
     }
 
+    fun locationProvidersEnabled(): Boolean = providersEnabled()
+
     private fun providersEnabled(): Boolean {
         val manager = context.getSystemService(LocationManager::class.java) ?: return false
         return runCatching {

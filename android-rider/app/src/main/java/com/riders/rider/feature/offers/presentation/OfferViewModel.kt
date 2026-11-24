@@ -24,8 +24,11 @@ import com.riders.rider.feature.bids.domain.optimisticAmountsAfterServerRefresh
 import com.riders.rider.feature.offers.data.ListedOffers
 import com.riders.rider.feature.offers.data.OfferRepository
 import com.riders.rider.feature.offers.domain.bidSubmissionAfterResult
-import com.riders.rider.feature.offers.domain.canStartBidSubmit
+import com.riders.rider.feature.offers.domain.RequestMapEvent
+import com.riders.rider.feature.offers.domain.RequestMapSuccess
 import com.riders.rider.feature.offers.domain.offerSentConfirmation
+import com.riders.rider.feature.offers.domain.requestActionAllowed
+import com.riders.rider.feature.offers.domain.searchAttemptKey
 import com.riders.rider.feature.offers.domain.sentOffersAfterRefresh
 import com.riders.rider.feature.offers.domain.AcceptedDelivery
 import com.riders.rider.feature.offers.domain.OFFER_UNAVAILABLE
@@ -46,8 +49,11 @@ import com.riders.rider.feature.offers.domain.offerUnavailableAfterRefresh
 import com.riders.rider.feature.wallet.data.WalletRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -71,6 +77,7 @@ data class OfferUi(
     val ownBids: List<OwnBid> = emptyList(),
     val ownBidsKnown: Boolean = false,
     val bidListError: String? = null,
+    val settledIds: Set<String> = emptySet(),
 )
 
 @HiltViewModel
@@ -87,6 +94,8 @@ class OfferViewModel @Inject constructor(
 ) : ViewModel() {
     private val state = MutableStateFlow(OfferUi(nowMillis = System.currentTimeMillis()))
     val ui: StateFlow<OfferUi> = state.asStateFlow()
+    private val mapEvents = MutableSharedFlow<RequestMapEvent>(extraBufferCapacity = 1)
+    val requestMapEvents: SharedFlow<RequestMapEvent> = mapEvents.asSharedFlow()
     private val refreshGate = OfferRefreshGate()
     private var openRequests = emptyList<OpenBidRequest>()
     private var presented = false
@@ -226,10 +235,19 @@ class OfferViewModel @Inject constructor(
         submitBidAmount(deliveryId, amountText, currency, request)
     }
 
+    fun acknowledgeAccepted(deliveryId: String) {
+        state.update { current ->
+            if (current.accepted?.deliveryId == deliveryId) current.copy(accepted = null) else current
+        }
+    }
+
     fun decline(deliveryId: String) {
-        if (state.value.declining) {
+        val current = state.value
+        val deadline = searchDeadline(current, deliveryId)
+        if (!requestActionAllowed(deliveryId, current.settledIds, current.accepting, current.submittingBid, current.declining, deadline)) {
             return
         }
+        val settledKey = searchAttemptKey(deliveryId, deadline)
         viewModelScope.launch {
             state.update { it.copy(declining = true, bidError = null) }
             when (val result = bids.decline(deliveryId)) {
@@ -242,8 +260,10 @@ class OfferViewModel @Inject constructor(
                             selected = if (current.selected?.deliveryId == deliveryId) null else current.selected,
                             placingBid = if (current.selected?.deliveryId == deliveryId) false else current.placingBid,
                             bidError = null,
+                            settledIds = current.settledIds + settledKey,
                         )
                     }
+                    mapEvents.tryEmit(RequestMapEvent(deliveryId, RequestMapSuccess.Declined))
                     refreshOffers()
                 }
                 is ApiResult.Err -> state.update { it.copy(declining = false, bidError = result.error.text()) }
@@ -259,7 +279,8 @@ class OfferViewModel @Inject constructor(
             return
         }
         val current = state.value
-        if (!canStartBidSubmit(current.submittingBid, current.accepting)) {
+        val deadline = searchDeadline(current, deliveryId, request)
+        if (!requestActionAllowed(deliveryId, current.settledIds, current.accepting, current.submittingBid, current.declining, deadline)) {
             return
         }
         // The Home map and New requests page can have different refresh snapshots.
@@ -293,8 +314,10 @@ class OfferViewModel @Inject constructor(
                                 submittingBid = false,
                                 sentAmounts = it.sentAmounts + (deliveryId to sentAmount),
                                 sentLabels = it.sentLabels + (deliveryId to offerSentConfirmation(currency, sentAmount)),
+                                settledIds = it.settledIds + searchAttemptKey(deliveryId, deadline),
                             )
                         }
+                        mapEvents.tryEmit(RequestMapEvent(deliveryId, RequestMapSuccess.OfferSent))
                         bids.refreshOwnBids(null)
                     }
                     is ApiResult.Err -> {
@@ -315,7 +338,7 @@ class OfferViewModel @Inject constructor(
     fun accept(offer: OfferResponse) {
         val current = state.value
         val now = adjustedNowMillis(System.currentTimeMillis(), clockOffset)
-        if (current.accepting || current.submittingBid) {
+        if (!requestActionAllowed(offer.deliveryId, current.settledIds, current.accepting, current.submittingBid, current.declining, offer.searchExpiresAt)) {
             return
         }
         if (current.offerGone && current.selected?.deliveryId == offer.deliveryId) {
@@ -353,9 +376,10 @@ class OfferViewModel @Inject constructor(
                             it.copy(
                                 accepted = result.value,
                                 error = null,
-                                sentLabels = it.sentLabels + (offer.deliveryId to "Offer sent"),
+                                settledIds = it.settledIds + searchAttemptKey(offer.deliveryId, offer.searchExpiresAt),
                             )
                         }
+                        mapEvents.tryEmit(RequestMapEvent(offer.deliveryId, RequestMapSuccess.Accepted))
                     }
                     is ApiResult.Err -> state.update { it.copy(error = result.error.text()) }
                 }
@@ -363,6 +387,12 @@ class OfferViewModel @Inject constructor(
                 state.update { it.copy(accepting = false) }
             }
         }
+    }
+
+    private fun searchDeadline(current: OfferUi, deliveryId: String, request: OfferResponse? = null): String? {
+        return current.offers.firstOrNull { it.deliveryId == deliveryId }?.searchExpiresAt
+            ?: request?.takeIf { it.deliveryId == deliveryId }?.searchExpiresAt
+            ?: current.selected?.takeIf { it.deliveryId == deliveryId }?.searchExpiresAt
     }
 
     private fun publishNow() {

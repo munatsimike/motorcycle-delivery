@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
@@ -59,7 +60,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.riders.rider.core.design.RiderTheme
 import com.riders.rider.core.design.RidersCard
 import com.riders.rider.core.design.RidersColors
+import com.riders.rider.core.design.RidersCenteredContent
 import com.riders.rider.core.design.RidersFailureNotice
+import com.riders.rider.core.design.RidersInlineAction
 import com.riders.rider.core.design.RidersLoadingState
 import com.riders.rider.core.design.RidersMotion
 import com.riders.rider.core.design.rememberRidersMotion
@@ -144,7 +147,29 @@ fun OnboardingScreen(
                 .navigationBarsPadding()
                 .imePadding(),
         ) {
-        Column(
+        if (ui.onboarding == null) {
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = RidersSpacing.lg, vertical = RidersSpacing.lg),
+                verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
+            ) {
+                if (!focused) {
+                    OnboardingProgress(ui.step)
+                }
+                RidersCenteredContent(Modifier.fillMaxWidth().weight(1f)) {
+                    if (ui.loading) {
+                        RidersLoadingState("Loading your account")
+                    } else {
+                        RidersFailureNotice(
+                            message = ui.error ?: "Your account could not be loaded. Check your connection and try again.",
+                            title = "Account unavailable",
+                            onRetry = model::refresh,
+                        )
+                    }
+                }
+            }
+        } else Column(
             Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
@@ -154,15 +179,7 @@ fun OnboardingScreen(
             if (!focused) {
                 OnboardingProgress(ui.step)
             }
-            when {
-                ui.loading && ui.onboarding == null -> RidersLoadingState("Loading your account")
-                ui.onboarding == null -> RidersFailureNotice(
-                    message = ui.error ?: "Your account could not be loaded. Check your connection and try again.",
-                    title = "Account unavailable",
-                    onRetry = model::refresh,
-                )
-                else -> {
-                    when (ui.step) {
+            when (ui.step) {
                         OnboardingStep.Profile -> ProfileStep(ui)
                         OnboardingStep.Licence -> LicenceStep(
                             ui,
@@ -198,11 +215,9 @@ fun OnboardingScreen(
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
-                }
-            }
         }
         }
-        }
+    }
     }
 }
 
@@ -584,12 +599,21 @@ private fun MotorcycleStep(
         enter = formEnter,
         exit = fadeOut(tween(hideMs)) + shrinkVertically(tween(hideMs), shrinkTowards = Alignment.Top),
     ) {
-        if (registration && ui.motorcycles.isNotEmpty()) {
+        if (!registration) {
+            RidersInlineAction(
+                label = "Add motorbike",
+                onClick = onAdd,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .defaultMinSize(minHeight = 56.dp),
+            )
+        } else if (ui.motorcycles.isNotEmpty()) {
             RidersSecondaryButton(
                 label = "Add motorbike",
                 onClick = onAdd,
                 icon = R.drawable.ic_plus,
                 bordered = false,
+                containerColor = RidersColors.background,
                 modifier = Modifier.fillMaxWidth(),
             )
         } else {
@@ -666,6 +690,7 @@ private fun MotorcycleStep(
                 enabled = !ui.savingMotorcycle,
                 tone = RidersButtonTone.Danger,
                 bordered = false,
+                containerColor = RidersColors.background,
                 regular = true,
                 modifier = Modifier.fillMaxWidth(),
             )

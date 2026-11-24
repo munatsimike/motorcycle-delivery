@@ -105,6 +105,7 @@ import com.riders.rider.feature.delivery.domain.showsRecipientOnDelivery
 import com.riders.rider.feature.delivery.domain.GeoPoint
 import com.riders.rider.feature.delivery.domain.riderDetailsHeading
 import com.riders.rider.feature.delivery.domain.parseGeoPoint
+import com.riders.rider.feature.delivery.domain.deliveryActionLoadingLabel
 import com.riders.rider.feature.delivery.domain.deliveryCardAddress
 import com.riders.rider.feature.offers.presentation.DeliveredDestinationMap
 import com.riders.rider.feature.offers.presentation.RequestRouteMap
@@ -717,7 +718,7 @@ private fun DeliveryActionBlock(
                 onClick = { onConfirm("Confirm pickup") },
                 enabled = !blocked,
                 loading = ui.busy == DeliveryBusy.Advance,
-                loadingLabel = "Confirm pickup",
+                loadingLabel = deliveryActionLoadingLabel("Confirm pickup"),
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(bottom = RidersSpacing.xl),
@@ -787,7 +788,7 @@ private fun DeliveryActionBlock(
                         onClick = confirmDelivery,
                         enabled = !blocked,
                         loading = ui.busy == DeliveryBusy.Advance,
-                        loadingLabel = label,
+                        loadingLabel = deliveryActionLoadingLabel(label),
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
@@ -797,7 +798,7 @@ private fun DeliveryActionBlock(
                     onClick = confirmDelivery,
                         enabled = !blocked,
                         loading = ui.busy == DeliveryBusy.Advance,
-                        loadingLabel = label,
+                        loadingLabel = deliveryActionLoadingLabel(label),
                         modifier = Modifier.fillMaxWidth(),
                     )
             }
@@ -1001,7 +1002,7 @@ private fun CollectionActions(
         onClick = { onConfirm("Confirm pickup") },
         enabled = !blocked,
         loading = ui.busy == DeliveryBusy.Advance,
-        loadingLabel = "Confirm pickup",
+        loadingLabel = deliveryActionLoadingLabel("Confirm pickup"),
         modifier = Modifier.fillMaxWidth(),
     )
 }
@@ -1190,23 +1191,20 @@ private fun CancelDeliveryModal(
                     Modifier
                         .fillMaxWidth()
                         .heightIn(min = 56.dp)
+                        .alpha(if (submitting) 0.6f else 1f)
                         .clip(RoundedCornerShape(RidersRadius.pill))
-                        .background(RidersColors.error.copy(alpha = if (canConfirm) 1f else 0.45f))
+                        .background(RidersColors.error.copy(alpha = if (selectedReason != null) 1f else 0.45f))
                         .clickable(enabled = canConfirm, role = Role.Button) {
                             attempted = true
                             onConfirm()
                         },
                     contentAlignment = Alignment.Center,
                 ) {
-                    if (submitting) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(22.dp),
-                            color = RidersColors.textInverse,
-                            strokeWidth = 2.dp,
-                        )
-                    } else {
-                        Text("Confirm cancellation", style = RidersType.bodyStrong, color = RidersColors.textInverse)
-                    }
+                    Text(
+                        if (submitting) "Cancelling..." else "Confirm cancellation",
+                        style = RidersType.bodyStrong,
+                        color = RidersColors.textInverse,
+                    )
                 }
                 Text(
                     "Keep delivery",
@@ -1397,13 +1395,19 @@ private fun CollectedPage(
                                     plain = true,
                                 )
                             }
+                            if (!ui.error.isNullOrBlank()) {
+                                RidersFailureNotice(
+                                    message = ui.error,
+                                    onRetry = { model.load(deliveryId, fromUser = true, completed = completed) },
+                                )
+                            }
                             if (canFinish) {
                                 RidersPrimaryButton(
                                     label = "Mark as delivered",
                                     onClick = { onConfirm("Mark as delivered") },
                                     enabled = !blocked,
                                     loading = ui.busy == DeliveryBusy.Advance,
-                                    loadingLabel = "Mark as delivered",
+                                    loadingLabel = deliveryActionLoadingLabel("Mark as delivered"),
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(bottom = RidersSpacing.xl),

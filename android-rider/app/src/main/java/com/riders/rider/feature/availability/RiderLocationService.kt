@@ -64,6 +64,7 @@ class RiderLocationService : Service() {
     override fun onStartCommand(intent: android.content.Intent?, flags: Int, startId: Int): Int {
         if (!fineLocationGranted()) {
             LocationServiceGate.markRunning(false)
+            availability.noteServiceStopped()
             stopSelf()
             return START_NOT_STICKY
         }
@@ -71,6 +72,7 @@ class RiderLocationService : Service() {
             startAsForeground()
         } catch (_: SecurityException) {
             LocationServiceGate.markRunning(false)
+            availability.noteServiceStopped()
             stopSelf()
             return START_NOT_STICKY
         }
@@ -92,6 +94,7 @@ class RiderLocationService : Service() {
     override fun onDestroy() {
         running = false
         LocationServiceGate.markRunning(false)
+        availability.noteServiceStopped()
         prompt?.cancel()
         if (fineLocationGranted()) {
             client.removeLocationUpdates(callback)
@@ -145,8 +148,13 @@ class RiderLocationService : Service() {
         try {
             client.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, token.token)
                 .addOnSuccessListener { point ->
+                    if (!running) {
+                        return@addOnSuccessListener
+                    }
                     if (point != null) {
                         scope.launch { deliver(point) }
+                    } else {
+                        scope.launch { availability.noteFixMissing() }
                     }
                 }
         } catch (_: SecurityException) {
@@ -167,6 +175,8 @@ class RiderLocationService : Service() {
         val accuracy = if (point.hasAccuracy()) point.accuracy else null
         if (isDispatchUsable(age, accuracy)) {
             locations.publish(gpsFix(point))
+        } else {
+            availability.noteUnusableFix()
         }
         relay.handle(
             active = true,

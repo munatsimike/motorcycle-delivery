@@ -94,6 +94,7 @@ fun ApiError.leavesAcceptUnresolved(): Boolean = when (this) {
     -> true
     is ApiError.Unexpected -> true
     ApiError.SessionEnded,
+    ApiError.SessionUncertain,
     ApiError.SignedInElsewhere,
     ApiError.Forbidden,
     is ApiError.TooManyRequests,

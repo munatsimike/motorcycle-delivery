@@ -13,6 +13,7 @@ import com.riders.rider.feature.home.beginAvailabilityChange
 import com.riders.rider.feature.home.confirmAvailability
 import com.riders.rider.feature.home.failAvailability
 import com.riders.rider.feature.home.DashboardFailure
+import com.riders.rider.feature.home.accountLoadFailureTitle
 import com.riders.rider.feature.home.dashboardFailure
 import com.riders.rider.feature.delivery.domain.CommittedParcel
 import com.riders.rider.feature.home.activeDeliveryCount
@@ -47,7 +48,14 @@ import com.riders.rider.feature.offers.domain.offerIsExpired
 import com.riders.rider.feature.offers.domain.AWAITING_CUSTOMER
 import com.riders.rider.feature.offers.domain.OFFER_YOUR_PRICE
 import com.riders.rider.feature.offers.domain.acceptOfferLabel
+import com.riders.rider.feature.offers.domain.CustomOfferPhase
+import com.riders.rider.feature.offers.domain.beginCustomOfferSubmit
 import com.riders.rider.feature.offers.domain.bidSubmissionAfterResult
+import com.riders.rider.feature.offers.domain.customOfferButtonLabel
+import com.riders.rider.feature.offers.domain.dismissCustomOfferDialog
+import com.riders.rider.feature.offers.domain.editCustomOfferAmount
+import com.riders.rider.feature.offers.domain.observeCustomOfferSubmit
+import com.riders.rider.feature.offers.domain.openCustomOfferDialog
 import com.riders.rider.feature.offers.domain.canStartBidSubmit
 import com.riders.rider.feature.offers.domain.deliveryCategoryTitle
 import com.riders.rider.feature.offers.domain.DECLINE_REQUEST
@@ -262,6 +270,50 @@ class RiderDashboardTest {
         assertNull(failed.amount)
         assertEquals("This delivery is not open for bids", failed.error)
         assertTrue(requestNeedsAnotherOffer("delivery-1", emptyMap()))
+    }
+
+    @Test
+    fun aCustomOfferStaysOpenWhenTheSubmissionFails() {
+        val opened = openCustomOfferDialog("2.99")
+        val edited = editCustomOfferAmount(opened, "4.50")
+        val started = beginCustomOfferSubmit(edited, currentError = null)
+        assertEquals("Sending...", customOfferButtonLabel(true))
+        val flying = observeCustomOfferSubmit(started!!, submitting = true, submissionError = null)
+        val failed = observeCustomOfferSubmit(flying, submitting = false, submissionError = "This delivery is not open for bids")
+        assertTrue(failed.open)
+        assertEquals("4.50", failed.amount)
+        assertEquals("This delivery is not open for bids", failed.error)
+        assertEquals(CustomOfferPhase.Idle, failed.phase)
+        assertEquals("Send offer", customOfferButtonLabel(false))
+        val retried = beginCustomOfferSubmit(failed, failed.error)
+        val retrying = observeCustomOfferSubmit(retried!!, submitting = true, submissionError = null)
+        val sent = observeCustomOfferSubmit(retrying, submitting = false, submissionError = null)
+        assertFalse(sent.open)
+        assertNull(sent.error)
+        assertNull(beginCustomOfferSubmit(retrying, null))
+        assertTrue(dismissCustomOfferDialog(retrying).open)
+    }
+
+    @Test
+    fun reopeningACustomOfferDropsThePreviousError() {
+        val failed = observeCustomOfferSubmit(
+            observeCustomOfferSubmit(
+                beginCustomOfferSubmit(openCustomOfferDialog("2.99"), null)!!,
+                submitting = true,
+                submissionError = null,
+            ),
+            submitting = false,
+            submissionError = "Try another amount",
+        )
+        val dismissed = dismissCustomOfferDialog(failed)
+        assertFalse(dismissed.open)
+        assertNull(dismissed.error)
+        val reopened = openCustomOfferDialog("2.99")
+        assertEquals("2.99", reopened.amount)
+        assertNull(reopened.error)
+        val corrected = editCustomOfferAmount(failed, "5.00")
+        assertEquals("5.00", corrected.amount)
+        assertNull(corrected.error)
     }
 
     @Test
@@ -496,6 +548,9 @@ class RiderDashboardTest {
         assertEquals(DashboardFailure.Authentication, dashboardFailure(ApiError.Forbidden))
         assertEquals(DashboardFailure.MarketplaceDisabled, dashboardFailure(ApiError.Unexpected("Bidding is not available")))
         assertEquals(DashboardFailure.Network, dashboardFailure(ApiError.Network))
+        assertEquals(DashboardFailure.Other, dashboardFailure(ApiError.SessionUncertain))
+        assertEquals("Sign in again", accountLoadFailureTitle(ApiError.SessionUncertain.text()))
+        assertEquals("Connection unavailable", accountLoadFailureTitle(ApiError.Network.text()))
         assertEquals(true, receivingAfterRefresh(previous = true, loaded = null, loadedFromServer = false))
         assertEquals(null, receivingAfterRefresh(previous = true, loaded = null, loadedFromServer = true))
     }

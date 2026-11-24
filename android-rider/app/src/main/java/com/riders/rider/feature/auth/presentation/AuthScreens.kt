@@ -266,6 +266,7 @@ fun OtpScreen(
         code = code,
         onCode = { code = it },
         loading = ui.loading,
+        resending = ui.resending,
         error = ui.error,
         signedIn = ui.completedPhone != null,
         whatsapp = flow == "whatsapp" || flow == "whatsapp_login" || flow == "login",
@@ -474,6 +475,7 @@ private fun OtpContent(
     onSubmit: () -> Unit,
     whatsapp: Boolean = false,
     secondsRemaining: Int = 0,
+    resending: Boolean = false,
     onResend: () -> Unit = {},
 ) {
     AuthScaffold {
@@ -491,7 +493,7 @@ private fun OtpContent(
         RidersPrimaryButton(
             label = "Verify",
             onClick = onSubmit,
-            enabled = isVerificationCode(code),
+            enabled = isVerificationCode(code) && !resending,
             loading = loading,
             loadingLabel = "Checking",
             modifier = Modifier.fillMaxWidth(),
@@ -506,8 +508,11 @@ private fun OtpContent(
             RidersSecondaryButton(
                 label = resendLabel,
                 onClick = onResend,
-                enabled = !loading && secondsRemaining == 0,
+                enabled = !loading && !resending && secondsRemaining == 0,
+                loading = resending,
+                loadingLabel = "Sending",
                 bordered = false,
+                containerColor = RidersColors.background,
                 modifier = Modifier.fillMaxWidth(),
             )
         }

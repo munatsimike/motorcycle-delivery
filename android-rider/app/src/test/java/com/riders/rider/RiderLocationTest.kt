@@ -14,7 +14,14 @@ import com.riders.rider.feature.availability.domain.locationSharingDecision
 import com.riders.rider.feature.availability.domain.locationStatuses
 import com.riders.rider.feature.availability.domain.locationUpdatePolicy
 import com.riders.rider.feature.availability.domain.SharingAction
+import com.riders.rider.feature.availability.domain.LocationNotice
+import com.riders.rider.feature.availability.domain.LocationPermissionAction
+import com.riders.rider.feature.availability.domain.LocationUploadFailure
+import com.riders.rider.feature.availability.domain.classifyLocationNotice
+import com.riders.rider.feature.availability.domain.locationPermissionAction
 import com.riders.rider.feature.availability.domain.locationSharingPaused
+import com.riders.rider.feature.availability.domain.locationUploadFailure
+import com.riders.rider.feature.availability.domain.noticeAfterConnectivityRestored
 import com.riders.rider.feature.availability.domain.resumeLocationSharing
 import com.riders.rider.feature.availability.domain.sharingRecovery
 import com.riders.rider.feature.availability.domain.shouldRequestAcceptFix
@@ -22,6 +29,7 @@ import com.riders.rider.feature.availability.domain.shouldShareLocation
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -510,5 +518,118 @@ class RiderLocationTest {
         assertFalse(shouldRequestAcceptFix("BUSY", locationIsFresh = false))
         assertFalse(shouldRequestAcceptFix("OFFLINE", locationIsFresh = false))
         assertFalse(shouldRequestAcceptFix(null, locationIsFresh = false))
+    }
+
+    @Test
+    fun locationNoticeMatchesTheKnownFailure() {
+        assertEquals(LocationNotice.PermissionMissing, classify(permissionGranted = false))
+        assertEquals(LocationNotice.LocationDisabled, classify(providersEnabled = false, sawUnusableFix = true))
+        assertEquals(LocationNotice.WaitingForFix, classify())
+        assertEquals(LocationNotice.FixUnavailable, classify(sawUnusableFix = true))
+        assertEquals(LocationNotice.NoInternet, classify(failure = LocationUploadFailure.Network))
+        assertEquals(LocationNotice.UploadPending, classify(failure = LocationUploadFailure.Recoverable))
+        assertEquals(LocationNotice.ServiceStopped, classify(serviceRunning = false))
+        assertNull(classify(showWarning = false, serviceRunning = false))
+        assertNull(classify(failure = LocationUploadFailure.Rejected, serviceRunning = false))
+        assertEquals(LocationNotice.FixUnavailable, classify(serverReached = false, sharingRequired = false))
+        assertNull(
+            classify(
+                uploadFresh = true,
+                failure = LocationUploadFailure.None,
+                sawUnusableFix = false,
+            ),
+        )
+    }
+
+    @Test
+    fun permissionPromptIsNotRepeatedAfterAPermanentDenial() {
+        assertEquals(LocationPermissionAction.Request, locationPermissionAction(granted = false, asked = false, shouldShowRationale = false))
+        assertEquals(LocationPermissionAction.Request, locationPermissionAction(granted = false, asked = true, shouldShowRationale = true))
+        assertEquals(LocationPermissionAction.Settings, locationPermissionAction(granted = false, asked = true, shouldShowRationale = false))
+        assertEquals(LocationPermissionAction.None, locationPermissionAction(granted = true, asked = true, shouldShowRationale = false))
+    }
+
+    @Test
+    fun uploadFailuresAreClassifiedWithoutGuessing() {
+        assertEquals(LocationUploadFailure.Network, locationUploadFailure(ApiError.Network))
+        assertEquals(LocationUploadFailure.Network, locationUploadFailure(ApiError.Timeout))
+        assertEquals(LocationUploadFailure.Rejected, locationUploadFailure(ApiError.SessionEnded))
+        assertEquals(LocationUploadFailure.Rejected, locationUploadFailure(ApiError.SignedInElsewhere))
+        assertEquals(LocationUploadFailure.Rejected, locationUploadFailure(ApiError.Forbidden))
+        assertEquals(LocationUploadFailure.Recoverable, locationUploadFailure(ApiError.Unexpected("upload failed")))
+    }
+
+    @Test
+    fun connectivityRestoresOnlyANetworkUploadFailure() {
+        assertEquals(LocationUploadFailure.Recoverable, noticeAfterConnectivityRestored(LocationUploadFailure.Network))
+        assertEquals(LocationUploadFailure.Recoverable, noticeAfterConnectivityRestored(LocationUploadFailure.Recoverable))
+        assertEquals(LocationUploadFailure.Rejected, noticeAfterConnectivityRestored(LocationUploadFailure.Rejected))
+        assertEquals(LocationUploadFailure.None, noticeAfterConnectivityRestored(LocationUploadFailure.None))
+        assertEquals(
+            LocationNotice.UploadPending,
+            classify(failure = noticeAfterConnectivityRestored(LocationUploadFailure.Network)),
+        )
+        assertEquals(
+            SharingAction.Keep,
+            sharingRecovery(
+                serverReached = true,
+                shouldShare = true,
+                permissionGranted = true,
+                serviceRunning = true,
+                uploadFresh = false,
+                userRetry = false,
+            ),
+        )
+    }
+
+    @Test
+    fun aRunningServiceIsNotOfferedARestart() {
+        assertEquals(LocationNotice.WaitingForFix, classify(serviceRunning = true, uploadFresh = false))
+        assertEquals(
+            SharingAction.Keep,
+            sharingRecovery(
+                serverReached = true,
+                shouldShare = true,
+                permissionGranted = true,
+                serviceRunning = true,
+                uploadFresh = false,
+                userRetry = false,
+            ),
+        )
+        assertEquals(
+            SharingAction.Keep,
+            sharingRecovery(
+                serverReached = true,
+                shouldShare = true,
+                permissionGranted = false,
+                serviceRunning = false,
+                uploadFresh = false,
+                userRetry = true,
+            ),
+        )
+    }
+
+    private fun classify(
+        showWarning: Boolean = true,
+        permissionGranted: Boolean = true,
+        providersEnabled: Boolean = true,
+        serviceRunning: Boolean = true,
+        uploadFresh: Boolean = false,
+        sharingRequired: Boolean = true,
+        serverReached: Boolean = true,
+        failure: LocationUploadFailure = LocationUploadFailure.None,
+        sawUnusableFix: Boolean = false,
+    ): LocationNotice? {
+        return classifyLocationNotice(
+            showWarning = showWarning,
+            permissionGranted = permissionGranted,
+            providersEnabled = providersEnabled,
+            serviceRunning = serviceRunning,
+            uploadFresh = uploadFresh,
+            sharingRequired = sharingRequired,
+            serverReached = serverReached,
+            failure = failure,
+            sawUnusableFix = sawUnusableFix,
+        )
     }
 }

@@ -6,12 +6,16 @@ import android.net.Network
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.riders.rider.core.network.ApiError
+import com.riders.rider.core.refresh.clearListedRefresh
+import com.riders.rider.core.refresh.homePageLoading
+import com.riders.rider.core.refresh.homePullIndicator
 import com.riders.rider.core.network.ApiResult
 import com.riders.rider.core.network.OfferResponse
 import com.riders.rider.core.network.WalletSummaryResponse
 import com.riders.rider.core.network.text
 import com.riders.rider.feature.availability.data.AvailabilityRepository
 import com.riders.rider.feature.availability.domain.LOCATION_PERMISSION_REQUIRED
+import com.riders.rider.feature.availability.domain.LocationNotice
 import com.riders.rider.feature.delivery.data.ActiveDeliveryStore
 import com.riders.rider.feature.delivery.data.AssignmentRepository
 import com.riders.rider.feature.delivery.domain.ASSIGNMENT_RECOVERY_DELAY_MS
@@ -82,7 +86,8 @@ data class HomeUi(
     val assignmentsUnknown: Boolean = false,
     val assignmentRefreshPending: Boolean = false,
     val applicationSubmitted: Boolean = false,
-    val locationSharingPaused: Boolean = false,
+    val locationNotice: LocationNotice? = null,
+    val restartingLocation: Boolean = false,
 )
 
 @HiltViewModel
@@ -100,6 +105,7 @@ class HomeViewModel @Inject constructor(
     private val state = MutableStateFlow(HomeUi())
     val ui: StateFlow<HomeUi> = state.asStateFlow()
     private var dashboardBusy = false
+    private var refreshTicket = 0
     private var openRequests = emptyList<OpenBidRequest>()
 
     init {
@@ -109,8 +115,8 @@ class HomeViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
-            availability.locationSharingPaused.collect { paused ->
-                state.value = state.value.copy(locationSharingPaused = paused)
+            availability.locationNotice.collect { notice ->
+                state.value = state.value.copy(locationNotice = notice)
             }
         }
         viewModelScope.launch {
@@ -125,6 +131,7 @@ class HomeViewModel @Inject constructor(
         }
     }
     private var recoveryAttempts = 0
+    private var locationRestart = false
     private var offerWatch: Job? = null
     private var hasLoaded = false
     private var homeVisits = 0
@@ -132,6 +139,7 @@ class HomeViewModel @Inject constructor(
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
             viewModelScope.launch {
+                availability.noteConnectivityRestored()
                 if (retryWhenConnectivityReturns(state.value.assignmentRefreshPending, networkAvailable = true)) {
                     recoveryAttempts = 0
                     refresh()
@@ -190,8 +198,13 @@ class HomeViewModel @Inject constructor(
             return
         }
         dashboardBusy = true
+        val ticket = ++refreshTicket
         val current = state.value
-        val showIndicator = current.readiness != null || current.error != null
+        val showIndicator = homePullIndicator(
+            fromUser = fromUser,
+            contentVisible = current.readiness != null,
+            errorVisible = current.error != null,
+        )
         state.value = current.copy(refreshing = showIndicator)
         val launch = !hasLoaded
         hasLoaded = true
@@ -211,10 +224,15 @@ class HomeViewModel @Inject constructor(
                     includeWallet = wallet,
                     includeMarketplace = marketplace,
                     includeProfile = profile,
+                    refreshTicket = ticket,
                 )
             } finally {
-                dashboardBusy = false
-                scheduleAssignmentRecovery()
+                if (ticket == refreshTicket) {
+                    val cleared = clearListedRefresh(ticket, refreshTicket, state.value.loading, state.value.refreshing)
+                    state.value = state.value.copy(loading = cleared.loading, refreshing = cleared.refreshing)
+                    dashboardBusy = false
+                    scheduleAssignmentRecovery()
+                }
             }
         }
     }
@@ -289,11 +307,15 @@ class HomeViewModel @Inject constructor(
         includeWallet: Boolean = true,
         includeMarketplace: Boolean = true,
         includeProfile: Boolean = true,
+        refreshTicket: Int? = null,
     ) {
+        if (refreshTicket != null && refreshTicket != this.refreshTicket) {
+            return
+        }
         val stored = deliveries.read()
         val previous = state.value
         state.value = previous.copy(
-            loading = true,
+            loading = homePageLoading(previous.readiness != null),
             changingAvailability = confirmedAvailability != null || previous.changingAvailability,
             error = null,
             active = stored,
@@ -387,6 +409,9 @@ class HomeViewModel @Inject constructor(
             hasCommittedV2(assignmentState.parcels.map { parcel -> parcel.serviceClass })
         val assignmentsUnknown = assignmentState.certainty == AssignmentCertainty.Unknown
         val counts = workloadFor(!assignmentsUnknown && (marketplace || committedV2), listed, previous)
+        if (refreshTicket != null && refreshTicket != this.refreshTicket) {
+            return
+        }
         availability.applySharing()
         val onboardFailure = (onboard as? ApiResult.Err)?.error
         val offline = recovery.offline || (
@@ -446,12 +471,29 @@ class HomeViewModel @Inject constructor(
             assignmentsUnknown = assignmentsUnknown,
             assignmentRefreshPending = listed is ApiResult.Err && failureUncertain,
             applicationSubmitted = submitted,
-            locationSharingPaused = availability.locationSharingPaused.value,
+            locationNotice = availability.locationNotice.value,
+            restartingLocation = locationRestart,
         )
     }
 
     fun retryLocationSharing() {
         viewModelScope.launch { availability.retryLocationSharing() }
+    }
+
+    fun restartLocationSharing() {
+        if (locationRestart || state.value.locationNotice != LocationNotice.ServiceStopped) {
+            return
+        }
+        locationRestart = true
+        viewModelScope.launch {
+            state.value = state.value.copy(restartingLocation = true)
+            try {
+                availability.retryLocationSharing()
+            } finally {
+                locationRestart = false
+                state.value = state.value.copy(restartingLocation = false)
+            }
+        }
     }
 
     private suspend fun alignReceiving(loaded: RiderOnboarding?): RiderOnboarding? {

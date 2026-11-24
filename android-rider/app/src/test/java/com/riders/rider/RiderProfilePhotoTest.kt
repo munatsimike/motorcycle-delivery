@@ -11,6 +11,8 @@ import com.riders.rider.feature.profile.domain.profilePhotoAfterAccount
 import com.riders.rider.feature.profile.domain.profilePhotoAwaitingStored
 import com.riders.rider.feature.profile.domain.profilePhotoDownloadFailed
 import com.riders.rider.feature.profile.domain.profilePhotoIssue
+import com.riders.rider.feature.profile.domain.profilePhotoRemoveFailed
+import com.riders.rider.feature.profile.domain.profilePhotoRemoveStarted
 import com.riders.rider.feature.profile.domain.profilePhotoRemoved
 import com.riders.rider.feature.profile.domain.profilePhotoSampleSize
 import com.riders.rider.feature.profile.domain.profilePhotoUploadFailed
@@ -75,7 +77,16 @@ class RiderProfilePhotoTest {
         val duringUpload = profilePhotoAfterAccount(uploading, hasProfilePhoto = false)
         assertEquals(ProfilePhotoPhase.Uploading, duringUpload.phase)
         assertTrue(duringUpload.showingPreview)
-        val removed = profilePhotoRemoved(ProfilePhotoState(hasStoredPhoto = true, showingStored = true))
+        val stored = ProfilePhotoState(hasStoredPhoto = true, showingStored = true)
+        val removing = profilePhotoRemoveStarted(stored)
+        assertEquals(ProfilePhotoPhase.Removing, removing.phase)
+        assertTrue(removing.hasStoredPhoto)
+        assertFalse(canStartProfilePhotoAction(removing))
+        val failedRemoval = profilePhotoRemoveFailed(removing, "Profile photo could not be removed")
+        assertEquals(ProfilePhotoPhase.Idle, failedRemoval.phase)
+        assertEquals(ProfilePhotoRetry.Remove, failedRemoval.retry)
+        assertTrue(canStartProfilePhotoAction(failedRemoval))
+        val removed = profilePhotoRemoved(stored)
         assertFalse(removed.hasStoredPhoto)
         assertFalse(removed.showingStored)
         assertEquals(ProfilePhotoPhase.Idle, removed.phase)

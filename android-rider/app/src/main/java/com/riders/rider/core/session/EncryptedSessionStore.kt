@@ -19,7 +19,9 @@ class EncryptedSessionStore @Inject constructor(
 ) : SessionStore {
     private val preferences: SharedPreferences? = open(context)
     private val state = MutableStateFlow(readStored())
+    private val uncertain = MutableStateFlow(preferences?.getBoolean(REFRESH_UNCERTAIN, false) == true)
     override val session: StateFlow<AuthSession?> = state.asStateFlow()
+    override val refreshUncertain: StateFlow<Boolean> = uncertain.asStateFlow()
 
     override fun read(): AuthSession? = state.value
 
@@ -31,9 +33,11 @@ class EncryptedSessionStore @Inject constructor(
                 .putString(REFRESH, session.refreshToken)
                 .putString(ACCESS_EXPIRY, session.accessTokenExpiresAt)
                 .putString(REFRESH_EXPIRY, session.refreshTokenExpiresAt)
+                .remove(REFRESH_UNCERTAIN)
                 .commit()
             if (saved) {
                 state.value = session
+                uncertain.value = false
             }
             saved
         } catch (_: GeneralSecurityException) {
@@ -44,8 +48,26 @@ class EncryptedSessionStore @Inject constructor(
     }
 
     override fun clear() {
-        preferences?.edit()?.clear()?.apply()
+        try {
+            preferences?.edit()?.clear()?.commit()
+        } catch (_: GeneralSecurityException) {
+        } catch (_: IOException) {
+        }
         state.value = null
+        uncertain.value = false
+    }
+
+    override fun markRefreshUncertain() {
+        val saved = try {
+            preferences?.edit()?.putBoolean(REFRESH_UNCERTAIN, true)?.commit() == true
+        } catch (_: GeneralSecurityException) {
+            false
+        } catch (_: IOException) {
+            false
+        }
+        if (saved) {
+            uncertain.value = true
+        }
     }
 
     private fun readStored(): AuthSession? {
@@ -65,6 +87,7 @@ class EncryptedSessionStore @Inject constructor(
         const val REFRESH = "refresh_token"
         const val ACCESS_EXPIRY = "access_token_expires_at"
         const val REFRESH_EXPIRY = "refresh_token_expires_at"
+        const val REFRESH_UNCERTAIN = "refresh_outcome_uncertain"
 
         fun open(context: Context): SharedPreferences? {
             return try {

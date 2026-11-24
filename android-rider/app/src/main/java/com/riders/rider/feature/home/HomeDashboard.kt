@@ -1,9 +1,15 @@
 package com.riders.rider.feature.home
 
 import android.Manifest
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -83,6 +89,9 @@ import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.riders.rider.R
+import com.riders.rider.feature.availability.domain.LocationNotice
+import com.riders.rider.feature.availability.domain.LocationPermissionAction
+import com.riders.rider.feature.availability.domain.locationPermissionAction
 import com.riders.rider.core.design.RiderTheme
 import com.riders.rider.core.design.RidersAvailability
 import com.riders.rider.core.design.RidersCard
@@ -98,11 +107,13 @@ import com.riders.rider.core.design.RidersErrorState
 import com.riders.rider.core.design.RidersFailureNotice
 import com.riders.rider.core.design.RidersNetworkNotice
 import com.riders.rider.core.design.isConnectionFailure
+import com.riders.rider.core.design.RidersCenteredContent
 import com.riders.rider.core.design.RidersLoadingState
 import com.riders.rider.core.design.RidersMotion
 import com.riders.rider.core.design.RidersPrimaryButton
 import com.riders.rider.core.design.rememberRidersMotion
 import com.riders.rider.core.design.RidersPullRefresh
+import com.riders.rider.core.refresh.goOnlineEnabled
 import com.riders.rider.core.design.RidersSecondaryButton
 import com.riders.rider.core.design.RidersRadius
 import com.riders.rider.core.design.RidersSpacing
@@ -111,6 +122,13 @@ import com.riders.rider.core.design.RidersType
 import com.riders.rider.feature.delivery.domain.ActiveDelivery
 import com.riders.rider.core.network.OfferResponse
 import com.riders.rider.feature.offers.domain.RequestOverlay
+import com.riders.rider.feature.offers.domain.dismissedForSettledAttempts
+import com.riders.rider.feature.offers.domain.handleRequestMapSuccess
+import com.riders.rider.feature.offers.domain.overlayAfterSearchAttempt
+import com.riders.rider.feature.offers.domain.requestMapAutoOpenBlocked
+import com.riders.rider.feature.offers.domain.requestMapNotice
+import com.riders.rider.feature.offers.domain.requestSettled
+import com.riders.rider.feature.offers.domain.sealDismissedAttempt
 import com.riders.rider.feature.offers.presentation.OfferRequestCard
 import com.riders.rider.feature.offers.presentation.OfferViewModel
 import com.riders.rider.feature.offers.presentation.RequestMapOverlay
@@ -174,10 +192,13 @@ fun HomeScreen(
     val context = LocalContext.current
     val availability = ui.onboarding?.availability
     val availabilityNow = rememberUpdatedState(availability)
+    var resumeSharing by remember { mutableStateOf(false) }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
+        val resume = resumeSharing
+        resumeSharing = false
         if (granted[Manifest.permission.ACCESS_FINE_LOCATION] == true) {
             val sharing = availabilityNow.value == "AVAILABLE" || availabilityNow.value == "BUSY"
-            if (sharing) {
+            if (resume || sharing) {
                 model.retryLocationSharing()
             } else {
                 model.goOnline()
@@ -187,6 +208,11 @@ fun HomeScreen(
         }
     }
     var locationPrompted by remember { mutableStateOf(false) }
+    val permissionAction = locationPermissionAction(
+        granted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED,
+        asked = locationPermissionWasAsked(context),
+        shouldShowRationale = context.findActivity()?.shouldShowRequestPermissionRationale(Manifest.permission.ACCESS_FINE_LOCATION) == true,
+    )
     LaunchedEffect(availability) {
         val sharing = availability == "AVAILABLE" || availability == "BUSY"
         if (!sharing) {
@@ -195,8 +221,9 @@ fun HomeScreen(
         val allowed = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         if (allowed) {
             model.retryLocationSharing()
-        } else if (!locationPrompted) {
+        } else if (!locationPrompted && permissionAction == LocationPermissionAction.Request) {
             locationPrompted = true
+            markLocationPermissionAsked(context)
             permission.launch(locationPermissions())
         }
     }
@@ -208,10 +235,46 @@ fun HomeScreen(
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
-    var overlay by remember { mutableStateOf(RequestOverlay()) }
+    var overlay by remember {
+        mutableStateOf(
+            RequestOverlay(
+                dismissed = dismissedForSettledAttempts(
+                    model.ui.value.offers.map { it.deliveryId to it.searchExpiresAt },
+                    offersModel.ui.value.settledIds,
+                ),
+            ),
+        )
+    }
+    var sealedAttempts by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var offerSentVisible by remember { mutableStateOf(false) }
     val eligibleIds = if (ui.shift.showOffers) ui.offers.map { it.deliveryId } else emptyList()
-    LaunchedEffect(eligibleIds, confirmOffline, overlay) {
-        val next = overlay.sync(eligibleIds, blocked = confirmOffline)
+    LaunchedEffect(offersUi.settledIds, ui.offers) {
+        val extra = dismissedForSettledAttempts(
+            ui.offers.map { it.deliveryId to it.searchExpiresAt },
+            offersUi.settledIds,
+        ) - overlay.dismissed
+        if (extra.isNotEmpty()) {
+            overlay = overlay.copy(dismissed = overlay.dismissed + extra)
+        }
+    }
+    LaunchedEffect(ui.offers, sealedAttempts) {
+        val (next, remaining) = overlayAfterSearchAttempt(
+            overlay,
+            sealedAttempts,
+            ui.offers.map { it.deliveryId to it.searchExpiresAt },
+        )
+        if (next != overlay) {
+            overlay = next
+        }
+        if (remaining != sealedAttempts) {
+            sealedAttempts = remaining
+        }
+    }
+    LaunchedEffect(eligibleIds, confirmOffline, overlay, offerSentVisible) {
+        val next = overlay.sync(
+            eligibleIds,
+            blocked = requestMapAutoOpenBlocked(confirmOffline, offerSentVisible),
+        )
         if (next != overlay) {
             overlay = next
         }
@@ -228,11 +291,27 @@ fun HomeScreen(
             delay(1_000)
         }
     }
-    LaunchedEffect(offersUi.accepted?.deliveryId, overlay.openId) {
-        val acceptedId = offersUi.accepted?.deliveryId
-        if (acceptedId != null && acceptedId == overlay.openId) {
-            overlay = overlay.copy(openId = null)
-            onOffers()
+    val currentOverlay = rememberUpdatedState(overlay)
+    val currentOffers = rememberUpdatedState(ui.offers)
+    LaunchedEffect(offersModel) {
+        offersModel.requestMapEvents.collect { event ->
+            val open = currentOverlay.value
+            val handling = handleRequestMapSuccess(open, event)
+            if (handling.overlay != open) {
+                overlay = handling.overlay
+                sealedAttempts = sealDismissedAttempt(
+                    sealedAttempts,
+                    event.deliveryId,
+                    currentOffers.value.firstOrNull { it.deliveryId == event.deliveryId }?.searchExpiresAt,
+                )
+            }
+            if (handling.openDeliveries) {
+                offersModel.acknowledgeAccepted(event.deliveryId)
+                onOffers()
+            }
+            if (handling.showOfferSent) {
+                offerSentVisible = true
+            }
         }
     }
     Box(Modifier.fillMaxSize()) {
@@ -244,8 +323,11 @@ fun HomeScreen(
             val allowed = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
             if (allowed) {
                 model.goOnline()
-            } else {
+            } else if (permissionAction == LocationPermissionAction.Request) {
+                markLocationPermissionAsked(context)
                 permission.launch(locationPermissions())
+            } else {
+                openAppPermissionSettings(context)
             }
         },
         onGoOffline = {
@@ -279,7 +361,12 @@ fun HomeScreen(
         onDeclineOffer = { offer -> offersModel.decline(offer.deliveryId) },
         offerDeclining = offersUi.declining,
         onInterestOffer = offersModel::expressInterest,
-        onOpenRequest = { offer -> overlay = overlay.open(offer.deliveryId) },
+        onOpenRequest = { offer ->
+            if (!requestSettled(offer.deliveryId, offer.searchExpiresAt, offersUi.settledIds)) {
+                overlay = overlay.open(offer.deliveryId)
+            }
+        },
+        settledRequests = offersUi.settledIds,
         offerAccepting = offersUi.accepting,
         offerSubmitting = offersUi.submittingBid,
         offerBidError = offersUi.bidError,
@@ -291,14 +378,17 @@ fun HomeScreen(
         onWallet = onWallet,
         onDelivery = onDelivery,
         onRefresh = model::pullRefresh,
-        onRetryLocation = {
-            val allowed = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-            if (allowed) {
-                model.retryLocationSharing()
-            } else {
+        permissionAction = permissionAction,
+        onAllowLocation = {
+            if (permissionAction == LocationPermissionAction.Request) {
+                resumeSharing = true
+                markLocationPermissionAsked(context)
                 permission.launch(locationPermissions())
             }
         },
+        onOpenPermissionSettings = { openAppPermissionSettings(context) },
+        onEnableLocation = { openLocationSettings(context) },
+        onRestartSharing = model::restartLocationSharing,
         onSetup = onSetup,
         includeNavigationBars = !inShell,
         inShell = inShell,
@@ -314,7 +404,8 @@ fun HomeScreen(
             statusLabel = if (sentAmount == null) offersUi.sentLabels[shownRequest.deliveryId] else null,
             sentAmount = sentAmount,
             bidsOpen = marketplaceBidButtonsVisible(shownRequest.serviceClass, offersUi.ownBidsKnown, offersUi.bidError ?: offersUi.bidListError),
-            error = offersUi.bidError,
+            error = requestMapNotice(offersUi.bidError, offersUi.error),
+            settled = requestSettled(shownRequest.deliveryId, shownRequest.searchExpiresAt, offersUi.settledIds),
             onAccept = {
                 if (senderChoosesRider(shownRequest.serviceClass)) {
                     offersModel.offerListedPrice(shownRequest)
@@ -329,6 +420,17 @@ fun HomeScreen(
             onInterest = { offersModel.expressInterest(shownRequest) },
             onClose = { overlay = overlay.dismiss() },
         )
+    }
+    if (offerSentVisible) {
+        RidersDialog(visible = true, onDismiss = { offerSentVisible = false }) {
+            RidersDialogTitle("Offer sent!")
+            RidersDialogBody("Waiting for the customer to choose a rider.")
+            RidersPrimaryButton(
+                label = "OK",
+                onClick = { offerSentVisible = false },
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
     }
     if (confirmOffline) {
         RidersDialog(visible = true, onDismiss = { confirmOffline = false }) {
@@ -354,7 +456,39 @@ fun HomeScreen(
 }
 
 @Composable
-private fun LocationSharingPausedNotice(onRetry: () -> Unit, modifier: Modifier = Modifier) {
+private fun LocationSharingPausedNotice(
+    notice: LocationNotice,
+    permissionAction: LocationPermissionAction,
+    restarting: Boolean,
+    onAllowLocation: () -> Unit,
+    onOpenPermissionSettings: () -> Unit,
+    onEnableLocation: () -> Unit,
+    onRestartSharing: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val permissionSettings = notice == LocationNotice.PermissionMissing && permissionAction == LocationPermissionAction.Settings
+    val title = when (notice) {
+        LocationNotice.PermissionMissing -> "Location permission required"
+        LocationNotice.LocationDisabled -> "Location is turned off"
+        LocationNotice.WaitingForFix -> "Getting your location"
+        LocationNotice.FixUnavailable -> "Location unavailable"
+        LocationNotice.NoInternet -> "No internet connection"
+        LocationNotice.UploadPending -> "Unable to update location"
+        LocationNotice.ServiceStopped -> "Location sharing stopped"
+    }
+    val message = when (notice) {
+        LocationNotice.PermissionMissing -> if (permissionSettings) {
+            "Enable location permission in your phone settings."
+        } else {
+            "Allow location access to continue receiving requests."
+        }
+        LocationNotice.LocationDisabled -> "Turn on your device's location to continue."
+        LocationNotice.WaitingForFix -> "This may take a moment. Move to an open area if needed."
+        LocationNotice.FixUnavailable -> "Check that location is enabled and try moving to an open area."
+        LocationNotice.NoInternet -> "Check your connection and try again."
+        LocationNotice.UploadPending -> "Waiting to reconnect. Location sharing will resume automatically."
+        LocationNotice.ServiceStopped -> "Restart location sharing to continue receiving requests."
+    }
     Column(
         modifier
             .fillMaxWidth()
@@ -363,13 +497,32 @@ private fun LocationSharingPausedNotice(onRetry: () -> Unit, modifier: Modifier 
             .padding(RidersSpacing.lg),
         verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
     ) {
-        Text("Location sharing paused", style = RidersType.bodyStrong, color = RidersColors.text)
-        Text(
-            "We couldn't update your location. Check your connection or location permission.",
-            style = RidersType.caption,
-            color = RidersColors.textSecondary,
-        )
-        RidersSecondaryButton(label = "Retry", onClick = onRetry, compact = true)
+        Text(title, style = RidersType.bodyStrong, color = RidersColors.text)
+        Text(message, style = RidersType.caption, color = RidersColors.textSecondary)
+        when (notice) {
+            LocationNotice.PermissionMissing -> RidersSecondaryButton(
+                label = if (permissionSettings) "Open settings" else "Allow location",
+                onClick = if (permissionSettings) onOpenPermissionSettings else onAllowLocation,
+                compact = true,
+            )
+            LocationNotice.LocationDisabled -> RidersSecondaryButton(
+                label = "Enable location",
+                onClick = onEnableLocation,
+                compact = true,
+            )
+            LocationNotice.ServiceStopped -> RidersSecondaryButton(
+                label = "Restart sharing",
+                onClick = onRestartSharing,
+                compact = true,
+                loading = restarting,
+                loadingLabel = "Restarting",
+            )
+            LocationNotice.WaitingForFix,
+            LocationNotice.FixUnavailable,
+            LocationNotice.NoInternet,
+            LocationNotice.UploadPending,
+            -> Unit
+        }
     }
 }
 
@@ -398,9 +551,14 @@ fun HomeDashboard(
     offerStatus: Map<String, String> = emptyMap(),
     offerAmounts: Map<String, String> = emptyMap(),
     offerBids: List<OwnBid> = emptyList(),
+    settledRequests: Set<String> = emptySet(),
     onDelivery: (String) -> Unit = { _ -> },
     onRefresh: () -> Unit = {},
-    onRetryLocation: () -> Unit = {},
+    permissionAction: LocationPermissionAction = LocationPermissionAction.Request,
+    onAllowLocation: () -> Unit = {},
+    onOpenPermissionSettings: () -> Unit = {},
+    onEnableLocation: () -> Unit = {},
+    onRestartSharing: () -> Unit = {},
     onSetup: () -> Unit = {},
     onWallet: () -> Unit = {},
     includeNavigationBars: Boolean = true,
@@ -426,7 +584,78 @@ fun HomeDashboard(
             onRefresh = onRefresh,
             modifier = Modifier.fillMaxSize(),
         ) {
-        Column(
+        if (readiness == null) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .then(if (includeNavigationBars) Modifier.navigationBarsPadding() else Modifier),
+            ) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(headerHeight)
+                        .clipToBounds(),
+                ) {
+                    Box(
+                        Modifier
+                            .matchParentSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    0f to RidersColors.mintStart.copy(alpha = 0.72f),
+                                    0.62f to RidersColors.mintMid.copy(alpha = 0.35f),
+                                    1f to RidersColors.mintEnd.copy(alpha = 0.55f),
+                                ),
+                            ),
+                    )
+                }
+                Column(Modifier.fillMaxSize()) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .then(if (inShell) Modifier else Modifier.statusBarsPadding())
+                            .padding(top = RidersSpacing.md)
+                            .padding(horizontal = horizontal),
+                        horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RiderInitialsAvatar(ui.fullName, profilePhoto)
+                        Column(
+                            Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs),
+                        ) {
+                            Text(
+                                greeting,
+                                style = RidersType.caption.copy(fontWeight = FontWeight.SemiBold),
+                                color = RidersColors.text,
+                            )
+                            riderFirstName(ui.fullName)?.let { firstName ->
+                                Text(
+                                    firstName,
+                                    style = RidersType.heading.copy(fontWeight = FontWeight.SemiBold),
+                                    color = RidersColors.text,
+                                )
+                            }
+                        }
+                    }
+                    RidersCenteredContent(
+                        Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .padding(horizontal = horizontal),
+                    ) {
+                        if (ui.loading) {
+                            RidersLoadingState("Checking your account")
+                        } else {
+                            RidersFailureNotice(
+                                message = ui.error ?: "Your account could not be loaded. Check your connection and try again.",
+                                title = accountLoadFailureTitle(ui.error),
+                                onRetry = onRefresh,
+                            )
+                        }
+                    }
+                }
+            }
+        } else Column(
             Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
@@ -486,14 +715,7 @@ fun HomeDashboard(
                     verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
                 ) {
                     Column(Modifier.padding(horizontal = horizontal)) {
-                    when {
-                        ui.loading && readiness == null -> RidersLoadingState("Checking your account")
-                        readiness == null -> RidersFailureNotice(
-                            message = ui.error ?: "Your account could not be loaded. Check your connection and try again.",
-                            title = "Connection unavailable",
-                            onRetry = onRefresh,
-                        )
-                        else -> AvailabilityCard(
+                        AvailabilityCard(
                             readiness = readiness,
                             loading = ui.loading,
                             changingAvailability = ui.changingAvailability,
@@ -506,7 +728,6 @@ fun HomeDashboard(
                             onGoOffline = onGoOffline,
                             onSetup = onSetup,
                         )
-                    }
                     }
                     if (readiness != null) {
                         HomeSummaries(
@@ -531,9 +752,16 @@ fun HomeDashboard(
                     Modifier.padding(bottom = RidersSpacing.lg),
                     verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
                 ) {
-                    if (ui.locationSharingPaused) {
+                    val locationNotice = ui.locationNotice
+                    if (locationNotice != null) {
                         LocationSharingPausedNotice(
-                            onRetry = onRetryLocation,
+                            notice = locationNotice,
+                            permissionAction = permissionAction,
+                            restarting = ui.restartingLocation,
+                            onAllowLocation = onAllowLocation,
+                            onOpenPermissionSettings = onOpenPermissionSettings,
+                            onEnableLocation = onEnableLocation,
+                            onRestartSharing = onRestartSharing,
                             modifier = Modifier.padding(horizontal = horizontal),
                         )
                     }
@@ -565,6 +793,7 @@ fun HomeDashboard(
                             offerStatus,
                             offerAmounts,
                             offerBids,
+                            settledRequests,
                             horizontal = horizontal,
                             contentBottom = contentBottom,
                         )
@@ -943,7 +1172,7 @@ private fun AvailabilityCard(
                 RidersPrimaryButton(
                     label = "Go online",
                     onClick = onGoOnline,
-                    enabled = !loading && !changingAvailability,
+                    enabled = goOnlineEnabled(loading, changingAvailability),
                     loading = goingOnline,
                     loadingLabel = "Going online…",
                     icon = R.drawable.ic_power,
@@ -962,7 +1191,7 @@ private fun AvailabilityCard(
                 RidersSecondaryButton(
                     label = "Go offline",
                     onClick = onGoOffline,
-                    enabled = !loading && !changingAvailability,
+                    enabled = goOnlineEnabled(loading, changingAvailability),
                     loading = goingOffline,
                     loadingLabel = "Going offline…",
                     icon = R.drawable.ic_power,
@@ -997,6 +1226,7 @@ private fun RequestsSection(
     offerStatus: Map<String, String>,
     offerAmounts: Map<String, String>,
     offerBids: List<OwnBid>,
+    settledRequests: Set<String>,
     horizontal: Dp,
     contentBottom: Float,
 ) {
@@ -1051,8 +1281,12 @@ private fun RequestsSection(
                     onSubmitBid = { amount -> onSubmitBid(offer, amount) },
                     onDecline = { onDeclineOffer(offer) },
                     declining = offerDeclining,
+                    submitError = offerBidError,
                     onInterest = { onInterestOffer(offer) },
-                    onOpen = { onOpenRequest(offer) },
+                    settled = requestSettled(offer.deliveryId, offer.searchExpiresAt, settledRequests),
+                    onOpen = if (requestSettled(offer.deliveryId, offer.searchExpiresAt, settledRequests)) null else {
+                        { onOpenRequest(offer) }
+                    },
                 )
             }
             val bidProblem = displayedBidProblem(
@@ -1083,10 +1317,12 @@ private fun HomeEmptyBackdrop(contentBottom: Float, content: @Composable () -> U
     val density = LocalDensity.current
     val fade = 72.dp
     var top by remember { mutableFloatStateOf(0f) }
+    val remaining = if (top > 0f) (contentBottom - top).coerceAtLeast(0f) else 0f
     Box(
         Modifier
             .fillMaxWidth()
             .onGloballyPositioned { top = it.positionInRoot().y }
+            .then(if (remaining > 0f) Modifier.heightIn(min = with(density) { remaining.toDp() }) else Modifier)
             .drawBehind {
                 val overlap = with(density) { 8.dp.toPx() }
                 val target = contentBottom + overlap
@@ -1099,6 +1335,7 @@ private fun HomeEmptyBackdrop(contentBottom: Float, content: @Composable () -> U
                     )
                 }
             },
+        contentAlignment = Alignment.Center,
     ) {
         Box(
             Modifier
@@ -1113,9 +1350,7 @@ private fun HomeEmptyBackdrop(contentBottom: Float, content: @Composable () -> U
                     ),
                 ),
         )
-        Box(Modifier.fillMaxWidth().padding(top = RidersSpacing.lg)) {
-            content()
-        }
+        content()
     }
 }
 
@@ -1387,6 +1622,47 @@ private fun unverifiedMotorcycle() = RiderReadiness(
     approvalLabel = "Approved",
     message = "You need an active verified motorcycle before you can accept deliveries.",
 )
+
+private const val LOCATION_PERMISSION_PREFS = "rider_location_permission"
+private const val LOCATION_PERMISSION_ASKED = "asked"
+
+private fun locationPermissionWasAsked(context: Context): Boolean {
+    return context.getSharedPreferences(LOCATION_PERMISSION_PREFS, Context.MODE_PRIVATE)
+        .getBoolean(LOCATION_PERMISSION_ASKED, false)
+}
+
+private fun markLocationPermissionAsked(context: Context) {
+    context.getSharedPreferences(LOCATION_PERMISSION_PREFS, Context.MODE_PRIVATE)
+        .edit()
+        .putBoolean(LOCATION_PERMISSION_ASKED, true)
+        .apply()
+}
+
+private fun Context.findActivity(): Activity? {
+    var current: Context = this
+    while (current is ContextWrapper) {
+        if (current is Activity) {
+            return current
+        }
+        current = current.baseContext
+    }
+    return null
+}
+
+private fun openAppPermissionSettings(context: Context) {
+    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+        data = Uri.fromParts("package", context.packageName, null)
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    context.startActivity(intent)
+}
+
+private fun openLocationSettings(context: Context) {
+    val intent = Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS).apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    context.startActivity(intent)
+}
 
 private fun sampleDelivery() = ActiveDelivery(
     deliveryId = "delivery-1",

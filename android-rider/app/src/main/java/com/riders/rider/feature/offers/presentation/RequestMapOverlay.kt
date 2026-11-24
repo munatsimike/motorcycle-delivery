@@ -109,6 +109,7 @@ fun RequestMapOverlay(
     sentAmount: String?,
     bidsOpen: Boolean,
     error: String?,
+    settled: Boolean = false,
     onAccept: () -> Unit,
     onBid: () -> Unit,
     onSubmitBid: (String) -> Unit,
@@ -183,7 +184,9 @@ fun RequestMapOverlay(
                 onSubmitBid = onSubmitBid,
                 onDecline = onDecline,
                 declining = declining,
+                submitError = error,
                 onInterest = onInterest,
+                settled = settled,
             )
             if (!error.isNullOrBlank()) {
                 RidersFailureNotice(message = error)

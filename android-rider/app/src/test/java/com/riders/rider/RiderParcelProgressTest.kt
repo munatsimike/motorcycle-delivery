@@ -18,6 +18,10 @@ import com.riders.rider.feature.delivery.domain.v2RiderAction
 import com.riders.rider.feature.delivery.domain.v2TapTarget
 import com.riders.rider.feature.delivery.domain.riderCancelReasonChoices
 import com.riders.rider.feature.delivery.domain.v2CancellationVisible
+import com.riders.rider.feature.delivery.domain.ASSIGNMENT_RECOVERY_MESSAGE
+import com.riders.rider.feature.delivery.domain.DELIVERY_STATUS_UNAVAILABLE
+import com.riders.rider.feature.delivery.domain.blockedDeliveryConfirmationMessage
+import com.riders.rider.feature.delivery.domain.deliveryActionLoadingLabel
 import com.riders.rider.feature.delivery.domain.v2NextStatus
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -30,6 +34,49 @@ class RiderParcelProgressTest {
     fun v2ProgressShowsOneActionAndStopsAtDelivered() {
         assertEquals("COLLECTED", v2NextStatus("RIDER_ASSIGNED"))
         assertEquals("Confirm pickup", v2RiderAction("RIDER_ASSIGNED"))
+        assertEquals("Confirming", deliveryActionLoadingLabel("Confirm pickup"))
+        assertEquals("Completing", deliveryActionLoadingLabel("Mark as delivered"))
+        assertEquals("DELIVERED", v2TapTarget("COLLECTED"))
+        assertEquals("DELIVERED", v2TapTarget("OUT_FOR_DELIVERY", "COLLECTED"))
+        assertEquals(
+            ASSIGNMENT_RECOVERY_MESSAGE,
+            blockedDeliveryConfirmationMessage(
+                marketplaceParcel = true,
+                assignmentsConfirmed = false,
+                syncing = false,
+                busy = false,
+                completed = false,
+            ),
+        )
+        assertEquals(
+            ASSIGNMENT_RECOVERY_MESSAGE,
+            blockedDeliveryConfirmationMessage(
+                marketplaceParcel = true,
+                assignmentsConfirmed = true,
+                syncing = true,
+                busy = false,
+                completed = false,
+            ),
+        )
+        assertNull(
+            blockedDeliveryConfirmationMessage(
+                marketplaceParcel = true,
+                assignmentsConfirmed = true,
+                syncing = false,
+                busy = true,
+                completed = false,
+            ),
+        )
+        assertNull(
+            blockedDeliveryConfirmationMessage(
+                marketplaceParcel = true,
+                assignmentsConfirmed = true,
+                syncing = false,
+                busy = false,
+                completed = true,
+            ),
+        )
+        assertEquals(DELIVERY_STATUS_UNAVAILABLE, "This delivery status cannot be changed")
         assertNull(v2ActionLabel("COLLECTING"))
         assertEquals("COLLECTED", v2NextStatus("COLLECTING"))
         assertEquals("Confirm pickup", v2RiderAction("COLLECTING"))
@@ -110,6 +157,11 @@ class RiderParcelProgressTest {
         assertEquals("key-next", held.key)
         assertEquals("DELIVERED", delivered.targetStatus)
         assertEquals("key-done", delivered.key)
+        val collectedKey = TransitionAttempt("flex-a", "COLLECTED", "key-collected")
+        val completion = progressAttempt(collectedKey, "flex-a", "DELIVERED", "key-delivered")
+        assertEquals("DELIVERED", completion.targetStatus)
+        assertEquals("key-delivered", completion.key)
+        assertEquals("key-collected", progressAttempt(collectedKey, "flex-a", "COLLECTED", "key-new").key)
         assertEquals("COLLECTED", v2TapTarget("RIDER_ASSIGNED", "OUT_FOR_DELIVERY"))
     }
 

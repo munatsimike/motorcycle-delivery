@@ -115,6 +115,10 @@ fun acceptedBidDeliveryId(notice: RiderNotice): String? = (notice as? RiderNotic
 
 fun offerNotificationId(assignmentId: String): Int = assignmentId.hashCode() and 0x7fffffff
 
+fun offerAttemptKey(deliveryId: String, expiresAt: String?): String {
+    return "offer:${deliveryId.trim()}:${expiresAt?.trim().orEmpty()}"
+}
+
 fun rememberShownOffer(existing: List<String>, assignmentId: String): List<String>? {
     if (assignmentId.isBlank() || existing.contains(assignmentId)) {
         return null

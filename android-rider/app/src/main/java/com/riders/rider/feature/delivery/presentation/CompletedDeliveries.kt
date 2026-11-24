@@ -18,6 +18,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.riders.rider.R
+import com.riders.rider.core.design.RidersCenteredContent
 import com.riders.rider.core.design.RidersEmptyState
 import com.riders.rider.core.design.RidersFailureNotice
 import com.riders.rider.core.design.RidersLoadingState
@@ -101,7 +102,31 @@ fun CompletedDeliveriesPane(
         { it.agreedPrice },
         { it.deliveryId },
     )
+    val centered = (ui.loading && ui.deliveries.isEmpty()) || (ui.deliveries.isEmpty() && ui.error != null) || visible.isEmpty()
     RidersPullRefresh(refreshing = ui.refreshing, onRefresh = model::refresh, modifier = modifier) {
+        if (centered) {
+            RidersCenteredContent(
+                Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = RidersSpacing.lg)
+                    .padding(bottom = RidersSpacing.lg),
+            ) {
+                when {
+                    ui.loading && ui.deliveries.isEmpty() -> RidersLoadingState("Loading completed deliveries")
+                    ui.deliveries.isEmpty() && ui.error != null -> RidersFailureNotice(
+                        message = ui.error.orEmpty(),
+                        title = "Completed deliveries unavailable",
+                        onRetry = model::refresh,
+                    )
+                    else -> RidersEmptyState(
+                        title = filteredContentTitle(contentKind, "No completed deliveries yet"),
+                        body = "Deliveries you finish appear here.",
+                        image = R.drawable.parcel_box,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        } else {
         Column(
             Modifier
                 .fillMaxSize()
@@ -110,28 +135,13 @@ fun CompletedDeliveriesPane(
                 .padding(bottom = RidersSpacing.lg),
             verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
         ) {
-            when {
-                ui.loading && ui.deliveries.isEmpty() -> RidersLoadingState("Loading completed deliveries")
-                ui.deliveries.isEmpty() && ui.error != null -> RidersFailureNotice(
-                    message = ui.error.orEmpty(),
-                    title = "Completed deliveries unavailable",
-                    onRetry = model::refresh,
-                )
-                visible.isEmpty() -> RidersEmptyState(
-                    title = filteredContentTitle(contentKind, "No completed deliveries yet"),
-                    body = "Deliveries you finish appear here.",
-                    image = R.drawable.parcel_box,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                else -> {
-                    visible.forEach { parcel ->
-                        CompletedDeliveryCard(parcel, onOpen)
-                    }
-                    if (ui.error != null) {
-                        RidersFailureNotice(message = ui.error.orEmpty(), onRetry = model::refresh)
-                    }
-                }
+            visible.forEach { parcel ->
+                CompletedDeliveryCard(parcel, onOpen)
             }
+            if (ui.error != null) {
+                RidersFailureNotice(message = ui.error.orEmpty(), onRetry = model::refresh)
+            }
+        }
         }
     }
 }

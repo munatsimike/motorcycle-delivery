@@ -2,6 +2,7 @@
 package com.riders.rider.feature.home
 
 import com.riders.rider.core.network.ApiError
+import com.riders.rider.core.network.text
 import com.riders.rider.feature.delivery.domain.CommittedParcel
 import com.riders.rider.feature.delivery.domain.committedAssignmentsForDisplay
 
@@ -87,6 +88,10 @@ fun showsV1ActiveDelivery(
 
 fun receivingAfterRefresh(previous: Boolean?, loaded: Boolean?, loadedFromServer: Boolean): Boolean? {
     return if (loadedFromServer) loaded else previous
+}
+
+fun accountLoadFailureTitle(message: String?): String {
+    return if (message == ApiError.SessionUncertain.text()) "Sign in again" else "Connection unavailable"
 }
 
 fun dashboardFailure(error: ApiError): DashboardFailure = when {

@@ -12,6 +12,7 @@ import com.riders.rider.core.network.apiCall
 import com.riders.rider.core.network.httpClient
 import com.riders.rider.core.network.performRefresh
 import com.riders.rider.core.network.retrofit
+import com.riders.rider.core.design.isConnectionFailure
 import com.riders.rider.core.network.text
 import com.riders.rider.core.session.AuthSession
 import com.riders.rider.core.session.MemorySessionStore
@@ -381,8 +382,13 @@ class RiderSessionTest {
             val riders = server.riders(store, timeoutSeconds = 1)
             val first = apiCall { riders.onboarding() }
             val second = apiCall { riders.onboarding() }
-            assertEquals(ApiError.Timeout, (first as ApiResult.Err).error)
-            assertEquals(ApiError.Network, (second as ApiResult.Err).error)
+            val firstError = (first as ApiResult.Err).error
+            val secondError = (second as ApiResult.Err).error
+            assertEquals(ApiError.SessionUncertain, firstError)
+            assertEquals(ApiError.SessionUncertain, secondError)
+            assertEquals("Your session could not be restored safely.", firstError.text())
+            assertFalse(isConnectionFailure(firstError.text()))
+            assertTrue(store.refreshUncertain.value)
             assertEquals("refresh-1", store.read()?.refreshToken)
             assertEquals(1, server.refreshCount())
         } finally {
@@ -447,6 +453,103 @@ class RiderSessionTest {
             val store = MemorySessionStore(AuthSession("access-1", "refresh-1", "soon", "later"))
             AuthRepository(server.auth(), store).logout()
             assertNull(store.read())
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun uncertainRefreshIsNotReplayedAfterANewProcess() = runTest {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setResponseCode(401))
+        server.start()
+        try {
+            val store = MemorySessionStore(AuthSession("access-1", "refresh-1", "soon", "later"))
+            store.markRefreshUncertain()
+            val result = apiCall { server.riders(store).onboarding() }
+            assertEquals(ApiError.SessionUncertain, (result as ApiResult.Err).error)
+            assertEquals("refresh-1", store.read()?.refreshToken)
+            assertTrue(store.refreshUncertain.value)
+            assertEquals(0, server.refreshCount())
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun signInAgainClearsTheUncertainSession() = runTest {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setResponseCode(204))
+        server.start()
+        try {
+            val store = MemorySessionStore(AuthSession("access-1", "refresh-1", "soon", "later"))
+            store.markRefreshUncertain()
+            AuthRepository(server.auth(), store).logout()
+            assertNull(store.read())
+            assertFalse(store.refreshUncertain.value)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun savedSignInClearsAnUncertainRefresh() = runTest {
+        val server = MockWebServer()
+        server.enqueue(session("access-2", "refresh-2"))
+        server.start()
+        try {
+            val store = MemorySessionStore(AuthSession("access-1", "refresh-1", "soon", "later"))
+            store.markRefreshUncertain()
+            val result = AuthRepository(server.auth(), store).verify("login", "+263771234567", "123456")
+            assertTrue(result is ApiResult.Ok)
+            assertEquals("refresh-2", store.read()?.refreshToken)
+            assertFalse(store.refreshUncertain.value)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun ordinaryNetworkFailureStaysANetworkFailure() = runTest {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START))
+        server.start()
+        try {
+            val store = MemorySessionStore(AuthSession("access-1", "refresh-1", "soon", "later"))
+            val result = apiCall { server.riders(store).onboarding() }
+            val error = (result as ApiResult.Err).error
+            assertEquals(ApiError.Network, error)
+            assertTrue(isConnectionFailure(error.text()))
+            assertEquals("refresh-1", store.read()?.refreshToken)
+            assertFalse(store.refreshUncertain.value)
+            assertEquals(0, server.refreshCount())
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun forbiddenAndServerFailuresStayDistinctFromANetworkLoss() = runTest {
+        val server = MockWebServer()
+        server.enqueue(json("""{"message":"Rider access is required."}""", 403))
+        server.enqueue(MockResponse().setResponseCode(401))
+        server.enqueue(MockResponse().setResponseCode(500).setBody("""{"message":"unavailable"}""").addHeader("Content-Type", "application/json"))
+        server.start()
+        try {
+            val store = MemorySessionStore(AuthSession("access-1", "refresh-1", "soon", "later"))
+            val riders = server.riders(store)
+            val forbidden = apiCall { riders.onboarding() }
+            val unavailable = apiCall { riders.onboarding() }
+            val forbiddenError = (forbidden as ApiResult.Err).error
+            val unavailableError = (unavailable as ApiResult.Err).error
+            assertEquals(ApiError.Forbidden, forbiddenError)
+            assertEquals("Rider access is required.", forbiddenError.text())
+            assertEquals("The server could not refresh your session. Try again.", unavailableError.text())
+            assertFalse(isConnectionFailure(forbiddenError.text()))
+            assertFalse(isConnectionFailure(unavailableError.text()))
+            assertFalse(store.refreshUncertain.value)
+            assertEquals("refresh-1", store.read()?.refreshToken)
+            assertEquals(1, server.refreshCount())
         } finally {
             server.shutdown()
         }
@@ -525,11 +628,17 @@ private fun MockWebServer.refreshCount(): Int {
 
 private class RejectingSessionStore : SessionStore {
     private val state = MutableStateFlow<AuthSession?>(null)
+    private val uncertain = MutableStateFlow(false)
     override val session: StateFlow<AuthSession?> = state.asStateFlow()
+    override val refreshUncertain: StateFlow<Boolean> = uncertain.asStateFlow()
     override fun read(): AuthSession? = state.value
     override fun write(session: AuthSession): Boolean = false
     override fun clear() {
         state.value = null
+        uncertain.value = false
+    }
+    override fun markRefreshUncertain() {
+        uncertain.value = true
     }
 }
 

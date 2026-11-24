@@ -57,6 +57,7 @@ import com.riders.rider.R
 import com.riders.rider.core.design.LocalAppDark
 import com.riders.rider.core.design.RidersChangingText
 import com.riders.rider.core.design.RidersColors
+import com.riders.rider.core.design.RidersCenteredContent
 import com.riders.rider.core.design.RidersEmptyState
 import com.riders.rider.core.design.RidersFailureNotice
 import com.riders.rider.core.design.RidersLoadingState
@@ -120,11 +121,37 @@ fun WalletScreen(
     val board = ui.board
     BoxWithConstraints(Modifier.fillMaxSize()) {
     val historyMinHeight = (maxHeight - 280.dp).coerceAtLeast(360.dp)
-    Column(
+    if (board.summary == null) {
+        Box(Modifier.fillMaxSize()) {
+            WalletBackdrop(Modifier.fillMaxSize())
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .then(if (inShell) Modifier else Modifier.statusBarsPadding())
+                    .padding(horizontal = RidersSpacing.lg)
+                    .padding(top = RidersSpacing.lg, bottom = 40.dp),
+            ) {
+                if (showBack) {
+                    WalletTitle(onBack = onBack)
+                }
+                RidersCenteredContent(Modifier.fillMaxWidth().weight(1f)) {
+                    when {
+                        ui.loading -> RidersLoadingState("Loading your wallet")
+                        board.error != null -> RidersFailureNotice(
+                            message = board.error.orEmpty(),
+                            title = "Wallet unavailable",
+                            onRetry = { model.refresh(fromUser = true) },
+                        )
+                    }
+                }
+            }
+        }
+    } else Column(
         Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState()),
     ) {
+        val summary = board.summary
         Box(Modifier.fillMaxWidth().clipToBounds()) {
             WalletBackdrop(Modifier.matchParentSize())
             Column(
@@ -138,28 +165,18 @@ fun WalletScreen(
                 if (showBack) {
                     WalletTitle(onBack = onBack)
                 }
-                when {
-                    ui.loading && board.summary == null -> RidersLoadingState("Loading your wallet")
-                    board.summary == null && board.error != null -> RidersFailureNotice(
-                        message = board.error,
-                        title = "Wallet unavailable",
-                        onRetry = { model.refresh(fromUser = true) },
-                    )
-                    board.summary != null -> {
-                        WalletPicker(selected = ui.currency, onSelect = model::selectCurrency)
-                        BalanceCard(
-                            summary = board.summary,
-                            onTopUp = { showTopUp = true },
-                        )
-                    }
-                }
+                WalletPicker(selected = ui.currency, onSelect = model::selectCurrency)
+                BalanceCard(
+                    summary = summary,
+                    onTopUp = { showTopUp = true },
+                )
             }
         }
-        if (board.summary != null) {
-            Column(
+        val activityEmpty = board.entries.isEmpty()
+        Column(
                 Modifier
                     .fillMaxWidth()
-                    .heightIn(min = historyMinHeight)
+                    .then(if (activityEmpty) Modifier.height(historyMinHeight) else Modifier.heightIn(min = historyMinHeight))
                     .pullUp(32.dp)
                     .clip(RoundedCornerShape(topStart = RidersRadius.xl, topEnd = RidersRadius.xl))
                     .background(RidersColors.background)
@@ -179,12 +196,14 @@ fun WalletScreen(
                     onSeeAll = model::loadMore,
                 )
                 if (board.entries.isEmpty()) {
-                    RidersEmptyState(
-                        title = "No wallet activity",
-                        body = "Platform fees and credits will appear here.",
-                        image = R.drawable.wallet_empty,
-                        imageSize = 48.dp,
-                    )
+                    Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                        RidersEmptyState(
+                            title = "No wallet activity",
+                            body = "Platform fees and credits will appear here.",
+                            image = R.drawable.wallet_empty,
+                            imageSize = 48.dp,
+                        )
+                    }
                 } else {
                     Column(Modifier.fillMaxWidth()) {
                         board.entries.forEachIndexed { index, entry ->
@@ -203,7 +222,6 @@ fun WalletScreen(
                 }
             }
         }
-    }
     }
     }
 }

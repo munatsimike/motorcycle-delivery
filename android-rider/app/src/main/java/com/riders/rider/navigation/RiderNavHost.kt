@@ -22,6 +22,8 @@ import com.riders.rider.core.design.RidersDialogBody
 import com.riders.rider.core.design.RidersDialogTextButton
 import com.riders.rider.core.design.RidersDialogTitle
 import com.riders.rider.core.design.rememberRidersMotion
+import com.riders.rider.core.network.ApiError
+import com.riders.rider.core.network.text
 import com.riders.rider.feature.auth.domain.DeviceReplacementNotice
 import com.riders.rider.feature.auth.domain.showsSignedOutDialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -37,7 +39,12 @@ import com.riders.rider.feature.delivery.presentation.DeliveryScreen
 import com.riders.rider.feature.onboarding.presentation.OnboardingScreen
 
 @Composable
-fun RiderNavHost(signedIn: Boolean, notice: String? = null) {
+fun RiderNavHost(
+    signedIn: Boolean,
+    notice: String? = null,
+    sessionUncertain: Boolean = false,
+    onSignInAgain: () -> Unit = {},
+) {
     val motion = rememberRidersMotion()
     val sessionMs = motion.millis(RiderTransition.DeliveryForward)
     AnimatedContent(
@@ -53,13 +60,18 @@ fun RiderNavHost(signedIn: Boolean, notice: String? = null) {
         label = "rider-session",
     ) { signed ->
         key(signed) {
-            RiderGraph(signed, notice)
+            RiderGraph(signed, notice, sessionUncertain, onSignInAgain)
         }
     }
 }
 
 @Composable
-private fun RiderGraph(signedIn: Boolean, notice: String?) {
+private fun RiderGraph(
+    signedIn: Boolean,
+    notice: String?,
+    sessionUncertain: Boolean,
+    onSignInAgain: () -> Unit,
+) {
     val controller = rememberNavController()
     var showSignedOut by remember(notice) { mutableStateOf(showsSignedOutDialog(notice)) }
     val motion = rememberRidersMotion()
@@ -235,6 +247,20 @@ private fun RiderGraph(signedIn: Boolean, notice: String?) {
             showSignedOut = false
             DeviceReplacementNotice.clear()
         })
+    }
+    if (signedIn) {
+        SessionRecoveryDialog(visible = sessionUncertain, onSignInAgain = onSignInAgain)
+    }
+}
+
+@Composable
+private fun SessionRecoveryDialog(visible: Boolean, onSignInAgain: () -> Unit) {
+    RidersDialog(visible = visible, onDismiss = {}) {
+        RidersDialogTitle("Sign in again")
+        RidersDialogBody(ApiError.SessionUncertain.text())
+        RidersDialogActions {
+            RidersDialogTextButton(label = "Sign in again", onClick = onSignInAgain)
+        }
     }
 }
 

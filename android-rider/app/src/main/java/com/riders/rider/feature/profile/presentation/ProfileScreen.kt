@@ -33,6 +33,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -43,6 +44,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
@@ -53,6 +55,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -60,6 +64,7 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.riders.rider.R
@@ -155,6 +160,7 @@ fun ProfileScreen(
     }
     LaunchedEffect(Unit) { model.refresh(force = false) }
     var confirmRemove by rememberSaveable { mutableStateOf(false) }
+    var confirmLogout by rememberSaveable { mutableStateOf(false) }
     var editingAddress by rememberSaveable { mutableStateOf(false) }
     val board = ui.board
     val hasProfile = board.fullName.isNotBlank() || board.onboarding != null
@@ -209,15 +215,16 @@ fun ProfileScreen(
             ) {
                 Spacer(Modifier.height(mapGap))
                 Box(Modifier.fillMaxWidth()) {
-                    Column(
-                        Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = sheetMinHeight)
-                            .padding(top = avatarOverlap)
-                            .clip(sheetShape)
-                            .background(RidersColors.background)
-                            .padding(top = avatarOverlap, bottom = RidersSpacing.lg),
-                    ) {
+            val profilePageState = !hasProfile && ((ui.loading || !board.loaded) || board.error != null)
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .then(if (profilePageState) Modifier.height(sheetMinHeight) else Modifier.heightIn(min = sheetMinHeight))
+                    .padding(top = avatarOverlap)
+                    .clip(sheetShape)
+                    .background(RidersColors.background)
+                    .padding(top = avatarOverlap, bottom = RidersSpacing.lg),
+            ) {
             ProfileHeader(
                 name = board.fullName,
                 onboarding = board.onboarding,
@@ -236,46 +243,64 @@ fun ProfileScreen(
                     modifier = Modifier.padding(horizontal = RidersSpacing.lg),
                 )
             }
+            if (!hasProfile && (ui.loading || !board.loaded)) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .padding(horizontal = RidersSpacing.lg),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    RidersLoadingState("Loading your profile")
+                }
+            } else if (!hasProfile && board.error != null) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .padding(horizontal = RidersSpacing.lg),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    RidersFailureNotice(
+                        message = board.error.orEmpty(),
+                        title = "Profile unavailable",
+                        onRetry = { model.refresh(force = true) },
+                    )
+                }
+            } else {
             Column(
                 Modifier
                     .padding(horizontal = RidersSpacing.lg)
                     .padding(top = if (hasProfile) RidersSpacing.lg else RidersSpacing.xl),
                 verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
             ) {
-                when {
-                    !hasProfile && (ui.loading || !board.loaded) -> RidersLoadingState("Loading your profile")
-                    !hasProfile && board.error != null -> RidersFailureNotice(
+                if (board.error != null) {
+                    RidersFailureNotice(
                         message = board.error.orEmpty(),
-                        title = "Profile unavailable",
                         onRetry = { model.refresh(force = true) },
                     )
-                    else -> {
-                        if (board.error != null) {
-                            RidersFailureNotice(
-                                message = board.error.orEmpty(),
-                                onRetry = { model.refresh(force = true) },
-                            )
-                        }
-                        ui.photo.error?.let { message ->
-                            RidersErrorState(
-                                message = message,
-                                retryLabel = if (ui.photo.retry != null) "Try again" else null,
-                                onRetry = model::retryPhoto,
-                            )
-                        }
-                        RidersSecondaryButton(
-                            label = "Log out",
-                            onClick = model::logout,
-                            enabled = !ui.signingOut,
-                            loading = ui.signingOut,
-                            tone = RidersButtonTone.Danger,
-                            bordered = false,
-                            icon = R.drawable.ic_logout_outline,
-                            regular = true,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
                 }
+                ui.photo.error?.let { message ->
+                    RidersErrorState(
+                        message = message,
+                        retryLabel = if (ui.photo.retry != null) "Try again" else null,
+                        onRetry = model::retryPhoto,
+                    )
+                }
+                RidersSecondaryButton(
+                    label = "Log out",
+                    onClick = { confirmLogout = true },
+                    enabled = !ui.signingOut,
+                    loading = ui.signingOut,
+                    loadingLabel = "Logging out",
+                    tone = RidersButtonTone.Danger,
+                    bordered = false,
+                    containerColor = RidersColors.background,
+                    icon = R.drawable.ic_logout_outline,
+                    regular = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
             }
                     }
                     ProfileAvatarOverlap(
@@ -287,6 +312,27 @@ fun ProfileScreen(
                         modifier = Modifier.align(Alignment.TopCenter),
                     )
                 }
+            }
+        }
+    }
+    if (confirmLogout) {
+        RidersDialog(visible = true, onDismiss = { confirmLogout = false }) {
+            RidersDialogTitle("Log out?")
+            RidersDialogBody("You will stop receiving requests on this phone.")
+            RidersDialogActions {
+                RidersDialogTextButton(
+                    label = "Stay signed in",
+                    tone = RidersDialogTone.Neutral,
+                    onClick = { confirmLogout = false },
+                )
+                RidersDialogTextButton(
+                    label = "Log out",
+                    tone = RidersDialogTone.Danger,
+                    onClick = {
+                        confirmLogout = false
+                        model.logout()
+                    },
+                )
             }
         }
     }
@@ -327,6 +373,7 @@ private fun ProfileAvatarOverlap(
             name = name,
             photo = photo,
             busy = !canStartProfilePhotoAction(photoState),
+            removing = photoState.phase == ProfilePhotoPhase.Removing,
             onChangePhoto = onChangePhoto,
         )
         if (photoState.hasStoredPhoto && canStartProfilePhotoAction(photoState)) {
@@ -390,13 +437,13 @@ private fun ProfileHeader(
                 }
                 Text(
                     name.ifBlank { "Profile" },
-                    style = RidersType.title,
+                    style = ProfileName,
                     color = RidersColors.text,
                     textAlign = TextAlign.Center,
                 )
                 Text(
                     pill,
-                    style = RidersType.captionStrong,
+                    style = ProfileBadge,
                     color = pillColor,
                     modifier = Modifier
                         .clip(RoundedCornerShape(RidersRadius.pill))
@@ -411,6 +458,7 @@ private fun ProfileAvatar(
     name: String,
     photo: Bitmap?,
     busy: Boolean,
+    removing: Boolean = false,
     onChangePhoto: () -> Unit,
 ) {
     Box(
@@ -428,15 +476,32 @@ private fun ProfileAvatar(
             ),
         contentAlignment = Alignment.Center,
     ) {
-        if (photo != null) {
-            Image(
-                bitmap = photo.asImageBitmap(),
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
-            )
-        } else {
-            Text(profileInitials(name), style = RidersType.title, color = RidersColors.textInverse)
+        Box(Modifier.fillMaxSize().alpha(if (removing) 0.6f else 1f), contentAlignment = Alignment.Center) {
+            if (photo != null) {
+                Image(
+                    bitmap = photo.asImageBitmap(),
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                )
+            } else {
+                Text(profileInitials(name), style = RidersType.title, color = RidersColors.textInverse)
+            }
+        }
+        if (removing) {
+            Box(
+                Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.45f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(22.dp),
+                    color = RidersColors.textInverse,
+                    strokeWidth = 2.dp,
+                )
+            }
         }
     }
 }
@@ -480,8 +545,9 @@ private fun AddressEditor(
             label = "Cancel",
             onClick = onCancel,
             enabled = !saving,
-            tone = RidersButtonTone.Danger,
             bordered = false,
+            containerColor = Color(0xFFF1F3F4),
+            contentColor = Color(0xFF374151),
             regular = true,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -515,9 +581,9 @@ private fun DetailsCard(
             label = "WhatsApp number",
         ) {
             if (phone.isBlank()) {
-                Text("Verified phone", style = RidersType.bodyStrong, color = RidersColors.text)
+                Text("Verified phone", style = ProfileValue, color = RidersColors.text)
             } else {
-                Text(phone, style = RidersType.bodyStrong, color = RidersColors.text)
+                Text(phone, style = ProfileValue, color = RidersColors.text)
             }
         }
         InfoRow(
@@ -668,11 +734,11 @@ private fun InfoRow(
             tint = RidersColors.text,
         )
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs)) {
-            Text(label, style = RidersType.caption, color = RidersColors.textSecondary)
+            Text(label, style = ProfileLabel, color = RidersColors.textSecondary)
             if (valueContent != null) {
                 valueContent()
             } else {
-                Text(value.orEmpty(), style = RidersType.bodyStrong, color = RidersColors.text)
+                Text(value.orEmpty(), style = ProfileValue, color = RidersColors.text)
             }
             if (caption != null) {
                 Text(caption, style = RidersType.caption, color = RidersColors.textSecondary)
@@ -697,6 +763,11 @@ private fun InfoRow(
         }
     }
 }
+
+private val ProfileName = TextStyle(fontSize = 26.sp, lineHeight = 32.sp, fontWeight = FontWeight.Bold)
+private val ProfileBadge = TextStyle(fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium)
+private val ProfileLabel = TextStyle(fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Normal)
+private val ProfileValue = TextStyle(fontSize = 17.sp, lineHeight = 22.sp, fontWeight = FontWeight.Normal)
 
 private fun profileInitials(name: String): String {
     val letters = name.trim().split(Regex("\\s+")).mapNotNull { word ->

@@ -1,7 +1,6 @@
 package com.riders.rider.feature.bids.presentation
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -25,7 +24,7 @@ import kotlinx.coroutines.isActive
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -35,7 +34,15 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.riders.rider.R
 import com.riders.rider.core.design.RidersCard
+import com.riders.rider.core.design.RidersDialog
+import com.riders.rider.core.design.RidersDialogActions
+import com.riders.rider.core.design.RidersDialogBody
+import com.riders.rider.core.design.RidersDialogTextButton
+import com.riders.rider.core.design.RidersDialogTitle
+import com.riders.rider.core.design.RidersDialogTone
+import com.riders.rider.core.design.RidersInlineAction
 import com.riders.rider.core.design.RidersColors
+import com.riders.rider.core.design.RidersCenteredContent
 import com.riders.rider.core.design.RidersEmptyState
 import com.riders.rider.core.design.RidersFailureNotice
 import com.riders.rider.core.design.RidersLoadingState
@@ -72,6 +79,7 @@ fun BidBoardScreen(
     model: BidBoardViewModel = hiltViewModel(),
 ) {
     val ui by model.ui.collectAsStateWithLifecycle()
+    var confirmWithdraw by remember { mutableStateOf<String?>(null) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var appVisible by remember { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) }
     DisposableEffect(lifecycle) {
@@ -103,7 +111,39 @@ fun BidBoardScreen(
     }
     val pending = pendingBids(ui.bids)
     val phase = bidBoardPhase(ui.loading, requestCount = 0, bidCount = pending.size, error = ui.error)
-    RidersPullRefresh(refreshing = ui.refreshing, onRefresh = model::refresh, modifier = modifier) {
+    val shown = sortDeliveries(
+        pending.filter { deliveryContentMatches(it.parcelDescription, contentKind) },
+        sort,
+        { it.createdAt },
+        { it.distanceMeters },
+        { it.amount },
+        { it.bidId },
+    )
+    val centered = phase != BidBoardPhase.Ready || shown.isEmpty()
+    RidersPullRefresh(refreshing = ui.refreshing, onRefresh = model::pullRefresh, modifier = modifier) {
+        if (centered) {
+            RidersCenteredContent(
+                Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = RidersSpacing.lg)
+                    .padding(bottom = RidersSpacing.lg),
+            ) {
+                when (phase) {
+                    BidBoardPhase.Loading -> RidersLoadingState("Loading your offers")
+                    BidBoardPhase.Failed -> RidersFailureNotice(
+                        message = ui.error.orEmpty(),
+                        title = "Offers unavailable",
+                        onRetry = model::refresh,
+                    )
+                    else -> RidersEmptyState(
+                        title = filteredContentTitle(contentKind, "No pending offers"),
+                        body = "Offers awaiting customer responses will appear here.",
+                        image = R.drawable.parcel_box,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        } else {
         Column(
             Modifier
                 .fillMaxSize()
@@ -112,65 +152,55 @@ fun BidBoardScreen(
                 .padding(bottom = RidersSpacing.lg),
             verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
         ) {
-            when (phase) {
-                BidBoardPhase.Loading -> RidersLoadingState("Loading your offers")
-                BidBoardPhase.Failed -> RidersFailureNotice(
-                    message = ui.error.orEmpty(),
-                    title = "Offers unavailable",
-                    onRetry = model::refresh,
-                )
-                BidBoardPhase.Empty -> RidersEmptyState(
-                    title = filteredContentTitle(contentKind, "No pending offers"),
-                    body = "Offers awaiting customer responses will appear here.",
-                    image = R.drawable.parcel_box,
+            Text(
+                AWAITING_CUSTOMER_RESPONSE,
+                style = RidersType.captionStrong,
+                color = Color(0xFFB45309),
+            )
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(RidersSpacing.md)) {
+                shown.forEach { bid ->
+                    OwnBidRow(
+                        bid = bid,
+                        withdrawing = ui.withdrawingBidId == bid.bidId,
+                        onWithdraw = { confirmWithdraw = bid.bidId },
+                    )
+                }
+            }
+            if (ui.nextCursor != null) {
+                RidersSecondaryButton(
+                    label = "More offers",
+                    onClick = model::loadMore,
+                    enabled = !ui.loadingMore,
+                    loading = ui.loadingMore,
+                    loadingLabel = "Loading offers",
                     modifier = Modifier.fillMaxWidth(),
                 )
-                BidBoardPhase.Ready -> {
-                    val shown = sortDeliveries(
-                        pending.filter { deliveryContentMatches(it.parcelDescription, contentKind) },
-                        sort,
-                        { it.createdAt },
-                        { it.distanceMeters },
-                        { it.amount },
-                        { it.bidId },
-                    )
-                    if (shown.isEmpty()) {
-                        RidersEmptyState(
-                            title = filteredContentTitle(contentKind, "No pending offers"),
-                            body = "Offers awaiting customer responses will appear here.",
-                            image = R.drawable.parcel_box,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                    if (shown.isNotEmpty()) {
-                        Text(
-                            AWAITING_CUSTOMER_RESPONSE,
-                            style = RidersType.captionStrong,
-                            color = Color(0xFFB45309),
-                        )
-                    }
-                    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(RidersSpacing.md)) {
-                        shown.forEach { bid ->
-                            OwnBidRow(
-                                bid = bid,
-                                withdrawing = ui.withdrawingBidId == bid.bidId,
-                                onWithdraw = { model.withdraw(bid.bidId) },
-                            )
-                        }
-                    }
-                    if (ui.nextCursor != null) {
-                        RidersSecondaryButton(
-                            label = if (ui.loadingMore) "Loading offers" else "More offers",
-                            onClick = model::loadMore,
-                            enabled = !ui.loadingMore,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                }
             }
             if (ui.error != null && pending.isNotEmpty()) {
                 RidersFailureNotice(message = ui.error.orEmpty(), onRetry = model::refresh)
             }
+        }
+        }
+    }
+    val pendingWithdraw = confirmWithdraw
+    RidersDialog(visible = pendingWithdraw != null, onDismiss = { confirmWithdraw = null }) {
+        RidersDialogTitle("Withdraw offer?")
+        RidersDialogBody("The customer will no longer see this offer.")
+        RidersDialogActions {
+            RidersDialogTextButton(
+                label = "Keep offer",
+                tone = RidersDialogTone.Neutral,
+                onClick = { confirmWithdraw = null },
+            )
+            RidersDialogTextButton(
+                label = "Withdraw",
+                tone = RidersDialogTone.Danger,
+                onClick = {
+                    val bidId = pendingWithdraw ?: return@RidersDialogTextButton
+                    confirmWithdraw = null
+                    model.withdraw(bidId)
+                },
+            )
         }
     }
 }
@@ -217,11 +247,14 @@ private fun OwnBidRow(
 @Composable
 private fun WithdrawAction(withdrawing: Boolean, onWithdraw: () -> Unit) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-        Text(
-            if (withdrawing) "Withdrawing" else "Withdraw",
-            style = RidersType.captionStrong,
+        RidersInlineAction(
+            label = "Withdraw",
+            loadingLabel = "Withdrawing",
+            loading = withdrawing,
+            onClick = onWithdraw,
             color = RidersColors.error,
-            modifier = Modifier.clickable(enabled = !withdrawing, role = Role.Button, onClick = onWithdraw),
+            style = RidersType.captionStrong,
+            textAlign = TextAlign.End,
         )
     }
 }

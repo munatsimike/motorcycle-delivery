@@ -5,6 +5,7 @@ import com.riders.rider.feature.offers.domain.OFFER_NOTICE_TITLE
 import com.riders.rider.feature.offers.domain.REQUEST_UNAVAILABLE
 import com.riders.rider.feature.offers.domain.notificationRequestCanOpen
 import com.riders.rider.feature.offers.domain.notificationTapCanOpen
+import com.riders.rider.feature.offers.domain.offerAttemptKey
 import com.riders.rider.feature.offers.domain.offerNotificationId
 import com.riders.rider.feature.offers.domain.CUSTOMER_CANCELLED_BODY
 import com.riders.rider.feature.offers.domain.RiderNoticeAction
@@ -96,5 +97,29 @@ class RiderOfferNoticeTest {
         assertEquals(RiderNoticeAction.Ignore, riderNoticeAction(parseRiderNotice(mapOf("type" to "unknown"))))
         assertEquals(RiderNoticeAction.Ignore, riderNoticeAction(null))
         assertEquals("The customer cancelled the delivery.", CUSTOMER_CANCELLED_BODY)
+    }
+
+    @Test
+    fun aNewSearchAttemptForTheSameDeliveryShowsAgain() {
+        val firstAttempt = offerAttemptKey("delivery-1", "2026-10-28T11:06:00.000Z")
+        val shown = rememberShownOffer(emptyList(), firstAttempt)
+        assertEquals(listOf(firstAttempt), shown)
+        assertNull(rememberShownOffer(shown!!, offerAttemptKey(" delivery-1 ", "2026-10-28T11:06:00.000Z")))
+        val renewed = rememberShownOffer(shown, offerAttemptKey("delivery-1", "2026-10-28T12:06:00.000Z"))
+        assertEquals(offerAttemptKey("delivery-1", "2026-10-28T12:06:00.000Z"), renewed?.first())
+        val blank = offerAttemptKey("delivery-1", "  ")
+        assertEquals("offer:delivery-1:", blank)
+        assertEquals(blank, offerAttemptKey("delivery-1", null))
+        assertEquals("offer:delivery-1:not-a-date", offerAttemptKey("delivery-1", "not-a-date"))
+        val blankShown = rememberShownOffer(emptyList(), blank)
+        assertNull(rememberShownOffer(blankShown!!, offerAttemptKey("delivery-1", null)))
+        val action = riderNoticeAction(parseRiderNotice(mapOf(
+            "type" to "rider_offer",
+            "deliveryId" to "delivery-1",
+            "expiresAt" to "2026-10-28T11:06:00.000Z",
+        )))
+        assertEquals(RiderNoticeAction.ShowOffer("delivery-1", "2026-10-28T11:06:00.000Z"), action)
+        assertEquals(offerNotificationId("delivery-1"), offerNotificationId("delivery-1"))
+        assertTrue(notificationTapCanOpen(listed = true, expiresAt = "2026-10-28T12:06:00.000Z", nowMillis = 1_700_000_000_000L))
     }
 }

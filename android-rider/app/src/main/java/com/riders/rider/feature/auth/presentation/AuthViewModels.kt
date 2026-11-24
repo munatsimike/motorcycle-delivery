@@ -37,6 +37,7 @@ data class FormState(
     val useExistingLogin: Boolean = false,
     val whatsapp: Boolean = false,
     val secondsRemaining: Int = 0,
+    val resending: Boolean = false,
 )
 
 @HiltViewModel
@@ -154,6 +155,9 @@ class OtpViewModel @Inject constructor(
     }
 
     fun submit(flow: String, phone: String, code: String) {
+        if (state.value.loading || state.value.resending) {
+            return
+        }
         if (!isVerificationCode(code)) {
             state.value = FormState(error = "Verification code is invalid", secondsRemaining = remainingSeconds())
             return
@@ -181,11 +185,11 @@ class OtpViewModel @Inject constructor(
         if (flow != "whatsapp" && flow != "whatsapp_login" && flow != "login") {
             return
         }
-        if (state.value.loading || remainingSeconds() > 0) {
+        if (state.value.loading || state.value.resending || remainingSeconds() > 0) {
             return
         }
         viewModelScope.launch {
-            state.value = FormState(loading = true, secondsRemaining = remainingSeconds())
+            state.value = state.value.copy(resending = true, error = null, secondsRemaining = remainingSeconds())
             state.value = when (val result = auth.resend(flow, phone)) {
                 is ApiResult.Ok -> {
                     beginResendCooldown()
@@ -218,6 +222,7 @@ private const val RESEND_COOLDOWN_MS = 60_000L
 data class SessionUi(
     val entry: AppEntry = AppEntry.SignedOut,
     val notice: String? = null,
+    val sessionUncertain: Boolean = false,
 )
 
 @HiltViewModel
@@ -238,6 +243,9 @@ class SessionViewModel @Inject constructor(
                 publish()
             }
         }
+        viewModelScope.launch {
+            sessions.refreshUncertain.collect { publish() }
+        }
     }
 
     private fun publish() {
@@ -248,6 +256,7 @@ class SessionViewModel @Inject constructor(
         state.value = SessionUi(
             entry = appEntry(signedIn),
             notice = if (signedIn) null else DeviceReplacementNotice.peek(),
+            sessionUncertain = signedIn && sessions.refreshUncertain.value,
         )
     }
 }

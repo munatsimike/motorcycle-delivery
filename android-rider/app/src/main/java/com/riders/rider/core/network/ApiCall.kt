@@ -48,12 +48,13 @@ private inline fun <reified T : Throwable> Throwable.findCause(): T? {
 
 private fun refreshFailure(failure: RefreshAttempt): ApiError {
     return when (failure) {
-        RefreshAttempt.TimedOut -> ApiError.Timeout
+        RefreshAttempt.TimedOut,
+        RefreshAttempt.Unreachable,
+        RefreshAttempt.Uncertain,
+        -> ApiError.SessionUncertain
         RefreshAttempt.Unavailable -> ApiError.Unexpected("The server could not refresh your session. Try again.")
-        RefreshAttempt.Unreachable -> ApiError.Network
-        is RefreshAttempt.Success,
-        RefreshAttempt.Rejected,
-        -> ApiError.Network
+        RefreshAttempt.Rejected -> ApiError.SessionEnded
         RefreshAttempt.Replaced -> ApiError.SignedInElsewhere
+        is RefreshAttempt.Success -> ApiError.Unexpected("The server could not refresh your session. Try again.")
     }
 }

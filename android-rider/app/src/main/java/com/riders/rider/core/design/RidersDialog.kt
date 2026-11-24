@@ -6,6 +6,8 @@ import android.view.WindowManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,18 +15,15 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -32,6 +31,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
@@ -97,7 +97,8 @@ fun RidersDialog(
                     .clip(RoundedCornerShape(RidersRadius.xl))
                     .background(RidersColors.sheet)
                     .clickable(interactionSource = cardTouch, indication = null, onClick = {})
-                    .padding(RidersSpacing.xl),
+                    .padding(RidersSpacing.xl)
+                    .verticalScroll(rememberScrollState(), overscrollEffect = null),
                 verticalArrangement = Arrangement.spacedBy(RidersSpacing.md),
                 content = content,
             )
@@ -148,25 +149,27 @@ fun RidersDialogTextButton(
     loading: Boolean = false,
     regular: Boolean = false,
 ) {
+    val dismiss = tone == RidersDialogTone.Neutral
     val color = when (tone) {
         RidersDialogTone.Danger -> RidersColors.error
-        RidersDialogTone.Neutral -> RidersColors.textSecondary
+        RidersDialogTone.Neutral -> Color(0xFF374151)
         RidersDialogTone.Primary -> RidersColors.primary
     }
-    val weight = if (tone == RidersDialogTone.Neutral) FontWeight.Medium else FontWeight.Bold
+    val fill = if (dismiss) Color(0xFFF1F3F4) else Color.Transparent
+    val weight = if (dismiss) FontWeight.Medium else FontWeight.Bold
+    val inactive = !enabled || loading
     TextButton(
         onClick = onClick,
-        enabled = enabled && !loading,
+        enabled = !inactive,
+        modifier = Modifier.alpha(if (inactive) 0.6f else 1f),
         contentPadding = PaddingValues(horizontal = RidersSpacing.xs, vertical = RidersSpacing.sm),
+        colors = ButtonDefaults.textButtonColors(
+            containerColor = fill,
+            contentColor = color,
+            disabledContainerColor = fill,
+            disabledContentColor = color,
+        ),
     ) {
-        if (loading) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(16.dp),
-                strokeWidth = 2.dp,
-                color = color,
-            )
-            Spacer(Modifier.width(RidersSpacing.xs))
-        }
         Text(label, color = color, style = RidersType.button.copy(fontWeight = weight))
     }
 }
