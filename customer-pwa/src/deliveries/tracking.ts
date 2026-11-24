@@ -213,7 +213,7 @@ export function arrivalLabel(seconds: number): string | null {
 const EARTH_RADIUS_METRES = 6_371_000;
 /** Straight-line arrival at the active pickup or drop-off. */
 export const ARRIVAL_METRES = 50;
-export const PICKUP_ARRIVED_TAG = '0 m · 0 min';
+export const PICKUP_ARRIVED_TAG = 'Arrived';
 
 export function withinArrival(metres: number | null | undefined): boolean {
   return metres != null && Number.isFinite(metres) && metres >= 0 && metres <= ARRIVAL_METRES;

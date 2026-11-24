@@ -406,7 +406,7 @@ test('missing or stale GPS does not claim the rider has arrived', () => {
   assert.equal(trackingHeadline(unpinned.status, pickupStraightLineMetres(unpinned, NOW)), 'Rider coming');
 });
 
-test('the distance tag shows zero only inside 50 metres', () => {
+test('the distance tag says Arrived only inside 50 metres', () => {
   const fresh = new Date(NOW - 10_000).toISOString();
   const at = (metres: number, status: CustomerDeliveryDetail['status'] = 'COLLECTING') => detail({
     status,
@@ -424,9 +424,9 @@ test('the distance tag shows zero only inside 50 metres', () => {
   const far = tag(at(150));
   assert.equal(far.headline, 'Rider coming');
   assert.equal(far.tag, '477 m · 2 min');
-  assert.equal(tag(at(49)).tag, '0 m · 0 min');
+  assert.equal(tag(at(49)).tag, 'Arrived');
   assert.equal(tag(at(49)).headline, 'Rider arrived');
-  assert.equal(tag(at(50)).tag, '0 m · 0 min');
+  assert.equal(tag(at(50)).tag, 'Arrived');
   assert.equal(tag(at(50)).headline, 'Rider arrived');
   assert.equal(tag(at(51)).tag, '477 m · 2 min');
   assert.equal(tag(at(51)).headline, 'Rider coming');
@@ -450,9 +450,9 @@ test('the distance tag shows zero only inside 50 metres', () => {
     pickupApproach: { metres: 477, seconds: 120, line: [] },
   });
   assert.equal(dropoffStraightLineMetres(delivering(49), NOW), 49);
-  assert.equal(tag(delivering(49)).tag, '0 m · 0 min');
+  assert.equal(tag(delivering(49)).tag, 'Arrived');
   assert.equal(tag(delivering(49)).headline, 'Parcel collected');
-  assert.equal(tag(delivering(50)).tag, '0 m · 0 min');
+  assert.equal(tag(delivering(50)).tag, 'Arrived');
   assert.equal(tag(delivering(51)).tag, '477 m · 2 min');
   assert.equal(trackingHeadline('COLLECTED', dropoffStraightLineMetres(delivering(51), NOW)), 'Parcel collected');
   const staleDropoff = delivering(10, new Date(NOW - 61_000).toISOString());
