@@ -11,7 +11,9 @@ import { isSessionRejection } from '../auth/contracts';
 import { rememberReturnPath } from '../auth/returnPath';
 import { useSession } from '../auth/sessionContext';
 import { Button } from '../components/Button';
+import { BackIcon } from '../components/icons';
 import { ButtonSpinner } from '../components/ButtonSpinner';
+import { pageActionFeedback } from '../components/buttonState';
 import { ErrorMessage } from '../components/ErrorMessage';
 import { Loading } from '../components/Loading';
 import { ZimbabwePhoneField } from '../components/ZimbabwePhoneField';
@@ -145,9 +147,7 @@ export function AddressEditorPage() {
     <section className="book address-editor-page page-stage is-entering">
       <header className="book-header">
         <button type="button" className="book-back" aria-label="Back" onClick={() => beginPageTransition(() => navigate('/addresses'))}>
-          <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" fill="currentColor" />
-          </svg>
+          <BackIcon />
         </button>
         <h1>{editing ? 'Edit address' : 'Add address'}</h1>
       </header>
@@ -203,7 +203,7 @@ export function AddressEditorPage() {
                   }}
                 />
               ) : null}
-              <Button type="button" disabled={saving} onClick={() => { void save(); }}>{saving ? <><ButtonSpinner />Saving…</> : 'Save address'}</Button>
+              <Button type="button" disabled={saving} onClick={() => { void save(); }}>{saving ? <><ButtonSpinner />{pageActionFeedback('save', true)?.label}</> : 'Save address'}</Button>
             </>
           )}
         </div>

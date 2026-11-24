@@ -133,7 +133,7 @@ export function deliveryCanSearchAgain(
 
 export function deliveryStatusTone(status: DeliveryStatus, offersReceived = false): { background: string; color: string } {
   if (offersReceived) return STATUS_TONES.RIDER_ASSIGNED;
-  if (status === 'NO_RIDER_FOUND') return { background: '#FFF3DF', color: '#D97706' };
+  if (status === 'NO_RIDER_FOUND') return { background: 'var(--warning-surface)', color: 'var(--warning)' };
   return STATUS_TONES[status];
 }
 

@@ -15,6 +15,7 @@ import { AuthBack } from '../components/AuthBack';
 import { AuthScreen } from '../components/AuthScreen';
 import { Button } from '../components/Button';
 import { ButtonSpinner } from '../components/ButtonSpinner';
+import { pageActionFeedback } from '../components/buttonState';
 import { ErrorMessage } from '../components/ErrorMessage';
 import { Input } from '../components/Input';
 import { Page } from '../components/Page';
@@ -127,7 +128,7 @@ function RegistrationDetails() {
             />
           </label>
           <Button type="submit" disabled={isLoading}>
-            {isLoading ? <><ButtonSpinner />Creating account</> : 'Create account'}
+            {isLoading ? <><ButtonSpinner />{pageActionFeedback('createAccount', true)?.label}</> : 'Create account'}
           </Button>
         </form>
       </Page>

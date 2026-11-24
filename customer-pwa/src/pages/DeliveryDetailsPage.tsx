@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useSession } from '../auth/sessionContext';
+import { Button } from '../components/Button';
+import { BackIcon, PhoneIcon } from '../components/icons';
+import { ButtonSpinner } from '../components/ButtonSpinner';
+import { modalActionFeedback, pageActionFeedback, searchAgainControl } from '../components/buttonState';
 import { ErrorMessage } from '../components/ErrorMessage';
 import { TopSpinner } from '../components/TopSpinner';
 import { ContentMark, DeliveryLabels } from '../components/DeliveryLabels';
@@ -105,6 +109,9 @@ export function DeliveryDetailsPage() {
   const [routeLine, setRouteLine] = useState<RoutePoint[]>([]);
   const [token, setToken] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const [detailsRetrying, setDetailsRetrying] = useState(false);
+  const [offersRetrying, setOffersRetrying] = useState(false);
+  const retryHold = useRef<'details' | 'offers' | null>(null);
   const latest = useRef<CustomerDeliveryDetail | null>(null);
   const seenOffers = useRef<string[]>([]);
   const dismissedOffers = useRef(new Set<string>());
@@ -293,6 +300,8 @@ export function DeliveryDetailsPage() {
         setToken(null);
         setError('Delivery details are unavailable.');
         setIsLoading(false);
+        setDetailsRetrying(false);
+        setOffersRetrying(false);
         return;
       }
       setToken(token);
@@ -336,18 +345,26 @@ export function DeliveryDetailsPage() {
       } catch (caught) {
         if (!stopped && !latest.current) setError(deliveryErrorMessage(caught, 'Delivery details are unavailable.'));
       } finally {
-        if (!stopped) setIsLoading(false);
+        if (!stopped) {
+          setIsLoading(false);
+          setDetailsRetrying(false);
+          setOffersRetrying(false);
+        }
       }
     }
-    latest.current = null;
-    seenOffers.current = [];
-    if (dismissedDeliveryId.current !== id) {
-      dismissedDeliveryId.current = id;
-      dismissedOffers.current = new Set();
+    const hold = retryHold.current;
+    retryHold.current = null;
+    if (hold !== 'offers') {
+      latest.current = null;
+      seenOffers.current = [];
+      if (dismissedDeliveryId.current !== id) {
+        dismissedDeliveryId.current = id;
+        dismissedOffers.current = new Set();
+      }
+      setOfferNotice(null);
+      setDelivery(null);
+      setIsLoading(true);
     }
-    setOfferNotice(null);
-    setDelivery(null);
-    setIsLoading(true);
     void load();
     const poll = window.setInterval(() => {
       if (document.visibilityState === 'hidden') return;
@@ -492,7 +509,7 @@ export function DeliveryDetailsPage() {
   const declineMotion = usePresence(decline !== null, 150);
   const confirmMotion = usePresence(sheetConfirm, 150);
   const view = detailViewState({ isLoading, error, hasDelivery: delivery !== null });
-  if (view === 'loading') {
+  if (view === 'loading' && !detailsRetrying) {
     return (
       <div className="track page-stage is-entering">
         <div className="track-loading">
@@ -506,12 +523,10 @@ export function DeliveryDetailsPage() {
     return (
       <div className="track page-stage is-entering">
         <Link className="fullscreen-back" to="/deliveries" aria-label="Back">
-          <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z" fill="currentColor" />
-          </svg>
+          <BackIcon />
         </Link>
         <ErrorMessage>{error ?? 'Delivery details are unavailable.'}</ErrorMessage>
-        <button type="button" className="deliveries-retry" onClick={() => setAttempt((value) => value + 1)}>Try again</button>
+        <Button type="button" variant="secondary" size="compact" disabled={detailsRetrying} onClick={() => { if (retryHold.current || detailsRetrying) return; retryHold.current = 'details'; setDetailsRetrying(true); setAttempt((value) => value + 1); }}>{detailsRetrying ? <><ButtonSpinner />{pageActionFeedback('retry', true)?.label}</> : 'Try again'}</Button>
       </div>
     );
   }
@@ -786,9 +801,7 @@ export function DeliveryDetailsPage() {
     <div className={screen === 'tracking' ? 'track track-live page-stage is-entering' : showsMap ? 'track page-stage is-entering' : 'track track-plain page-stage is-entering'}>
       {showsMap ? null : <div className="track-wash" aria-hidden="true" />}
       <Link className="fullscreen-back" to="/deliveries" aria-label="Back">
-        <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z" fill="currentColor" />
-        </svg>
+        <BackIcon />
       </Link>
       {showsCompletedRoute(delivery) ? (
         <TrackingMap
@@ -949,7 +962,7 @@ export function DeliveryDetailsPage() {
             ) : null}
             {offersError ? <ErrorMessage>{offersError}</ErrorMessage> : null}
             {offersLoaded && offersError && orderedOffers.length === 0 ? (
-              <button type="button" className="deliveries-retry" onClick={() => setAttempt((value) => value + 1)}>Retry</button>
+              <Button type="button" variant="secondary" size="compact" disabled={offersRetrying} onClick={() => { if (retryHold.current || offersRetrying) return; retryHold.current = 'offers'; setOffersRetrying(true); setAttempt((value) => value + 1); }}>{offersRetrying ? <><ButtonSpinner />{pageActionFeedback('retry', true)?.label}</> : 'Retry'}</Button>
             ) : null}
             {offersLoaded && !offersError && orderedOffers.length === 0 ? (
               <div className="offers-empty">
@@ -992,8 +1005,8 @@ export function DeliveryDetailsPage() {
                 </div>
                 {canAccept ? (
                 <div className="offer-actions">
-                  <button type="button" className="offer-decline" disabled={busy || responseElapsed} onClick={(event) => { if (busy || responseElapsed) return; setDeclineError(null); declineTriggerRef.current = event.currentTarget; setDecline(bid); }}>Decline</button>
-                  <button type="button" className="offer-choose" disabled={busy || responseElapsed} onClick={(event) => { if (busy || responseElapsed) return; setConfirmError(null); chooseTriggerRef.current = event.currentTarget; setConfirm(bid); }}>Choose Rider</button>
+                  <Button type="button" variant="tertiary" size="compact" disabled={busy || responseElapsed} onClick={(event) => { if (busy || responseElapsed) return; setDeclineError(null); declineTriggerRef.current = event.currentTarget; setDecline(bid); }}>{busy && decline?.id === bid.id ? <><ButtonSpinner />{pageActionFeedback('decline', true)?.label}</> : 'Decline'}</Button>
+                  <Button type="button" size="compact" disabled={busy || responseElapsed} onClick={(event) => { if (busy || responseElapsed) return; setConfirmError(null); chooseTriggerRef.current = event.currentTarget; setConfirm(bid); }}>{busy && typeof confirm === 'object' && confirm?.id === bid.id ? <><ButtonSpinner />{pageActionFeedback('choose', true)?.label}</> : 'Choose Rider'}</Button>
                 </div>
                 ) : <p>This offer is no longer available.</p>}
               </article>
@@ -1002,10 +1015,10 @@ export function DeliveryDetailsPage() {
           </div>
         ) : null}
         <div className={screen === 'outcome' ? 'outcome-actions' : screen === 'tracking' || screen === 'offers' ? 'track-actions track-footer' : 'track-actions'}>
-          {actions.cancel || actions.offers ? <button className="track-cancel-action" ref={cancelTriggerRef} type="button" onClick={() => { if (busyRef.current) return; setConfirmError(null); setConfirm('cancel'); }}>{busy ? 'Cancelling' : actions.offers ? 'Cancel request' : 'Cancel delivery'}</button> : null}
+          {actions.cancel || actions.offers ? <Button ref={cancelTriggerRef} type="button" variant="destructive" size="compact" disabled={busy} onClick={() => { if (busyRef.current) return; setConfirmError(null); setConfirm('cancel'); }}>{busy && confirm === 'cancel' ? <><ButtonSpinner />{pageActionFeedback('cancel', true)?.label}</> : actions.offers ? 'Cancel request' : 'Cancel delivery'}</Button> : null}
           {actions.searchAgain && cooldownSeconds > 0 ? <div className="offer-response-timer"><span>You can search again in</span><strong role="timer">{offerResponseLabel(cooldownSeconds)}</strong></div> : null}
-          {actions.searchAgain ? <button type="button" className="outcome-search" disabled={busy || cooldownSeconds > 0} onClick={() => void searchAgain()}><SearchIcon />{searching ? 'Searching…' : 'Search again'}</button> : null}
-          {actions.deleteRequest ? <button type="button" className="outcome-delete" disabled={busy} onClick={() => { if (busyRef.current) return; setConfirmError(null); setConfirm('delete'); }}>Delete</button> : null}
+          {actions.searchAgain ? <Button type="button" disabled={searchAgainControl({ searching, busy, coolingDown: cooldownSeconds > 0 }).disabled} onClick={() => void searchAgain()}>{searching ? <><ButtonSpinner />{pageActionFeedback('search', true)?.label}</> : <><SearchIcon />Search again</>}</Button> : null}
+          {actions.deleteRequest ? <Button type="button" variant="destructive" size="compact" disabled={busy} onClick={() => { if (busyRef.current) return; setConfirmError(null); setConfirm('delete'); }}>{busy && confirm === 'delete' ? <><ButtonSpinner />{pageActionFeedback('delete', true)?.label}</> : 'Delete'}</Button> : null}
           {actions.adjustPrice && screen !== 'outcome' ? <button type="button" disabled={busy} onClick={openPrice}>Adjust price</button> : null}
           {actions.parcel && screen !== 'outcome' ? <button type="button" className="track-parcel" onClick={() => setParcelOpen(true)}>Parcel details<ChevronUp /></button> : null}
         </div>
@@ -1057,7 +1070,7 @@ export function DeliveryDetailsPage() {
             {confirmError ? <ErrorMessage>{confirmError}</ErrorMessage> : null}
             <div className="confirm-dialog-actions">
               <button ref={keepComparingRef} type="button" className="confirm-keep confirm-dismiss" disabled={busy} onClick={() => { if (busy) return; setConfirmError(null); setConfirm(null); }}>Keep comparing</button>
-              <button type="button" className="confirm-accept" disabled={busy || responseElapsed || !showsRiderOffers(delivery)} onClick={() => void confirmRider(shownRider)}>{busy ? 'Confirming…' : 'Confirm rider'}</button>
+              <button type="button" className="confirm-accept" disabled={busy || responseElapsed || !showsRiderOffers(delivery)} onClick={() => void confirmRider(shownRider)}>{busy ? modalActionFeedback('choose', true)?.label : 'Confirm rider'}</button>
             </div>
           </div>
         </div>
@@ -1079,7 +1092,7 @@ export function DeliveryDetailsPage() {
             {declineError ? <ErrorMessage>{declineError}</ErrorMessage> : null}
             <div className="confirm-dialog-actions">
               <button ref={keepOfferRef} type="button" className="confirm-keep confirm-dismiss" disabled={busy} onClick={() => { if (busy) return; setDeclineError(null); setDecline(null); }}>Keep offer</button>
-              <button type="button" className="confirm-decline" disabled={busy} onClick={() => void declineOffer(shownDecline)}>{busy ? 'Declining…' : 'Decline offer'}</button>
+              <button type="button" className="confirm-decline" disabled={busy} onClick={() => void declineOffer(shownDecline)}>{busy ? modalActionFeedback('decline', true)?.label : 'Decline offer'}</button>
             </div>
           </div>
         </div>
@@ -1092,7 +1105,7 @@ export function DeliveryDetailsPage() {
             {confirmError ? <ErrorMessage>{confirmError}</ErrorMessage> : null}
             <div className="confirm-dialog-actions">
               <button type="button" className="confirm-keep confirm-dismiss" disabled={busy} onClick={() => { if (busy) return; setConfirmError(null); setConfirm(null); }}>Cancel</button>
-              <button type="button" className="confirm-cancel" disabled={busy} onClick={() => void deleteRequest()}>{busy ? 'Confirming' : 'Delete'}</button>
+              <button type="button" className="confirm-cancel" disabled={busy} onClick={() => void deleteRequest()}>{busy ? modalActionFeedback('delete', true)?.label : 'Delete'}</button>
             </div>
           </div>
         </div>
@@ -1128,8 +1141,8 @@ export function DeliveryDetailsPage() {
             </label>
             {priceError ? <ErrorMessage>{priceError}</ErrorMessage> : null}
             <div className="price-sheet-actions">
-              <button type="button" className="price-sheet-cancel" disabled={busy} onClick={() => setPriceOpen(false)}>Cancel</button>
-              <button type="button" className="price-sheet-save" disabled={busy} onClick={() => void savePrice()}>{busy ? 'Saving' : 'Save price'}</button>
+              <button type="button" className="price-sheet-cancel confirm-dismiss" disabled={busy} onClick={() => setPriceOpen(false)}>Cancel</button>
+              <button type="button" className="price-sheet-save confirm-accept" disabled={busy} onClick={() => void savePrice()}>{busy ? modalActionFeedback('save', true)?.label : 'Save price'}</button>
             </div>
           </div>
         </div>
@@ -1177,8 +1190,8 @@ function CancelDeliveryDialog({
         <p id="cancel-delivery-copy">{copy}</p>
         {error ? <ErrorMessage>{error}</ErrorMessage> : null}
         <div className="confirm-dialog-actions">
-          <button ref={keepRef} type="button" className="confirm-keep" disabled={busy} onClick={onDismiss}>{keep}</button>
-          <button type="button" className="confirm-cancel" disabled={busy} onClick={onConfirm}>{busy ? 'Cancelling' : confirm}</button>
+          <button ref={keepRef} type="button" className="confirm-keep confirm-dismiss" disabled={busy} onClick={onDismiss}>{keep}</button>
+          <button type="button" className="confirm-cancel" disabled={busy} onClick={onConfirm}>{busy ? modalActionFeedback('cancel', true)?.label : confirm}</button>
         </div>
       </div>
     </div>
@@ -1218,7 +1231,7 @@ function OutcomeSummary({
         <p>{cancelled ? cancelled.support : delivery.offerResponseExpired ? 'You did not choose a rider in time. Search again to receive new offers.' : deliveryOutcomeSupport(delivery.status)}</p>
       </div>
       {cancelled?.bookAgain ? (
-        <Link className="outcome-search" to="/book" state={{ rebook: bookingDraftFromDelivery(delivery) }}>Book another rider</Link>
+        <Button to="/book" state={{ rebook: bookingDraftFromDelivery(delivery) }}>Book another rider</Button>
       ) : null}
       {cancelled?.contactSupport ? (
         <div className="support-row">
@@ -1379,7 +1392,7 @@ function PinMark({ dropoff }: { dropoff: boolean }) {
 }
 
 function SearchIcon() {
-  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2A4.5 4.5 0 1 0 14 9.5 4.5 4.5 0 0 0 9.5 5Z" fill="currentColor" /></svg>;
+  return <svg className="outcome-search-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2A4.5 4.5 0 1 0 14 9.5 4.5 4.5 0 0 0 9.5 5Z" fill="currentColor" /></svg>;
 }
 
 function ChevronUp() {
@@ -1423,7 +1436,7 @@ function ContactLinks({
   const whatsApp = message ? `${chat}?text=${encodeURIComponent(message)}` : chat;
   return (
     <div className="track-contact">
-      <a className="track-icon-btn" href={call} aria-label={callLabel}><span className="material-symbols-outlined" aria-hidden="true">call</span></a>
+      <a className="track-icon-btn" href={call} aria-label={callLabel}><PhoneIcon /></a>
       <a className="track-icon-btn" href={whatsApp} aria-label={whatsAppLabel}><WhatsAppIcon /></a>
     </div>
   );

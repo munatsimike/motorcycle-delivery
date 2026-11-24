@@ -4,6 +4,7 @@ import { AddressSearchField, AddressSearchToggle } from './AddressSearchField';
 import { AddressTypeFilter, type AddressTypeChoice } from './AddressTypeFilter';
 import { filterSavedAddresses, savedAddressLabel, skipsPlacesLookup, type SavedAddress } from './savedAddress';
 import { ErrorMessage } from '../components/ErrorMessage';
+import { BackIcon } from '../components/icons';
 import { usePresence } from '../motion/usePresence';
 import { deliveryErrorMessage } from '../deliveries/api';
 import { clearStopLocation, type StopDraft } from './draft';
@@ -239,7 +240,7 @@ export function AddressField({
         <div className={selection.visible ? 'book-address-selection is-open' : 'book-address-selection'} role="dialog" aria-modal="true" aria-labelledby="book-address-selection-title">
           <header className="book-address-selection-header">
             <button type="button" className="book-address-selection-back" aria-label="Back to booking" onClick={() => setSavedOpen(false)}>
-              <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M20 12H4m0 0 7-7m-7 7 7 7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+              <BackIcon />
             </button>
             <h2 id="book-address-selection-title">Address Book</h2>
           </header>

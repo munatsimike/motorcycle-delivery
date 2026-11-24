@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Button } from '../components/Button';
 import { CrosshairIcon } from '../components/CrosshairIcon';
 import riderCutout from '../assets/rider-cutout.webp';
 import riderMarker from '../assets/rider-motorcycle-marker.png';
@@ -71,10 +71,10 @@ export function HomePage() {
           </div>
           <img className="home-rider" src={riderCutout} alt="" />
         </div>
-        <Link className="home-send" to="/book">
+        <Button to="/book">
           <SendIcon />
           Send a Parcel
-        </Link>
+        </Button>
       </section>
     </main>
   );

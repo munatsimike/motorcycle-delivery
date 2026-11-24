@@ -1,6 +1,5 @@
 import { useEffect, useRef } from "react";
 import { CrosshairIcon } from "../components/CrosshairIcon";
-import riderMarker from "../assets/rider-motorcycle-marker.png";
 import riderRearMarker from "../assets/rider-motorcycle-rear.png";
 import nearby0 from "../assets/rider-motorcycle-nearby-0.png";
 import nearby1 from "../assets/rider-motorcycle-nearby-1.png";
@@ -38,6 +37,9 @@ import {
 import { bindMapTheme } from "../theme/mapStyle";
 
 const TRACKING_MOTORCYCLE_WIDTH = 90;
+// Home nearby-2 is the forward view. Its front wheel sits about 23 degrees clockwise from straight up.
+const FORWARD_MOTORCYCLE = nearby2;
+const FORWARD_NOSE_DEGREES = 23;
 // The rear-view artwork points slightly right of straight up.
 const REAR_NOSE_DEGREES = 20;
 
@@ -399,7 +401,7 @@ export function TrackingMap({
         ? target
         : smoothHeading(shown, target, elapsed);
     riderMarkerRef.current?.setOptions({
-      rotation: markerRotation(shownHeading.current, props.current.headingToDropoff ? REAR_NOSE_DEGREES : undefined),
+      rotation: markerRotation(shownHeading.current, props.current.headingToDropoff ? REAR_NOSE_DEGREES : FORWARD_NOSE_DEGREES),
     });
     const settled =
       shownHeading.current == null ||
@@ -580,8 +582,8 @@ export function TrackingMap({
       labelMarker.current.setIcon(summaryIcon(maps, label));
       labelMarker.current.setMap(map);
     }
-    const rotation = current.live ? markerRotation(shownHeading.current, current.headingToDropoff ? REAR_NOSE_DEGREES : undefined) : 0;
-    const activeMotorcycle = current.headingToDropoff ? riderRearMarker : riderMarker;
+    const rotation = current.live ? markerRotation(shownHeading.current, current.headingToDropoff ? REAR_NOSE_DEGREES : FORWARD_NOSE_DEGREES) : 0;
+    const activeMotorcycle = current.headingToDropoff ? riderRearMarker : FORWARD_MOTORCYCLE;
     if (!current.rider) {
       riderMarkerRef.current?.setMap(null);
       riderMarkerRef.current = null;

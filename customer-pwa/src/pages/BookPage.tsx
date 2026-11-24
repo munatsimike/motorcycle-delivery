@@ -11,7 +11,9 @@ import { deliveryErrorMessage, listDeliveries, loadDelivery, searchForRider } fr
 import type { CustomerAccount } from '../auth/contracts';
 import { useSession } from '../auth/sessionContext';
 import { Button } from '../components/Button';
+import { BackIcon } from '../components/icons';
 import { ButtonSpinner } from '../components/ButtonSpinner';
+import { modalActionFeedback, pageActionFeedback } from '../components/buttonState';
 import { ErrorMessage } from '../components/ErrorMessage';
 import { ZimbabwePhoneField } from '../components/ZimbabwePhoneField';
 import { Loading } from '../components/Loading';
@@ -675,9 +677,7 @@ export function BookPage() {
     <section className="book page-stage is-entering">
       <header className="book-header">
         <button type="button" className="book-back" aria-label="Back" disabled={busy !== null} onClick={goBack}>
-          <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" fill="currentColor" />
-          </svg>
+          <BackIcon />
         </button>
         <h1>{bookingStepTitle(step)}</h1>
       </header>
@@ -720,9 +720,9 @@ export function BookPage() {
               resolve={(placeId, sessionToken) => resolveWithToken(accessToken, placeId, sessionToken)}
             />
             <div className="book-inline-save">
-              <button type="button" className="book-inline-save-toggle" onClick={() => { setInlineSaveError(null); setInlineSaveOpen(step === 'pickup' ? 'pickup' : 'dropoff'); }}>
+              <Button type="button" variant="tertiary" size="compact" className="book-inline-save-toggle" onClick={() => { setInlineSaveError(null); setInlineSaveOpen(step === 'pickup' ? 'pickup' : 'dropoff'); }}>
                 {inlineSaveChoice[step === 'pickup' ? 'pickup' : 'dropoff'].status === 'saved' ? 'Address saved' : 'Save address'}
-              </button>
+              </Button>
             </div>
             </>
           ) : null}
@@ -745,11 +745,11 @@ export function BookPage() {
           <div className="book-actions">
             {step === 'review' || step === 'confirm' ? (
               <Button type="button" disabled={Boolean(busy) || !quote || routeSeconds > 0} onClick={() => { void confirm(); }}>
-                {busy === 'create' ? <><ButtonSpinner />Booking…</> : 'Confirm'}
+                {busy === 'create' ? <><ButtonSpinner />{pageActionFeedback('book', true)?.label}</> : 'Confirm'}
               </Button>
             ) : (
               <Button type="button" disabled={Boolean(busy)} onClick={() => { void goNext(); }}>
-                {busy === 'quote' || busy === 'locate' ? <><ButtonSpinner />Processing…</> : 'Continue'}
+                {busy === 'quote' || busy === 'locate' ? <><ButtonSpinner />{pageActionFeedback('continue', true)?.label}</> : 'Continue'}
               </Button>
             )}
           </div>
@@ -763,8 +763,10 @@ export function BookPage() {
             {existingRequest.deadline !== null && existingRequest.deadline > routeNow ? (
               <div className="offer-response-timer"><span>Search again in</span><strong role="timer">{offerResponseLabel(Math.ceil((existingRequest.deadline - routeNow) / 1000))}</strong></div>
             ) : null}
-            <button type="button" className="book-existing-search" disabled={retrying || (existingRequest.deadline !== null && routeNow < existingRequest.deadline)} onClick={() => { void retryExisting(); }}>{retrying ? 'Searching…' : 'Search again'}</button>
-            <button type="button" className="book-existing-cancel" disabled={retrying} onClick={() => setExistingRequest(null)}>Cancel</button>
+            <div className="confirm-dialog-actions">
+              <button type="button" className="confirm-keep confirm-dismiss" disabled={retrying} onClick={() => setExistingRequest(null)}>Cancel</button>
+              <button type="button" className="confirm-accept" disabled={retrying || (existingRequest.deadline !== null && routeNow < existingRequest.deadline)} onClick={() => { void retryExisting(); }}>{retrying ? modalActionFeedback('search', true)?.label : 'Search again'}</button>
+            </div>
           </div>
         </div>
       ) : null}
@@ -786,7 +788,7 @@ export function BookPage() {
             <div className="confirm-dialog-actions">
               <button type="button" className="confirm-keep confirm-dismiss" disabled={inlineSaveChoice[saveStop].status === 'saving'} onClick={() => { setInlineSaveOpen(null); setInlineSaveError(null); }}>Cancel</button>
               <button type="button" className="confirm-accept" disabled={inlineSaveChoice[saveStop].status !== 'idle' || !bookingSaveLabel({ ...inlineSaveChoice[saveStop], label: inlineSaveChoice[saveStop].label ?? 'HOME' })} onClick={() => { void saveDraftStop(saveStop); }}>
-                {inlineSaveChoice[saveStop].status === 'saving' ? <><ButtonSpinner />Saving…</> : 'Save address'}
+                {inlineSaveChoice[saveStop].status === 'saving' ? modalActionFeedback('save', true)?.label : 'Save address'}
               </button>
             </div>
           </div>

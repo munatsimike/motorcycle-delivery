@@ -2,6 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useContainedScroll } from '../app/useContainedScroll';
 import parcelBox from '../assets/parcel-box.png';
+import { Button } from '../components/Button';
+import { AddIcon, ChevronIcon } from '../components/icons';
+import { ButtonSpinner } from '../components/ButtonSpinner';
+import { pageActionFeedback } from '../components/buttonState';
 import { ErrorMessage } from '../components/ErrorMessage';
 import { DeliveryCard } from '../deliveries/DeliveryCard';
 import {
@@ -64,7 +68,12 @@ export function DeliveriesPage() {
     : 'All your deliveries will appear here once you book.';
   const pull = useRef({ y: 0, top: 0 });
   const [fabCompact, setFabCompact] = useState(false);
+  const [listRetrying, setListRetrying] = useState(false);
   const scrollRef = useContainedScroll<HTMLDivElement>();
+
+  useEffect(() => {
+    if (listRetrying && !selected.isLoading) setListRetrying(false);
+  }, [listRetrying, selected.isLoading]);
 
   useEffect(() => {
     const node = scrollRef.current;
@@ -119,7 +128,7 @@ export function DeliveriesPage() {
         {selected.error ? (
           <div className="deliveries-error">
             <ErrorMessage>{selected.error}</ErrorMessage>
-            <button type="button" className="deliveries-retry" onClick={selected.reload}>Try again</button>
+            <Button type="button" variant="secondary" size="compact" disabled={listRetrying} onClick={() => { if (listRetrying) return; setListRetrying(true); selected.reload(); }}>{listRetrying ? <><ButtonSpinner />{pageActionFeedback('retry', true)?.label}</> : 'Try again'}</Button>
           </div>
         ) : null}
         {!selected.error && !(selected.isLoading && selected.deliveries.length === 0) && ordered.length === 0 ? (
@@ -135,15 +144,13 @@ export function DeliveriesPage() {
           ))}
         </div>
         {selected.hasMore ? (
-          <button type="button" className="deliveries-more" disabled={selected.isLoading || selected.isLoadingMore} onClick={selected.loadMore}>
-            {selected.isLoadingMore ? 'Loading' : 'Load more'}
-          </button>
+          <Button type="button" variant="secondary" size="compact" className="deliveries-more" disabled={selected.isLoading || selected.isLoadingMore} onClick={selected.loadMore}>
+            {selected.isLoadingMore ? <><ButtonSpinner />{pageActionFeedback('loadMore', true)?.label}</> : 'Load more'}
+          </Button>
         ) : null}
       </div>
       <Link className={fabCompact ? 'deliveries-fab is-compact' : 'deliveries-fab'} to="/book" aria-label="Send a parcel">
-        <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
-        </svg>
+        <AddIcon />
         <span>Send</span>
       </Link>
       {sheetMotion.mounted && shownSheet ? (
@@ -196,9 +203,5 @@ function SortIcon() {
 }
 
 function ChevronDownIcon() {
-  return (
-    <svg className="deliveries-chevron" viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M7.41 8.58 12 13.17l4.59-4.59L18 10l-6 6-6-6 1.41-1.42Z" />
-    </svg>
-  );
+  return <ChevronIcon className="deliveries-chevron" size={18} />;
 }

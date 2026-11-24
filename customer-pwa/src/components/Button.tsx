@@ -1,31 +1,44 @@
-import type { ButtonHTMLAttributes, ReactNode } from 'react';
-import { Link } from 'react-router-dom';
+import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from 'react';
+import { Link, type LinkProps } from 'react-router-dom';
+
+type Variant = 'primary' | 'secondary' | 'tertiary' | 'destructive' | 'outline';
+type Size = 'standard' | 'compact';
 
 type Shared = {
   children: ReactNode;
-  variant?: 'primary' | 'secondary' | 'outline';
+  variant?: Variant;
+  size?: Size;
+  className?: string;
 };
 
-type ButtonAsButton = Shared & ButtonHTMLAttributes<HTMLButtonElement> & { to?: undefined };
-type ButtonAsLink = Shared & { to: string };
+type ButtonAsButton = Shared & Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'className' | 'children'> & { to?: undefined };
+type ButtonAsLink = Shared & Omit<LinkProps, 'className' | 'children'> & { to: string };
 
-export function Button({ children, variant = 'primary', ...props }: ButtonAsButton | ButtonAsLink) {
-  const className = variant === 'secondary'
-    ? 'button button-secondary'
-    : variant === 'outline'
-      ? 'button button-outline'
-      : 'button';
+function buttonClass(variant: Variant, size: Size, className?: string) {
+  const names = ['button'];
+  if (size === 'compact') names.push('button-compact');
+  if (variant !== 'primary') names.push(`button-${variant}`);
+  if (className) names.push(className);
+  return names.join(' ');
+}
+
+export const Button = forwardRef<HTMLButtonElement, ButtonAsButton | ButtonAsLink>(function Button(
+  { children, variant = 'primary', size = 'standard', className, ...props },
+  ref,
+) {
+  const classes = buttonClass(variant, size, className);
   if ('to' in props && props.to) {
+    const { to, ...linkProps } = props;
     return (
-      <Link className={className} to={props.to}>
+      <Link className={classes} to={to} {...linkProps}>
         {children}
       </Link>
     );
   }
-  const buttonProps = props as ButtonAsButton;
+  const buttonProps = props as ButtonHTMLAttributes<HTMLButtonElement>;
   return (
-    <button type={buttonProps.type ?? 'button'} className={className} {...buttonProps}>
+    <button ref={ref} {...buttonProps} type={buttonProps.type ?? 'button'} className={classes}>
       {children}
     </button>
   );
-}
+});

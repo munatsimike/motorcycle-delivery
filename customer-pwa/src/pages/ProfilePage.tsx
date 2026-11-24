@@ -8,6 +8,10 @@ import { isSessionRejection, type CustomerAccount } from '../auth/contracts';
 import { isReplacementSignOut } from '../auth/replacementSignOut';
 import { rememberReturnPath } from '../auth/returnPath';
 import { useSession } from '../auth/sessionContext';
+import { Button } from '../components/Button';
+import { ChevronIcon } from '../components/icons';
+import { ButtonSpinner } from '../components/ButtonSpinner';
+import { pageActionFeedback } from '../components/buttonState';
 import { ErrorMessage } from '../components/ErrorMessage';
 import { TopSpinner } from '../components/TopSpinner';
 import { appearanceLabel, profileSignOutRequest, type AppearanceMode } from '../theme/appearance';
@@ -22,7 +26,7 @@ function MoreRowIcon({ kind }: { kind: string }) {
     address: <><path d="M4 4h16v16H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/><path d="M4 17h16"/><circle cx="12" cy="9" r="2"/><path d="M8.5 14c.3-1.7 1.5-2.5 3.5-2.5s3.2.8 3.5 2.5"/></>,
     logout: <><path d="M10 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5"/><path d="M14 8l4 4-4 4m4-4H8"/></>,
   };
-  return <svg className="more-row-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[kind] ?? paths.phone}</svg>;
+  return <svg className="more-row-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[kind] ?? paths.phone}</svg>;
 }
 
 const APPEARANCE_OPTIONS: AppearanceMode[] = ['system', 'light', 'dark'];
@@ -181,21 +185,21 @@ export function ProfilePage() {
           <>
             <div className="profile-identity">
               {phase === 'uploading' ? <p className="profile-photo-status">Uploading {progress}%</p> : null}
-              {phase === 'removing' ? <p className="profile-photo-status">Removing photo</p> : null}
               <h1>{account.name}</h1>
             </div>
             <div className="profile-avatar-slot">
-              <button type="button" className="profile-avatar" aria-label="Change profile photo" disabled={phase !== 'idle'} onClick={() => fileInput.current?.click()}>
+              <button type="button" className={phase === 'removing' ? 'profile-avatar is-removing' : 'profile-avatar'} aria-label="Change profile photo" disabled={phase !== 'idle'} onClick={() => fileInput.current?.click()}>
                 {photoUrl ? <img src={photoUrl} alt="" onError={() => { storeProfilePhoto(account.id, null); setPhotoUrl(null); }} /> : <span style={{ background: colors?.backgroundColor, color: colors?.color }}>{profileAvatarMark(account) ?? <ProfileUserIcon />}</span>}
+                {phase === 'removing' ? <span className="profile-avatar-spinner"><ButtonSpinner /></span> : null}
               </button>
-              {phase === 'idle' && (account.hasProfilePhoto || photoUrl) ? (
-                <button type="button" className="profile-remove" aria-label="Remove photo" onClick={() => setRemoveOpen(true)}>
+              {phase === 'removing' || (phase === 'idle' && (account.hasProfilePhoto || photoUrl)) ? (
+                <button type="button" className="profile-remove" aria-label="Remove photo" disabled={phase !== 'idle'} onClick={() => setRemoveOpen(true)}>
                   <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
                     <path fill="currentColor" d="M9 3h6v1h5v2h-1v13a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6H4V4h5V3Zm-2 3v13h10V6H7Zm2 2h2v9H9V8Zm4 0h2v9h-2V8Z" />
                   </svg>
                 </button>
               ) : null}
-              <input ref={fileInput} className="profile-file" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => { void changePhoto(event.target.files?.[0]); event.target.value = ''; }} />
+              <input ref={fileInput} className="profile-file" type="file" accept="image/jpeg,image/png,image/webp" disabled={phase !== 'idle'} onChange={(event) => { void changePhoto(event.target.files?.[0]); event.target.value = ''; }} />
             </div>
             <div className="profile-settings">
               {contactRows.map((row) => (
@@ -204,9 +208,7 @@ export function ProfilePage() {
                     <button type="button" className="profile-row" onClick={() => setAppearanceOpen(true)}>
                       <MoreRowIcon kind="appearance" /><span><small>{row.label}</small><strong>{row.value}</strong></span>
                       <span aria-hidden="true" className="profile-chevron">
-                        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
-                          <path fill="currentColor" d="M7.41 15.41 12 10.83l4.59 4.58L18 14l-6-6-6 6 1.41 1.41Z" />
-                        </svg>
+                        <ChevronIcon direction="up" />
                       </span>
                     </button>
                   ) : (
@@ -216,12 +218,12 @@ export function ProfilePage() {
                   )}
                 </div>
               ))}
-              <Link className="profile-row profile-addresses" to="/addresses"><MoreRowIcon kind="address" /><span><strong>Address Book</strong></span><span aria-hidden="true" className="more-address-chevron">›</span></Link>
+              <Link className="profile-row profile-addresses" to="/addresses"><MoreRowIcon kind="address" /><span><strong>Address Book</strong></span><span aria-hidden="true" className="more-address-chevron"><ChevronIcon direction="right" /></span></Link>
               {appearanceRows.map((row) => (
                 <div key={row.label}>
                       <button type="button" className="profile-row" onClick={() => setAppearanceOpen(true)}>
                     <MoreRowIcon kind="appearance" /><span><small>{row.label}</small><strong>{row.value}</strong></span>
-                    <span aria-hidden="true" className="profile-chevron"><svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M7.41 15.41 12 10.83l4.59 4.58L18 14l-6-6-6 6 1.41 1.41Z" /></svg></span>
+                    <span aria-hidden="true" className="profile-chevron"><ChevronIcon direction="up" /></span>
                   </button>
                 </div>
               ))}
@@ -230,9 +232,9 @@ export function ProfilePage() {
         ) : isLoading ? null : <h1>More</h1>}
         {error ? <ErrorMessage>{error}</ErrorMessage> : null}
         {photoError ? <ErrorMessage>{photoError}</ErrorMessage> : null}
-        <button type="button" className="profile-logout" disabled={isSigningOut} onClick={() => { void handleSignOut(); }}>
-          <MoreRowIcon kind="logout" />{isSigningOut ? 'Signing out' : 'Log out'}
-        </button>
+        <Button type="button" variant="destructive" size="compact" className="profile-logout" disabled={isSigningOut} onClick={() => { void handleSignOut(); }}>
+          <MoreRowIcon kind="logout" />{isSigningOut ? <><ButtonSpinner />{pageActionFeedback('signOut', true)?.label}</> : 'Log out'}
+        </Button>
       </div>
       {removeMotion.mounted ? (
         <div className={motionClass('confirm-dialog-backdrop', 'dialog', removeMotion.visible)} onClick={() => setRemoveOpen(false)}>

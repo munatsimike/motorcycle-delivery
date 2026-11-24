@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { ChevronIcon } from '../components/icons';
 
 export type AddressTypeChoice = 'ALL' | 'HOME' | 'WORK';
 
@@ -14,7 +15,7 @@ export function AddressTypeFilter({ value, onChange }: { value: AddressTypeChoic
       <button type="button" className="address-type-filter-trigger deliveries-tool" aria-label={`Filter addresses, ${value === 'ALL' ? 'All' : value === 'HOME' ? 'Home' : 'Work'}`} aria-expanded={open} onClick={() => setOpen(true)}>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 13h12v-2H6v2Zm-2-4h16V7H4v2Zm4 8h8v-2H8v2Z" /></svg>
         <span>{value === 'ALL' ? 'All' : value === 'HOME' ? 'Home' : 'Work'}</span>
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+        <ChevronIcon size={18} />
       </button>
       {open ? (
         <div className="deliveries-sheet-backdrop address-filter-backdrop" onClick={() => setOpen(false)}>

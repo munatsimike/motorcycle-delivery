@@ -11,6 +11,10 @@
   --border: #e1e8e3;
   --error: #d92d20;
   --error-surface: #fef2f2;
+  --warning: #d97706;
+  --warning-surface: #fff3df;
+  --dismiss: #f1f3f4;
+  --dismiss-text: #374151;
   --sheet: #ffffff;
   --list-background: #f3f8f5;
   --list-card-border: #e1e9e4;
@@ -19,6 +23,7 @@
   --shadow: 0 8px 24px rgba(23, 33, 29, 0.08);
   --radius-md: 12px;
   --radius-lg: 14px;
+  --radius-dialog: 22px;
   --radius-xl: 28px;
   --space-xs: 4px;
   --space-sm: 8px;
@@ -47,6 +52,10 @@
   --border: #2c3a34;
   --error: #f97066;
   --error-surface: #3b1512;
+  --warning: #fbbf24;
+  --warning-surface: #422c12;
+  --dismiss: var(--border);
+  --dismiss-text: var(--text);
   --shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
   --list-background: #141c19;
   --list-card-border: #2c3a34;

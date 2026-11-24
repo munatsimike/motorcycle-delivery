@@ -73,7 +73,7 @@ function ReplacementSignOutDialog() {
         <h2 id="signed-out-title">Signed out</h2>
         <p id="signed-out-copy">Your account was signed in on another device. Please sign in again to continue.</p>
         <div className="confirm-dialog-actions">
-          <button type="button" onClick={clearReplacementSignOut}>OK</button>
+          <button type="button" className="confirm-accept" onClick={clearReplacementSignOut}>OK</button>
         </div>
       </div>
     </div>

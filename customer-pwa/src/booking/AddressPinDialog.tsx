@@ -93,7 +93,7 @@ export function AddressPinDialog({
         <div ref={node} className="address-pin-map" />
         {mapError ? <p className="error" role="alert">{mapError}</p> : null}
         <div className="confirm-dialog-actions">
-          <button type="button" className="confirm-keep" onClick={onCancel}>Cancel</button>
+          <button type="button" className="confirm-keep confirm-dismiss" onClick={onCancel}>Cancel</button>
           <button type="button" className="confirm-accept" disabled={!moved || !point} onClick={() => { if (point) onConfirm(point); }}>Use this pin</button>
         </div>
       </div>

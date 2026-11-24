@@ -16,6 +16,8 @@ import {
 import { isSessionRejection } from '../auth/contracts';
 import { rememberReturnPath } from '../auth/returnPath';
 import { useSession } from '../auth/sessionContext';
+import { modalActionFeedback } from '../components/buttonState';
+import { AddIcon, BackIcon } from '../components/icons';
 import { ErrorMessage } from '../components/ErrorMessage';
 import { Loading } from '../components/Loading';
 import { deliveryErrorMessage } from '../deliveries/api';
@@ -107,9 +109,7 @@ export function AddressesPage() {
     <section className="book address-book-page page-stage is-entering">
       <header className="book-header">
         <button type="button" className="book-back" aria-label="Back" onClick={() => beginPageTransition(() => navigate('/profile'))}>
-          <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" fill="currentColor" />
-          </svg>
+          <BackIcon />
         </button>
         <h1>Address Book</h1>
       </header>
@@ -143,12 +143,12 @@ export function AddressesPage() {
                 <p className="address-card-phone">{entry.contactPhone}</p>
                 <div className="address-card-actions">
                 <Link className="address-icon-action" to={`/addresses/${entry.id}`} aria-label={`Edit ${savedAddressLabel(entry)} address`} title="Edit address">
-                  <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                     <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L9 17l-4 1 1-4Z" />
                   </svg>
                 </Link>
                 <button className="address-icon-action address-icon-delete" type="button" aria-label={`Delete ${savedAddressLabel(entry)} address`} title="Delete address" onClick={() => setPendingDelete(entry)}>
-                  <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                     <path d="M3 6h18M8 6V4h8v2m3 0-1 14H6L5 6m5 4v7m4-7v7" />
                   </svg>
                 </button>
@@ -161,9 +161,7 @@ export function AddressesPage() {
       </div>
       {!loading && addresses.length > 0 && !searchOpen ? (
         <Link className={fabCompact ? 'address-book-fab is-compact' : 'address-book-fab'} to="/addresses/new" aria-label="Add address">
-          <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
-          </svg>
+          <AddIcon />
           <span>Add</span>
         </Link>
       ) : null}
@@ -174,7 +172,7 @@ export function AddressesPage() {
             <p id="delete-address-copy">Are you sure you want to remove this address?</p>
             <div className="confirm-dialog-actions">
               <button type="button" className="confirm-keep confirm-dismiss" disabled={deleting} onClick={() => setPendingDelete(null)}>Cancel</button>
-              <button className="confirm-cancel" type="button" disabled={deleting} onClick={() => { void remove(pendingDelete); }}>{deleting ? <><span className="auth-button-spinner" aria-hidden="true" />Deleting…</> : <>Delete address</>}</button>
+              <button className="confirm-cancel" type="button" disabled={deleting} onClick={() => { void remove(pendingDelete); }}>{deleting ? modalActionFeedback('delete', true)?.label : 'Delete address'}</button>
             </div>
           </div>
         </div>

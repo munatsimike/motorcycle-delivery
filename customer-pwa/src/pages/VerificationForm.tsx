@@ -19,6 +19,7 @@ import { AuthBack } from '../components/AuthBack';
 import { BrandMark } from '../components/BrandMark';
 import { Button } from '../components/Button';
 import { ButtonSpinner } from '../components/ButtonSpinner';
+import { pageActionFeedback } from '../components/buttonState';
 import { ErrorMessage } from '../components/ErrorMessage';
 import { OtpCodeBoxes } from '../components/OtpCodeBoxes';
 import { ZimbabwePhoneField } from '../components/ZimbabwePhoneField';
@@ -129,7 +130,7 @@ function PhoneStep({ flow, title, notice }: { flow: AuthFlow; title: string; not
           required
         />
         <Button type="submit" disabled={isLoading}>
-          {isLoading ? <><ButtonSpinner />Sending code</> : 'Send code'}
+          {isLoading ? <><ButtonSpinner />{pageActionFeedback('sendCode', true)?.label}</> : 'Send code'}
         </Button>
         <p className="auth-switch">
           {flow === 'whatsapp_login' ? (
@@ -263,11 +264,11 @@ function CodeStep({
           invalid={Boolean(error)}
         />
         <Button type="submit" disabled={isLoading || isResending || code.length !== 6}>
-          {isLoading ? <><ButtonSpinner />Checking code</> : 'Verify code'}
+          {isLoading ? <><ButtonSpinner />{pageActionFeedback(flow === 'whatsapp_login' ? 'signIn' : 'verify', true)?.label}</> : 'Verify code'}
         </Button>
       </form>
-      <Button type="button" variant="secondary" disabled={isLoading || isResending || secondsRemaining > 0} onClick={() => { void resend(); }}>
-        {isResending ? <><ButtonSpinner />Processing</> : secondsRemaining > 0 ? `Resend code in ${secondsRemaining}s` : 'Resend code'}
+      <Button type="button" variant="secondary" className={flow === 'whatsapp_login' ? 'auth-resend' : undefined} disabled={isLoading || isResending || secondsRemaining > 0} onClick={() => { void resend(); }}>
+        {isResending ? <><ButtonSpinner />{pageActionFeedback('sendCode', true)?.label}</> : secondsRemaining > 0 ? `Resend code in ${secondsRemaining}s` : 'Resend code'}
       </Button>
       <button
         type="button"
