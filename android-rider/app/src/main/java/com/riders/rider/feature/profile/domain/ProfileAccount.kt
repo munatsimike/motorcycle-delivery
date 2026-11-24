@@ -1,6 +1,9 @@
 package com.riders.rider.feature.profile.domain
 
+import com.riders.rider.core.design.isConnectionFailure
 import com.riders.rider.core.network.ApiError
+import com.riders.rider.core.network.ApiResult
+import com.riders.rider.core.network.text
 import com.riders.rider.feature.onboarding.domain.MotorcycleDetails
 import com.riders.rider.feature.onboarding.domain.RiderOnboarding
 
@@ -34,6 +37,20 @@ fun shouldLoadProfile(loaded: Boolean, force: Boolean, busy: Boolean): Boolean {
         return false
     }
     return force || !loaded
+}
+
+fun profileRefreshError(
+    profile: ApiResult<*>,
+    onboarding: ApiResult<*>,
+    motorcycles: ApiResult<*>,
+): String? {
+    return listOf(profile, onboarding, motorcycles)
+        .firstNotNullOfOrNull { result -> (result as? ApiResult.Err)?.error }
+        ?.text()
+}
+
+fun profileErrorAfterLeave(error: String?): String? {
+    return if (isConnectionFailure(error)) null else error
 }
 
 fun profileAfterRefresh(

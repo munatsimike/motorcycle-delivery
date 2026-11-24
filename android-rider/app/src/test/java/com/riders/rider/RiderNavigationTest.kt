@@ -10,7 +10,12 @@ import com.riders.rider.feature.profile.domain.ProfileBoard
 import com.riders.rider.feature.profile.domain.canEditProfileName
 import com.riders.rider.feature.profile.domain.canEditProfilePhone
 import com.riders.rider.feature.profile.domain.profileAfterRefresh
+import com.riders.rider.core.design.isConnectionFailure
 import com.riders.rider.core.network.ApiError
+import com.riders.rider.core.network.ApiResult
+import com.riders.rider.core.network.text
+import com.riders.rider.feature.profile.domain.profileErrorAfterLeave
+import com.riders.rider.feature.profile.domain.profileRefreshError
 import com.riders.rider.feature.profile.domain.shouldLoadProfile
 import com.riders.rider.feature.profile.domain.showsAccountDeactivation
 import com.riders.rider.feature.profile.domain.signOutLeavesRiderOnDuty
@@ -98,6 +103,77 @@ class RiderNavigationTest {
     }
 
     @Test
+    fun licenceImageFailureDoesNotBecomeAProfileConnectionError() {
+        val loaded = accountBoard()
+        val reported = profileRefreshError(ApiResult.Ok(Unit), ApiResult.Ok(Unit), ApiResult.Ok(Unit))
+        val kept = profileAfterRefresh(
+            loaded,
+            loaded.fullName,
+            loaded.phone,
+            loaded.onboarding,
+            loaded.hasLicence,
+            loaded.motorcycles,
+            reported,
+            loaded.address,
+            loaded.hasProfilePhoto,
+        )
+        assertNull(reported)
+        assertFalse(isConnectionFailure(reported))
+        assertEquals("Tendai Moyo", kept.fullName)
+        assertEquals("+263771234567", kept.phone)
+        assertTrue(kept.hasLicence)
+        assertNull(kept.error)
+    }
+
+    @Test
+    fun returningToProfileDoesNotReplayAConnectionError() {
+        val failed = profileAfterRefresh(
+            accountBoard(),
+            null,
+            null,
+            null,
+            null,
+            null,
+            ApiError.Network.text(),
+        )
+        assertTrue(isConnectionFailure(failed.error))
+        assertFalse(shouldLoadProfile(loaded = failed.loaded, force = false, busy = false))
+        val returned = failed.copy(error = profileErrorAfterLeave(failed.error))
+        assertNull(returned.error)
+        assertEquals("Tendai Moyo", returned.fullName)
+        assertEquals("APPROVED", returned.onboarding?.approvalStatus)
+        assertEquals(ApiError.SessionUncertain.text(), profileErrorAfterLeave(ApiError.SessionUncertain.text()))
+    }
+
+    @Test
+    fun aNewProfileConnectionFailureStillReachesTheSnackbar() {
+        val message = profileRefreshError(ApiResult.Err(ApiError.Network), ApiResult.Ok(Unit), ApiResult.Ok(Unit))
+        assertEquals(ApiError.Network.text(), message)
+        assertTrue(isConnectionFailure(message))
+        assertEquals(ApiError.Timeout.text(), profileRefreshError(ApiResult.Ok(Unit), ApiResult.Err(ApiError.Timeout), ApiResult.Ok(Unit)))
+        assertTrue(isConnectionFailure(profileRefreshError(ApiResult.Ok(Unit), ApiResult.Ok(Unit), ApiResult.Err(ApiError.Network))))
+    }
+
+    @Test
+    fun aSuccessfulProfileRefreshClearsThePreviousConnectionError() {
+        val current = accountBoard().copy(error = ApiError.Network.text())
+        val refreshed = profileAfterRefresh(
+            current,
+            current.fullName,
+            current.phone,
+            current.onboarding,
+            current.hasLicence,
+            current.motorcycles,
+            profileRefreshError(ApiResult.Ok(Unit), ApiResult.Ok(Unit), ApiResult.Ok(Unit)),
+            current.address,
+        )
+        assertNull(refreshed.error)
+        assertEquals(current.fullName, refreshed.fullName)
+        assertEquals(current.address, refreshed.address)
+        assertEquals(current.onboarding, refreshed.onboarding)
+    }
+
+    @Test
     fun signOutKeepsARiderOnDutyOnlyDuringADelivery() {
         assertTrue(signOutLeavesRiderOnDuty(ApiError.Conflict("You cannot go offline during a delivery")))
         assertTrue(signOutLeavesRiderOnDuty(ApiError.Conflict("Availability cannot be changed while busy")))
@@ -144,6 +220,15 @@ class RiderNavigationTest {
         assertFalse(showsWizardChrome("licence"))
         assertTrue(showsWizardChrome(""))
     }
+
+    private fun accountBoard() = ProfileBoard(
+        fullName = "Tendai Moyo",
+        phone = "+263771234567",
+        address = "12 Samora Machel Avenue",
+        onboarding = account("APPROVED"),
+        hasLicence = true,
+        loaded = true,
+    )
 
     private fun account(approval: String) = RiderOnboarding(
         licenceVerificationStatus = "VERIFIED",

@@ -44,10 +44,15 @@ fun deliveryBoardTabLabel(tab: DeliveryBoardTab): String = when (tab) {
 fun deliveryBoardTabs(@Suppress("UNUSED_PARAMETER") showsOffers: Boolean = true): List<DeliveryBoardTab> {
     return listOf(
         DeliveryBoardTab.Active,
-        DeliveryBoardTab.New,
         DeliveryBoardTab.Pending,
         DeliveryBoardTab.Completed,
     )
+}
+
+fun deliveryBoardTab(saved: String?): DeliveryBoardTab = when (saved) {
+    DeliveryBoardTab.Pending.name -> DeliveryBoardTab.Pending
+    DeliveryBoardTab.Completed.name -> DeliveryBoardTab.Completed
+    else -> DeliveryBoardTab.Active
 }
 
 fun onboardingFocus(step: String?): OnboardingStep? = when (step) {

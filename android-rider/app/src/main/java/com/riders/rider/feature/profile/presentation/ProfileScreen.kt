@@ -37,6 +37,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -157,6 +158,10 @@ fun ProfileScreen(
                 model.uploadPhoto(bytes)
             }
         }
+    }
+    DisposableEffect(Unit) {
+        model.onProfileVisible()
+        onDispose { model.onProfileHidden() }
     }
     LaunchedEffect(Unit) { model.refresh(force = false) }
     var confirmRemove by rememberSaveable { mutableStateOf(false) }
@@ -295,7 +300,8 @@ fun ProfileScreen(
                     loadingLabel = "Logging out",
                     tone = RidersButtonTone.Danger,
                     bordered = false,
-                    containerColor = RidersColors.background,
+                    containerColor = RidersColors.dangerSurface,
+                    contentColor = RidersColors.destructive,
                     icon = R.drawable.ic_logout_outline,
                     regular = true,
                     modifier = Modifier.fillMaxWidth(),
@@ -319,19 +325,28 @@ fun ProfileScreen(
         RidersDialog(visible = true, onDismiss = { confirmLogout = false }) {
             RidersDialogTitle("Log out?")
             RidersDialogBody("You will stop receiving requests on this phone.")
-            RidersDialogActions {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 RidersDialogTextButton(
-                    label = "Stay signed in",
+                    label = "Cancel",
                     tone = RidersDialogTone.Neutral,
                     onClick = { confirmLogout = false },
+                    modifier = Modifier.weight(1f),
                 )
-                RidersDialogTextButton(
+                RidersSecondaryButton(
                     label = "Log out",
-                    tone = RidersDialogTone.Danger,
                     onClick = {
                         confirmLogout = false
                         model.logout()
                     },
+                    bordered = false,
+                    compact = true,
+                    containerColor = Color(0xFFB42318),
+                    contentColor = RidersColors.textInverse,
+                    modifier = Modifier.weight(1f),
                 )
             }
         }

@@ -1,5 +1,8 @@
 package com.riders.rider.feature.profile.domain
 
+import com.riders.rider.core.network.ApiError
+import com.riders.rider.core.network.ApiResult
+
 const val PROFILE_PHOTO_MAX_BYTES = 5 * 1024 * 1024
 const val PROFILE_PHOTO_MAX_EDGE = 1024
 
@@ -139,11 +142,51 @@ fun profilePhotoDownloadFinished(current: ProfilePhotoState): ProfilePhotoState 
     )
 }
 
-fun profilePhotoDownloadFailed(current: ProfilePhotoState, message: String): ProfilePhotoState {
+fun profilePhotoDownloadRetries(error: ApiError, attempt: Int): Boolean {
+    return attempt == 0 && error is ApiError.Network
+}
+
+fun keepsStoredProfilePhoto(error: ApiError, wasVisible: Boolean): Boolean {
+    return wasVisible && error is ApiError.Network
+}
+
+suspend fun loadProfilePhotoBytes(download: suspend () -> ApiResult<ByteArray>): ApiResult<ByteArray> {
+    var attempt = 0
+    while (true) {
+        val result = download()
+        if (result is ApiResult.Err && profilePhotoDownloadRetries(result.error, attempt)) {
+            attempt += 1
+            continue
+        }
+        return result
+    }
+}
+
+class ProfilePhotoDownloadGate {
+    private var active = false
+
+    fun tryAcquire(): Boolean {
+        if (active) {
+            return false
+        }
+        active = true
+        return true
+    }
+
+    fun release() {
+        active = false
+    }
+}
+
+fun profilePhotoDownloadFailed(
+    current: ProfilePhotoState,
+    message: String,
+    keepVisiblePhoto: Boolean = false,
+): ProfilePhotoState {
     return current.copy(
         phase = ProfilePhotoPhase.Idle,
         showingPreview = false,
-        showingStored = false,
+        showingStored = keepVisiblePhoto && current.hasStoredPhoto,
         progress = null,
         error = message,
         retry = ProfilePhotoRetry.Download,

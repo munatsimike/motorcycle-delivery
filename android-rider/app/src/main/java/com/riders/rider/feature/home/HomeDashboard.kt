@@ -57,6 +57,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -125,15 +126,18 @@ import com.riders.rider.feature.offers.domain.RequestOverlay
 import com.riders.rider.feature.offers.domain.dismissedForSettledAttempts
 import com.riders.rider.feature.offers.domain.handleRequestMapSuccess
 import com.riders.rider.feature.offers.domain.overlayAfterSearchAttempt
+import com.riders.rider.feature.offers.domain.REQUEST_UNAVAILABLE
+import com.riders.rider.feature.offers.domain.requestCatalog
+import com.riders.rider.feature.offers.domain.requestForMap
 import com.riders.rider.feature.offers.domain.requestMapAutoOpenBlocked
 import com.riders.rider.feature.offers.domain.requestMapNotice
 import com.riders.rider.feature.offers.domain.requestSettled
 import com.riders.rider.feature.offers.domain.sealDismissedAttempt
 import com.riders.rider.feature.offers.presentation.OfferRequestCard
 import com.riders.rider.feature.offers.presentation.OfferViewModel
+import com.riders.rider.feature.offers.notification.rememberOfferInbox
 import com.riders.rider.feature.offers.presentation.RequestMapOverlay
 import kotlinx.coroutines.delay
-import com.riders.rider.feature.offers.domain.opensDeliveriesAfterListedOffer
 import com.riders.rider.feature.offers.domain.senderChoosesRider
 import com.riders.rider.feature.bids.domain.OwnBid
 import com.riders.rider.feature.bids.domain.displayedBidProblem
@@ -157,7 +161,6 @@ import java.util.Calendar
 fun HomeScreen(
     onOffers: () -> Unit,
     onActiveDeliveries: () -> Unit = onOffers,
-    onNewRequests: () -> Unit = onOffers,
     onWallet: () -> Unit = {},
     onDelivery: (String) -> Unit,
     onSetup: () -> Unit = {},
@@ -235,6 +238,10 @@ fun HomeScreen(
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
+    var requestsOpen by rememberSaveable { mutableStateOf(false) }
+    var unavailableRequest by remember { mutableStateOf(false) }
+    val pendingRequests = rememberOfferInbox()
+    val requestTap by pendingRequests.taps.collectAsStateWithLifecycle()
     var overlay by remember {
         mutableStateOf(
             RequestOverlay(
@@ -247,21 +254,24 @@ fun HomeScreen(
     }
     var sealedAttempts by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var offerSentVisible by remember { mutableStateOf(false) }
-    val eligibleIds = if (ui.shift.showOffers) ui.offers.map { it.deliveryId } else emptyList()
-    LaunchedEffect(offersUi.settledIds, ui.offers) {
+    val catalog = requestCatalog(offersUi.offers, ui.offers)
+    val listedIds = if (ui.shift.showOffers) catalog.map { it.deliveryId } else emptyList()
+    val pinnedId = overlay.openId?.trim()?.takeIf { id -> id.isNotEmpty() && catalog.any { it.deliveryId == id } }
+    val eligibleIds = (listedIds + listOfNotNull(pinnedId)).distinct()
+    LaunchedEffect(offersUi.settledIds, catalog) {
         val extra = dismissedForSettledAttempts(
-            ui.offers.map { it.deliveryId to it.searchExpiresAt },
+            catalog.map { it.deliveryId to it.searchExpiresAt },
             offersUi.settledIds,
         ) - overlay.dismissed
         if (extra.isNotEmpty()) {
             overlay = overlay.copy(dismissed = overlay.dismissed + extra)
         }
     }
-    LaunchedEffect(ui.offers, sealedAttempts) {
+    LaunchedEffect(catalog, sealedAttempts) {
         val (next, remaining) = overlayAfterSearchAttempt(
             overlay,
             sealedAttempts,
-            ui.offers.map { it.deliveryId to it.searchExpiresAt },
+            catalog.map { it.deliveryId to it.searchExpiresAt },
         )
         if (next != overlay) {
             overlay = next
@@ -270,16 +280,16 @@ fun HomeScreen(
             sealedAttempts = remaining
         }
     }
-    LaunchedEffect(eligibleIds, confirmOffline, overlay, offerSentVisible) {
+    LaunchedEffect(eligibleIds, confirmOffline, overlay, offerSentVisible, requestsOpen, ui.shift.showOffers) {
         val next = overlay.sync(
             eligibleIds,
-            blocked = requestMapAutoOpenBlocked(confirmOffline, offerSentVisible),
+            blocked = requestMapAutoOpenBlocked(confirmOffline, offerSentVisible, requestsOpen) || !ui.shift.showOffers,
         )
         if (next != overlay) {
             overlay = next
         }
     }
-    val shownRequest = ui.offers.firstOrNull { it.deliveryId == overlay.openId }
+    val shownRequest = requestForMap(offersUi.offers, ui.offers, overlay.openId)
     SideEffect { onRequestOverlayVisible(shownRequest != null) }
     var requestNow by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(shownRequest?.deliveryId) {
@@ -292,7 +302,23 @@ fun HomeScreen(
         }
     }
     val currentOverlay = rememberUpdatedState(overlay)
-    val currentOffers = rememberUpdatedState(ui.offers)
+    val currentCatalog = rememberUpdatedState(catalog)
+    LaunchedEffect(requestTap) {
+        val requestId = requestTap?.trim().orEmpty()
+        if (requestId.isEmpty()) {
+            return@LaunchedEffect
+        }
+        val offer = offersModel.resolveNotificationRequest(requestId)
+        if (pendingRequests.taps.value?.trim() == requestId) {
+            pendingRequests.clear()
+        }
+        val settled = offersModel.ui.value.settledIds
+        if (offer != null && !requestSettled(offer.deliveryId, offer.searchExpiresAt, settled)) {
+            overlay = currentOverlay.value.open(offer.deliveryId)
+        } else if (offer == null) {
+            unavailableRequest = true
+        }
+    }
     LaunchedEffect(offersModel) {
         offersModel.requestMapEvents.collect { event ->
             val open = currentOverlay.value
@@ -302,19 +328,35 @@ fun HomeScreen(
                 sealedAttempts = sealDismissedAttempt(
                     sealedAttempts,
                     event.deliveryId,
-                    currentOffers.value.firstOrNull { it.deliveryId == event.deliveryId }?.searchExpiresAt,
+                    requestForMap(currentCatalog.value, emptyList(), event.deliveryId)?.searchExpiresAt,
                 )
             }
             if (handling.openDeliveries) {
                 offersModel.acknowledgeAccepted(event.deliveryId)
-                onOffers()
+                requestsOpen = false
+                onActiveDeliveries()
             }
             if (handling.showOfferSent) {
                 offerSentVisible = true
             }
+            if (handling.overlay != open) {
+                offersModel.refresh()
+                model.refresh()
+            }
         }
     }
     Box(Modifier.fillMaxSize()) {
+    if (requestsOpen) {
+        AvailableRequestsPage(
+            onOpen = { offer ->
+                if (!requestSettled(offer.deliveryId, offer.searchExpiresAt, offersUi.settledIds)) {
+                    overlay = overlay.open(offer.deliveryId)
+                }
+            },
+            availability = availability,
+            receiving = ui.onboarding?.receiving,
+        )
+    } else {
     HomeDashboard(
         ui = ui,
         profilePhoto = profilePhoto,
@@ -340,21 +382,16 @@ fun HomeScreen(
         },
         onOffers = onOffers,
         onActiveDeliveries = onActiveDeliveries,
-        onNewRequests = onNewRequests,
+        onNewRequests = { requestsOpen = true },
         onAcceptOffer = { offer ->
             if (senderChoosesRider(offer.serviceClass)) {
                 offersModel.offerListedPrice(offer)
             } else {
                 offersModel.accept(offer)
-                onOffers()
+                onActiveDeliveries()
             }
         },
-        onBidOffer = { offer ->
-            if (opensDeliveriesAfterListedOffer(offer.serviceClass)) {
-                offersModel.openBid(offer)
-                onOffers()
-            }
-        },
+        onBidOffer = { },
         onSubmitBid = { offer, amount ->
             offersModel.submitBid(offer.deliveryId, amount, offer.currency, offer)
         },
@@ -393,6 +430,10 @@ fun HomeScreen(
         includeNavigationBars = !inShell,
         inShell = inShell,
     )
+    }
+    if (requestsOpen && shownRequest == null) {
+        BackHandler { requestsOpen = false }
+    }
     if (shownRequest != null) {
         BackHandler { overlay = overlay.dismiss() }
         val sentAmount = resolvedSubmittedAmount(offersUi.ownBids, shownRequest.deliveryId, offersUi.sentAmounts[shownRequest.deliveryId])
@@ -413,7 +454,7 @@ fun HomeScreen(
                     offersModel.accept(shownRequest)
                 }
             },
-            onBid = { offersModel.openBid(shownRequest) },
+            onBid = { },
             onSubmitBid = { amount -> offersModel.submitBid(shownRequest.deliveryId, amount, shownRequest.currency, shownRequest) },
             onDecline = { offersModel.decline(shownRequest.deliveryId) },
             declining = offersUi.declining,
@@ -421,15 +462,34 @@ fun HomeScreen(
             onClose = { overlay = overlay.dismiss() },
         )
     }
+    if (unavailableRequest) {
+        RidersDialog(visible = true, onDismiss = { unavailableRequest = false }) {
+            RidersDialogTitle(REQUEST_UNAVAILABLE)
+            RidersDialogBody("This request has expired or is no longer available.")
+            RidersPrimaryButton(
+                label = "OK",
+                onClick = { unavailableRequest = false },
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
     if (offerSentVisible) {
         RidersDialog(visible = true, onDismiss = { offerSentVisible = false }) {
             RidersDialogTitle("Offer sent!")
             RidersDialogBody("Waiting for the customer to choose a rider.")
-            RidersPrimaryButton(
-                label = "OK",
-                onClick = { offerSentVisible = false },
-                modifier = Modifier.fillMaxWidth(),
-            )
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Spacer(Modifier.weight(1f))
+                RidersPrimaryButton(
+                    label = "OK",
+                    onClick = { offerSentVisible = false },
+                    compact = true,
+                    modifier = Modifier.weight(1f),
+                )
+            }
         }
     }
     if (confirmOffline) {

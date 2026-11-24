@@ -25,7 +25,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import android.util.Log
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -85,6 +84,9 @@ import com.riders.rider.feature.delivery.presentation.showFittedCamera
 import com.riders.rider.feature.delivery.domain.withMinimumCameraSpan
 import com.riders.rider.feature.delivery.domain.collectionCameraFrame
 import com.riders.rider.feature.delivery.domain.collectionMarkerPaddingPx
+import com.riders.rider.feature.delivery.domain.MarkerCameraGate
+import com.riders.rider.feature.delivery.domain.MarkerCameraPhase
+import com.riders.rider.feature.delivery.domain.markerStaysAttached
 import com.riders.rider.feature.delivery.domain.deliveryWhenLabel
 import com.riders.rider.feature.delivery.domain.parseGeoPoint
 import com.riders.rider.feature.delivery.presentation.pickupPinColor
@@ -93,6 +95,7 @@ import com.riders.rider.feature.delivery.presentation.RiderMapStyles
 import com.riders.rider.core.design.LocalAppDark
 import com.riders.rider.feature.delivery.presentation.RiderMapThemeStore
 import com.riders.rider.feature.delivery.presentation.riderMarkerIcon
+import com.riders.rider.feature.delivery.presentation.RiderMarkerIcon
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.launch
@@ -157,6 +160,12 @@ fun RequestRouteMap(
     )
     val headingNow = rememberUpdatedState(heading)
     val cameraLock = remember(deliveryId) { Mutex() }
+    val markerGate = remember(deliveryId) { MarkerCameraGate() }
+    var markerPhase by remember(deliveryId) { mutableStateOf(MarkerCameraPhase()) }
+    var pickupAttached by remember(deliveryId) { mutableStateOf(false) }
+    var dropoffAttached by remember(deliveryId) { mutableStateOf(false) }
+    var riderAttached by remember(deliveryId) { mutableStateOf(false) }
+    var shownRider by remember(deliveryId) { mutableStateOf<RiderMarkerIcon?>(null) }
     val riderGate = rider != null || framedRider
     val road = line.filter { it.latitude.isFinite() && it.longitude.isFinite() }
     val routeReady = road.size > 1
@@ -170,7 +179,11 @@ fun RequestRouteMap(
 
     LaunchedEffect(deliveryId, pickup, dropoff, routeGate, riderGate, mapLoaded, mapWidth, mapHeight, recenter, sheetOverlap) {
         val centering = recenter != seenRecenter
-        if (!mapLoaded || mapWidth <= 0 || mapHeight <= 0 || (userMoved && !centering)) {
+        if (!mapLoaded || mapWidth <= 0 || mapHeight <= 0) {
+            return@LaunchedEffect
+        }
+        if (userMoved && !centering) {
+            markerPhase = markerGate.settleWithoutAnimation()
             return@LaunchedEffect
         }
         if (centering) {
@@ -194,32 +207,62 @@ fun RequestRouteMap(
             rider ?: dropoff,
             if (rider != null) dropoff else pickup,
             framed,
-        ) ?: return@LaunchedEffect
-        val update = CameraUpdateFactory.newLatLngBounds(
-            loosened(withMinimumCameraSpan(frame.points)),
-            boundsPadding,
         )
-        cameraLock.withLock {
-            runCatching { showFittedCamera(camera, update, if (rider != null) headingNow.value else null) }
+        markerPhase = markerGate.begin()
+        try {
+            if (frame == null) {
+                return@LaunchedEffect
+            }
+            val update = CameraUpdateFactory.newLatLngBounds(
+                loosened(withMinimumCameraSpan(frame.points)),
+                boundsPadding,
+            )
+            cameraLock.withLock {
+                runCatching { showFittedCamera(camera, update, if (rider != null) headingNow.value else null) }
+            }
+        } finally {
+            markerPhase = markerGate.end()
         }
     }
 
     LaunchedEffect(heading, userMoved, mapLoaded, rider != null) {
-        val target = heading ?: return@LaunchedEffect
-        if (!mapLoaded || userMoved || rider == null) {
+        if (!mapLoaded) {
             return@LaunchedEffect
         }
-        cameraLock.withLock {
-            if (!userMoved && rider != null) {
-                animateHeadingUp(camera, target)
+        if (userMoved) {
+            markerPhase = markerGate.settleWithoutAnimation()
+            return@LaunchedEffect
+        }
+        val target = heading
+        if (rider == null || target == null) {
+            return@LaunchedEffect
+        }
+        markerPhase = markerGate.begin()
+        try {
+            cameraLock.withLock {
+                if (!userMoved) {
+                    animateHeadingUp(camera, target)
+                }
             }
+        } finally {
+            markerPhase = markerGate.end()
         }
     }
 
-    LaunchedEffect(road.size) {
-        if (road.size > 1) {
-            Log.i("CollectedRoute", "drawing points=${road.size}")
-        }
+    if (markerPhase.acceptingNew && riderMarker != null) {
+        shownRider = riderMarker
+    }
+    val nextPickup = markerStaysAttached(pickupAttached, markerPhase.acceptingNew, pickup != null && pickupIcon != null)
+    if (nextPickup != pickupAttached) {
+        pickupAttached = nextPickup
+    }
+    val nextDropoff = markerStaysAttached(dropoffAttached, markerPhase.acceptingNew, dropoff != null && dropoffIcon != null)
+    if (nextDropoff != dropoffAttached) {
+        dropoffAttached = nextDropoff
+    }
+    val nextRider = markerStaysAttached(riderAttached, markerPhase.acceptingNew, rider != null && shownRider != null)
+    if (nextRider != riderAttached) {
+        riderAttached = nextRider
     }
     if (initial != null) {
         Box(modifier) {
@@ -268,7 +311,7 @@ fun RequestRouteMap(
                     zIndex = 1f,
                 )
             }
-            if (pickup != null && pickupIcon != null) {
+            if (pickupAttached && pickup != null && pickupIcon != null) {
                 Marker(
                     state = remember(pickup) { MarkerState(LatLng(pickup.latitude, pickup.longitude)) },
                     icon = pickupIcon,
@@ -276,7 +319,7 @@ fun RequestRouteMap(
                     zIndex = 1f,
                 )
             }
-            if (dropoff != null && dropoffIcon != null) {
+            if (dropoffAttached && dropoff != null && dropoffIcon != null) {
                 Marker(
                     state = remember(dropoff) { MarkerState(LatLng(dropoff.latitude, dropoff.longitude)) },
                     icon = dropoffIcon,
@@ -284,14 +327,14 @@ fun RequestRouteMap(
                     zIndex = 2f,
                 )
             }
-            if (rider != null && riderMarker != null) {
+            if (riderAttached && rider != null && shownRider != null) {
                 val position = LatLng(rider.latitude, rider.longitude)
                 val state = remember { MarkerState(position) }
                 LaunchedEffect(position) { state.position = position }
                 Marker(
                     state = state,
-                    icon = riderMarker.icon,
-                    anchor = riderMarker.anchor,
+                    icon = shownRider!!.icon,
+                    anchor = shownRider!!.anchor,
                     rotation = 0f,
                     flat = false,
                     zIndex = 3f,

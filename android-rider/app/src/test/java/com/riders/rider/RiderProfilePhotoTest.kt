@@ -1,12 +1,18 @@
 package com.riders.rider
 
+import com.riders.rider.core.network.ApiError
+import com.riders.rider.core.network.ApiResult
+import com.riders.rider.core.network.text
 import com.riders.rider.feature.profile.domain.PROFILE_PHOTO_MAX_BYTES
+import com.riders.rider.feature.profile.domain.ProfilePhotoDownloadGate
 import com.riders.rider.feature.profile.domain.ProfilePhotoPhase
 import com.riders.rider.feature.profile.domain.ProfilePhotoRetry
 import com.riders.rider.feature.profile.domain.ProfilePhotoState
 import com.riders.rider.feature.profile.domain.canStartProfilePhotoAction
 import com.riders.rider.feature.profile.domain.profileAfterRefresh
 import com.riders.rider.feature.profile.domain.displayedProfilePhoto
+import com.riders.rider.feature.profile.domain.keepsStoredProfilePhoto
+import com.riders.rider.feature.profile.domain.loadProfilePhotoBytes
 import com.riders.rider.feature.profile.domain.profilePhotoAfterAccount
 import com.riders.rider.feature.profile.domain.profilePhotoAwaitingStored
 import com.riders.rider.feature.profile.domain.profilePhotoDownloadFailed
@@ -19,6 +25,7 @@ import com.riders.rider.feature.profile.domain.profilePhotoUploadFailed
 import com.riders.rider.feature.profile.domain.profilePhotoDownloadFinished
 import com.riders.rider.feature.profile.domain.profilePhotoUploadStarted
 import com.riders.rider.feature.profile.domain.ProfileBoard
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -109,6 +116,86 @@ class RiderProfilePhotoTest {
         )
         assertTrue(board.hasProfilePhoto)
         assertEquals("Test Rider", board.fullName)
+    }
+
+    @Test
+    fun profilePhotoDownloadSucceedsOnTheFirstAttempt() = runBlocking {
+        var calls = 0
+        val result = loadProfilePhotoBytes {
+            calls += 1
+            ApiResult.Ok(byteArrayOf(1))
+        }
+        assertEquals(1, calls)
+        assertTrue(result is ApiResult.Ok)
+    }
+
+    @Test
+    fun profilePhotoDownloadRetriesOneNetworkFailureWithoutPublishingIt() = runBlocking {
+        var calls = 0
+        val result = loadProfilePhotoBytes {
+            calls += 1
+            if (calls == 1) ApiResult.Err(ApiError.Network) else ApiResult.Ok(byteArrayOf(1))
+        }
+        assertEquals(2, calls)
+        assertTrue(result is ApiResult.Ok)
+    }
+
+    @Test
+    fun profilePhotoDownloadShowsTheErrorAfterTwoNetworkFailuresAndKeepsACurrentPhoto() = runBlocking {
+        var calls = 0
+        val result = loadProfilePhotoBytes {
+            calls += 1
+            ApiResult.Err(ApiError.Network)
+        }
+        assertEquals(2, calls)
+        val error = (result as ApiResult.Err).error
+        val visible = ProfilePhotoState(hasStoredPhoto = true, showingStored = true, phase = ProfilePhotoPhase.Loading)
+        val failed = profilePhotoDownloadFailed(
+            visible,
+            error.text(),
+            keepVisiblePhoto = keepsStoredProfilePhoto(error, wasVisible = true),
+        )
+        assertEquals(ProfilePhotoRetry.Download, failed.retry)
+        assertEquals(ApiError.Network.text(), failed.error)
+        assertTrue(failed.showingStored)
+        assertEquals("photo", displayedProfilePhoto(failed, "photo", null))
+        val firstLoad = profilePhotoDownloadFailed(
+            visible.copy(showingStored = false),
+            error.text(),
+            keepVisiblePhoto = keepsStoredProfilePhoto(error, wasVisible = false),
+        )
+        assertFalse(firstLoad.showingStored)
+        assertNull(displayedProfilePhoto(firstLoad, "photo", null))
+    }
+
+    @Test
+    fun profilePhotoDownloadDoesNotRetryHttpSessionOrDecodeFailures() = runBlocking {
+        val errors = listOf(
+            ApiError.Timeout,
+            ApiError.SessionEnded,
+            ApiError.SessionUncertain,
+            ApiError.Unexpected("No profile photo has been uploaded"),
+            ApiError.Unexpected("Profile photo could not be loaded"),
+        )
+        errors.forEach { error ->
+            var calls = 0
+            val result = loadProfilePhotoBytes {
+                calls += 1
+                ApiResult.Err(error)
+            }
+            assertEquals(1, calls)
+            assertEquals(error, (result as ApiResult.Err).error)
+            assertFalse(keepsStoredProfilePhoto(error, wasVisible = true))
+        }
+    }
+
+    @Test
+    fun profilePhotoDownloadIgnoresASecondRequestWhileOneIsRunning() {
+        val gate = ProfilePhotoDownloadGate()
+        assertTrue(gate.tryAcquire())
+        assertFalse(gate.tryAcquire())
+        gate.release()
+        assertTrue(gate.tryAcquire())
     }
 
     @Test

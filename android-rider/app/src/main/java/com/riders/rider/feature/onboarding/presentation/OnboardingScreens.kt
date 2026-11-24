@@ -682,18 +682,19 @@ private fun MotorcycleStep(
                 loadingLabel = "Saving",
                 modifier = Modifier.fillMaxWidth(),
             )
-        }
-        if (!registration) {
-            RidersSecondaryButton(
-                label = "Cancel",
-                onClick = onCancel,
-                enabled = !ui.savingMotorcycle,
-                tone = RidersButtonTone.Danger,
-                bordered = false,
-                containerColor = RidersColors.background,
-                regular = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
+            if (!registration) {
+                RidersSecondaryButton(
+                    label = "Cancel",
+                    onClick = onCancel,
+                    enabled = !ui.savingMotorcycle,
+                    tone = RidersButtonTone.Danger,
+                    bordered = false,
+                    containerColor = RidersColors.dangerSurface,
+                    contentColor = RidersColors.destructive,
+                    regular = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
         }
         }
     }

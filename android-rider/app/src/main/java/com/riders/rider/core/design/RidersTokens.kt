@@ -36,6 +36,7 @@ object RidersColors {
         private set
     var error by mutableStateOf(Color(0xFFD92D20))
         private set
+    val destructive = Color(0xFFEF4444)
     var dangerSurface by mutableStateOf(Color(0xFFFEF2F2))
         private set
     var shadow by mutableStateOf(Color(0x1417211D))

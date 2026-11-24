@@ -1,5 +1,7 @@
 package com.riders.rider.feature.offers.domain
 
+import com.riders.rider.core.network.OfferResponse
+
 /** Which incoming request, if any, is shown on the home map. Dismissed ids stay closed for this visit. */
 data class RequestOverlay(
     val openId: String? = null,
@@ -61,8 +63,50 @@ fun handleRequestMapSuccess(overlay: RequestOverlay, event: RequestMapEvent): Re
     }
 }
 
-fun requestMapAutoOpenBlocked(offlineConfirmation: Boolean, offerSentVisible: Boolean): Boolean {
-    return offlineConfirmation || offerSentVisible
+fun requestMapAutoOpenBlocked(
+    offlineConfirmation: Boolean,
+    offerSentVisible: Boolean,
+    browsingRequests: Boolean = false,
+): Boolean {
+    return offlineConfirmation || offerSentVisible || browsingRequests
+}
+
+fun requestCatalog(primary: List<OfferResponse>, fallback: List<OfferResponse>): List<OfferResponse> {
+    val byId = linkedMapOf<String, OfferResponse>()
+    fallback.forEach { offer ->
+        val id = offer.deliveryId.trim()
+        if (id.isNotEmpty()) {
+            byId[id] = offer
+        }
+    }
+    primary.forEach { offer ->
+        val id = offer.deliveryId.trim()
+        if (id.isNotEmpty()) {
+            byId[id] = offer
+        }
+    }
+    return byId.values.toList()
+}
+
+fun requestForMap(
+    primary: List<OfferResponse>,
+    fallback: List<OfferResponse>,
+    deliveryId: String?,
+): OfferResponse? {
+    val id = deliveryId?.trim().orEmpty()
+    if (id.isEmpty()) {
+        return null
+    }
+    return primary.firstOrNull { it.deliveryId == id } ?: fallback.firstOrNull { it.deliveryId == id }
+}
+
+enum class RequestBackTarget {
+    Dashboard,
+    Requests,
+}
+
+fun requestBackTarget(mapOpen: Boolean, listOpen: Boolean): RequestBackTarget {
+    return if (mapOpen && listOpen) RequestBackTarget.Requests else RequestBackTarget.Dashboard
 }
 
 fun requestMapNotice(bidError: String?, acceptError: String?): String? {

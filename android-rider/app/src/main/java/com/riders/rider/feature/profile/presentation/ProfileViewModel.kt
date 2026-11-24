@@ -20,8 +20,13 @@ import com.riders.rider.feature.profile.domain.ProfilePhotoRetry
 import com.riders.rider.feature.profile.domain.ProfilePhotoState
 import com.riders.rider.feature.profile.domain.canStartProfilePhotoAction
 import com.riders.rider.feature.profile.domain.profileAfterRefresh
+import com.riders.rider.feature.profile.domain.profileErrorAfterLeave
+import com.riders.rider.feature.profile.domain.profileRefreshError
 import com.riders.rider.feature.profile.domain.profilePhotoAfterAccount
 import com.riders.rider.feature.profile.domain.profilePhotoAwaitingStored
+import com.riders.rider.feature.profile.domain.ProfilePhotoDownloadGate
+import com.riders.rider.feature.profile.domain.keepsStoredProfilePhoto
+import com.riders.rider.feature.profile.domain.loadProfilePhotoBytes
 import com.riders.rider.feature.profile.domain.profilePhotoDownloadFailed
 import com.riders.rider.feature.profile.domain.profilePhotoDownloadFinished
 import com.riders.rider.feature.profile.domain.profilePhotoDownloadMissing
@@ -72,7 +77,21 @@ class ProfileViewModel @Inject constructor(
     private val state = MutableStateFlow(ProfileUi())
     val ui: StateFlow<ProfileUi> = state.asStateFlow()
     private var busy = false
+    private var profileVisible = false
     private var pendingPhoto: ByteArray? = null
+    private val photoDownloads = ProfilePhotoDownloadGate()
+
+    fun onProfileVisible() {
+        profileVisible = true
+    }
+
+    fun onProfileHidden() {
+        profileVisible = false
+        state.update { current ->
+            val error = profileErrorAfterLeave(current.board.error)
+            if (error == current.board.error) current else current.copy(board = current.board.copy(error = error))
+        }
+    }
 
     fun refresh(force: Boolean = false) {
         if (!shouldLoadProfile(state.value.board.loaded, force, busy)) {
@@ -85,9 +104,9 @@ class ProfileViewModel @Inject constructor(
             try {
                 val profile = verification.profile()
                 val onboard = verification.onboarding()
-                val licence = verification.licence()
                 val motorcycles = verification.motorcycles()
-                val failure = firstFailure(profile, onboard, licence, motorcycles)
+                val reported = profileRefreshError(profile, onboard, motorcycles)
+                val failure = if (profileVisible) reported else profileErrorAfterLeave(reported)
                 val identity = (profile as? ApiResult.Ok)?.value
                 state.update { current ->
                     current.copy(
@@ -98,10 +117,10 @@ class ProfileViewModel @Inject constructor(
                             phone = identity?.phone,
                             address = identity?.address,
                             onboarding = (onboard as? ApiResult.Ok)?.value,
-                            hasLicence = (licence as? ApiResult.Ok)?.let { it.value != null },
+                            hasLicence = null,
                             motorcycles = (motorcycles as? ApiResult.Ok)?.value,
                             hasProfilePhoto = identity?.hasProfilePhoto,
-                            error = failure?.text(),
+                            error = failure,
                         ),
                     )
                 }
@@ -199,7 +218,7 @@ class ProfileViewModel @Inject constructor(
                             photoBitmap = null,
                         )
                     }
-                    downloadStoredPhoto()
+                    requestStoredPhoto()
                 }
             }
         }
@@ -239,10 +258,7 @@ class ProfileViewModel @Inject constructor(
     fun retryPhoto() {
         when (state.value.photo.retry) {
             ProfilePhotoRetry.Upload -> pendingPhoto?.let(::uploadPhoto)
-            ProfilePhotoRetry.Download -> {
-                state.update { it.copy(photo = it.photo.copy(phase = ProfilePhotoPhase.Loading, error = null, retry = null)) }
-                viewModelScope.launch { downloadStoredPhoto() }
-            }
+            ProfilePhotoRetry.Download -> requestStoredPhoto()
             ProfilePhotoRetry.Remove -> {
                 state.update { it.copy(photo = it.photo.copy(phase = ProfilePhotoPhase.Idle, retry = null)) }
                 removePhoto()
@@ -291,20 +307,49 @@ class ProfileViewModel @Inject constructor(
             )
         }
         if (startDownload) {
-            viewModelScope.launch { downloadStoredPhoto() }
+            requestStoredPhoto()
+        }
+    }
+
+    private fun requestStoredPhoto() {
+        if (!photoDownloads.tryAcquire()) {
+            return
+        }
+        state.update { current ->
+            current.copy(photo = current.photo.copy(phase = ProfilePhotoPhase.Loading, error = null, retry = null))
+        }
+        viewModelScope.launch {
+            try {
+                downloadStoredPhoto()
+            } finally {
+                photoDownloads.release()
+            }
         }
     }
 
     private suspend fun downloadStoredPhoto() {
-        when (val result = photos.download()) {
+        val currentPhoto = state.value
+        val wasVisible = currentPhoto.photo.showingStored &&
+            currentPhoto.photo.hasStoredPhoto &&
+            currentPhoto.photoBitmap != null &&
+            currentPhoto.board.hasProfilePhoto
+        when (val result = loadProfilePhotoBytes { photos.download() }) {
             is ApiResult.Err -> state.update { current ->
                 if (!acceptsStoredPhoto(current.photo)) {
                     return@update current
                 }
                 val missing = result.error.text() == "No profile photo has been uploaded"
+                val keepVisiblePhoto = !missing && keepsStoredProfilePhoto(
+                    result.error,
+                    wasVisible && current.photoBitmap != null && current.board.hasProfilePhoto && current.photo.hasStoredPhoto,
+                )
                 current.copy(
                     board = if (missing) current.board.copy(hasProfilePhoto = false) else current.board,
-                    photo = if (missing) profilePhotoDownloadMissing(current.photo) else profilePhotoDownloadFailed(current.photo, result.error.text()),
+                    photo = if (missing) {
+                        profilePhotoDownloadMissing(current.photo)
+                    } else {
+                        profilePhotoDownloadFailed(current.photo, result.error.text(), keepVisiblePhoto)
+                    },
                     photoBitmap = if (missing) null else current.photoBitmap,
                     photoPreview = null,
                 )
@@ -343,8 +388,4 @@ class ProfileViewModel @Inject constructor(
 
 private fun acceptsStoredPhoto(photo: ProfilePhotoState): Boolean {
     return photo.phase == ProfilePhotoPhase.Loading || photo.retry == ProfilePhotoRetry.Download
-}
-
-private fun firstFailure(vararg results: ApiResult<*>) = results.firstNotNullOfOrNull { result ->
-    (result as? ApiResult.Err)?.error
 }

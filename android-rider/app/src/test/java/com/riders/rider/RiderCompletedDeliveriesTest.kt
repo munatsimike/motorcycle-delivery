@@ -12,6 +12,7 @@ import com.riders.rider.feature.delivery.domain.v2RiderAction
 import com.riders.rider.navigation.DeliveryBoardTab
 import com.riders.rider.navigation.defaultDeliveryBoardTab
 import com.riders.rider.navigation.deliveryBoardTabLabel
+import com.riders.rider.navigation.deliveryBoardTab
 import com.riders.rider.navigation.deliveryBoardTabs
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -21,17 +22,24 @@ import org.junit.Test
 
 class RiderCompletedDeliveriesTest {
     @Test
-    fun deliveriesScreenUsesFourTabsWithActiveFirst() {
+    fun deliveriesScreenUsesThreeTabsWithActiveFirst() {
         val tabs = listOf(
             DeliveryBoardTab.Active,
-            DeliveryBoardTab.New,
             DeliveryBoardTab.Pending,
             DeliveryBoardTab.Completed,
         )
         assertEquals(tabs, deliveryBoardTabs(showsOffers = true))
         assertEquals(tabs, deliveryBoardTabs(showsOffers = false))
+        assertEquals(3, tabs.size)
+        assertFalse(tabs.contains(DeliveryBoardTab.New))
         assertEquals(DeliveryBoardTab.Active, defaultDeliveryBoardTab())
-        assertEquals(listOf("Active", "New", "Pending", "Completed"), tabs.map(::deliveryBoardTabLabel))
+        assertEquals(DeliveryBoardTab.Active, deliveryBoardTab("New"))
+        assertEquals(DeliveryBoardTab.Active, deliveryBoardTab(null))
+        assertEquals(DeliveryBoardTab.Active, deliveryBoardTab(" "))
+        assertEquals(DeliveryBoardTab.Active, deliveryBoardTab("Unknown"))
+        assertEquals(DeliveryBoardTab.Pending, deliveryBoardTab("Pending"))
+        assertEquals(DeliveryBoardTab.Completed, deliveryBoardTab("Completed"))
+        assertEquals(listOf("Active", "Pending", "Completed"), tabs.map(::deliveryBoardTabLabel))
     }
 
     @Test

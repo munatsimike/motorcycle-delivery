@@ -62,7 +62,6 @@ import com.riders.rider.core.design.RidersSpacing
 import com.riders.rider.core.network.OfferResponse
 import com.riders.rider.feature.bids.data.BidRepository
 import com.riders.rider.feature.delivery.domain.GeoPoint
-import com.riders.rider.feature.delivery.domain.STREET_LEVEL_ZOOM
 import com.riders.rider.feature.delivery.domain.collectionCameraFrame
 import com.riders.rider.feature.delivery.domain.collectionMarkerPaddingPx
 import com.riders.rider.feature.delivery.domain.parseGeoPoint
@@ -187,6 +186,7 @@ fun RequestMapOverlay(
                 submitError = error,
                 onInterest = onInterest,
                 settled = settled,
+                mapDecline = true,
             )
             if (!error.isNullOrBlank()) {
                 RidersFailureNotice(message = error)

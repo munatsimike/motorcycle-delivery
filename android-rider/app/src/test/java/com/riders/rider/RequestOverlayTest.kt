@@ -1,6 +1,13 @@
 package com.riders.rider
 
+import com.riders.rider.core.network.OfferResponse
+import com.riders.rider.core.network.ParcelResponse
+import com.riders.rider.core.network.StopResponse
+import com.riders.rider.feature.offers.domain.RequestBackTarget
 import com.riders.rider.feature.offers.domain.RequestMapEvent
+import com.riders.rider.feature.offers.domain.requestBackTarget
+import com.riders.rider.feature.offers.domain.requestCatalog
+import com.riders.rider.feature.offers.domain.requestForMap
 import com.riders.rider.feature.offers.domain.RequestMapSuccess
 import com.riders.rider.feature.offers.domain.RequestOverlay
 import com.riders.rider.feature.offers.domain.dismissedForSettledAttempts
@@ -130,6 +137,34 @@ class RequestOverlayTest {
     }
 
     @Test
+    fun browsingTheListDoesNotAutoOpenButKeepsAnExplicitRequest() {
+        val blocked = requestMapAutoOpenBlocked(offlineConfirmation = false, offerSentVisible = false, browsingRequests = true)
+        val browsing = RequestOverlay().sync(listOf("a", "b"), blocked = blocked)
+        assertNull(browsing.openId)
+        val chosen = browsing.open("b")
+        assertEquals("b", chosen.openId)
+        assertEquals("b", chosen.sync(listOf("a", "b"), blocked = blocked).openId)
+    }
+
+    @Test
+    fun closingTheMapReturnsToTheListAndClosingTheListReturnsHome() {
+        assertEquals(RequestBackTarget.Dashboard, requestBackTarget(mapOpen = true, listOpen = false))
+        assertEquals(RequestBackTarget.Requests, requestBackTarget(mapOpen = true, listOpen = true))
+        assertEquals(RequestBackTarget.Dashboard, requestBackTarget(mapOpen = false, listOpen = true))
+    }
+
+    @Test
+    fun theOpenRequestUsesTheSharedCatalogBeforeTheHomeSnapshot() {
+        val shared = requestOffer("shared", "4.00")
+        val home = requestOffer("shared", "9.00")
+        val onlyHome = requestOffer("home-only", "2.00")
+        assertEquals("4.00", requestForMap(listOf(shared), listOf(home, onlyHome), "shared")?.offeredPrice)
+        assertEquals("2.00", requestForMap(emptyList(), listOf(onlyHome), "home-only")?.offeredPrice)
+        assertNull(requestForMap(listOf(shared), listOf(onlyHome), "missing"))
+        assertEquals(listOf("home-only", "shared"), requestCatalog(listOf(shared), listOf(onlyHome, home)).map { it.deliveryId })
+    }
+
+    @Test
     fun aNewSearchAttemptIsActionableAfterThePreviousAttemptSettled() {
         val first = "2026-10-28T11:06:00.000Z"
         val renewed = "2026-10-28T12:06:00.000Z"
@@ -148,4 +183,20 @@ class RequestOverlayTest {
         val manual = overlayAfterSearchAttempt(closed, emptyMap(), listOf("delivery-1" to renewed))
         assertEquals(setOf("delivery-1"), manual.first.dismissed)
     }
+}
+
+private fun requestOffer(deliveryId: String, price: String): OfferResponse {
+    val stop = StopResponse(address = "Address", contactName = "Rider", contactPhone = "000")
+    return OfferResponse(
+        assignmentId = deliveryId,
+        deliveryId = deliveryId,
+        expiresAt = "2026-10-28T12:00:00Z",
+        offeredPrice = price,
+        currency = "USD",
+        payer = "SENDER",
+        paymentMethod = "CASH",
+        parcel = ParcelResponse(description = "Parcel", size = "SMALL"),
+        pickup = stop,
+        dropoff = stop,
+    )
 }

@@ -18,7 +18,6 @@ import com.riders.rider.feature.delivery.domain.isRiderDropoffRoad
 import com.riders.rider.feature.delivery.domain.shouldRequestPickupRoute
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
-import android.util.Log
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -76,7 +75,6 @@ class CollectedRouteModel @Inject constructor(
             }
             if (requestedKey == next) {
                 line = road
-                Log.i("CollectedRoute", "points=${road.size}")
                 if (road.size <= 2) {
                     requestedKey = null
                 }

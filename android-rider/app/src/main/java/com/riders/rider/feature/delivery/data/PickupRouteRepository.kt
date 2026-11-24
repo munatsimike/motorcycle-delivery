@@ -57,8 +57,7 @@ class PickupRouteRepository @Inject constructor(
             apiCall { riders.deliveryRoute(assignmentId) }
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
-        } catch (error: Exception) {
-            android.util.Log.i("CollectedRoute", "request threw ${error.javaClass.simpleName}")
+        } catch (_: Exception) {
             return emptyList()
         }
         val road = when (result) {
@@ -71,10 +70,7 @@ class PickupRouteRepository @Inject constructor(
                 }
                 drivingRouteLine(points)
             }
-            is ApiResult.Err -> {
-                android.util.Log.i("CollectedRoute", "request failed ${result.error.javaClass.simpleName}")
-                emptyList()
-            }
+            is ApiResult.Err -> emptyList()
         }
         if (road.size > 2) {
             deliveryRoads[key] = road

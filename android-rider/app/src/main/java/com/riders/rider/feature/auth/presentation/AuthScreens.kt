@@ -8,7 +8,6 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -512,7 +511,7 @@ private fun OtpContent(
                 loading = resending,
                 loadingLabel = "Sending",
                 bordered = false,
-                containerColor = RidersColors.background,
+                containerColor = RidersColors.primaryLight,
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -707,7 +706,7 @@ private fun OtpDigitRow(
 
 @Composable
 private fun AuthScaffold(content: @Composable ColumnScope.() -> Unit) {
-    BoxWithConstraints(Modifier.fillMaxSize().background(RidersColors.background)) {
+    Box(Modifier.fillMaxSize().background(RidersColors.background)) {
         val horizontal = RidersSpacing.lg
         Column(
             Modifier

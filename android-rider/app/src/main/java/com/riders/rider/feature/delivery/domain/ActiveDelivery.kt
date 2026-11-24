@@ -185,7 +185,7 @@ fun navigationQuery(address: String, landmark: String?): String? {
 }
 
 fun encodeNavigationQuery(value: String): String {
-    return java.net.URLEncoder.encode(value, Charsets.UTF_8).replace("+", "%20")
+    return java.net.URLEncoder.encode(value, Charsets.UTF_8.name()).replace("+", "%20")
 }
 
 fun syncOpenDelivery(deliveryId: String, stored: ActiveDelivery?, lookup: AssignmentLookup): DeliverySync {

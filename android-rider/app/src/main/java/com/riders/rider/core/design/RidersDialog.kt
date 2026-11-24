@@ -148,10 +148,11 @@ fun RidersDialogTextButton(
     enabled: Boolean = true,
     loading: Boolean = false,
     regular: Boolean = false,
+    modifier: Modifier = Modifier,
 ) {
     val dismiss = tone == RidersDialogTone.Neutral
     val color = when (tone) {
-        RidersDialogTone.Danger -> RidersColors.error
+        RidersDialogTone.Danger -> RidersColors.destructive
         RidersDialogTone.Neutral -> Color(0xFF374151)
         RidersDialogTone.Primary -> RidersColors.primary
     }
@@ -161,7 +162,7 @@ fun RidersDialogTextButton(
     TextButton(
         onClick = onClick,
         enabled = !inactive,
-        modifier = Modifier.alpha(if (inactive) 0.6f else 1f),
+        modifier = modifier.alpha(if (inactive) 0.6f else 1f),
         contentPadding = PaddingValues(horizontal = RidersSpacing.xs, vertical = RidersSpacing.sm),
         colors = ButtonDefaults.textButtonColors(
             containerColor = fill,

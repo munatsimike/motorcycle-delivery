@@ -1,9 +1,6 @@
-package com.riders.rider.feature.offers.presentation
+﻿package com.riders.rider.feature.offers.presentation
 
 import android.os.SystemClock
-import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,11 +16,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.ContentTransform
-import androidx.compose.animation.SizeTransform
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.ui.Alignment
@@ -31,9 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.PlatformTextStyle
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.KeyboardType
@@ -56,9 +46,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.riders.rider.R
-import com.riders.rider.core.design.RidersButtonTone
 import com.riders.rider.core.design.RidersCard
-import com.riders.rider.core.design.RidersBottomSheet
 import com.riders.rider.core.design.RidersColors
 import com.riders.rider.core.design.RidersDialog
 import com.riders.rider.core.design.RidersDialogActions
@@ -66,13 +54,7 @@ import com.riders.rider.core.design.RidersDialogBody
 import com.riders.rider.core.design.RidersDialogTextButton
 import com.riders.rider.core.design.RidersDialogTitle
 import com.riders.rider.core.design.RidersDialogTone
-import com.riders.rider.core.design.RidersConfirmation
-import com.riders.rider.core.design.RidersChangingText
-import com.riders.rider.core.design.RidersMotion
-import com.riders.rider.core.design.RiderTransition
 import com.riders.rider.core.design.acceptPressEnabled
-import com.riders.rider.core.design.acceptanceConfirmationVisible
-import com.riders.rider.core.design.rememberRidersMotion
 import com.riders.rider.core.design.RidersCenteredContent
 import com.riders.rider.core.design.RidersEmptyState
 import com.riders.rider.core.design.RidersFailureNotice
@@ -92,22 +74,14 @@ import com.riders.rider.feature.bids.domain.marketplaceBidButtonsVisible
 import com.riders.rider.feature.bids.domain.newMarketplaceOffers
 import com.riders.rider.feature.bids.domain.formatBidDollars
 import com.riders.rider.feature.delivery.presentation.ContentIcon
-import com.riders.rider.feature.delivery.presentation.StopContactName
-import com.riders.rider.feature.delivery.presentation.partyName
-import com.riders.rider.feature.delivery.presentation.partyPhone
 import com.riders.rider.feature.delivery.presentation.ContentLabel
 import com.riders.rider.feature.delivery.presentation.DeliveryStop
 import com.riders.rider.feature.delivery.presentation.ServiceClassLabel
 import com.riders.rider.feature.delivery.presentation.cardLocationPinHeight
 import com.riders.rider.feature.delivery.presentation.cardLocationPinWidth
-import com.riders.rider.feature.delivery.presentation.deliveryContentLabel
-import com.riders.rider.feature.delivery.domain.NEW_OFFER_BACKGROUND
-import com.riders.rider.feature.delivery.domain.NEW_OFFER_BADGE
-import com.riders.rider.feature.delivery.domain.NEW_OFFER_FOREGROUND
 import com.riders.rider.feature.delivery.presentation.deliveryContentMatches
 import com.riders.rider.feature.delivery.presentation.filteredContentTitle
 import com.riders.rider.feature.offers.domain.canAcceptOffer
-import com.riders.rider.feature.offers.domain.offerExpiryLabel
 import com.riders.rider.feature.offers.domain.offerIsExpired
 import com.riders.rider.feature.offers.domain.offerDistanceLabel
 import com.riders.rider.feature.offers.domain.CustomOfferDialogState
@@ -120,7 +94,6 @@ import com.riders.rider.feature.offers.domain.dismissCustomOfferDialog
 import com.riders.rider.feature.offers.domain.editCustomOfferAmount
 import com.riders.rider.feature.offers.domain.observeCustomOfferSubmit
 import com.riders.rider.feature.offers.domain.openCustomOfferDialog
-import com.riders.rider.feature.offers.domain.acceptOfferLabel
 import com.riders.rider.feature.bids.domain.resolvedSubmittedAmount
 import com.riders.rider.feature.offers.domain.offerSentConfirmation
 import com.riders.rider.feature.offers.domain.senderChoosesRider
@@ -130,22 +103,18 @@ import com.riders.rider.feature.offers.domain.requestCurrencyLabel
 import com.riders.rider.feature.delivery.domain.DeliveryListSort
 import com.riders.rider.feature.delivery.domain.sortDeliveries
 import com.riders.rider.feature.offers.domain.offerStopLine
-import com.riders.rider.navigation.bidOptionsEnter
-import com.riders.rider.navigation.bidOptionsExit
 import kotlinx.coroutines.delay
 
 @Composable
 fun OffersScreen(
-    onAccepted: (String) -> Unit,
     inShell: Boolean = false,
     availability: String? = null,
     receiving: Boolean? = null,
     modifier: Modifier = Modifier,
-    offerAssignmentId: String? = null,
-    onRequestHandled: () -> Unit = {},
     contentKind: String? = null,
     sort: DeliveryListSort = DeliveryListSort.Newest,
     unbidOnly: Boolean = false,
+    browseOnOpen: (OfferResponse) -> Unit,
     model: OfferViewModel = hiltViewModel(),
 ) {
     val ui by model.ui.collectAsStateWithLifecycle()
@@ -179,20 +148,6 @@ fun OffersScreen(
     LaunchedEffect(requestsEnabled) {
         model.setRequestsEnabled(requestsEnabled)
     }
-    LaunchedEffect(offerAssignmentId) {
-        val assignmentId = offerAssignmentId ?: return@LaunchedEffect
-        model.openFromNotification(assignmentId)
-        onRequestHandled()
-    }
-    val selected = ui.selected
-    val placingBid = ui.placingBid
-    BackHandler(enabled = selected != null) {
-        if (placingBid) {
-            model.closeBid()
-        } else {
-            model.select(null)
-        }
-    }
     RidersPullRefresh(
         refreshing = ui.refreshing,
         onRefresh = model::pullRefresh,
@@ -202,7 +157,7 @@ fun OffersScreen(
             .then(if (inShell) Modifier else Modifier.statusBarsPadding())
             .then(if (inShell) Modifier else Modifier.navigationBarsPadding()),
     ) {
-    val centeredList = selected == null && offerListFillsPage(ui, contentKind, sort, unbidOnly)
+    val centeredList = offerListFillsPage(ui, contentKind, sort, unbidOnly)
     if (centeredList) {
         RidersCenteredContent(
             Modifier
@@ -224,6 +179,7 @@ fun OffersScreen(
                 contentKind = contentKind,
                 sort = sort,
                 unbidOnly = unbidOnly,
+                onOpen = browseOnOpen,
             )
         }
     } else Column(
@@ -233,48 +189,22 @@ fun OffersScreen(
             .padding(horizontal = RidersSpacing.lg),
         verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
     ) {
-        if (selected == null) {
-            OfferList(
-                ui,
-                onAccept = { confirmAccept = it },
-                onBid = model::openBid,
-                onSubmitBid = { offer, amount -> model.submitBid(offer.deliveryId, amount, offer.currency) },
-                onDecline = { confirmDecline = it },
-                actingDeliveryId = actingDeliveryId,
-                declining = ui.declining,
-                onInterest = model::expressInterest,
-                onRetry = model::pullRefresh,
-                deferLoading = true,
-                contentKind = contentKind,
-                sort = sort,
-                unbidOnly = unbidOnly,
-            )
-        } else if (resolvedSubmittedAmount(ui.ownBids, selected.deliveryId, ui.sentAmounts[selected.deliveryId]) != null && !placingBid) {
-            SentOfferDetails(
-                selected,
-                resolvedSubmittedAmount(ui.ownBids, selected.deliveryId, ui.sentAmounts[selected.deliveryId]).orEmpty(),
-            )
-        } else {
-            OfferDetail(
-                offer = selected,
-                accepting = ui.accepting,
-                submittingBid = ui.submittingBid,
-                statusLabel = ui.sentLabels[selected.deliveryId],
-                confirmed = acceptanceConfirmationVisible(ui.accepted != null),
-                unavailable = ui.offerGone,
-                nowMillis = ui.nowMillis,
-                error = ui.bidError ?: ui.error,
-                submitError = ui.bidError,
-                onAccept = { confirmAccept = selected },
-                onBid = { amount -> model.submitBid(selected.deliveryId, amount, selected.currency) },
-                onDecline = { confirmDecline = selected },
-                declining = ui.declining,
-                placingBid = placingBid,
-                onCloseBid = model::closeBid,
-                onViewDelivery = onAccepted,
-                onRetry = model::pullRefresh,
-            )
-        }
+        OfferList(
+            ui,
+            onAccept = { confirmAccept = it },
+            onBid = model::openBid,
+            onSubmitBid = { offer, amount -> model.submitBid(offer.deliveryId, amount, offer.currency) },
+            onDecline = { confirmDecline = it },
+            actingDeliveryId = actingDeliveryId,
+            declining = ui.declining,
+            onInterest = model::expressInterest,
+            onRetry = model::pullRefresh,
+            deferLoading = true,
+            contentKind = contentKind,
+            sort = sort,
+            unbidOnly = unbidOnly,
+            onOpen = browseOnOpen,
+        )
     }
     }
     val pendingAccept = confirmAccept
@@ -369,6 +299,7 @@ private fun OfferList(
     contentKind: String? = null,
     sort: DeliveryListSort = DeliveryListSort.Newest,
     unbidOnly: Boolean = false,
+    onOpen: ((OfferResponse) -> Unit)? = null,
 ) {
     val pool = if (unbidOnly) newMarketplaceOffers(ui.offers, ui.ownBids, ui.sentAmounts) else ui.offers
     val shown = sortDeliveries(
@@ -399,6 +330,7 @@ private fun OfferList(
         )
         else -> shown.forEach { offer ->
             val sentAmount = resolvedSubmittedAmount(ui.ownBids, offer.deliveryId, ui.sentAmounts[offer.deliveryId])
+            val openRequest = onOpen?.let { open -> { open(offer) } }
             OfferRequestCard(
                 offer,
                 ui.nowMillis,
@@ -407,15 +339,16 @@ private fun OfferList(
                 sentAmount = sentAmount,
                 submittingBid = ui.submittingBid,
                 bidsOpen = marketplaceBidButtonsVisible(offer.serviceClass, ui.ownBidsKnown, ui.bidError ?: ui.bidListError),
-                onAccept = { onAccept(offer) },
-                onBid = { onBid(offer) },
-                onSubmitBid = { amount -> onSubmitBid(offer, amount) },
-                onDecline = { onDecline(offer) },
+                onAccept = { if (openRequest != null) openRequest() else onAccept(offer) },
+                onBid = { if (openRequest != null) openRequest() else onBid(offer) },
+                onSubmitBid = { amount -> if (openRequest != null) openRequest() else onSubmitBid(offer, amount) },
+                onDecline = { if (openRequest != null) openRequest() else onDecline(offer) },
                 declining = declining && (actingDeliveryId == null || actingDeliveryId == offer.deliveryId),
                 actingDeliveryId = actingDeliveryId,
                 deferLoading = deferLoading,
                 submitError = ui.bidError,
-                onInterest = { onInterest(offer) },
+                onInterest = { if (openRequest != null) openRequest() else onInterest(offer) },
+                onOpen = openRequest,
                 fresh = true,
             )
         }
@@ -433,126 +366,6 @@ private fun OfferList(
     }
 }
 
-@Composable
-private fun OfferDetail(
-    offer: OfferResponse,
-    accepting: Boolean,
-    submittingBid: Boolean,
-    statusLabel: String?,
-    confirmed: Boolean,
-    unavailable: Boolean,
-    nowMillis: Long,
-    error: String?,
-    submitError: String? = null,
-    onAccept: () -> Unit,
-    onBid: (String) -> Unit,
-    onDecline: () -> Unit,
-    declining: Boolean,
-    placingBid: Boolean,
-    onCloseBid: () -> Unit,
-    onViewDelivery: (String) -> Unit,
-    onRetry: () -> Unit,
-) {
-    val tickingNow = rememberOfferCountdownNow(nowMillis)
-    val canAct = acceptPressEnabled(canAcceptOffer(offer.expiresAt, tickingNow, accepting, unavailable), confirmed = false)
-    val content = offerContent(offer.parcel.description)
-    val motion = rememberRidersMotion()
-    val bidMs = motion.millis(RiderTransition.BidRise)
-    RidersCard(modifier = Modifier.fillMaxWidth()) {
-        OfferSummary(offer, tickingNow, detailed = true, statusLabel = statusLabel, fresh = true)
-    }
-    AnimatedContent(
-        targetState = placingBid,
-        transitionSpec = {
-            ContentTransform(
-                targetContentEnter = bidOptionsEnter(bidMs),
-                initialContentExit = bidOptionsExit(bidMs),
-                sizeTransform = if (bidMs <= 0) null else SizeTransform(clip = false),
-            )
-        },
-        label = "bid-options",
-    ) { bidding ->
-        if (bidding) {
-            BidPage(
-                offer = offer,
-                content = content,
-                submitting = submittingBid,
-                canAct = canAct && !accepting,
-                error = error,
-                onSend = onBid,
-                onDecline = onDecline,
-                declining = declining,
-                onRetry = onRetry,
-                onBack = onCloseBid,
-            )
-        } else {
-            OfferActions(
-                offer = offer,
-                accepting = accepting,
-                submittingBid = submittingBid,
-                confirmed = confirmed,
-                canAct = canAct,
-                error = error,
-                submitError = submitError,
-                onAccept = onAccept,
-                onSubmitBid = onBid,
-                onDecline = onDecline,
-                declining = declining,
-                onViewDelivery = onViewDelivery,
-                onRetry = onRetry,
-            )
-        }
-    }
-}
-
-@Composable
-private fun OfferActions(
-    offer: OfferResponse,
-    accepting: Boolean,
-    submittingBid: Boolean,
-    confirmed: Boolean,
-    canAct: Boolean,
-    error: String?,
-    submitError: String? = null,
-    onAccept: () -> Unit,
-    onSubmitBid: (String) -> Unit,
-    onDecline: () -> Unit,
-    declining: Boolean,
-    onViewDelivery: (String) -> Unit,
-    onRetry: () -> Unit,
-) {
-    Column(
-        Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
-    ) {
-        if (error != null) {
-            RidersFailureNotice(message = error, onRetry = onRetry)
-        }
-        if (acceptanceConfirmationVisible(confirmed)) {
-            RidersConfirmation("Delivery accepted!", Modifier.fillMaxWidth())
-            Text(requestAmountLabel(offer.currency, offer.offeredPrice), style = RidersType.body, color = RidersColors.text)
-            Text(offer.pickup.address, style = RidersType.body, color = RidersColors.text)
-            Text(offer.dropoff.address, style = RidersType.body, color = RidersColors.text)
-            RidersPrimaryButton(
-                label = "View delivery",
-                onClick = { onViewDelivery(offer.deliveryId) },
-                modifier = Modifier.fillMaxWidth(),
-            )
-        } else {
-            IncomingOfferActions(
-                offer = offer,
-                canAct = canAct,
-                accepting = accepting,
-                submittingBid = submittingBid,
-                onAccept = onAccept,
-                onSubmitBid = onSubmitBid,
-                onDecline = onDecline,
-                declining = declining,
-                submitError = submitError,
-            )
-        }
-    }
-}
 
 @Composable
 private fun IncomingOfferActions(
@@ -565,11 +378,16 @@ private fun IncomingOfferActions(
     onDecline: () -> Unit,
     declining: Boolean,
     submitError: String? = null,
+    mapDecline: Boolean = false,
 ) {
     var dialog by remember(offer.deliveryId) { mutableStateOf(CustomOfferDialogState(amount = offer.offeredPrice)) }
+    var confirmAccept by remember(offer.deliveryId) { mutableStateOf(false) }
+    var confirmDecline by remember(offer.deliveryId) { mutableStateOf(false) }
     val cents = bidAmountCents(dialog.amount)
     val sending = dialog.phase != CustomOfferPhase.Idle || submittingBid
     val priceError = if (dialog.amount.isNotBlank() && cents == null) "Enter a price." else null
+    val listedPrice = senderChoosesRider(offer.serviceClass)
+    val busy = accepting || submittingBid || declining
     LaunchedEffect(dialog.phase, submittingBid, submitError) {
         val next = observeCustomOfferSubmit(dialog, submittingBid, submitError)
         if (next != dialog) {
@@ -593,24 +411,81 @@ private fun IncomingOfferActions(
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
             error = priceError ?: if (dialog.phase == CustomOfferPhase.Idle) dialog.error else null,
         )
-        RidersDialogActions {
-            RidersDialogTextButton(
-                label = "Cancel",
-                tone = RidersDialogTone.Neutral,
-                enabled = !sending,
-                regular = true,
-                onClick = { dialog = dismissCustomOfferDialog(dialog) },
-            )
-            RidersDialogTextButton(
-                label = customOfferButtonLabel(sending),
-                loading = sending,
-                enabled = canAct && cents != null && !accepting && !sending,
-                onClick = {
-                    val parsed = bidAmountCents(dialog.amount) ?: return@RidersDialogTextButton
-                    val started = beginCustomOfferSubmit(dialog, submitError) ?: return@RidersDialogTextButton
+        if (mapDecline) {
+            MapOfferDialogButtons(
+                confirmLabel = customOfferButtonLabel(sending),
+                dismissLabel = "Cancel",
+                onConfirm = {
+                    val parsed = bidAmountCents(dialog.amount) ?: return@MapOfferDialogButtons
+                    val started = beginCustomOfferSubmit(dialog, submitError) ?: return@MapOfferDialogButtons
                     dialog = started
                     onSubmitBid(formatBidDollars(parsed))
                 },
+                onDismiss = { dialog = dismissCustomOfferDialog(dialog) },
+                confirmEnabled = canAct && cents != null && !accepting && !sending,
+                dismissEnabled = !sending,
+            )
+        } else {
+            RidersDialogActions {
+                RidersDialogTextButton(
+                    label = "Cancel",
+                    tone = RidersDialogTone.Neutral,
+                    enabled = !sending,
+                    regular = true,
+                    onClick = { dialog = dismissCustomOfferDialog(dialog) },
+                )
+                RidersDialogTextButton(
+                    label = customOfferButtonLabel(sending),
+                    loading = sending,
+                    enabled = canAct && cents != null && !accepting && !sending,
+                    onClick = {
+                        val parsed = bidAmountCents(dialog.amount) ?: return@RidersDialogTextButton
+                        val started = beginCustomOfferSubmit(dialog, submitError) ?: return@RidersDialogTextButton
+                        dialog = started
+                        onSubmitBid(formatBidDollars(parsed))
+                    },
+                )
+            }
+        }
+    }
+    if (mapDecline) {
+        RidersDialog(visible = confirmAccept, onDismiss = { if (!busy) confirmAccept = false }) {
+            RidersDialogTitle(if (listedPrice) "Send offer?" else "Accept offer?")
+            RidersDialogBody(
+                if (listedPrice) "Send this offer to the customer?" else "Are you sure you want to accept this delivery?",
+            )
+            MapOfferDialogButtons(
+                confirmLabel = if (listedPrice) "Send offer" else "Accept",
+                dismissLabel = "Cancel",
+                onConfirm = {
+                    if (busy) {
+                        return@MapOfferDialogButtons
+                    }
+                    confirmAccept = false
+                    onAccept()
+                },
+                onDismiss = { confirmAccept = false },
+                confirmEnabled = canAct && !busy,
+                dismissEnabled = !busy,
+            )
+        }
+        RidersDialog(visible = confirmDecline, onDismiss = { if (!declining) confirmDecline = false }) {
+            RidersDialogTitle("Decline offer?")
+            RidersDialogBody("This delivery request will be removed from your offers.")
+            MapOfferDialogButtons(
+                confirmLabel = "Decline",
+                dismissLabel = "Keep offer",
+                confirmTone = RidersDialogTone.Danger,
+                onConfirm = {
+                    if (busy) {
+                        return@MapOfferDialogButtons
+                    }
+                    confirmDecline = false
+                    onDecline()
+                },
+                onDismiss = { confirmDecline = false },
+                confirmEnabled = canAct && !busy,
+                dismissEnabled = !declining,
             )
         }
     }
@@ -620,7 +495,7 @@ private fun IncomingOfferActions(
     ) {
         RidersPrimaryButton(
             label = "Accept",
-            onClick = onAccept,
+            onClick = { if (mapDecline) confirmAccept = true else onAccept() },
             enabled = canAct && !submittingBid,
             loading = accepting || submittingBid,
             loadingLabel = if (senderChoosesRider(offer.serviceClass)) "Sending" else "Accepting",
@@ -637,204 +512,82 @@ private fun IncomingOfferActions(
             soft = false,
             compact = true,
         )
-        RidersInlineAction(
-            label = DECLINE_REQUEST,
-            loadingLabel = "Declining",
-            loading = declining,
-            enabled = canAct && !accepting && !submittingBid,
-            onClick = onDecline,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = RidersSpacing.xs),
-        )
+        if (mapDecline) {
+            RidersSecondaryButton(
+                label = DECLINE_REQUEST,
+                loadingLabel = "Declining",
+                loading = declining,
+                enabled = canAct && !accepting && !submittingBid,
+                onClick = { confirmDecline = true },
+                bordered = false,
+                compact = true,
+                containerColor = RidersColors.dangerSurface,
+                contentColor = RidersColors.destructive,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = RidersSpacing.sm),
+            )
+        } else {
+            RidersInlineAction(
+                label = DECLINE_REQUEST,
+                loadingLabel = "Declining",
+                loading = declining,
+                enabled = canAct && !accepting && !submittingBid,
+                onClick = onDecline,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = RidersSpacing.xs),
+            )
+        }
     }
 }
 
-private data class OfferContent(val label: String)
-
-private fun offerContent(description: String): OfferContent {
-    return OfferContent(deliveryContentLabel(description))
-}
-
-private const val BID_STEP_CENTS = 50
-
-private fun startingBidCents(offeredPrice: String): Int {
-    val cents = bidAmountCents(offeredPrice) ?: BID_STEP_CENTS
-    val snapped = ((cents + BID_STEP_CENTS / 2) / BID_STEP_CENTS) * BID_STEP_CENTS
-    return snapped.coerceAtLeast(BID_STEP_CENTS)
-}
-
-private fun bidSuggestions(cents: Int): List<Int> {
-    val anchor = ((cents + 25) / 50) * 50
-    val start = (anchor - 100).coerceAtLeast(BID_STEP_CENTS)
-    return List(4) { index -> start + index * BID_STEP_CENTS }
-}
-
-private fun deliveryKindWord(label: String): String = if (label == "Document") "doc" else label.lowercase()
-
 @Composable
-private fun BidPage(
-    offer: OfferResponse,
-    content: OfferContent,
-    submitting: Boolean,
-    canAct: Boolean,
-    error: String?,
-    onSend: (String) -> Unit,
-    onDecline: () -> Unit,
-    declining: Boolean,
-    onRetry: () -> Unit,
-    onBack: () -> Unit,
+private fun MapOfferDialogButtons(
+    confirmLabel: String,
+    dismissLabel: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+    confirmEnabled: Boolean,
+    dismissEnabled: Boolean,
+    confirmTone: RidersDialogTone = RidersDialogTone.Primary,
+    confirmLoading: Boolean = false,
 ) {
-    var cents by remember(offer.deliveryId) { mutableStateOf(startingBidCents(offer.offeredPrice)) }
-    var confirmSend by remember(offer.deliveryId) { mutableStateOf(false) }
-    val amount = formatBidDollars(cents)
-    val suggestions = bidSuggestions(startingBidCents(offer.offeredPrice))
-    RidersDialog(visible = confirmSend, onDismiss = { if (!submitting) confirmSend = false }) {
-        RidersDialogTitle("Send offer")
-        RidersDialogBody("You are sending an offer of ${requestAmountLabel(offer.currency, amount)} to deliver the ${deliveryKindWord(content.label)}.")
-        RidersDialogActions {
+    Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             RidersDialogTextButton(
-                label = "Cancel",
+                label = dismissLabel,
+                onClick = onDismiss,
                 tone = RidersDialogTone.Neutral,
-                enabled = !submitting,
-                regular = true,
-                onClick = { confirmSend = false },
+                enabled = dismissEnabled,
+                modifier = Modifier.weight(1f),
             )
-            RidersDialogTextButton(
-                label = "Send offer",
-                enabled = !submitting,
-                onClick = {
-                    confirmSend = false
-                    onSend(amount)
-                },
-            )
-        }
-    }
-    val motion = rememberRidersMotion()
-    val choiceMs = motion.duration(RidersMotion.CONTENT_MS)
-    Column(
-        Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
-    ) {
-    if (error != null) {
-        RidersFailureNotice(message = error, onRetry = onRetry)
-    }
-    Column(verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm)) {
-            Text("Your offer amount", style = RidersType.caption, color = RidersColors.textSecondary)
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(
-                    Modifier
-                        .weight(1f)
-                        .height(56.dp)
-                        .padding(horizontal = RidersSpacing.md),
-                    contentAlignment = Alignment.CenterStart,
-                ) {
-                    RidersChangingText(
-                        value = requestAmountLabel(offer.currency, amount),
-                        style = RidersType.heading,
-                        color = RidersColors.text,
-                    )
-                }
-                BidStepButton("−", enabled = canAct && cents > BID_STEP_CENTS) {
-                    cents = (cents - BID_STEP_CENTS).coerceAtLeast(BID_STEP_CENTS)
-                }
-                BidStepButton("+", enabled = canAct) {
-                    cents += BID_STEP_CENTS
-                }
-            }
-            Text(
-                "Suggested offer (based on distance and demand)",
-                style = RidersType.caption,
-                color = RidersColors.textSecondary,
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm)) {
-                suggestions.forEach { choice ->
-                    val selectedChoice = choice == cents
-                    val shape = RoundedCornerShape(RidersRadius.md)
-                    val fill by animateColorAsState(
-                        targetValue = if (selectedChoice) RidersColors.primaryLight else RidersColors.background,
-                        animationSpec = tween(choiceMs),
-                        label = "bid-choice-fill",
-                    )
-                    val stroke by animateColorAsState(
-                        targetValue = if (selectedChoice) RidersColors.primary else RidersColors.border,
-                        animationSpec = tween(choiceMs),
-                        label = "bid-choice-border",
-                    )
-                    val labelColor by animateColorAsState(
-                        targetValue = if (selectedChoice) RidersColors.primaryDark else RidersColors.text,
-                        animationSpec = tween(choiceMs),
-                        label = "bid-choice-label",
-                    )
-                    Box(
-                        Modifier
-                            .weight(1f)
-                            .height(44.dp)
-                            .clip(shape)
-                            .background(fill)
-                            .border(1.dp, stroke, shape)
-                            .clickable(enabled = canAct, role = Role.Button) { cents = choice },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            requestAmountLabel(offer.currency, formatBidDollars(choice)),
-                            style = RidersType.caption.copy(fontWeight = FontWeight.SemiBold),
-                            color = labelColor,
-                        )
-                    }
-                }
+            if (confirmTone == RidersDialogTone.Danger) {
+                RidersSecondaryButton(
+                    label = confirmLabel,
+                    onClick = onConfirm,
+                    enabled = confirmEnabled,
+                    loading = confirmLoading,
+                    bordered = false,
+                    compact = true,
+                    containerColor = Color(0xFFB42318),
+                    contentColor = RidersColors.textInverse,
+                    modifier = Modifier.weight(1f),
+                )
+            } else {
+                RidersPrimaryButton(
+                    label = confirmLabel,
+                    onClick = onConfirm,
+                    enabled = confirmEnabled,
+                    loading = confirmLoading,
+                    compact = true,
+                    modifier = Modifier.weight(1f),
+                )
             }
         }
-        RidersInlineAction(
-            label = DECLINE_REQUEST,
-            loadingLabel = "Declining",
-            loading = declining,
-            enabled = canAct && !submitting,
-            onClick = onDecline,
-            color = RidersColors.textSecondary,
-            style = RidersType.caption,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = RidersSpacing.xs),
-        )
-        RidersPrimaryButton(
-            label = "Send offer",
-            onClick = { confirmSend = true },
-            enabled = canAct && !submitting,
-            loading = submitting,
-            loadingLabel = "Sending",
-            modifier = Modifier.fillMaxWidth(),
-        )
-    RidersSecondaryButton(
-        label = "Cancel",
-        onClick = onBack,
-        tone = RidersButtonTone.Danger,
-        bordered = false,
-        containerColor = RidersColors.background,
-        regular = true,
-        modifier = Modifier.fillMaxWidth(),
-        soft = false,
-    )
-    }
-}
-
-@Composable
-private fun BidStepButton(label: String, enabled: Boolean, onClick: () -> Unit) {
-    val shape = RoundedCornerShape(RidersRadius.md)
-    Box(
-        Modifier
-            .size(56.dp)
-            .clip(shape)
-            .background(RidersColors.background)
-            .border(1.dp, RidersColors.border, shape)
-            .clickable(enabled = enabled, role = Role.Button, onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(label, style = RidersType.heading, color = if (enabled) RidersColors.text else RidersColors.textSecondary)
-    }
 }
 
 @Composable
@@ -858,79 +611,7 @@ private fun SentOfferCard(offer: OfferResponse, amount: String) {
     }
 }
 
-@Composable
-private fun OfferDetailsSheet(visible: Boolean, offer: OfferResponse, amount: String, onDismiss: () -> Unit) {
-    RidersBottomSheet(visible = visible, onDismiss = onDismiss) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = RidersSpacing.lg)
-                .padding(bottom = RidersSpacing.xl),
-            verticalArrangement = Arrangement.spacedBy(RidersSpacing.md),
-        ) {
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                ContentIcon(offer.parcel.description, size = 15.dp, muted = true)
-                ContentLabel(offer.parcel.description, compact = true)
-            }
-            Column(Modifier.fillMaxWidth()) {
-                OfferStop(
-                    offerStopLine(offer.pickup.address, offer.pickup.landmark),
-                    pickup = true,
-                    connected = true,
-                    above = {
-                        StopContactName(
-                            name = offer.pickup.partyName(),
-                            phone = offer.pickup.partyPhone(),
-                            actions = true,
-                        )
-                    },
-                )
-                Spacer(Modifier.height(8.dp))
-                OfferStop(
-                    offerStopLine(offer.dropoff.address, offer.dropoff.landmark),
-                    pickup = false,
-                    connected = false,
-                    above = {
-                        StopContactName(
-                            name = offer.dropoff.partyName(),
-                            phone = offer.dropoff.partyPhone(),
-                            actions = true,
-                        )
-                    },
-                )
-            }
-            DetailLine("Distance", offerDistanceLabel(offer.distanceMeters))
-            OfferPriceLine(offer.currency, offer.offeredPrice, offer.paymentMethod)
-            DetailLine("Your offer", requestAmountLabel(offer.currency, amount))
-        }
-    }
-}
 
-@Composable
-private fun SentOfferDetails(offer: OfferResponse, amount: String) {
-    RidersCard(modifier = Modifier.fillMaxWidth(), bordered = false) {
-        SentOfferHeading()
-        SentOfferNote(offer, amount)
-        Spacer(Modifier.height(RidersSpacing.md))
-        Column(Modifier.fillMaxWidth()) {
-            OfferStop(offerStopLine(offer.pickup.address, offer.pickup.landmark), pickup = true, connected = false)
-            Spacer(Modifier.height(8.dp))
-            OfferStop(offerStopLine(offer.dropoff.address, offer.dropoff.landmark), pickup = false, connected = false)
-        }
-        offer.parcel.instructions?.takeIf { it.isNotBlank() }?.let {
-            Text(it, style = RidersType.caption, color = RidersColors.textSecondary)
-        }
-        DetailLine("Distance", offerDistanceLabel(offer.distanceMeters))
-        DetailLine("Your offer", requestAmountLabel(offer.currency, amount))
-        DetailLine("Pays", readableOfferValue(offer.payer))
-        DetailLine("Method", readableOfferValue(offer.paymentMethod))
-    }
-}
 
 @Composable
 private fun SentOfferHeading() {
@@ -961,44 +642,6 @@ private fun SentOfferNote(offer: OfferResponse, amount: String) {
     )
 }
 
-@Composable
-private fun OfferPriceLine(currency: String, amount: String, paymentMethod: String?) {
-    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
-        Column(
-            horizontalAlignment = Alignment.Start,
-            verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs),
-        ) {
-            Text("Price", style = RidersType.caption, color = RidersColors.textSecondary)
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(RidersSpacing.xs),
-            ) {
-                Text(requestAmountLabel(currency, amount), style = RidersType.bodyStrong, color = RidersColors.text)
-                RequestPaymentMark(paymentMethod)
-            }
-        }
-    }
-}
-
-@Composable
-private fun DetailLine(label: String, value: String) {
-    Row(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(label, style = RidersType.body, color = RidersColors.textSecondary)
-        Text(value, style = RidersType.bodyStrong, color = RidersColors.text)
-    }
-}
-
-private fun readableOfferValue(value: String): String {
-    val words = value.trim().lowercase().split('_').filter { it.isNotEmpty() }
-    if (words.isEmpty()) {
-        return value
-    }
-    return words.joinToString(" ") { word -> word.replaceFirstChar { it.titlecase(java.util.Locale.US) } }
-}
 
 private fun respondToOffer(model: OfferViewModel, offer: OfferResponse) {
     if (senderChoosesRider(offer.serviceClass)) {
@@ -1029,6 +672,7 @@ fun OfferRequestCard(
     onOpen: (() -> Unit)? = null,
     fresh: Boolean = false,
     settled: Boolean = false,
+    mapDecline: Boolean = false,
 ) {
     if (sentAmount != null) {
         SentOfferCard(offer, sentAmount)
@@ -1070,6 +714,7 @@ fun OfferRequestCard(
                     onDecline = onDecline,
                     declining = declining,
                     submitError = submitError,
+                    mapDecline = mapDecline,
                 )
             }
         }

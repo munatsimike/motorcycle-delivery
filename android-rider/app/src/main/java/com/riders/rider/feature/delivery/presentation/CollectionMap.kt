@@ -38,7 +38,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.android.gms.maps.CameraUpdateFactory
@@ -70,6 +69,9 @@ import com.riders.rider.feature.delivery.domain.reliableBearing
 import com.riders.rider.feature.delivery.domain.retainedHeading
 import com.riders.rider.feature.delivery.domain.collectionCameraFrame
 import com.riders.rider.feature.delivery.domain.collectionMarkerPaddingPx
+import com.riders.rider.feature.delivery.domain.MarkerCameraGate
+import com.riders.rider.feature.delivery.domain.MarkerCameraPhase
+import com.riders.rider.feature.delivery.domain.markerStaysAttached
 import com.riders.rider.feature.delivery.domain.parseGeoPoint
 import com.riders.rider.feature.delivery.domain.withMinimumCameraSpan
 import com.riders.rider.feature.offers.presentation.locationDrawableMarker
@@ -133,6 +135,11 @@ fun CollectionMap(
     )
     val headingNow = rememberUpdatedState(heading)
     val cameraLock = remember(assignmentId) { Mutex() }
+    val markerGate = remember(assignmentId) { MarkerCameraGate() }
+    var markerPhase by remember(assignmentId) { mutableStateOf(MarkerCameraPhase()) }
+    var pickupAttached by remember(assignmentId) { mutableStateOf(false) }
+    var riderAttached by remember(assignmentId) { mutableStateOf(false) }
+    var shownRider by remember(assignmentId) { mutableStateOf<RiderMarkerIcon?>(null) }
     val riderPoint = rider?.let { GeoPoint(it.latitude, it.longitude) }
     val riderReady = riderPoint != null
     val riderGate = riderReady || framedWithRider
@@ -159,7 +166,11 @@ fun CollectionMap(
     }
 
     LaunchedEffect(assignmentId, pickup, riderGate, routeGate, mapLoaded, mapWidth, mapHeight, recenter, sheetOverlap) {
-        if (!mapLoaded || userMoved || mapWidth <= 0 || mapHeight <= 0) {
+        if (!mapLoaded || mapWidth <= 0 || mapHeight <= 0) {
+            return@LaunchedEffect
+        }
+        if (userMoved) {
+            markerPhase = markerGate.settleWithoutAnimation()
             return@LaunchedEffect
         }
         if (riderReady) {
@@ -172,26 +183,55 @@ fun CollectionMap(
             riderPoint,
             pickup,
             if (routeReady) route.line else emptyList(),
-        ) ?: return@LaunchedEffect
-        val update = CameraUpdateFactory.newLatLngBounds(
-            loosenedBounds(withMinimumCameraSpan(frame.points)),
-            boundsPadding,
         )
-        cameraLock.withLock {
-            runCatching { showFittedCamera(camera, update, if (riderPoint != null) headingNow.value else null) }
+        markerPhase = markerGate.begin()
+        try {
+            if (frame == null) {
+                return@LaunchedEffect
+            }
+            val update = CameraUpdateFactory.newLatLngBounds(
+                loosenedBounds(withMinimumCameraSpan(frame.points)),
+                boundsPadding,
+            )
+            cameraLock.withLock {
+                runCatching { showFittedCamera(camera, update, if (riderPoint != null) headingNow.value else null) }
+            }
+        } finally {
+            markerPhase = markerGate.end()
         }
     }
 
     LaunchedEffect(heading, userMoved, mapLoaded) {
-        val target = heading ?: return@LaunchedEffect
-        if (!mapLoaded || userMoved) {
+        if (!mapLoaded) {
             return@LaunchedEffect
         }
-        cameraLock.withLock {
-            if (!userMoved) {
-                animateHeadingUp(camera, target)
-            }
+        if (userMoved) {
+            markerPhase = markerGate.settleWithoutAnimation()
+            return@LaunchedEffect
         }
+        val target = heading ?: return@LaunchedEffect
+        markerPhase = markerGate.begin()
+        try {
+            cameraLock.withLock {
+                if (!userMoved) {
+                    animateHeadingUp(camera, target)
+                }
+            }
+        } finally {
+            markerPhase = markerGate.end()
+        }
+    }
+
+    if (markerPhase.acceptingNew && riderMarker != null) {
+        shownRider = riderMarker
+    }
+    val nextPickup = markerStaysAttached(pickupAttached, markerPhase.acceptingNew, pickup != null && pickupIcon != null)
+    if (nextPickup != pickupAttached) {
+        pickupAttached = nextPickup
+    }
+    val nextRider = markerStaysAttached(riderAttached, markerPhase.acceptingNew, rider != null && shownRider != null)
+    if (nextRider != riderAttached) {
+        riderAttached = nextRider
     }
 
     Box(modifier) {
@@ -239,7 +279,7 @@ fun CollectionMap(
                         zIndex = 0f,
                     )
                 }
-                if (pickup != null && pickupIcon != null) {
+                if (pickupAttached && pickup != null && pickupIcon != null) {
                     Marker(
                         state = remember(pickup) { MarkerState(pickup.toLatLng()) },
                         icon = pickupIcon,
@@ -247,14 +287,14 @@ fun CollectionMap(
                         zIndex = 1f,
                     )
                 }
-                if (rider != null && riderMarker != null) {
+                if (riderAttached && rider != null && shownRider != null) {
                     val position = LatLng(rider!!.latitude, rider!!.longitude)
                     val state = remember { MarkerState(position) }
                     LaunchedEffect(position) { state.position = position }
                     Marker(
                         state = state,
-                        icon = riderMarker.icon,
-                        anchor = riderMarker.anchor,
+                        icon = shownRider!!.icon,
+                        anchor = shownRider!!.anchor,
                         rotation = 0f,
                         flat = false,
                         zIndex = 2f,
@@ -316,32 +356,6 @@ private fun loosenedBounds(points: List<GeoPoint>): LatLngBounds {
         LatLng(bounds.southwest.latitude - latitudePad, bounds.southwest.longitude - longitudePad),
         LatLng(bounds.northeast.latitude + latitudePad, bounds.northeast.longitude + longitudePad),
     )
-}
-
-private fun markerBitmap(
-    context: android.content.Context,
-    drawableId: Int,
-    tint: Int,
-    sizeDp: Float,
-    circled: Boolean,
-): BitmapDescriptor? {
-    val drawable = ContextCompat.getDrawable(context, drawableId)?.mutate() ?: return null
-    val size = (sizeDp * context.resources.displayMetrics.density).toInt().coerceAtLeast(1)
-    val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-    val canvas = Canvas(bitmap)
-    if (circled) {
-        canvas.drawCircle(
-            size / 2f,
-            size / 2f,
-            size / 2f,
-            Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE },
-        )
-    }
-    if (drawableId != R.drawable.ic_filled_pickup_marker) drawable.setTint(tint)
-    val inset = if (circled) size / 5 else 0
-    drawable.setBounds(inset, inset, size - inset, size - inset)
-    drawable.draw(canvas)
-    return runCatching { BitmapDescriptorFactory.fromBitmap(bitmap) }.getOrNull()
 }
 
 /** Motorcycle marker. A distance label sits in a white pill 8dp above the image, anchored at the bike center. */

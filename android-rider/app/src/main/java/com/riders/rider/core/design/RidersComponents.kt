@@ -229,7 +229,7 @@ fun RidersSecondaryButton(
     regular: Boolean = false,
 ) {
     val inactive = !enabled || loading
-    val accent = contentColor ?: if (tone == RidersButtonTone.Danger) RidersColors.error else RidersColors.primary
+    val accent = contentColor ?: if (tone == RidersButtonTone.Danger) RidersColors.destructive else RidersColors.primary
     val fill = containerColor
     Box(
         modifier = modifier

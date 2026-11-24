@@ -49,6 +49,7 @@ import com.riders.rider.feature.delivery.presentation.AssignmentListPane
 import com.riders.rider.feature.delivery.presentation.CompletedDeliveriesPane
 import com.riders.rider.feature.delivery.presentation.filteredContentTitle
 import com.riders.rider.feature.bids.presentation.BidBoardScreen
+import com.riders.rider.core.network.OfferResponse
 import com.riders.rider.feature.offers.presentation.OffersScreen
 import com.riders.rider.navigation.DeliveryBoardTab
 import com.riders.rider.navigation.defaultDeliveryBoardTab
@@ -75,8 +76,6 @@ fun DeliveriesScreen(
     onOpenDelivery: (String) -> Unit,
     onOpenCompleted: (String) -> Unit,
     boardTab: DeliveryBoardTab = defaultDeliveryBoardTab(),
-    requestId: String? = null,
-    onRequestHandled: () -> Unit = {},
     model: HomeViewModel = hiltViewModel(),
 ) {
     val ui by model.ui.collectAsStateWithLifecycle()
@@ -156,18 +155,6 @@ fun DeliveriesScreen(
             onDismiss = { sortOpen = false },
         )
         when (selected) {
-            DeliveryBoardTab.New -> OffersScreen(
-                onAccepted = onOpenDelivery,
-                inShell = true,
-                availability = availability,
-                receiving = ui.onboarding?.receiving,
-                modifier = Modifier.weight(1f),
-                contentKind = contentKind,
-                sort = sort,
-                unbidOnly = true,
-                offerAssignmentId = requestId,
-                onRequestHandled = onRequestHandled,
-            )
             DeliveryBoardTab.Pending -> BidBoardScreen(
                 contentKind = contentKind,
                 sort = sort,
@@ -181,6 +168,7 @@ fun DeliveriesScreen(
                 sort = sort,
                 modifier = Modifier.weight(1f),
             )
+            DeliveryBoardTab.New,
             DeliveryBoardTab.Active -> AssignmentListPane(
                 onOpen = onOpenDelivery,
                 availability = availability,
@@ -364,6 +352,66 @@ private fun SheetOption(
                 )
             }
         }
+    }
+}
+
+@Composable
+fun AvailableRequestsPage(
+    onOpen: (OfferResponse) -> Unit,
+    availability: String?,
+    receiving: Boolean?,
+    modifier: Modifier = Modifier,
+) {
+    var content by remember { mutableStateOf(DeliveryContent.All) }
+    var sort by remember { mutableStateOf(DeliveryListSort.Newest) }
+    var sortOpen by remember { mutableStateOf(false) }
+    var filterOpen by remember { mutableStateOf(false) }
+    Column(modifier.fillMaxSize().background(RidersColors.background)) {
+        Column(
+            Modifier.padding(horizontal = RidersSpacing.lg, vertical = RidersSpacing.lg),
+            verticalArrangement = Arrangement.spacedBy(RidersSpacing.md),
+        ) {
+            DeliveryToolbar(
+                content = content,
+                sort = sort,
+                onFilter = {
+                    sortOpen = false
+                    filterOpen = true
+                },
+                onSort = {
+                    filterOpen = false
+                    sortOpen = true
+                },
+            )
+        }
+        DeliveryFilterSheet(
+            visible = filterOpen,
+            selected = content,
+            onSelect = {
+                content = if (it == content || it == DeliveryContent.All) DeliveryContent.All else it
+                filterOpen = false
+            },
+            onDismiss = { filterOpen = false },
+        )
+        DeliverySortSheet(
+            visible = sortOpen,
+            selected = sort,
+            onSelect = {
+                sort = it
+                sortOpen = false
+            },
+            onDismiss = { sortOpen = false },
+        )
+        OffersScreen(
+            inShell = true,
+            availability = availability,
+            receiving = receiving,
+            modifier = Modifier.weight(1f),
+            contentKind = content.kind(),
+            sort = sort,
+            unbidOnly = true,
+            browseOnOpen = onOpen,
+        )
     }
 }
 

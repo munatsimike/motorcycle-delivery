@@ -167,36 +167,27 @@ class OfferViewModel @Inject constructor(
         }
     }
 
-    fun openFromNotification(assignmentId: String) {
-        viewModelScope.launch {
-            val now = adjustedNowMillis(System.currentTimeMillis(), clockOffset)
-            when (val opened = bids.openRequests()) {
-                is ApiResult.Ok -> {
-                    openRequests = opened.value
-                    bids.refreshOwnBids(null)
-                    val visible = availableRequests(emptyList(), openRequests)
-                    applyListed(ListedOffers(emptyList(), fromNetwork = true, serverNowMillis = null))
-                    val match = notificationBidRequest(visible, assignmentId)
-                    val canOpen = notificationRequestCanOpen(
-                        match != null,
-                        match?.expiresAt,
-                        adjustedNowMillis(System.currentTimeMillis(), clockOffset),
-                    )
-                    state.update {
-                        it.copy(
-                            selected = if (canOpen) match else null,
-                            offerGone = false,
-                            error = if (canOpen) null else REQUEST_UNAVAILABLE,
-                            nowMillis = now,
-                            loading = false,
-                        )
-                    }
-                }
-                else -> state.update {
-                    it.copy(selected = null, offerGone = false, error = REQUEST_UNAVAILABLE, nowMillis = now, loading = false)
-                }
+    suspend fun resolveNotificationRequest(assignmentId: String): OfferResponse? {
+        val now = adjustedNowMillis(System.currentTimeMillis(), clockOffset)
+        return when (val opened = bids.openRequests()) {
+            is ApiResult.Ok -> {
+                openRequests = opened.value
+                bids.refreshOwnBids(null)
+                val visible = availableRequests(emptyList(), openRequests)
+                applyListed(ListedOffers(emptyList(), fromNetwork = true, serverNowMillis = null))
+                val match = notificationBidRequest(visible, assignmentId)
+                val canOpen = notificationRequestCanOpen(
+                    match != null,
+                    match?.expiresAt,
+                    adjustedNowMillis(System.currentTimeMillis(), clockOffset),
+                )
+                state.update { it.copy(selected = null, offerGone = false, nowMillis = now, loading = false) }
+                if (canOpen) match else null
             }
-            pending.clear()
+            else -> {
+                state.update { it.copy(selected = null, offerGone = false, nowMillis = now, loading = false) }
+                null
+            }
         }
     }
 
@@ -215,16 +206,8 @@ class OfferViewModel @Inject constructor(
         }
     }
 
-    fun select(offer: OfferResponse?) {
-        state.update { it.copy(selected = offer, placingBid = false, error = null, bidError = null, offerGone = false) }
-    }
-
     fun openBid(offer: OfferResponse) {
         state.update { it.copy(selected = offer, placingBid = true, error = null, bidError = null, offerGone = false) }
-    }
-
-    fun closeBid() {
-        state.update { it.copy(placingBid = false) }
     }
 
     fun expressInterest(offer: OfferResponse) {

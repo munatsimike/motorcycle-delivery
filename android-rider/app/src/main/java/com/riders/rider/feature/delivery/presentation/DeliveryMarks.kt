@@ -324,6 +324,7 @@ fun DeliveryDetailsSummary(
     pickupDetail: @Composable () -> Unit = {},
     dropoffDetail: @Composable () -> Unit = {},
     parcelSheet: Boolean = false,
+    serviceClass: String? = null,
     senderName: String = "",
     customerSender: Boolean = false,
     dateFirst: Boolean = false,
@@ -358,6 +359,7 @@ fun DeliveryDetailsSummary(
         ) {
             ContentIcon(description, size = 15.dp, muted = true)
             ContentLabel(description, compact = true)
+            ServiceClassLabel(serviceClass)
         }
         if (framed || whenLabel.isNotEmpty()) {
             Row(

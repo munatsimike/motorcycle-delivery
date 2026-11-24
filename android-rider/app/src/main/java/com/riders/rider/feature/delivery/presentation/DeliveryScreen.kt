@@ -78,7 +78,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.riders.rider.core.design.RidersBottomSheet
 import com.riders.rider.core.design.RidersDialog
-import com.riders.rider.core.design.RidersDialogActions
 import com.riders.rider.core.design.RidersDialogBody
 import com.riders.rider.core.design.RidersDialogTextButton
 import com.riders.rider.core.design.RidersDialogTitle
@@ -474,18 +473,25 @@ fun DeliveryScreen(
         RidersDialog(visible = true, onDismiss = { confirmAction = null }) {
             RidersDialogTitle(if (pickup) "Confirm parcel pickup?" else "Confirm delivery?")
             RidersDialogBody(if (pickup) "Have you collected the parcel from the sender?" else "Have you handed the parcel to the recipient?")
-            RidersDialogActions {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 RidersDialogTextButton(
-                    label = "Not yet",
+                    label = "Cancel",
                     tone = RidersDialogTone.Neutral,
                     onClick = { confirmAction = null },
+                    modifier = Modifier.weight(1f),
                 )
-                RidersDialogTextButton(
+                RidersPrimaryButton(
                     label = if (pickup) "Yes, collected" else "Yes, delivered",
                     onClick = {
                         confirmAction = null
                         model.advance()
                     },
+                    compact = true,
+                    modifier = Modifier.weight(1f),
                 )
             }
         }
@@ -816,6 +822,7 @@ private fun DeliveryActionBlock(
                         price = ui.agreedPrice,
                 currency = ui.currency,
                 paymentMethod = ui.paymentMethod,
+                serviceClass = ui.serviceClass,
                         modifier = Modifier.fillMaxWidth(),
                         pickupContact = { StopContactLine(ui, sender = true) },
                         dropoffContact = { StopContactLine(ui, sender = false) },
@@ -840,7 +847,7 @@ private fun DeliveryActionBlock(
                     Text(
                         "Cancel delivery",
                         style = RidersType.body.copy(fontWeight = FontWeight.Normal),
-                        color = RidersColors.error,
+                        color = RidersColors.destructive,
                         modifier = Modifier.clickable(role = Role.Button, enabled = !blocked, onClick = onStartCancel),
                     )
                 }
@@ -1037,6 +1044,7 @@ private fun ParcelDetailsSheet(
                 modifier = Modifier.fillMaxWidth(),
                 framed = false,
                 parcelSheet = true,
+                serviceClass = ui.serviceClass,
                 pickupContact = {
                     StopContactLine(ui, sender = true, sheet = true, address = deliveryCardAddress(ui.pickupAddress))
                 },
@@ -1187,35 +1195,34 @@ private fun CancelDeliveryModal(
                         modifier = Modifier.clickable(enabled = canConfirm, role = Role.Button, onClick = onConfirm),
                     )
                 }
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 56.dp)
-                        .alpha(if (submitting) 0.6f else 1f)
-                        .clip(RoundedCornerShape(RidersRadius.pill))
-                        .background(RidersColors.error.copy(alpha = if (selectedReason != null) 1f else 0.45f))
-                        .clickable(enabled = canConfirm, role = Role.Button) {
-                            attempted = true
-                            onConfirm()
-                        },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        if (submitting) "Cancelling..." else "Confirm cancellation",
-                        style = RidersType.bodyStrong,
-                        color = RidersColors.textInverse,
+                Column(verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm)) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 44.dp)
+                            .alpha(if (submitting) 0.6f else 1f)
+                            .clip(RoundedCornerShape(RidersRadius.pill))
+                            .background(RidersColors.destructive.copy(alpha = if (selectedReason != null) 1f else 0.45f))
+                            .clickable(enabled = canConfirm, role = Role.Button) {
+                                attempted = true
+                                onConfirm()
+                            },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            if (submitting) "Cancelling..." else "Confirm cancellation",
+                            style = RidersType.bodyStrong,
+                            color = RidersColors.textInverse,
+                        )
+                    }
+                    RidersDialogTextButton(
+                        label = "Keep delivery",
+                        tone = RidersDialogTone.Neutral,
+                        enabled = !submitting,
+                        onClick = onDismiss,
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
-                Text(
-                    "Keep delivery",
-                    style = RidersType.button,
-                    color = RidersColors.text,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(enabled = !submitting, role = Role.Button, onClick = onDismiss)
-                        .padding(vertical = RidersSpacing.sm),
-                )
             }
         }
     }

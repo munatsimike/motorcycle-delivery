@@ -70,7 +70,6 @@ fun RiderShell(
 ) {
     var tabName by rememberSaveable { mutableStateOf(RiderDestination.Home.name) }
     var deliveriesBoard by rememberSaveable { mutableStateOf(DeliveryBoardTab.Active.name) }
-    var requestToOpen by rememberSaveable { mutableStateOf<String?>(null) }
     val tab = RiderDestination.valueOf(tabName)
     val offerPush = rememberOfferPush()
     val pendingRequests = rememberOfferInbox()
@@ -81,10 +80,7 @@ fun RiderShell(
         if (requestId.isEmpty()) {
             return@LaunchedEffect
         }
-        deliveriesBoard = DeliveryBoardTab.New.name
-        tabName = RiderDestination.Deliveries.name
-        requestToOpen = requestId
-        pendingRequests.clear()
+        tabName = RiderDestination.Home.name
     }
     val home: HomeViewModel = hiltViewModel()
     val profile: ProfileViewModel = hiltViewModel()
@@ -182,10 +178,6 @@ fun RiderShell(
                             deliveriesBoard = DeliveryBoardTab.Active.name
                             tabName = RiderDestination.Deliveries.name
                         },
-                        onNewRequests = {
-                            deliveriesBoard = DeliveryBoardTab.New.name
-                            tabName = RiderDestination.Deliveries.name
-                        },
                         onWallet = { tabName = RiderDestination.Wallet.name },
                         onDelivery = onDelivery,
                         onSetup = onSetup,
@@ -198,9 +190,7 @@ fun RiderShell(
                         onAccepted = onAccepted,
                         onOpenDelivery = onDelivery,
                         onOpenCompleted = onCompleted,
-                        boardTab = DeliveryBoardTab.valueOf(deliveriesBoard),
-                        requestId = requestToOpen,
-                        onRequestHandled = { requestToOpen = null },
+                        boardTab = deliveryBoardTab(deliveriesBoard),
                         model = home,
                     )
                     RiderDestination.Wallet -> WalletScreen(showBack = false, inShell = true)

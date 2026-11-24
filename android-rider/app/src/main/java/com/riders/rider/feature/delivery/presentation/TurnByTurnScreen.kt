@@ -61,7 +61,10 @@ import com.riders.rider.core.design.RidersColors
 import com.riders.rider.core.design.RidersSpacing
 import com.riders.rider.core.design.RidersType
 import com.riders.rider.feature.delivery.domain.GeoPoint
+import com.riders.rider.feature.delivery.domain.MarkerCameraGate
+import com.riders.rider.feature.delivery.domain.MarkerCameraPhase
 import com.riders.rider.feature.delivery.domain.NAVIGATION_ZOOM
+import com.riders.rider.feature.delivery.domain.markerStaysAttached
 import com.riders.rider.feature.delivery.domain.formatArrival
 import com.riders.rider.feature.delivery.domain.formatMetres
 import com.riders.rider.feature.delivery.domain.guidanceRouteKey
@@ -114,6 +117,10 @@ fun TurnByTurnScreen(
     }
     var lastCamera by remember { mutableStateOf<Pair<GeoPoint, Float>?>(null) }
     var wasFollowing by remember { mutableStateOf(false) }
+    val markerGate = remember { MarkerCameraGate() }
+    var markerPhase by remember { mutableStateOf(MarkerCameraPhase()) }
+    var destinationAttached by remember { mutableStateOf(false) }
+    var motorcycleAttached by remember { mutableStateOf(false) }
     val stroke = with(LocalDensity.current) { 5.dp.toPx() }
     val routeKey = guided?.let { guidanceRouteKey(it.path, it.steps) }.orEmpty()
     var spokenRoute by remember { mutableStateOf("") }
@@ -157,6 +164,7 @@ fun TurnByTurnScreen(
         val fix = rider
         if (fix == null || !following) {
             wasFollowing = false
+            markerPhase = markerGate.settleWithoutAnimation()
             return@LaunchedEffect
         }
         val resumed = !wasFollowing
@@ -167,23 +175,46 @@ fun TurnByTurnScreen(
         if (!resumed && previous != null) {
             val turned = kotlin.math.abs(((heading - previous.second + 540f) % 360f) - 180f)
             if (metresBetween(previous.first, next) < 6.0 && turned < 8f) {
+                markerPhase = markerGate.settleWithoutAnimation()
                 return@LaunchedEffect
             }
         }
-        lastCamera = next to heading
-        runCatching {
-            camera.animate(
-                CameraUpdateFactory.newCameraPosition(
-                    CameraPosition.Builder()
-                        .target(LatLng(next.latitude, next.longitude))
-                        .zoom(NAVIGATION_ZOOM)
-                        .bearing(heading)
-                        .tilt(0f)
-                        .build(),
-                ),
-                600,
-            )
+        markerPhase = markerGate.begin()
+        try {
+            lastCamera = next to heading
+            runCatching {
+                camera.animate(
+                    CameraUpdateFactory.newCameraPosition(
+                        CameraPosition.Builder()
+                            .target(LatLng(next.latitude, next.longitude))
+                            .zoom(NAVIGATION_ZOOM)
+                            .bearing(heading)
+                            .tilt(0f)
+                            .build(),
+                    ),
+                    600,
+                )
+            }
+        } finally {
+            markerPhase = markerGate.end()
         }
+    }
+
+    val nextDestination = markerStaysAttached(
+        destinationAttached,
+        markerPhase.acceptingNew,
+        destinationIcon != null,
+    )
+    if (nextDestination != destinationAttached) {
+        destinationAttached = nextDestination
+    }
+    val nextMotorcycle = markerStaysAttached(
+        motorcycleAttached,
+        markerPhase.acceptingNew,
+        rider != null && motorcycleIcon != null,
+    )
+    if (nextMotorcycle != motorcycleAttached) {
+        motorcycleAttached = nextMotorcycle
     }
 
     BoxWithConstraints(Modifier.fillMaxSize().background(RidersColors.canvas)) {
@@ -233,16 +264,18 @@ fun TurnByTurnScreen(
                 )
             }
             destinationIcon?.let { icon ->
-                Marker(
-                    state = destinationMarker,
-                    icon = icon,
-                    anchor = Offset(0.5f, 1f),
-                    zIndex = 2f,
-                )
+                if (destinationAttached) {
+                    Marker(
+                        state = destinationMarker,
+                        icon = icon,
+                        anchor = Offset(0.5f, 1f),
+                        zIndex = 2f,
+                    )
+                }
             }
             val fix = rider
             val icon = motorcycleIcon
-            if (fix != null && icon != null) {
+            if (fix != null && icon != null && motorcycleAttached) {
                 riderMarker.position = LatLng(fix.latitude, fix.longitude)
                 Marker(
                     state = riderMarker,
