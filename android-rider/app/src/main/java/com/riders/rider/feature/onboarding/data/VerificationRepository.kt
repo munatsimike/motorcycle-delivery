@@ -3,6 +3,7 @@ package com.riders.rider.feature.onboarding.data
 import com.riders.rider.core.network.ApiError
 import com.riders.rider.core.network.ApiResult
 import com.riders.rider.core.network.MotorcycleRequest
+import com.riders.rider.core.network.mapHttpFailure
 import com.riders.rider.core.network.RiderAddressRequest
 import com.riders.rider.core.network.MotorcycleResponse
 import com.riders.rider.core.network.ProgressRequestBody
@@ -158,6 +159,22 @@ class VerificationRepository @Inject constructor(
             is ApiResult.Ok -> {
                 invalidateDocuments()
                 ApiResult.Ok(result.value.toDomain())
+            }
+            is ApiResult.Err -> result
+        }
+    }
+
+    suspend fun removeMotorcycle(id: String): ApiResult<Unit> {
+        return when (val result = apiCall { riders.removeMotorcycle(id) }) {
+            is ApiResult.Ok -> {
+                val response = result.value
+                if (!response.isSuccessful) {
+                    ApiResult.Err(mapHttpFailure(response.code(), response.errorBody()?.string()))
+                } else {
+                    response.body()?.close()
+                    invalidateDocuments()
+                    ApiResult.Ok(Unit)
+                }
             }
             is ApiResult.Err -> result
         }

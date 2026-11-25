@@ -9,7 +9,7 @@ export async function ensureDefaultMotorcycle(
   now: Date,
 ): Promise<void> {
   const active = await tx.motorcycle.findFirst({
-    where: { riderProfileId, isActive: true },
+    where: { riderProfileId, isActive: true, removedAt: null },
     select: { id: true },
   });
   if (active) {
@@ -20,6 +20,7 @@ export async function ensureDefaultMotorcycle(
     where: {
       riderProfileId,
       verificationStatus: MotorcycleVerificationStatus.VERIFIED,
+      removedAt: null,
     },
     orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     select: { id: true },

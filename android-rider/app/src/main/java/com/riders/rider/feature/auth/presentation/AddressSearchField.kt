@@ -26,8 +26,10 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.riders.rider.R
 import com.riders.rider.core.design.RidersColors
 import com.riders.rider.core.design.RidersRadius
+import com.riders.rider.core.design.RidersSecondaryButton
 import com.riders.rider.core.design.RidersSpacing
 import com.riders.rider.core.design.RidersTextField
 import com.riders.rider.core.design.RidersType
@@ -50,7 +52,16 @@ data class AddressSearchState(
     val searching: Boolean = false,
     val message: String? = null,
     val searched: Boolean = false,
+    val query: String = "",
 )
+
+/** A dismissed list stays closed until the rider changes the address text. */
+internal fun addressSearchResumes(heldQuery: String?, typed: String): Boolean {
+    if (heldQuery == null) {
+        return true
+    }
+    return typed.trim() != heldQuery
+}
 
 @HiltViewModel
 class AddressSearchViewModel @Inject constructor(
@@ -61,11 +72,16 @@ class AddressSearchViewModel @Inject constructor(
     private var sessionToken = UUID.randomUUID().toString()
     private var generation = 0
     private var searchJob: Job? = null
+    private var heldQuery: String? = null
 
     fun onTyped(text: String) {
+        val query = text.trim()
+        if (!addressSearchResumes(heldQuery, text)) {
+            return
+        }
+        heldQuery = null
         val current = ++generation
         searchJob?.cancel()
-        val query = text.trim()
         if (query.length < 3) {
             sessionToken = UUID.randomUUID().toString()
             state.value = AddressSearchState()
@@ -76,15 +92,31 @@ class AddressSearchViewModel @Inject constructor(
             if (current != generation) {
                 return@launch
             }
-            state.value = AddressSearchState(searching = true)
+            state.value = AddressSearchState(searching = true, query = query)
             val next = when (val result = auth.searchAddresses(query, sessionToken)) {
-                is ApiResult.Ok -> AddressSearchState(suggestions = result.value, searched = true)
-                is ApiResult.Err -> AddressSearchState(message = result.error.text())
+                is ApiResult.Ok -> AddressSearchState(suggestions = result.value, searched = true, query = query)
+                is ApiResult.Err -> AddressSearchState(message = result.error.text(), query = query)
             }
             if (current == generation) {
                 state.value = next
             }
         }
+    }
+
+    /** Hides the list and drops a response that is still on the way. The typed address stays. */
+    fun dismiss(currentText: String) {
+        heldQuery = currentText.trim()
+        generation += 1
+        searchJob?.cancel()
+        state.value = AddressSearchState()
+    }
+
+    /** Leaves the editor. A late response must not open suggestions on the next visit. */
+    fun abandon() {
+        heldQuery = null
+        generation += 1
+        searchJob?.cancel()
+        state.value = AddressSearchState()
     }
 
     fun select(match: AddressMatch, onChosen: (String) -> Unit) {
@@ -100,6 +132,7 @@ class AddressSearchViewModel @Inject constructor(
                 return@launch
             }
             sessionToken = UUID.randomUUID().toString()
+            heldQuery = resolved.trim()
             state.value = AddressSearchState()
             onChosen(resolved)
         }
@@ -152,7 +185,7 @@ fun RegistrationAddressField(
         Text(message, style = RidersType.caption, color = RidersColors.textSecondary)
         Spacer(Modifier.height(RidersSpacing.sm))
     }
-    if (ui.searched && !ui.searching && ui.suggestions.isEmpty() && ui.message == null) {
+    if (ui.searched && !ui.searching && ui.query == value.trim() && ui.suggestions.isEmpty() && ui.message == null) {
         Text(
             "No matching addresses yet. You can keep what you typed and continue.",
             style = RidersType.caption,
@@ -160,8 +193,9 @@ fun RegistrationAddressField(
         )
         Spacer(Modifier.height(RidersSpacing.sm))
     }
+    val visibleSuggestions = if (ui.query == value.trim()) ui.suggestions else emptyList()
     Column(verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm)) {
-        ui.suggestions.forEach { suggestion ->
+        visibleSuggestions.forEach { suggestion ->
             Text(
                 suggestion.label,
                 style = RidersType.body,
@@ -174,7 +208,19 @@ fun RegistrationAddressField(
             )
         }
     }
-    if (ui.suggestions.isNotEmpty()) {
+    if (visibleSuggestions.isNotEmpty()) {
+        Spacer(Modifier.height(RidersSpacing.xs))
+        RidersSecondaryButton(
+            label = "Close suggestions",
+            onClick = { model.dismiss(value) },
+            compact = true,
+            bordered = false,
+            containerColor = RidersColors.dangerSurface,
+            contentColor = RidersColors.destructive,
+            regular = true,
+            icon = R.drawable.ic_close,
+            modifier = Modifier.fillMaxWidth(),
+        )
         Spacer(Modifier.height(RidersSpacing.xs))
         Text("Google Maps", style = RidersType.small, color = RidersColors.textSecondary)
         Spacer(Modifier.height(RidersSpacing.sm))

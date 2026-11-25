@@ -128,9 +128,11 @@ fun RequestMapOverlay(
     val density = LocalDensity.current
     var sheetHeight by remember { mutableStateOf(0.dp) }
     var recenter by remember { mutableIntStateOf(0) }
+    var mapAttached by remember(offer.deliveryId) { mutableStateOf(false) }
+    LaunchedEffect(offer.deliveryId) { mapAttached = true }
     val cardShape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp)
-    Box(Modifier.fillMaxSize()) {
-        RequestRouteMap(
+    Box(Modifier.fillMaxSize().background(RidersColors.background)) {
+        if (mapAttached) RequestRouteMap(
             deliveryId = offer.deliveryId,
             pickup = pickup,
             dropoff = dropoff,

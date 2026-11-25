@@ -117,20 +117,25 @@ export class RiderOnboardingService {
         take: 1,
       }),
       this.prisma.motorcycle.count({
-        where: { riderProfileId: profile.id, verificationStatus: MotorcycleVerificationStatus.VERIFIED },
+        where: {
+          riderProfileId: profile.id,
+          verificationStatus: MotorcycleVerificationStatus.VERIFIED,
+          removedAt: null,
+        },
       }),
       this.prisma.motorcycle.count({
         where: {
           riderProfileId: profile.id,
           verificationStatus: MotorcycleVerificationStatus.VERIFIED,
           isActive: true,
+          removedAt: null,
         },
       }),
     ]);
     let activeVerifiedMotorcycle = activeCount;
     if (
       profile.approvalStatus === RiderApprovalStatus.APPROVED
-      && verifiedMotorcycleCount > 0
+      && verifiedMotorcycleCount === 1
       && activeVerifiedMotorcycle !== 1
     ) {
       await this.prisma.$transaction(async (tx) => {
@@ -142,6 +147,7 @@ export class RiderOnboardingService {
           riderProfileId: profile.id,
           verificationStatus: MotorcycleVerificationStatus.VERIFIED,
           isActive: true,
+          removedAt: null,
         },
       });
     }

@@ -160,7 +160,7 @@ export class BidAcceptanceService {
       throw new NotFoundException('Bid not found');
     }
     const motorcycles = await tx.motorcycle.findMany({
-      where: { riderProfileId: profile.id },
+      where: { riderProfileId: profile.id, removedAt: null },
       select: { id: true, verificationStatus: true, isActive: true },
     });
     const motorcycleId = motorcycleForAcceptance({

@@ -12,6 +12,7 @@ import com.riders.rider.feature.delivery.domain.GeoPoint
 import com.riders.rider.feature.delivery.domain.decodeEncodedPolyline
 import com.riders.rider.feature.delivery.domain.decodeRouteLine
 import com.riders.rider.feature.delivery.domain.parseGeoPoint
+import android.os.SystemClock
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.coroutineScope
@@ -40,6 +41,7 @@ class BidRepository @Inject constructor(
     val bidListProblemFlow: StateFlow<String?> = bidListProblemState.asStateFlow()
     private val openRequestsLock = Mutex()
     private var openRequestsFlight: Deferred<ApiResult<List<OpenBidRequest>>>? = null
+    private var recentOpenRequests: Pair<Long, ApiResult.Ok<List<OpenBidRequest>>>? = null
 
     suspend fun requestRoad(deliveryId: String): List<GeoPoint> {
         return when (val result = apiCall { riders.requestRoad(deliveryId) }) {
@@ -55,10 +57,16 @@ class BidRepository @Inject constructor(
         }
     }
 
-    suspend fun openRequests(): ApiResult<List<OpenBidRequest>> {
+    suspend fun openRequests(reuseRecent: Boolean = false): ApiResult<List<OpenBidRequest>> {
         val existing = openRequestsLock.withLock { openRequestsFlight?.takeIf { it.isActive } }
         if (existing != null) {
-            return existing.await()
+            return rememberOpenRequests(existing.await())
+        }
+        if (reuseRecent) {
+            val recent = openRequestsLock.withLock { recentOpenRequests }
+            if (recent != null && recentOpenRequestsReusable(recent.first, SystemClock.elapsedRealtime())) {
+                return recent.second
+            }
         }
         return coroutineScope {
             val created = async { loadOpenRequests() }
@@ -73,7 +81,7 @@ class BidRepository @Inject constructor(
                 }
             }
             try {
-                winner.await()
+                rememberOpenRequests(winner.await())
             } finally {
                 openRequestsLock.withLock {
                     if (openRequestsFlight == winner) {
@@ -82,6 +90,17 @@ class BidRepository @Inject constructor(
                 }
             }
         }
+    }
+
+    private suspend fun rememberOpenRequests(
+        result: ApiResult<List<OpenBidRequest>>,
+    ): ApiResult<List<OpenBidRequest>> {
+        if (result is ApiResult.Ok) {
+            openRequestsLock.withLock {
+                recentOpenRequests = SystemClock.elapsedRealtime() to result
+            }
+        }
+        return result
     }
 
     private suspend fun loadOpenRequests(): ApiResult<List<OpenBidRequest>> {
@@ -184,4 +203,15 @@ private fun OwnBidsResponse.toPage(): OwnBidPage {
         },
         nextCursor = nextCursor,
     )
+}
+
+/** A list fetched for a notification can open the request without a second round trip. */
+internal const val OPEN_REQUESTS_REUSE_MS = 4_000L
+
+internal fun recentOpenRequestsReusable(fetchedAtElapsedMs: Long, nowElapsedMs: Long): Boolean {
+    if (fetchedAtElapsedMs <= 0L) {
+        return false
+    }
+    val age = nowElapsedMs - fetchedAtElapsedMs
+    return age in 0..OPEN_REQUESTS_REUSE_MS
 }

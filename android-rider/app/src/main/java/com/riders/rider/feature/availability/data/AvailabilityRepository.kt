@@ -21,6 +21,7 @@ import com.riders.rider.feature.availability.domain.LocationNotice
 import com.riders.rider.feature.availability.domain.LocationRelay
 import com.riders.rider.feature.availability.domain.LocationUploadFailure
 import com.riders.rider.feature.availability.domain.SharingAction
+import com.riders.rider.feature.availability.domain.LOCATION_ACQUISITION_GRACE_MS
 import com.riders.rider.feature.availability.domain.classifyLocationNotice
 import com.riders.rider.feature.availability.domain.commandAfterUploadFailure
 import com.riders.rider.feature.availability.domain.locationSharingDecision
@@ -35,7 +36,13 @@ import com.riders.rider.feature.delivery.data.AssignmentRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
@@ -58,6 +65,9 @@ class AvailabilityRepository @Inject constructor(
     private val noticeLock = Any()
     private val notice = MutableStateFlow<LocationNotice?>(null)
     val locationNotice: StateFlow<LocationNotice?> = notice.asStateFlow()
+    private val acquisition = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var acquisitionStartedAtMillis: Long? = null
+    private var acquisitionWatch: Job? = null
     private var facts = LocationFacts()
     private var failure = LocationUploadFailure.None
     private var sawUnusableFix = false
@@ -374,6 +384,8 @@ class AvailabilityRepository @Inject constructor(
     }
 
     private fun republish() {
+        val now = System.currentTimeMillis()
+        rememberAcquisition(now)
         notice.value = classifyLocationNotice(
             showWarning = facts.showWarning,
             permissionGranted = facts.permissionGranted,
@@ -384,7 +396,45 @@ class AvailabilityRepository @Inject constructor(
             serverReached = facts.serverReached,
             failure = failure,
             sawUnusableFix = sawUnusableFix,
+            nowMillis = now,
+            acquisitionStartedAtMillis = acquisitionStartedAtMillis,
         )
+    }
+
+    private fun rememberAcquisition(now: Long) {
+        val finished = facts.uploadFresh ||
+            !facts.sharingRequired ||
+            !facts.permissionGranted ||
+            !facts.providersEnabled ||
+            failure == LocationUploadFailure.Rejected
+        if (finished) {
+            acquisitionStartedAtMillis = null
+            acquisitionWatch?.cancel()
+            acquisitionWatch = null
+            return
+        }
+        val awaitingFix = facts.serverReached &&
+            facts.sharingRequired &&
+            failure == LocationUploadFailure.None &&
+            !facts.uploadFresh
+        if (!awaitingFix || acquisitionStartedAtMillis != null) {
+            return
+        }
+        acquisitionStartedAtMillis = now
+        acquisitionWatch?.cancel()
+        acquisitionWatch = acquisition.launch {
+            while (true) {
+                val started = synchronized(noticeLock) { acquisitionStartedAtMillis } ?: return@launch
+                val remaining = started + LOCATION_ACQUISITION_GRACE_MS - System.currentTimeMillis()
+                if (remaining <= 0L) {
+                    synchronized(noticeLock) {
+                        republish()
+                    }
+                    return@launch
+                }
+                delay(remaining)
+            }
+        }
     }
 
     private fun fineLocationGranted(): Boolean {

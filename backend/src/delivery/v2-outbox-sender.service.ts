@@ -228,7 +228,7 @@ export class V2OutboxSender {
               receivingRequests: true,
               verificationStatus: true,
               user: { select: { accountStatus: true, phoneVerifiedAt: true } },
-              motorcycles: { select: { isActive: true, verificationStatus: true } },
+              motorcycles: { where: { removedAt: null }, select: { isActive: true, verificationStatus: true } },
             },
           },
         },

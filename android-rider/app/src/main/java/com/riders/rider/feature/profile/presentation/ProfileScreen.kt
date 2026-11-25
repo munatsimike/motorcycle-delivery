@@ -91,6 +91,7 @@ import com.riders.rider.core.design.RidersSecondaryButton
 import com.riders.rider.core.design.RidersTextField
 import com.riders.rider.core.design.RidersSpacing
 import com.riders.rider.core.design.RidersType
+import com.riders.rider.feature.auth.presentation.AddressSearchViewModel
 import com.riders.rider.feature.auth.presentation.RegistrationAddressField
 import com.riders.rider.feature.onboarding.domain.MotorcycleDetails
 import com.riders.rider.feature.onboarding.domain.RiderOnboarding
@@ -530,6 +531,10 @@ private fun AddressEditor(
     onSave: (String) -> Unit,
 ) {
     var address by rememberSaveable { mutableStateOf(initial) }
+    val search: AddressSearchViewModel = hiltViewModel()
+    DisposableEffect(search) {
+        onDispose { search.abandon() }
+    }
     Column(
         Modifier
             .fillMaxSize()
@@ -544,6 +549,7 @@ private fun AddressEditor(
             onValueChange = { address = it },
             enabled = !saving,
             imeAction = ImeAction.Done,
+            model = search,
         )
         if (error != null) {
             Text(error, style = RidersType.caption, color = RidersColors.error)
@@ -558,7 +564,11 @@ private fun AddressEditor(
         )
         RidersSecondaryButton(
             label = "Cancel",
-            onClick = onCancel,
+            onClick = {
+                address = initial
+                search.abandon()
+                onCancel()
+            },
             enabled = !saving,
             bordered = false,
             containerColor = Color(0xFFF1F3F4),

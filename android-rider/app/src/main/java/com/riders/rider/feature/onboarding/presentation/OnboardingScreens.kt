@@ -40,6 +40,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -58,7 +61,15 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.riders.rider.R
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.riders.rider.core.design.RiderTheme
+import com.riders.rider.core.design.LocalRidersToast
 import com.riders.rider.core.design.RidersCard
+import com.riders.rider.core.design.RidersDialog
+import com.riders.rider.core.design.RidersDialogActions
+import com.riders.rider.core.design.RidersDialogBody
+import com.riders.rider.core.design.RidersDialogTextButton
+import com.riders.rider.core.design.RidersDialogTitle
+import com.riders.rider.core.design.RidersDialogTone
+import com.riders.rider.core.design.RidersToastEvent
 import com.riders.rider.core.design.RidersColors
 import com.riders.rider.core.design.RidersCenteredContent
 import com.riders.rider.core.design.RidersFailureNotice
@@ -80,7 +91,10 @@ import com.riders.rider.feature.onboarding.domain.OnboardingStep
 import com.riders.rider.feature.onboarding.domain.approvalStatusTitle
 import com.riders.rider.feature.onboarding.domain.canEditMotorcycle
 import com.riders.rider.feature.onboarding.domain.canReplaceLicence
+import com.riders.rider.feature.onboarding.domain.MOTORBIKE_TOAST_DISMISS_MS
 import com.riders.rider.feature.onboarding.domain.canSelectMotorcycle
+import com.riders.rider.feature.onboarding.domain.motorbikeRemovalMessage
+import com.riders.rider.feature.onboarding.domain.removingLastApprovedMotorbike
 import com.riders.rider.feature.onboarding.domain.motorcycleStatusTitle
 import com.riders.rider.feature.onboarding.domain.previousOnboardingStep
 import com.riders.rider.feature.onboarding.domain.riderReadiness
@@ -104,6 +118,18 @@ fun OnboardingScreen(
             model.permissionDenied()
         } else {
             model.selectLicence(bytes)
+        }
+    }
+    val showToast = LocalRidersToast.current
+    LaunchedEffect(model) {
+        model.motorcycleToasts.collect { message ->
+            showToast(
+                RidersToastEvent(
+                    id = "motorbike-$message-${System.nanoTime()}",
+                    message = message,
+                    dismissMs = MOTORBIKE_TOAST_DISMISS_MS,
+                ),
+            )
         }
     }
     LaunchedEffect(Unit) { model.refresh() }
@@ -195,6 +221,7 @@ fun OnboardingScreen(
                             onCancel = model::cancelMotorcycleEdit,
                             onEdit = model::editMotorcycle,
                             onSelect = model::selectMotorcycle,
+                            onRemove = model::removeMotorcycle,
                         )
                         OnboardingStep.Status -> StatusStep(ui, onHome = onFinished)
                     }
@@ -553,7 +580,14 @@ private fun MotorcycleStep(
     onCancel: () -> Unit,
     onEdit: (MotorcycleDetails) -> Unit,
     onSelect: (String) -> Unit,
+    onRemove: (String) -> Unit,
 ) {
+    var pendingRemoval by remember { mutableStateOf<MotorcycleDetails?>(null) }
+    val needsChoice = !registration &&
+        ui.motorcycles.count { it.verificationStatus == "VERIFIED" } >= 2 &&
+        ui.motorcycles.none { it.isActive }
+    val choiceKey = ui.motorcycles.joinToString { "${it.id}:${it.isActive}:${it.verificationStatus}" }
+    var showChoice by remember(choiceKey) { mutableStateOf(needsChoice) }
     StepHeading(
         title = "Motorbike",
         subtitle = if (registration) {
@@ -577,11 +611,69 @@ private fun MotorcycleStep(
                         editable -> onEdit(motorcycle)
                     }
                 },
+                onRemove = { pendingRemoval = motorcycle },
+                removeEnabled = !ui.savingMotorcycle,
             )
         }
     }
-    if (!registration) {
-        ui.notice?.let { SavedNotice(it) }
+    val pending = pendingRemoval
+    val lastApproved = pending?.let { target ->
+        removingLastApprovedMotorbike(
+            target.verificationStatus,
+            ui.motorcycles.filter { it.id != target.id }.map { it.verificationStatus },
+        )
+    } == true
+    RidersDialog(
+        visible = pending != null,
+        onDismiss = { if (!ui.savingMotorcycle) pendingRemoval = null },
+    ) {
+        RidersDialogTitle("Remove motorbike")
+        RidersDialogBody(motorbikeRemovalMessage(pending?.registrationNumber.orEmpty(), lastApproved))
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            RidersSecondaryButton(
+                label = "Cancel",
+                onClick = { pendingRemoval = null },
+                enabled = !ui.savingMotorcycle,
+                bordered = false,
+                containerColor = Color(0xFFF1F3F4),
+                contentColor = Color(0xFF374151),
+                regular = true,
+                modifier = Modifier.weight(1f),
+            )
+            RidersSecondaryButton(
+                label = "Remove",
+                onClick = {
+                    val target = pending ?: return@RidersSecondaryButton
+                    pendingRemoval = null
+                    onRemove(target.id)
+                },
+                enabled = !ui.savingMotorcycle && pending != null,
+                loading = ui.savingMotorcycle,
+                bordered = false,
+                containerColor = RidersColors.dangerSurface,
+                contentColor = RidersColors.destructive,
+                regular = true,
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+    RidersDialog(
+        visible = pendingRemoval == null && showChoice && needsChoice,
+        onDismiss = { showChoice = false },
+    ) {
+        RidersDialogTitle("Choose an active motorbike")
+        RidersDialogBody("Select which motorbike becomes active. You stay offline until you choose.")
+        RidersDialogActions {
+            RidersDialogTextButton(
+                label = "OK",
+                tone = RidersDialogTone.Primary,
+                onClick = { showChoice = false },
+            )
+        }
     }
     val editing = ui.editingId != null
     val showForm = registration || editing || ui.addingMotorcycle
@@ -706,6 +798,8 @@ private fun MotorcycleChoice(
     selected: Boolean,
     enabled: Boolean,
     onClick: () -> Unit,
+    onRemove: (() -> Unit)? = null,
+    removeEnabled: Boolean = true,
 ) {
     val pending = motorcycle.verificationStatus != "VERIFIED" &&
         motorcycle.verificationStatus != "REJECTED" &&
@@ -738,11 +832,18 @@ private fun MotorcycleChoice(
             .clip(shape)
             .background(cardFill)
             .border(1.dp, cardBorder, shape)
-            .clickable(enabled = enabled, onClick = onClick)
             .padding(RidersSpacing.lg),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md),
     ) {
+        Row(
+            Modifier
+                .weight(1f)
+                .clip(RoundedCornerShape(RidersRadius.md))
+                .clickable(enabled = enabled, onClick = onClick),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md),
+        ) {
         Box(
             Modifier
                 .size(40.dp)
@@ -803,6 +904,23 @@ private fun MotorcycleChoice(
                         .clip(RoundedCornerShape(RidersRadius.pill))
                         .background(RidersColors.background)
                         .padding(horizontal = RidersSpacing.sm, vertical = 2.dp),
+                )
+            }
+        }
+        }
+        if (onRemove != null) {
+            Box(
+                Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .clickable(enabled = removeEnabled, role = Role.Button, onClick = onRemove),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_trash_can_outline),
+                    contentDescription = "Remove motorbike",
+                    modifier = Modifier.size(20.dp),
+                    tint = RidersColors.destructive,
                 )
             }
         }

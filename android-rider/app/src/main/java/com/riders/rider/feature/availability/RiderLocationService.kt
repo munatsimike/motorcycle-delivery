@@ -154,6 +154,31 @@ class RiderLocationService : Service() {
                     if (point != null) {
                         scope.launch { deliver(point) }
                     } else {
+                        readCachedFix()
+                    }
+                }
+        } catch (_: SecurityException) {
+            scope.launch { stopSharing() }
+        }
+    }
+
+    private fun readCachedFix() {
+        try {
+            client.lastLocation
+                .addOnSuccessListener { cached ->
+                    if (!running) {
+                        return@addOnSuccessListener
+                    }
+                    val age = cached?.let { (System.currentTimeMillis() - it.time).coerceAtLeast(0L) }
+                    val accuracy = cached?.let { if (it.hasAccuracy()) it.accuracy else null }
+                    if (cached != null && age != null && isDispatchUsable(age, accuracy)) {
+                        scope.launch { deliver(cached) }
+                    } else {
+                        scope.launch { availability.noteFixMissing() }
+                    }
+                }
+                .addOnFailureListener {
+                    if (running) {
                         scope.launch { availability.noteFixMissing() }
                     }
                 }

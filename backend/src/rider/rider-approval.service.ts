@@ -118,7 +118,7 @@ async function approve(
     throw new ConflictException('A verified licence is required');
   }
   const verifiedMotorcycles = await tx.motorcycle.count({
-    where: { riderProfileId, verificationStatus: MotorcycleVerificationStatus.VERIFIED },
+    where: { riderProfileId, verificationStatus: MotorcycleVerificationStatus.VERIFIED, removedAt: null },
   });
   if (verifiedMotorcycles < 1) {
     throw new ConflictException('A verified motorcycle is required');

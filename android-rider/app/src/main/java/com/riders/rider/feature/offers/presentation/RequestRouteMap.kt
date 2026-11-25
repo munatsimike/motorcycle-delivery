@@ -81,10 +81,11 @@ import com.riders.rider.feature.delivery.domain.reliableBearing
 import com.riders.rider.feature.delivery.domain.retainedHeading
 import com.riders.rider.feature.delivery.presentation.animateHeadingUp
 import com.riders.rider.feature.delivery.presentation.showFittedCamera
-import com.riders.rider.feature.delivery.domain.ROUTE_MIN_FRAME_SPAN_METRES
 import com.riders.rider.feature.delivery.domain.withMinimumCameraSpan
+import com.riders.rider.feature.delivery.domain.SAME_PLACE_METRES
 import com.riders.rider.feature.delivery.domain.collectionCameraFrame
 import com.riders.rider.feature.delivery.domain.collectionMarkerPaddingPx
+import com.riders.rider.feature.delivery.domain.requestCameraInsets
 import com.riders.rider.feature.delivery.domain.MarkerCameraGate
 import com.riders.rider.feature.delivery.domain.MarkerCameraPhase
 import com.riders.rider.feature.delivery.domain.markerStaysAttached
@@ -106,7 +107,6 @@ import kotlinx.coroutines.sync.withLock
 
 // Reusable Google Maps route view for bids and other rider screens.
 // Pin shapes use the same drawable assets as the delivery cards.
-private const val FRAME_LOOSEN = 0.04
 private const val DELIVERED_FRAME_LOOSEN = 0.08
 
 @Composable
@@ -145,6 +145,7 @@ fun RequestRouteMap(
     var pickupIcon by remember { mutableStateOf<BitmapDescriptor?>(null) }
     var dropoffIcon by remember { mutableStateOf<BitmapDescriptor?>(null) }
     var framedRider by remember(deliveryId) { mutableStateOf(false) }
+    var fittedZoom by remember(deliveryId) { mutableStateOf<Float?>(null) }
     var travelHeading by remember(deliveryId) { mutableStateOf<Float?>(null) }
     val bearingReading = reliableBearing(
         riderSpeedMetresPerSecond,
@@ -176,7 +177,16 @@ fun RequestRouteMap(
     val road = line.filter { it.latitude.isFinite() && it.longitude.isFinite() }
     val routeReady = road.size > 1
     val routeGate = routeReady || framedRoute
-    val boundsPadding = collectionMarkerPaddingPx(12f, density.density)
+    val layoutWidth = if (mapWidth > 0) mapWidth else 10_000
+    val layoutHeight = if (mapHeight > 0) mapHeight else 10_000
+    val cameraInsets = requestCameraInsets(
+        mapWidthPx = layoutWidth,
+        mapHeightPx = layoutHeight,
+        density = density.density,
+        statusTopPx = WindowInsets.statusBars.getTop(density),
+        sheetOverlapPx = with(density) { sheetOverlap.roundToPx() },
+        includeRider = rider != null,
+    )
     val stroke = with(density) { routeWidth.toPx() }
     val motorcycleIcon = remember(mapLoaded) {
         if (mapLoaded) riderMotorcycleDescriptor(context) else null
@@ -189,7 +199,7 @@ fun RequestRouteMap(
 
     LaunchedEffect(deliveryId, pickup, dropoff, routeGate, riderGate, mapLoaded, mapWidth, mapHeight, recenter, sheetOverlap) {
         val centering = recenter != seenRecenter
-        if (!mapLoaded || mapWidth <= 0 || mapHeight <= 0) {
+        if (!mapLoaded || mapWidth <= 0 || mapHeight <= 0 || sheetOverlap <= 0.dp) {
             return@LaunchedEffect
         }
         if (userMoved && !centering) {
@@ -206,12 +216,18 @@ fun RequestRouteMap(
         if (rider != null) {
             framedRider = true
         }
-        val framed = ArrayList<GeoPoint>(road.size + 1)
+        val framed = ArrayList<GeoPoint>(road.size + 3)
         if (routeReady) {
             framed.addAll(road)
         }
-        if (rider != null && pickup != null) {
+        if (pickup != null) {
             framed.add(pickup)
+        }
+        if (dropoff != null) {
+            framed.add(dropoff)
+        }
+        if (rider != null) {
+            framed.add(rider)
         }
         val frame = collectionCameraFrame(
             rider ?: dropoff,
@@ -224,18 +240,25 @@ fun RequestRouteMap(
                 return@LaunchedEffect
             }
             val update = CameraUpdateFactory.newLatLngBounds(
-                loosened(withMinimumCameraSpan(frame.points, ROUTE_MIN_FRAME_SPAN_METRES)),
-                boundsPadding,
+                loosened(withMinimumCameraSpan(frame.points, SAME_PLACE_METRES), 0.0),
+                0,
             )
             cameraLock.withLock {
-                runCatching { showFittedCamera(camera, update, if (rider != null) headingNow.value else null) }
+                runCatching {
+                    fittedZoom = showFittedCamera(
+                        camera,
+                        update,
+                        if (rider != null) headingNow.value else null,
+                    )
+                }
             }
         } finally {
             markerPhase = markerGate.end()
         }
     }
 
-    LaunchedEffect(heading, userMoved, mapLoaded, rider != null) {
+    LaunchedEffect(heading, userMoved, mapLoaded, rider != null, fittedZoom) {
+        val zoom = fittedZoom ?: return@LaunchedEffect
         if (!mapLoaded) {
             return@LaunchedEffect
         }
@@ -251,7 +274,7 @@ fun RequestRouteMap(
         try {
             cameraLock.withLock {
                 if (!userMoved) {
-                    animateHeadingUp(camera, target)
+                    animateHeadingUp(camera, target, zoom)
                 }
             }
         } finally {
@@ -278,10 +301,10 @@ fun RequestRouteMap(
             },
             cameraPositionState = camera,
             contentPadding = PaddingValues(
-                start = 32.dp,
-                top = statusTop + 64.dp,
-                end = 32.dp,
-                bottom = sheetOverlap + 28.dp,
+                start = with(density) { cameraInsets.startPx.toDp() },
+                top = with(density) { cameraInsets.topPx.toDp() },
+                end = with(density) { cameraInsets.endPx.toDp() },
+                bottom = with(density) { cameraInsets.bottomPx.toDp() },
             ),
             properties = MapProperties(isMyLocationEnabled = false, mapStyleOptions = mapStyles.optionsFor(mapTheme, LocalAppDark.current)),
             uiSettings = MapUiSettings(
@@ -360,7 +383,7 @@ fun RequestRouteMap(
     }
 }
 
-private fun loosened(points: List<GeoPoint>, loosen: Double = FRAME_LOOSEN): LatLngBounds {
+private fun loosened(points: List<GeoPoint>, loosen: Double): LatLngBounds {
     val bounds = LatLngBounds.builder().apply {
         points.forEach { include(LatLng(it.latitude, it.longitude)) }
     }.build()

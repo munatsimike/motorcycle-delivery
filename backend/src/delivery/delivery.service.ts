@@ -207,7 +207,7 @@ export class DeliveryService {
             verificationStatus: true,
             user: { select: { fullName: true, phone: true } },
             motorcycles: {
-              where: { isActive: true, verificationStatus: 'VERIFIED' },
+              where: { isActive: true, verificationStatus: 'VERIFIED', removedAt: null },
               select: { make: true, model: true, registrationNumber: true, colour: true },
               take: 1,
             },

@@ -13,7 +13,13 @@ import com.riders.rider.feature.delivery.domain.MIN_FRAME_SPAN_METRES
 import com.riders.rider.feature.delivery.domain.ROUTE_MIN_FRAME_SPAN_METRES
 import com.riders.rider.feature.delivery.domain.collectionCameraFrame
 import com.riders.rider.feature.delivery.domain.withMinimumCameraSpan
+import com.riders.rider.feature.delivery.domain.REQUEST_PIN_CLEARANCE_DP
+import com.riders.rider.feature.delivery.domain.REQUEST_RIDER_CLEARANCE_DP
+import com.riders.rider.feature.delivery.domain.REQUEST_SIDE_PADDING_DP
+import com.riders.rider.feature.delivery.domain.REQUEST_TAG_CLEARANCE_DP
+import com.riders.rider.feature.delivery.domain.REQUEST_TOP_CHROME_DP
 import com.riders.rider.feature.delivery.domain.collectionMarkerPaddingPx
+import com.riders.rider.feature.delivery.domain.requestCameraInsets
 import com.riders.rider.feature.delivery.domain.decodeEncodedPolyline
 import com.riders.rider.feature.delivery.domain.decodeRouteLine
 import com.riders.rider.feature.delivery.domain.deliveryRouteKey
@@ -139,6 +145,42 @@ class CollectionMapTest {
         assertEquals(wide, withMinimumCameraSpan(wide, ROUTE_MIN_FRAME_SPAN_METRES))
         assertEquals(90, collectionMarkerPaddingPx(36f, 2.5f))
         assertEquals(0, collectionMarkerPaddingPx(36f, 0f))
+    }
+
+    @Test
+    fun requestCameraUsesTheMeasuredCardWithoutExtraMargin() {
+        val insets = requestCameraInsets(
+            mapWidthPx = 1080,
+            mapHeightPx = 1920,
+            density = 2f,
+            statusTopPx = 48,
+            sheetOverlapPx = 400,
+            includeRider = false,
+        )
+        assertEquals((REQUEST_SIDE_PADDING_DP * 2f).toInt(), insets.startPx)
+        assertEquals(insets.startPx, insets.endPx)
+        assertEquals(48 + (REQUEST_TOP_CHROME_DP * 2f).toInt(), insets.topPx)
+        assertEquals(400 + (REQUEST_PIN_CLEARANCE_DP * 2f).toInt(), insets.bottomPx)
+        val withRider = requestCameraInsets(
+            mapWidthPx = 1080,
+            mapHeightPx = 1920,
+            density = 2f,
+            statusTopPx = 48,
+            sheetOverlapPx = 400,
+            includeRider = true,
+        )
+        assertEquals(48 + ((REQUEST_TOP_CHROME_DP + REQUEST_TAG_CLEARANCE_DP) * 2f).toInt(), withRider.topPx)
+        assertEquals(400 + (REQUEST_RIDER_CLEARANCE_DP * 2f).toInt(), withRider.bottomPx)
+        assertTrue(withRider.topPx > insets.topPx)
+        val crowded = requestCameraInsets(
+            mapWidthPx = 400,
+            mapHeightPx = 800,
+            density = 1f,
+            statusTopPx = 0,
+            sheetOverlapPx = 700,
+            includeRider = false,
+        )
+        assertEquals(700, crowded.bottomPx)
     }
 
     @Test

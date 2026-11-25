@@ -1,10 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { MotorcycleVerificationStatus, Prisma } from '../generated/prisma/client.js';
+import { AssignmentStatus, MotorcycleVerificationStatus, Prisma, RiderAvailability } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { RiderContext } from '../auth/rider-access.service.js';
+import { v2MarketplaceEnabled } from '../auth/v2-flags.js';
 import { readMotorcycleIdentity } from './motorcycle-identity.js';
 import { assertCanChangeMotorcycle, hasAcceptedAssignment, lockRiderMotorcycles, lockRiderProfile } from './motorcycle-lock.js';
+import { activeMotorbikeSuccessor } from './motorcycle-removal.js';
 
 export type MotorcycleResponse = {
   id: string;
@@ -63,7 +65,7 @@ export class MotorcycleService {
 
   async list(rider: RiderContext): Promise<MotorcycleResponse[]> {
     const rows = await this.prisma.motorcycle.findMany({
-      where: { riderProfileId: rider.riderProfileId },
+      where: { riderProfileId: rider.riderProfileId, removedAt: null },
       orderBy: { createdAt: 'asc' },
     });
     return rows.map(toResponse);
@@ -109,22 +111,49 @@ export class MotorcycleService {
     });
   }
 
-  async remove(rider: RiderContext, motorcycleId: string): Promise<void> {
+  async remove(rider: RiderContext, motorcycleId: string, now = new Date()): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       await lockRiderProfile(tx, rider.riderProfileId);
       await lockRiderMotorcycles(tx, rider.riderProfileId);
       const current = await ownedIn(tx, rider.riderProfileId, motorcycleId);
-      if (current.verificationStatus !== MotorcycleVerificationStatus.PENDING) {
-        throw new ConflictException('Only a pending motorcycle can be deleted');
+      const ongoing = await tx.deliveryAssignment.findFirst({
+        where: { motorcycleId: current.id, status: AssignmentStatus.ACCEPTED },
+        select: { id: true },
+      });
+      if (ongoing) {
+        throw new ConflictException('This motorcycle is on a delivery');
       }
+      const remaining = await tx.motorcycle.findMany({
+        where: { riderProfileId: rider.riderProfileId, removedAt: null, NOT: { id: current.id } },
+        select: { id: true, verificationStatus: true, isActive: true },
+      });
+      const successor = activeMotorbikeSuccessor(current.isActive, remaining);
       const referenced = await tx.deliveryAssignment.findFirst({
         where: { motorcycleId: current.id },
         select: { id: true },
       });
       if (referenced) {
-        throw new ConflictException('This motorcycle is used by a delivery');
+        await tx.motorcycle.update({
+          where: { id: current.id },
+          data: { isActive: false, removedAt: now, updatedAt: now },
+        });
+      } else {
+        await tx.motorcycle.delete({ where: { id: current.id } });
       }
-      await tx.motorcycle.delete({ where: { id: current.id } });
+      if (successor.action === 'activate') {
+        await tx.motorcycle.update({
+          where: { id: successor.motorcycleId },
+          data: { isActive: true, updatedAt: now },
+        });
+      }
+      if (successor.action === 'offline') {
+        await tx.riderProfile.update({
+          where: { id: rider.riderProfileId },
+          data: v2MarketplaceEnabled()
+            ? { availability: RiderAvailability.OFFLINE, receivingRequests: false, updatedAt: now }
+            : { availability: RiderAvailability.OFFLINE, updatedAt: now },
+        });
+      }
     });
   }
 
@@ -174,7 +203,7 @@ async function ownedIn(
   motorcycleId: string,
 ): Promise<MotorcycleRow> {
   const row = await db.motorcycle.findFirst({
-    where: { id: motorcycleId, riderProfileId },
+    where: { id: motorcycleId, riderProfileId, removedAt: null },
   });
   if (!row) {
     throw new NotFoundException('Motorcycle not found');

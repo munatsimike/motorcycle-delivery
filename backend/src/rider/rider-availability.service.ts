@@ -189,7 +189,7 @@ async function readEligibility(
     throw new ForbiddenException('Rider access is required');
   }
   const motorcycles = await tx.motorcycle.findMany({
-    where: { riderProfileId: profile.id },
+    where: { riderProfileId: profile.id, removedAt: null },
     select: { id: true, verificationStatus: true, isActive: true },
   });
   return {

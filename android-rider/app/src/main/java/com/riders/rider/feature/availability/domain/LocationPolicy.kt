@@ -8,6 +8,7 @@ const val LOCATION_MAX_UPDATE_DELAY_MS = 5_000L
 const val LOCATION_RETRY_MS = 10_000L
 const val LOCATION_MAX_FIX_AGE_MS = 45_000L
 const val LOCATION_MAX_ACCURACY_METERS = 500f
+const val LOCATION_ACQUISITION_GRACE_MS = 15_000L
 
 enum class LocationPower {
     Balanced,
@@ -201,6 +202,14 @@ fun noticeAfterConnectivityRestored(failure: LocationUploadFailure): LocationUpl
     return if (failure == LocationUploadFailure.Network) LocationUploadFailure.Recoverable else failure
 }
 
+fun locationAcquisitionOpen(nowMillis: Long, startedAtMillis: Long?): Boolean {
+    val started = startedAtMillis ?: return false
+    if (nowMillis < started) {
+        return false
+    }
+    return nowMillis - started < LOCATION_ACQUISITION_GRACE_MS
+}
+
 fun classifyLocationNotice(
     showWarning: Boolean,
     permissionGranted: Boolean,
@@ -211,6 +220,8 @@ fun classifyLocationNotice(
     serverReached: Boolean,
     failure: LocationUploadFailure,
     sawUnusableFix: Boolean,
+    nowMillis: Long = 0L,
+    acquisitionStartedAtMillis: Long? = null,
 ): LocationNotice? {
     if (!showWarning || failure == LocationUploadFailure.Rejected) {
         return null
@@ -233,14 +244,19 @@ fun classifyLocationNotice(
     if (sharingRequired && !serviceRunning) {
         return LocationNotice.ServiceStopped
     }
+    val acquiring = !uploadFresh && locationAcquisitionOpen(nowMillis, acquisitionStartedAtMillis)
     if (sawUnusableFix && !uploadFresh) {
-        return LocationNotice.FixUnavailable
+        return if (acquiring) LocationNotice.WaitingForFix else LocationNotice.FixUnavailable
     }
     if (serviceRunning && !uploadFresh) {
-        return LocationNotice.WaitingForFix
+        return if (acquisitionStartedAtMillis != null && !acquiring) {
+            LocationNotice.FixUnavailable
+        } else {
+            LocationNotice.WaitingForFix
+        }
     }
     if (!uploadFresh) {
-        return LocationNotice.FixUnavailable
+        return if (acquiring) LocationNotice.WaitingForFix else LocationNotice.FixUnavailable
     }
     return null
 }

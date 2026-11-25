@@ -14,6 +14,8 @@ import com.riders.rider.feature.onboarding.domain.StoredLicence
 import com.riders.rider.feature.onboarding.domain.canReplaceLicence
 import com.riders.rider.feature.onboarding.domain.licenceImageIssue
 import com.riders.rider.feature.onboarding.domain.licenceStatusAfterImageUpload
+import com.riders.rider.feature.onboarding.domain.MOTORBIKE_REMOVED_TOAST
+import com.riders.rider.feature.onboarding.domain.MOTORBIKE_SAVED_TOAST
 import com.riders.rider.feature.onboarding.domain.motorcycleIssue
 import com.riders.rider.feature.onboarding.domain.nextOnboardingStep
 import com.riders.rider.feature.onboarding.domain.previousOnboardingStep
@@ -21,8 +23,11 @@ import com.riders.rider.feature.onboarding.domain.retainDraft
 import com.riders.rider.navigation.onboardingFocus
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
@@ -53,6 +58,8 @@ class OnboardingViewModel @Inject constructor(
 ) : ViewModel() {
     private val state = MutableStateFlow(OnboardingUi(step = onboardingFocus(savedState.get<String>("step")) ?: OnboardingStep.Profile))
     val ui: StateFlow<OnboardingUi> = state.asStateFlow()
+    private val toasts = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    val motorcycleToasts: SharedFlow<String> = toasts.asSharedFlow()
 
     fun refresh() {
         viewModelScope.launch {
@@ -196,8 +203,11 @@ class OnboardingViewModel @Inject constructor(
                         editingId = null,
                         draft = MotorcycleDraft(),
                         error = null,
-                        notice = if (advance) null else "Your motorbike has been saved.",
+                        notice = null,
                     )
+                    if (!advance) {
+                        toasts.tryEmit(MOTORBIKE_SAVED_TOAST)
+                    }
                     val licenceReady = saved.onboarding?.licenceVerificationStatus == "VERIFIED" || saved.licence != null
                     val next = if (advance) nextOnboardingStep(OnboardingStep.Motorcycle, licenceReady, true) else null
                     state.value = if (next == null) saved else saved.copy(step = next)
@@ -206,6 +216,27 @@ class OnboardingViewModel @Inject constructor(
                 is ApiResult.Err -> state.value = state.value.copy(
                     savingMotorcycle = false,
                     draft = retainDraft(current.draft),
+                    error = result.error.text(),
+                )
+            }
+        }
+    }
+
+    fun removeMotorcycle(id: String) {
+        val target = id.trim()
+        if (target.isEmpty() || state.value.savingMotorcycle) {
+            return
+        }
+        viewModelScope.launch {
+            state.value = state.value.copy(savingMotorcycle = true, error = null)
+            when (val result = verification.removeMotorcycle(target)) {
+                is ApiResult.Ok -> {
+                    state.value = state.value.copy(savingMotorcycle = false)
+                    toasts.tryEmit(MOTORBIKE_REMOVED_TOAST)
+                    refresh()
+                }
+                is ApiResult.Err -> state.value = state.value.copy(
+                    savingMotorcycle = false,
                     error = result.error.text(),
                 )
             }

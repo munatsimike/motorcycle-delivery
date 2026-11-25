@@ -17,7 +17,9 @@ import com.riders.rider.feature.availability.domain.SharingAction
 import com.riders.rider.feature.availability.domain.LocationNotice
 import com.riders.rider.feature.availability.domain.LocationPermissionAction
 import com.riders.rider.feature.availability.domain.LocationUploadFailure
+import com.riders.rider.feature.availability.domain.LOCATION_ACQUISITION_GRACE_MS
 import com.riders.rider.feature.availability.domain.classifyLocationNotice
+import com.riders.rider.feature.availability.domain.locationAcquisitionOpen
 import com.riders.rider.feature.availability.domain.locationPermissionAction
 import com.riders.rider.feature.availability.domain.locationSharingPaused
 import com.riders.rider.feature.availability.domain.locationUploadFailure
@@ -526,6 +528,23 @@ class RiderLocationTest {
         assertEquals(LocationNotice.LocationDisabled, classify(providersEnabled = false, sawUnusableFix = true))
         assertEquals(LocationNotice.WaitingForFix, classify())
         assertEquals(LocationNotice.FixUnavailable, classify(sawUnusableFix = true))
+        assertEquals(LocationNotice.WaitingForFix, classify(sawUnusableFix = true, nowMillis = 1_000L, acquisitionStartedAtMillis = 1_000L))
+        assertEquals(
+            LocationNotice.FixUnavailable,
+            classify(
+                sawUnusableFix = true,
+                nowMillis = 1_000L + LOCATION_ACQUISITION_GRACE_MS,
+                acquisitionStartedAtMillis = 1_000L,
+            ),
+        )
+        assertEquals(LocationNotice.PermissionMissing, classify(permissionGranted = false, nowMillis = 0L, acquisitionStartedAtMillis = 0L))
+        assertEquals(LocationNotice.LocationDisabled, classify(providersEnabled = false, nowMillis = 0L, acquisitionStartedAtMillis = 0L))
+        assertNull(classify(uploadFresh = true, sawUnusableFix = true, nowMillis = 2_000L, acquisitionStartedAtMillis = 1_000L))
+        assertTrue(locationAcquisitionOpen(14_999L, 0L))
+        assertFalse(locationAcquisitionOpen(15_000L, 0L))
+        assertTrue(locationAcquisitionOpen(20_000L, 10_000L))
+        assertEquals(LocationNotice.WaitingForFix, classify(nowMillis = 1_000L, acquisitionStartedAtMillis = 1_000L))
+        assertEquals(LocationNotice.FixUnavailable, classify(nowMillis = 16_000L, acquisitionStartedAtMillis = 1_000L))
         assertEquals(LocationNotice.NoInternet, classify(failure = LocationUploadFailure.Network))
         assertEquals(LocationNotice.UploadPending, classify(failure = LocationUploadFailure.Recoverable))
         assertEquals(LocationNotice.ServiceStopped, classify(serviceRunning = false))
@@ -619,6 +638,8 @@ class RiderLocationTest {
         serverReached: Boolean = true,
         failure: LocationUploadFailure = LocationUploadFailure.None,
         sawUnusableFix: Boolean = false,
+        nowMillis: Long = 0L,
+        acquisitionStartedAtMillis: Long? = null,
     ): LocationNotice? {
         return classifyLocationNotice(
             showWarning = showWarning,
@@ -630,6 +651,8 @@ class RiderLocationTest {
             serverReached = serverReached,
             failure = failure,
             sawUnusableFix = sawUnusableFix,
+            nowMillis = nowMillis,
+            acquisitionStartedAtMillis = acquisitionStartedAtMillis,
         )
     }
 }

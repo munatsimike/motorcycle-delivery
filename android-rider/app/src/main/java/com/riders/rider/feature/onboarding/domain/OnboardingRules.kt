@@ -90,6 +90,25 @@ fun canSelectMotorcycle(verificationStatus: String, isActive: Boolean): Boolean 
     return verificationStatus == "VERIFIED" && !isActive
 }
 
+const val MOTORBIKE_SAVED_TOAST = "Motorbike saved"
+const val MOTORBIKE_REMOVED_TOAST = "Motorbike removed"
+const val MOTORBIKE_TOAST_DISMISS_MS = 6_000L
+
+const val LAST_APPROVED_MOTORBIKE_WARNING =
+    "You will not be able to accept deliveries until you have an approved motorbike."
+
+fun removingLastApprovedMotorbike(targetStatus: String, otherStatuses: List<String>): Boolean {
+    return targetStatus == "VERIFIED" && otherStatuses.none { it == "VERIFIED" }
+}
+
+fun motorbikeRemovalMessage(registrationNumber: String, lastApproved: Boolean = false): String {
+    val question = "Are you sure you want to remove ${registrationNumber.trim()}?"
+    if (!lastApproved) {
+        return question
+    }
+    return "$question\n\n$LAST_APPROVED_MOTORBIKE_WARNING"
+}
+
 fun nextOnboardingStep(current: OnboardingStep, licenceReady: Boolean, hasMotorcycle: Boolean): OnboardingStep? {
     return when (current) {
         OnboardingStep.Profile -> OnboardingStep.Licence

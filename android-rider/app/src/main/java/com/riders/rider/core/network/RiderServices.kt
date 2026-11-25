@@ -112,6 +112,9 @@ interface RiderService {
     @PUT("riders/me/motorcycles/{id}/active")
     suspend fun selectMotorcycle(@Path("id") id: String): MotorcycleResponse
 
+    @DELETE("riders/me/motorcycles/{id}")
+    suspend fun removeMotorcycle(@Path("id") id: String): Response<ResponseBody>
+
     @POST("riders/me/availability/online")
     suspend fun online(): AvailabilityResponse
 

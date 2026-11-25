@@ -155,30 +155,112 @@ describe('MotorcycleService', () => {
     expect(ctx.assignments).toHaveLength(0);
   });
 
-  it('deletes only an unused pending motorcycle', async () => {
+  it('removes an owned motorbike in any review state and keeps history', async () => {
     const ctx = context();
     const pending = await ctx.service.register(RIDER, details('ab 1'), NOW);
     const rejected = await ctx.service.register(RIDER, details('ab 2'), NOW);
     const verifiedBike = await verified(ctx, 'ab 3');
     const revoked = await verified(ctx, 'ab 4');
+    const historical = await verified(ctx, 'ab 5');
     await ctx.review.review(ADMIN, rejected.id, 'REJECT', NOW);
     await ctx.review.review(ADMIN, revoked.id, 'REVOKE', NOW);
-
-    await expect(ctx.service.remove(RIDER, rejected.id)).rejects.toBeInstanceOf(ConflictException);
-    await expect(ctx.service.remove(RIDER, verifiedBike.id)).rejects.toBeInstanceOf(ConflictException);
-    await expect(ctx.service.remove(RIDER, revoked.id)).rejects.toBeInstanceOf(ConflictException);
-
-    const referenced = await ctx.service.register(RIDER, details('ab 5'), NOW);
+    await ctx.service.selectActive(RIDER, verifiedBike.id, NOW);
+    ctx.addAssignment({
+      id: 'completed',
+      riderProfileId: RIDER.riderProfileId,
+      motorcycleId: historical.id,
+      status: AssignmentStatus.COMPLETED,
+    });
     ctx.addAssignment({
       id: 'accepted',
       riderProfileId: RIDER.riderProfileId,
-      motorcycleId: referenced.id,
+      motorcycleId: verifiedBike.id,
       status: AssignmentStatus.ACCEPTED,
     });
-    await expect(ctx.service.remove(RIDER, referenced.id)).rejects.toBeInstanceOf(ConflictException);
 
-    await ctx.service.remove(RIDER, pending.id);
+    await expect(ctx.service.remove(RIDER, verifiedBike.id, NOW)).rejects.toBeInstanceOf(ConflictException);
+    expect(ctx.motorcycles.find((row) => row.id === verifiedBike.id)?.isActive).toBe(true);
+    expect(ctx.profile.availability).toBe(RiderAvailability.OFFLINE);
+
+    await ctx.service.remove(RIDER, pending.id, NOW);
+    await ctx.service.remove(RIDER, rejected.id, NOW);
+    await ctx.service.remove(RIDER, revoked.id, NOW);
+    await ctx.service.remove(RIDER, historical.id, NOW);
+
     expect(ctx.motorcycles.some((row) => row.id === pending.id)).toBe(false);
+    expect(ctx.motorcycles.some((row) => row.id === rejected.id)).toBe(false);
+    expect(ctx.motorcycles.some((row) => row.id === revoked.id)).toBe(false);
+    expect(ctx.motorcycles.find((row) => row.id === historical.id)).toMatchObject({
+      removedAt: NOW,
+      isActive: false,
+    });
+    expect(ctx.assignments.find((row) => row.id === 'completed')?.motorcycleId).toBe(historical.id);
+    await expect(ctx.service.list(RIDER)).resolves.toEqual([
+      expect.objectContaining({ id: verifiedBike.id, isActive: true }),
+    ]);
+    await expect(ctx.service.remove(OTHER, verifiedBike.id, NOW)).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('reassigns the active motorbike or takes the rider offline', async () => {
+    const only = context();
+    const sole = await verified(only, 'aa 1');
+    await only.service.selectActive(RIDER, sole.id, NOW);
+    only.profile.availability = RiderAvailability.AVAILABLE;
+    await only.service.remove(RIDER, sole.id, NOW);
+    expect(only.motorcycles).toHaveLength(0);
+    expect(only.profile.availability).toBe(RiderAvailability.OFFLINE);
+
+    const oneLeft = context();
+    const active = await verified(oneLeft, 'bb 1');
+    const replacement = await verified(oneLeft, 'bb 2');
+    const pending = await oneLeft.service.register(RIDER, details('bb 3'), NOW);
+    await oneLeft.service.selectActive(RIDER, active.id, NOW);
+    oneLeft.profile.availability = RiderAvailability.AVAILABLE;
+    await oneLeft.service.remove(RIDER, active.id, NOW);
+    expect(oneLeft.motorcycles.find((row) => row.id === replacement.id)?.isActive).toBe(true);
+    expect(oneLeft.motorcycles.find((row) => row.id === pending.id)?.isActive).toBe(false);
+    expect(oneLeft.profile.availability).toBe(RiderAvailability.AVAILABLE);
+
+    const choose = context();
+    const first = await verified(choose, 'cc 1');
+    const second = await verified(choose, 'cc 2');
+    const third = await verified(choose, 'cc 3');
+    await choose.service.selectActive(RIDER, first.id, NOW);
+    choose.profile.availability = RiderAvailability.AVAILABLE;
+    await choose.service.remove(RIDER, first.id, NOW);
+    expect(choose.motorcycles.filter((row) => row.isActive)).toHaveLength(0);
+    expect(choose.motorcycles.map((row) => row.id).sort()).toEqual([second.id, third.id].sort());
+    expect(choose.profile.availability).toBe(RiderAvailability.OFFLINE);
+
+    const unapproved = context();
+    const current = await verified(unapproved, 'dd 1');
+    const waiting = await unapproved.service.register(RIDER, details('dd 2'), NOW);
+    const declined = await unapproved.service.register(RIDER, details('dd 3'), NOW);
+    await unapproved.review.review(ADMIN, declined.id, 'REJECT', NOW);
+    await unapproved.service.selectActive(RIDER, current.id, NOW);
+    unapproved.profile.availability = RiderAvailability.AVAILABLE;
+    await unapproved.service.remove(RIDER, current.id, NOW);
+    expect(unapproved.motorcycles.find((row) => row.id === waiting.id)?.isActive).toBe(false);
+    expect(unapproved.motorcycles.find((row) => row.id === declined.id)?.isActive).toBe(false);
+    expect(unapproved.profile.availability).toBe(RiderAvailability.OFFLINE);
+
+    const inactive = context();
+    const kept = await verified(inactive, 'ee 1');
+    const spare = await verified(inactive, 'ee 2');
+    await inactive.service.selectActive(RIDER, kept.id, NOW);
+    inactive.profile.availability = RiderAvailability.AVAILABLE;
+    await inactive.service.remove(RIDER, spare.id, NOW);
+    expect(inactive.motorcycles.find((row) => row.id === kept.id)?.isActive).toBe(true);
+    expect(inactive.profile.availability).toBe(RiderAvailability.AVAILABLE);
+
+    const stranded = context();
+    const unused = await verified(stranded, 'ff 1');
+    await stranded.service.clearActive(RIDER, unused.id, NOW);
+    const extra = await stranded.service.register(RIDER, details('ff 2'), NOW);
+    stranded.profile.availability = RiderAvailability.AVAILABLE;
+    await stranded.service.remove(RIDER, extra.id, NOW);
+    expect(stranded.motorcycles.find((row) => row.id === unused.id)?.isActive).toBe(false);
+    expect(stranded.profile.availability).toBe(RiderAvailability.OFFLINE);
   });
 
   it('keeps initial rejection distinct from revocation and blocks revocation during a delivery', async () => {
@@ -305,6 +387,7 @@ type MotorcycleRow = {
   rejectedById: string | null;
   revokedAt: Date | null;
   revokedById: string | null;
+  removedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -332,6 +415,7 @@ function stored(id: string, riderProfileId: string): MotorcycleRow {
     rejectedById: null,
     revokedAt: null,
     revokedById: null,
+    removedAt: null,
     createdAt: NOW,
     updatedAt: NOW,
   };
@@ -368,7 +452,14 @@ function context() {
     if (!where) {
       return true;
     }
-    return Object.entries(where).every(([key, value]) => (row as Record<string, unknown>)[key] === value);
+    return Object.entries(where).every(([key, value]) => {
+      if (key === 'NOT') {
+        const excluded = value as { id?: string };
+        return excluded.id === undefined || (row as { id?: string }).id !== excluded.id;
+      }
+      const actual = (row as Record<string, unknown>)[key];
+      return actual === value || (value === null && actual === undefined);
+    });
   }
 
   function client(order: string[]) {
@@ -388,9 +479,17 @@ function context() {
         async findUnique({ where }: { where: { id: string } }) {
           return profiles.find((row) => row.id === where.id) ?? null;
         },
-        async update() {
+        async update({ where, data }: { where: { id: string }; data: { availability?: RiderAvailability } }) {
+          const row = profiles.find((candidate) => candidate.id === where.id);
+          if (!row) {
+            throw new Error('missing profile');
+          }
+          if (data.availability !== undefined && data.availability !== RiderAvailability.OFFLINE) {
+            throw new Error('rider profile must not be updated');
+          }
           profileWrites += 1;
-          throw new Error('rider profile must not be updated');
+          Object.assign(row, data);
+          return { ...row };
         },
       },
       deliveryAssignment: {
@@ -411,6 +510,7 @@ function context() {
             rejectedById: data.rejectedById ?? null,
             revokedAt: data.revokedAt ?? null,
             revokedById: data.revokedById ?? null,
+            removedAt: data.removedAt ?? null,
           };
           motorcycles.push(row);
           return { ...row };

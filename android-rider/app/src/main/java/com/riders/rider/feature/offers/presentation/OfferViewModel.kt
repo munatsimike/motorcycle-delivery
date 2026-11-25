@@ -178,7 +178,7 @@ class OfferViewModel @Inject constructor(
             settled = state.value.settledIds,
             nowMillis = now,
             loadRequests = {
-                when (val opened = bids.openRequests()) {
+                when (val opened = bids.openRequests(reuseRecent = true)) {
                     is ApiResult.Ok -> {
                         openRequests = opened.value
                         availableRequests(emptyList(), opened.value)

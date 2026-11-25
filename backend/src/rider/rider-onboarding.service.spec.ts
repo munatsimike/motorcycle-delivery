@@ -150,7 +150,19 @@ describe('rider onboarding', () => {
     await expect(ctx.service.current(RIDER)).resolves.not.toHaveProperty('receiving');
   });
 
-  it('selects the earliest verified motorcycle for an approved rider who has none active', async () => {
+  it('activates the only verified motorcycle and leaves a choice when several remain', async () => {
+    const single = context();
+    single.profile.approvalStatus = RiderApprovalStatus.APPROVED;
+    single.profile.verificationStatus = RiderVerificationStatus.VERIFIED;
+    single.motorcycles.push(
+      { id: 'only', riderProfileId: 'profile-1', verificationStatus: MotorcycleVerificationStatus.VERIFIED, isActive: false, createdAt: new Date('2026-10-13T12:00:00.000Z') },
+    );
+    await expect(single.service.current(RIDER)).resolves.toMatchObject({
+      verifiedMotorcycleCount: 1,
+      activeVerifiedMotorcycle: true,
+    });
+    expect(single.motorcycles.find((row) => row.isActive)?.id).toBe('only');
+
     const ctx = context();
     ctx.profile.approvalStatus = RiderApprovalStatus.APPROVED;
     ctx.profile.verificationStatus = RiderVerificationStatus.VERIFIED;
@@ -162,9 +174,9 @@ describe('rider onboarding', () => {
     await expect(ctx.service.current(RIDER)).resolves.toMatchObject({
       approvalStatus: RiderApprovalStatus.APPROVED,
       verifiedMotorcycleCount: 2,
-      activeVerifiedMotorcycle: true,
+      activeVerifiedMotorcycle: false,
     });
-    expect(ctx.motorcycles.find((row) => row.isActive)?.id).toBe('bike-first');
+    expect(ctx.motorcycles.some((row) => row.isActive)).toBe(false);
   });
 });
 

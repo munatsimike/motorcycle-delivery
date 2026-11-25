@@ -9,10 +9,13 @@ import androidx.compose.runtime.getValue
 import androidx.fragment.app.FragmentActivity
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import com.riders.rider.core.design.AppearanceViewModel
 import com.riders.rider.core.design.RiderTheme
+import com.riders.rider.core.session.SessionStore
 import com.riders.rider.feature.auth.domain.AppEntry
 import com.riders.rider.feature.auth.presentation.SessionViewModel
+import com.riders.rider.feature.bids.data.BidRepository
 import com.riders.rider.feature.profile.presentation.ProfileViewModel
 import com.riders.rider.feature.offers.domain.ACCEPTED_BID_EXTRA_DELIVERY_ID
 import com.riders.rider.feature.offers.domain.ACCOUNT_APPROVED_EXTRA
@@ -23,11 +26,14 @@ import com.riders.rider.feature.offers.notification.PendingOffer
 import com.riders.rider.navigation.RiderNavHost
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
+import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
 class MainActivity : FragmentActivity() {
     @Inject lateinit var pendingOffer: PendingOffer
     @Inject lateinit var offerPush: OfferPushCoordinator
+    @Inject lateinit var bids: BidRepository
+    @Inject lateinit var sessions: SessionStore
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -68,6 +74,9 @@ class MainActivity : FragmentActivity() {
         if (requestId.isNotEmpty()) {
             pendingOffer.notificationTapped(requestId)
             intent?.removeExtra(OFFER_EXTRA_ASSIGNMENT_ID)
+            if (sessions.read() != null) {
+                lifecycleScope.launch { bids.openRequests() }
+            }
         }
         val deliveryId = intent?.getStringExtra(ACCEPTED_BID_EXTRA_DELIVERY_ID)?.trim().orEmpty()
         if (deliveryId.isNotEmpty()) {

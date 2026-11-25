@@ -17,6 +17,11 @@ import com.riders.rider.feature.onboarding.domain.canReplaceLicence
 import com.riders.rider.feature.onboarding.domain.canSelectMotorcycle
 import com.riders.rider.feature.onboarding.domain.licenceImageIssue
 import com.riders.rider.feature.onboarding.domain.licenceStatusAfterImageUpload
+import com.riders.rider.feature.onboarding.domain.MOTORBIKE_REMOVED_TOAST
+import com.riders.rider.feature.onboarding.domain.MOTORBIKE_SAVED_TOAST
+import com.riders.rider.feature.onboarding.domain.MOTORBIKE_TOAST_DISMISS_MS
+import com.riders.rider.feature.onboarding.domain.motorbikeRemovalMessage
+import com.riders.rider.feature.onboarding.domain.removingLastApprovedMotorbike
 import com.riders.rider.feature.onboarding.domain.motorcycleIssue
 import com.riders.rider.feature.onboarding.domain.needsOnboarding
 import com.riders.rider.feature.onboarding.domain.nextOnboardingStep
@@ -93,6 +98,17 @@ class RiderOnboardingTest {
         assertFalse(canEditMotorcycle("REVOKED"))
         assertTrue(canSelectMotorcycle("VERIFIED", isActive = false))
         assertFalse(canSelectMotorcycle("PENDING", isActive = false))
+        assertEquals("Motorbike saved", MOTORBIKE_SAVED_TOAST)
+        assertEquals("Motorbike removed", MOTORBIKE_REMOVED_TOAST)
+        assertEquals(6_000L, MOTORBIKE_TOAST_DISMISS_MS)
+        assertEquals("Are you sure you want to remove AEX 1234?", motorbikeRemovalMessage(" AEX 1234 "))
+        assertFalse(removingLastApprovedMotorbike("PENDING", emptyList()))
+        assertFalse(removingLastApprovedMotorbike("VERIFIED", listOf("VERIFIED")))
+        assertTrue(removingLastApprovedMotorbike("VERIFIED", listOf("PENDING", "REJECTED")))
+        assertEquals(
+            "Are you sure you want to remove AEX 1234?\n\nYou will not be able to accept deliveries until you have an approved motorbike.",
+            motorbikeRemovalMessage("AEX 1234", lastApproved = true),
+        )
         val kept = retainDraft(MotorcycleDraft("AFS 1234", "Honda", "Ace", "Red"))
         assertEquals("AFS 1234", kept.registrationNumber)
         assertEquals("Red", kept.colour)
@@ -221,6 +237,26 @@ class RiderOnboardingTest {
             val posted = requests.last { it.method == "POST" }
             assertEquals("/riders/me/motorcycles", posted.path)
             assertTrue(posted.body.readUtf8().contains("AFS 1234"))
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun removingAMotorbikeUsesTheOwnedDeleteAndKeepsTheServerMessage() = runTest {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setResponseCode(204))
+        server.enqueue(json("""{"message":"Only a pending motorcycle can be deleted","statusCode":409}""", 409))
+        server.enqueue(json("""{"message":"This motorcycle is used by a delivery","statusCode":409}""", 409))
+        server.start()
+        try {
+            val repository = VerificationRepository(server.service())
+            assertTrue(repository.removeMotorcycle("bike-1") is ApiResult.Ok)
+            assertEquals("Only a pending motorcycle can be deleted", repository.removeMotorcycle("bike-2").errorText())
+            assertEquals("This motorcycle is used by a delivery", repository.removeMotorcycle("bike-3").errorText())
+            val deleted = server.takeRequest(2, java.util.concurrent.TimeUnit.SECONDS)
+            assertEquals("DELETE", deleted?.method)
+            assertEquals("/riders/me/motorcycles/bike-1", deleted?.path)
         } finally {
             server.shutdown()
         }

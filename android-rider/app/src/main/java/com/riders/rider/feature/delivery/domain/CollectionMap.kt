@@ -202,6 +202,63 @@ fun collectionMarkerPaddingPx(clearanceDp: Float, density: Float): Int {
     return (clearanceDp * density).toInt()
 }
 
+/** Space on each side of the route, enough for a centre-anchored pin. */
+const val REQUEST_SIDE_PADDING_DP = 32f
+
+/** Close control clearance under the status bar. */
+const val REQUEST_TOP_CHROME_DP = 64f
+
+/**
+ * Distance tag above a 90dp motorcycle: the pill, the 8dp gap, and half the bike.
+ * Applied only while that marker is on the map.
+ */
+const val REQUEST_TAG_CLEARANCE_DP = 88f
+
+/** Lower half of a centre-anchored pin, so it sits above the measured card. */
+const val REQUEST_PIN_CLEARANCE_DP = 12f
+
+/** Lower half of the 90dp motorcycle, so the bike sits above the measured card. */
+const val REQUEST_RIDER_CLEARANCE_DP = 45f
+
+private const val REQUEST_MIN_VIEW_PX = 96
+
+data class RequestCameraInsets(
+    val startPx: Int,
+    val topPx: Int,
+    val endPx: Int,
+    val bottomPx: Int,
+)
+
+/**
+ * Insets the request camera to the map above the measured card.
+ * The bottom inset is that card height plus the marker that hangs below its anchor.
+ * Tag clearance is added only when the motorcycle is shown. No extra geographic margin.
+ */
+fun requestCameraInsets(
+    mapWidthPx: Int,
+    mapHeightPx: Int,
+    density: Float,
+    statusTopPx: Int,
+    sheetOverlapPx: Int,
+    includeRider: Boolean,
+): RequestCameraInsets {
+    val scale = if (density.isFinite() && density > 0f) density else 1f
+    val side = (REQUEST_SIDE_PADDING_DP * scale).toInt()
+    val markerTop = if (includeRider) REQUEST_TAG_CLEARANCE_DP else 0f
+    val markerBottom = if (includeRider) REQUEST_RIDER_CLEARANCE_DP else REQUEST_PIN_CLEARANCE_DP
+    val topDesired = statusTopPx.coerceAtLeast(0) + ((REQUEST_TOP_CHROME_DP + markerTop) * scale).toInt()
+    val bottomDesired = sheetOverlapPx.coerceAtLeast(0) + (markerBottom * scale).toInt()
+    val height = mapHeightPx.coerceAtLeast(0)
+    val available = (height - REQUEST_MIN_VIEW_PX).coerceAtLeast(0)
+    val bottomFloor = sheetOverlapPx.coerceIn(0, available)
+    val top = topDesired.coerceAtMost((available - bottomFloor).coerceAtLeast(0))
+    val bottomRoom = (available - top).coerceAtLeast(bottomFloor)
+    val bottom = bottomDesired.coerceAtMost(bottomRoom).coerceAtLeast(bottomFloor)
+    val sideCap = (mapWidthPx.coerceAtLeast(0) - REQUEST_MIN_VIEW_PX).coerceAtLeast(0) / 2
+    val sideInset = side.coerceAtMost(sideCap)
+    return RequestCameraInsets(sideInset, top, sideInset, bottom)
+}
+
 /**
  * Road distance and travel time from the routing service. Missing or invalid
  * values stay hidden rather than being estimated from a straight line.

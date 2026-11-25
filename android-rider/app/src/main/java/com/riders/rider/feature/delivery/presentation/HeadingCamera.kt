@@ -26,28 +26,34 @@ internal suspend fun showFittedCamera(
     camera: CameraPositionState,
     bounds: CameraUpdate,
     bearing: Float?,
-) {
+): Float {
     camera.animate(bounds, 450)
-    if (bearing == null) {
-        return
-    }
     val fitted = camera.position
-    camera.move(
-        CameraUpdateFactory.newCameraPosition(
-            CameraPosition.Builder(fitted)
-                .bearing(normalizeBearing(bearing))
-                .tilt(0f)
-                .build(),
-        ),
-    )
+    if (bearing != null) {
+        camera.move(
+            CameraUpdateFactory.newCameraPosition(
+                CameraPosition.Builder(fitted)
+                    .bearing(normalizeBearing(bearing))
+                    .zoom(fitted.zoom)
+                    .tilt(0f)
+                    .build(),
+            ),
+        )
+    }
+    return fitted.zoom
 }
 
-internal suspend fun animateHeadingUp(camera: CameraPositionState, target: Float) {
+/**
+ * Rotates the map onto [target] without changing zoom. [zoom] is the fitted zoom;
+ * reading it from [CameraPositionState.position] can put back the zoom from before the fit.
+ */
+internal suspend fun animateHeadingUp(camera: CameraPositionState, target: Float, zoom: Float? = null) {
     val start = camera.position.bearing
     val delta = shortestBearingDelta(start, target)
     if (abs(delta) < 2f) {
         return
     }
+    val lockedZoom = zoom ?: camera.position.zoom
     val steps = (abs(delta) / 45f).toInt().coerceIn(1, 4)
     val slice = 560L / steps
     for (step in 1..steps) {
@@ -57,6 +63,7 @@ internal suspend fun animateHeadingUp(camera: CameraPositionState, target: Float
             CameraUpdateFactory.newCameraPosition(
                 CameraPosition.Builder(position)
                     .bearing(bearing)
+                    .zoom(lockedZoom)
                     .tilt(0f)
                     .build(),
             ),

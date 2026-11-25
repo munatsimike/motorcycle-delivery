@@ -21,6 +21,8 @@ import com.riders.rider.feature.offers.domain.requestActionAllowed
 import com.riders.rider.feature.offers.domain.searchAttemptKey
 import com.riders.rider.feature.offers.domain.requestMapAutoOpenBlocked
 import com.riders.rider.feature.offers.domain.requestMapNotice
+import com.riders.rider.feature.bids.data.OPEN_REQUESTS_REUSE_MS
+import com.riders.rider.feature.bids.data.recentOpenRequestsReusable
 import com.riders.rider.feature.offers.domain.cachedNotificationOffer
 import com.riders.rider.feature.offers.domain.openNotificationRequest
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -313,6 +315,16 @@ class RequestOverlayTest {
         )
         assertEquals("delivery-1", result.offer?.deliveryId)
         assertFalse(result.confirmed)
+    }
+
+    @Test
+    fun aRequestListFetchedForALinkIsReusedBriefly() {
+        assertEquals(4_000L, OPEN_REQUESTS_REUSE_MS)
+        assertFalse(recentOpenRequestsReusable(0L, 1_000L))
+        assertTrue(recentOpenRequestsReusable(1_000L, 1_000L))
+        assertTrue(recentOpenRequestsReusable(1_000L, 5_000L))
+        assertFalse(recentOpenRequestsReusable(1_000L, 5_001L))
+        assertFalse(recentOpenRequestsReusable(2_000L, 1_000L))
     }
 }
 

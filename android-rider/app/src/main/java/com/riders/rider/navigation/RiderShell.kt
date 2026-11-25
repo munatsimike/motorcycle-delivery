@@ -114,6 +114,15 @@ fun RiderShell(
         pendingRequests.clearApproval()
     }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(entry) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                home.refresh()
+            }
+        }
+        entry.lifecycle.addObserver(observer)
+        onDispose { entry.lifecycle.removeObserver(observer) }
+    }
     DisposableEffect(lifecycle, entry) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
