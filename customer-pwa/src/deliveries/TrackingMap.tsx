@@ -20,6 +20,7 @@ import {
   trackingCameraShouldMove,
   trackingFrameHolds,
   trackingRouteCamera,
+  PICKUP_ARRIVED_TAG,
   TRACKING_MAP_HEIGHT,
   TRACKING_MARKER_CLEARANCE,
   TRACKING_SHEET_OVERLAP,
@@ -933,14 +934,22 @@ function routeCamera(points: RoutePoint[]) {
 }
 
 function summaryIcon(maps: Maps, text: string) {
+  const arrived = text === PICKUP_ARRIVED_TAG;
   const dark = document.documentElement.dataset.theme === "dark";
+  const fill = arrived ? "#169B62" : dark ? "#101614" : "#ffffff";
+  const ink = arrived ? "#ffffff" : dark ? "#F3F7F5" : "#17211D";
   const width = Math.min(220, Math.max(72, Math.round(text.length * 7.2) + 16));
-  const height = 24;
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect width="${width}" height="${height}" rx="12" fill="${dark ? "#101614" : "#ffffff"}"/><text x="${width / 2}" y="16" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" font-weight="700" fill="${dark ? "#F3F7F5" : "#17211D"}">${escapeXml(text)}</text></svg>`;
+  const pillHeight = 24;
+  const shadow = arrived ? 3 : 0;
+  const height = pillHeight + shadow;
+  const shadowRect = arrived
+    ? `<rect y="${shadow}" width="${width}" height="${pillHeight}" rx="12" fill="#3317211D"/>`
+    : "";
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">${shadowRect}<rect width="${width}" height="${pillHeight}" rx="12" fill="${fill}"/><text x="${width / 2}" y="16" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" font-weight="700" fill="${ink}">${escapeXml(text)}</text></svg>`;
   return {
     url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
     scaledSize: new maps.Size(width, height),
-    anchor: new maps.Point(width / 2, height + 70),
+    anchor: new maps.Point(width / 2, pillHeight + 70),
   };
 }
 
