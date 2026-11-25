@@ -130,7 +130,13 @@ export function ProfilePage() {
       const token = await accessToken();
       if (!token) throw new Error('Profile photo is unavailable.');
       await uploadProfilePhoto(token, file, setProgress);
-      const stored = await loadProfilePhoto(token);
+      let stored: Blob | null = null;
+      try {
+        stored = await loadProfilePhoto(token);
+      } catch (error) {
+        if (isSessionRejection(error)) throw error;
+        console.warn('Profile photo could not be loaded', error);
+      }
       URL.revokeObjectURL(preview);
       const nextUrl = stored ? URL.createObjectURL(stored) : null;
       storeProfilePhoto(account?.id ?? null, nextUrl);
@@ -189,7 +195,7 @@ export function ProfilePage() {
             </div>
             <div className="profile-avatar-slot">
               <button type="button" className={phase === 'removing' ? 'profile-avatar is-removing' : 'profile-avatar'} aria-label="Change profile photo" disabled={phase !== 'idle'} onClick={() => fileInput.current?.click()}>
-                {photoUrl ? <img src={photoUrl} alt="" onError={() => { storeProfilePhoto(account.id, null); setPhotoUrl(null); }} /> : <span style={{ background: colors?.backgroundColor, color: colors?.color }}>{profileAvatarMark(account) ?? <ProfileUserIcon />}</span>}
+                {photoUrl ? <img src={photoUrl} alt="" onError={() => { console.warn('Profile photo could not be loaded'); storeProfilePhoto(account.id, null); setPhotoUrl(null); }} /> : <span style={{ background: colors?.backgroundColor, color: colors?.color }}>{profileAvatarMark(account) ?? <ProfileUserIcon />}</span>}
                 {phase === 'removing' ? <span className="profile-avatar-spinner"><ButtonSpinner /></span> : null}
               </button>
               {phase === 'removing' || (phase === 'idle' && (account.hasProfilePhoto || photoUrl)) ? (
@@ -292,6 +298,7 @@ async function photoObjectUrl(token: string): Promise<string | null> {
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) return null;
     if (isSessionRejection(error)) throw error;
+    console.warn('Profile photo could not be loaded', error);
     return null;
   }
 }

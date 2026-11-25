@@ -35,9 +35,18 @@ export function RiderPhoto({
       objectUrl = URL.createObjectURL(blob);
       return objectUrl;
     }).then((url) => {
-      if (active) setPhotoUrl(url);
-    }).catch(() => {
-      if (active) setPhotoUrl(null);
+      if (!active) return;
+      if (!url) {
+        console.warn('Profile photo could not be loaded');
+        setFailed(true);
+      }
+      setPhotoUrl(url);
+    }).catch((error: unknown) => {
+      console.warn('Profile photo could not be loaded', error);
+      if (active) {
+        setPhotoUrl(null);
+        setFailed(true);
+      }
     });
     return () => {
       active = false;
@@ -47,7 +56,7 @@ export function RiderPhoto({
   const mode = riderPhotoPresentation({ hasProfilePhoto, photoUrl, failed });
   return (
     <span className={tile ? 'track-avatar offer-avatar' : 'track-avatar'} aria-label={mode === 'photo' ? `${name} profile photo` : `${name} initials`}>
-      {mode === 'photo' && photoUrl ? <img src={photoUrl} alt="" onError={() => setFailed(true)} /> : riderInitials(name)}
+      {mode === 'photo' && photoUrl ? <img src={photoUrl} alt="" onError={() => { console.warn('Profile photo could not be loaded'); setFailed(true); }} /> : riderInitials(name)}
     </span>
   );
 }
