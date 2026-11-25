@@ -22,6 +22,8 @@ import com.riders.rider.feature.availability.domain.LocationRelay
 import com.riders.rider.feature.availability.domain.LocationUploadFailure
 import com.riders.rider.feature.availability.domain.SharingAction
 import com.riders.rider.feature.availability.domain.LOCATION_ACQUISITION_GRACE_MS
+import com.riders.rider.core.design.NetworkLink
+import com.riders.rider.core.design.RiderNetwork
 import com.riders.rider.feature.availability.domain.classifyLocationNotice
 import com.riders.rider.feature.availability.domain.commandAfterUploadFailure
 import com.riders.rider.feature.availability.domain.locationSharingDecision
@@ -93,9 +95,34 @@ class AvailabilityRepository @Inject constructor(
 
     suspend fun retryLocationSharing() = recover(userRetry = true)
 
-    fun noteServiceStopped() {
+    fun noteServiceRunning() {
         synchronized(noticeLock) {
-            facts = facts.copy(serviceRunning = false)
+            facts = facts.copy(serviceRunning = true, serviceStartPending = false)
+            if (!policyStop) {
+                facts = facts.copy(
+                    showWarning = locationSharingPaused(
+                        serverReached = facts.serverReached,
+                        shouldShare = facts.sharingRequired,
+                        permissionGranted = facts.permissionGranted,
+                        serviceRunning = true,
+                        uploadFresh = facts.uploadFresh,
+                        previouslyEnabled = facts.previouslyEnabled,
+                    ),
+                )
+            }
+            republish()
+        }
+    }
+
+    fun noteServiceStopped(startTicket: Int, failed: Boolean = false) {
+        synchronized(noticeLock) {
+            if (!LocationServiceGate.applies(startTicket)) {
+                return
+            }
+            if (LocationServiceGate.isRunning() && !failed) {
+                return
+            }
+            facts = facts.copy(serviceRunning = false, serviceStartPending = false)
             if (!policyStop) {
                 facts = facts.copy(
                     showWarning = locationSharingPaused(
@@ -190,18 +217,26 @@ class AvailabilityRepository @Inject constructor(
                 userRetry = userRetry,
             )
             val intent = Intent(context, RiderLocationService::class.java).setAction(RiderLocationService.ACTION_SHARE)
+            var startTicket = 0
+            var startAccepted = false
+            var startFailed = false
             when (action) {
                 SharingAction.Start -> {
                     if (permitted && (!running || userRetry)) {
                         policyStop = false
+                        startTicket = LocationServiceGate.beginStart()
+                        intent.putExtra(RiderLocationService.EXTRA_START_TICKET, startTicket)
                         try {
                             ContextCompat.startForegroundService(context, intent)
+                            startAccepted = true
                         } catch (error: RuntimeException) {
                             val refused = error is SecurityException ||
                                 error.javaClass.name == "android.app.ForegroundServiceStartNotAllowedException"
                             if (!refused) {
                                 throw error
                             }
+                            LocationServiceGate.fail(startTicket)
+                            startFailed = true
                         }
                     }
                 }
@@ -217,12 +252,15 @@ class AvailabilityRepository @Inject constructor(
                     }
                 }
             }
-            val serviceNow = if (action == SharingAction.Stop) false else LocationServiceGate.isRunning()
-            if (serviceNow) {
-                policyStop = false
-            }
             val uploadFresh = freshness.canAccept(System.currentTimeMillis()) && action != SharingAction.Stop
             synchronized(noticeLock) {
+                val failed = startFailed || LocationServiceGate.isFailed(startTicket)
+                val stopped = LocationServiceGate.isStopped(startTicket)
+                val serviceNow = action != SharingAction.Stop && LocationServiceGate.isRunning() && !failed && !stopped
+                val pendingStart = action == SharingAction.Start && startAccepted && !serviceNow && !failed && !stopped
+                if (serviceNow) {
+                    policyStop = false
+                }
                 val providers = currentFix.locationProvidersEnabled()
                 if (providers && !facts.providersEnabled) {
                     sawUnusableFix = false
@@ -244,6 +282,7 @@ class AvailabilityRepository @Inject constructor(
                     permissionGranted = permitted,
                     providersEnabled = providers,
                     serviceRunning = serviceNow,
+                    serviceStartPending = pendingStart,
                     uploadFresh = uploadFresh,
                     sharingRequired = shouldShare,
                     serverReached = serverReached,
@@ -398,6 +437,8 @@ class AvailabilityRepository @Inject constructor(
             sawUnusableFix = sawUnusableFix,
             nowMillis = now,
             acquisitionStartedAtMillis = acquisitionStartedAtMillis,
+            networkDisconnected = RiderNetwork.link.value == NetworkLink.Disconnected,
+            serviceStartPending = facts.serviceStartPending,
         )
     }
 
@@ -415,8 +456,9 @@ class AvailabilityRepository @Inject constructor(
         }
         val awaitingFix = facts.serverReached &&
             facts.sharingRequired &&
-            failure == LocationUploadFailure.None &&
-            !facts.uploadFresh
+            !facts.uploadFresh &&
+            (failure == LocationUploadFailure.None ||
+                (failure == LocationUploadFailure.Network && RiderNetwork.link.value != NetworkLink.Disconnected))
         if (!awaitingFix || acquisitionStartedAtMillis != null) {
             return
         }
@@ -454,6 +496,7 @@ private data class LocationFacts(
     val permissionGranted: Boolean = false,
     val providersEnabled: Boolean = true,
     val serviceRunning: Boolean = false,
+    val serviceStartPending: Boolean = false,
     val uploadFresh: Boolean = false,
     val sharingRequired: Boolean = false,
     val serverReached: Boolean = false,

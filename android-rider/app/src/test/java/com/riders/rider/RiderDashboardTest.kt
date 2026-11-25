@@ -1,5 +1,17 @@
 package com.riders.rider
 
+import com.riders.rider.core.design.NETWORK_NOTICE_HOLD_MS
+import com.riders.rider.core.design.NetworkAvailability
+import com.riders.rider.core.design.NetworkLink
+import com.riders.rider.core.design.NetworkLinkSnapshot
+import com.riders.rider.core.design.classifyNetwork
+import com.riders.rider.core.design.networkIsValidated
+import com.riders.rider.core.design.networkWarningPending
+import com.riders.rider.core.design.onNetworkDown
+import com.riders.rider.core.design.onNetworkUp
+import com.riders.rider.core.design.settleNetworkLink
+import com.riders.rider.core.design.showNetworkUnavailableWarning
+import com.riders.rider.core.design.transportFailureSince
 import com.riders.rider.core.network.ApiError
 import com.riders.rider.core.network.LiveAssignmentsResponse
 import com.riders.rider.core.network.RiderService
@@ -14,7 +26,12 @@ import com.riders.rider.feature.home.confirmAvailability
 import com.riders.rider.feature.home.failAvailability
 import com.riders.rider.feature.home.DashboardFailure
 import com.riders.rider.feature.home.accountLoadFailureTitle
+import com.riders.rider.feature.home.HomeConnectionWarning
+import com.riders.rider.feature.home.HomeNetworkSignals
 import com.riders.rider.feature.home.dashboardFailure
+import com.riders.rider.feature.home.homeConnectionWarning
+import com.riders.rider.feature.home.homeNetworkSignals
+import com.riders.rider.feature.home.networkRecoveryOutstanding
 import com.riders.rider.feature.delivery.domain.CommittedParcel
 import com.riders.rider.feature.home.activeDeliveryCount
 import com.riders.rider.feature.home.dashboardActiveCount
@@ -583,6 +600,140 @@ class RiderDashboardTest {
         } finally {
             server.shutdown()
         }
+    }
+
+    @Test
+    fun networkWarningWaitsUntilConnectivityIsKnownAndALossHasSettled() {
+        val started = NetworkLinkSnapshot(NetworkLink.Initialising, null)
+        val lossStarted = onNetworkDown(started, nowMillis = 1_000L)
+        assertEquals(1_000L, lossStarted.downSinceMillis)
+        assertEquals(lossStarted, onNetworkDown(lossStarted, nowMillis = 1_400L))
+        val stillStarting = settleNetworkLink(lossStarted, nowMillis = 1_000L + NETWORK_NOTICE_HOLD_MS - 1)
+        assertEquals(NetworkLink.Initialising, stillStarting.link)
+        val disconnected = settleNetworkLink(lossStarted, nowMillis = 1_000L + NETWORK_NOTICE_HOLD_MS)
+        assertEquals(NetworkLink.Disconnected, disconnected.link)
+        val restored = onNetworkUp(disconnected)
+        assertEquals(NetworkLink.Connected, restored.link)
+        assertNull(restored.downSinceMillis)
+
+        val transportAt = 5_000L
+        assertEquals(transportAt, transportFailureSince(active = true, nowMillis = transportAt, sinceMillis = null, link = NetworkLink.Connected))
+        assertEquals(
+            transportAt,
+            transportFailureSince(active = true, nowMillis = transportAt + 500L, sinceMillis = transportAt, link = NetworkLink.Connected),
+        )
+        assertEquals(
+            transportAt,
+            transportFailureSince(active = false, nowMillis = transportAt + 3_000L, sinceMillis = transportAt, link = NetworkLink.Disconnected),
+        )
+        assertNull(transportFailureSince(active = false, nowMillis = transportAt + 3_000L, sinceMillis = transportAt, link = NetworkLink.Connected))
+
+        assertEquals(
+            NetworkAvailability.Initialising,
+            classifyNetwork(NetworkLink.Initialising, transportFailure = true, backendFailure = false, transportSinceMillis = 0L, nowMillis = 1_000L),
+        )
+        assertFalse(
+            showNetworkUnavailableWarning(
+                classifyNetwork(NetworkLink.Initialising, transportFailure = true, backendFailure = false, transportSinceMillis = 0L, nowMillis = 1_000L),
+                transportFailure = true,
+            ),
+        )
+        assertEquals(
+            NetworkAvailability.Connected,
+            classifyNetwork(NetworkLink.Connected, transportFailure = true, backendFailure = false, transportSinceMillis = 5_000L, nowMillis = 6_000L),
+        )
+        assertTrue(networkWarningPending(NetworkAvailability.Connected, transportFailure = true))
+        assertEquals(
+            NetworkAvailability.BackendUnavailable,
+            classifyNetwork(NetworkLink.Connected, transportFailure = true, backendFailure = false, transportSinceMillis = 5_000L, nowMillis = 5_000L + NETWORK_NOTICE_HOLD_MS),
+        )
+        assertFalse(
+            showNetworkUnavailableWarning(
+                NetworkAvailability.BackendUnavailable,
+                transportFailure = true,
+            ),
+        )
+        assertEquals(
+            NetworkAvailability.Disconnected,
+            classifyNetwork(NetworkLink.Disconnected, transportFailure = true, backendFailure = false, transportSinceMillis = 9_000L, nowMillis = 9_100L),
+        )
+        assertTrue(showNetworkUnavailableWarning(NetworkAvailability.Disconnected, transportFailure = true))
+        assertFalse(showNetworkUnavailableWarning(NetworkAvailability.Disconnected, transportFailure = false))
+        assertEquals(
+            NetworkAvailability.BackendUnavailable,
+            classifyNetwork(NetworkLink.Connected, transportFailure = false, backendFailure = true, transportSinceMillis = null, nowMillis = 0L),
+        )
+        assertTrue(networkIsValidated(hasInternet = true, validated = true))
+        assertFalse(networkIsValidated(hasInternet = true, validated = false))
+
+        assertEquals(
+            HomeNetworkSignals(connectionFailure = true, backendFailure = false),
+            homeNetworkSignals(null, ApiError.Network, null, assignmentsUnknown = true, assignmentError = null, recoveryOffline = false, recoveryMessage = null),
+        )
+        assertEquals(
+            HomeNetworkSignals(connectionFailure = false, backendFailure = true),
+            homeNetworkSignals(null, null, ApiError.Unexpected("The request could not be completed."), assignmentsUnknown = true, assignmentError = null, recoveryOffline = false, recoveryMessage = null),
+        )
+        assertEquals(
+            HomeNetworkSignals(connectionFailure = false, backendFailure = false),
+            homeNetworkSignals("Saved", ApiError.Network, null, assignmentsUnknown = false, assignmentError = null, recoveryOffline = false, recoveryMessage = null),
+        )
+        assertEquals(
+            HomeNetworkSignals(connectionFailure = false, backendFailure = false),
+            homeNetworkSignals(null, ApiError.Forbidden, null, assignmentsUnknown = false, assignmentError = null, recoveryOffline = false, recoveryMessage = null),
+        )
+        assertTrue(networkRecoveryOutstanding(refreshPending = true, completedAttempts = 0, maxAttempts = 3))
+        assertFalse(networkRecoveryOutstanding(refreshPending = true, completedAttempts = 3, maxAttempts = 3))
+        assertEquals(
+            HomeConnectionWarning.Hidden,
+            homeConnectionWarning(
+                NetworkAvailability.Connected,
+                connectionFailure = true,
+                backendFailure = false,
+                recoveryOutstanding = true,
+                messageLooksLikeConnectionFailure = true,
+            ),
+        )
+        assertEquals(
+            HomeConnectionWarning.Hidden,
+            homeConnectionWarning(
+                NetworkAvailability.Initialising,
+                connectionFailure = false,
+                backendFailure = true,
+                recoveryOutstanding = true,
+                messageLooksLikeConnectionFailure = true,
+            ),
+        )
+        assertEquals(
+            HomeConnectionWarning.Snackbar,
+            homeConnectionWarning(
+                NetworkAvailability.Disconnected,
+                connectionFailure = true,
+                backendFailure = false,
+                recoveryOutstanding = true,
+                messageLooksLikeConnectionFailure = true,
+            ),
+        )
+        assertEquals(
+            HomeConnectionWarning.Message,
+            homeConnectionWarning(
+                NetworkAvailability.Connected,
+                connectionFailure = false,
+                backendFailure = true,
+                recoveryOutstanding = false,
+                messageLooksLikeConnectionFailure = true,
+            ),
+        )
+        assertEquals(
+            HomeConnectionWarning.Hidden,
+            homeConnectionWarning(
+                NetworkAvailability.Connected,
+                connectionFailure = true,
+                backendFailure = false,
+                recoveryOutstanding = false,
+                messageLooksLikeConnectionFailure = true,
+            ),
+        )
     }
 
     private fun sample(approval: String, licence: String, motorcycle: Boolean, availability: String) = RiderOnboarding(

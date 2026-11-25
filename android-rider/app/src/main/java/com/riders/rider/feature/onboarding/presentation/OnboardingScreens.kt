@@ -50,6 +50,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -160,8 +161,10 @@ fun OnboardingScreen(
         ) {
         if (showBackHeader) {
             val leave = focused || ui.step == OnboardingStep.Profile
+            val profileMotorbike = focused && ui.step == OnboardingStep.Motorcycle
             OnboardingBackHeader(
-                label = backStepLabel(ui.step, focused),
+                label = if (profileMotorbike) "" else backStepLabel(ui.step, focused),
+                showDivider = !profileMotorbike,
                 onClick = if (leave) onFinished else model::back,
             )
         }
@@ -249,7 +252,7 @@ fun OnboardingScreen(
 }
 
 @Composable
-private fun OnboardingBackHeader(label: String, onClick: () -> Unit) {
+private fun OnboardingBackHeader(label: String, onClick: () -> Unit, showDivider: Boolean = true) {
     Column(Modifier.fillMaxWidth().background(RidersColors.background)) {
         Row(
             Modifier
@@ -265,13 +268,17 @@ private fun OnboardingBackHeader(label: String, onClick: () -> Unit) {
                 modifier = Modifier.size(48.dp).padding(12.dp),
                 tint = RidersColors.text,
             )
-            Text(
-                label,
-                style = RidersType.heading.copy(fontWeight = FontWeight.SemiBold),
-                color = RidersColors.text,
-            )
+            if (label.isNotBlank()) {
+                Text(
+                    label,
+                    style = RidersType.heading.copy(fontWeight = FontWeight.SemiBold),
+                    color = RidersColors.text,
+                )
+            }
         }
-        Box(Modifier.fillMaxWidth().height(1.dp).background(RidersColors.border))
+        if (showDivider) {
+            Box(Modifier.fillMaxWidth().height(1.dp).background(RidersColors.border))
+        }
     }
 }
 
@@ -654,8 +661,8 @@ private fun MotorcycleStep(
                 enabled = !ui.savingMotorcycle && pending != null,
                 loading = ui.savingMotorcycle,
                 bordered = false,
-                containerColor = RidersColors.dangerSurface,
-                contentColor = RidersColors.destructive,
+                containerColor = Color(0xFFB42318),
+                contentColor = RidersColors.textInverse,
                 regular = true,
                 modifier = Modifier.weight(1f),
             )
@@ -833,12 +840,13 @@ private fun MotorcycleChoice(
             .background(cardFill)
             .border(1.dp, cardBorder, shape)
             .padding(RidersSpacing.lg),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md),
     ) {
         Row(
             Modifier
                 .weight(1f)
+                .align(Alignment.CenterVertically)
                 .clip(RoundedCornerShape(RidersRadius.md))
                 .clickable(enabled = enabled, onClick = onClick),
             verticalAlignment = Alignment.CenterVertically,
@@ -886,42 +894,40 @@ private fun MotorcycleChoice(
                 )
             }
         }
+        }
         Column(
             horizontalAlignment = Alignment.End,
             verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
         ) {
-            SelectionMark(
-                selected = selected,
-                color = if (approved) ActiveGreen else RidersColors.primary,
-                idle = if (approved) InactiveGrey else RidersColors.border,
+            Text(
+                "Active",
+                style = RidersType.captionStrong,
+                color = if (selected) {
+                    if (approved) ActiveGreen else RidersColors.primaryDark
+                } else {
+                    Color.Transparent
+                },
+                modifier = Modifier
+                    .clip(RoundedCornerShape(RidersRadius.pill))
+                    .background(if (selected) RidersColors.background else Color.Transparent)
+                    .padding(horizontal = RidersSpacing.sm, vertical = 2.dp)
+                    .then(if (selected) Modifier else Modifier.clearAndSetSemantics {}),
             )
-            if (selected) {
-                Text(
-                    "Active",
-                    style = RidersType.captionStrong,
-                    color = if (approved) ActiveGreen else RidersColors.primaryDark,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(RidersRadius.pill))
-                        .background(RidersColors.background)
-                        .padding(horizontal = RidersSpacing.sm, vertical = 2.dp),
-                )
-            }
-        }
-        }
-        if (onRemove != null) {
-            Box(
-                Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .clickable(enabled = removeEnabled, role = Role.Button, onClick = onRemove),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_trash_can_outline),
-                    contentDescription = "Remove motorbike",
-                    modifier = Modifier.size(20.dp),
-                    tint = RidersColors.destructive,
-                )
+            if (onRemove != null) {
+                Box(
+                    Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .clickable(enabled = removeEnabled, role = Role.Button, onClick = onRemove),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_trash_can_outline),
+                        contentDescription = "Remove motorbike",
+                        modifier = Modifier.size(20.dp),
+                        tint = RidersColors.destructive,
+                    )
+                }
             }
         }
     }
@@ -933,28 +939,6 @@ private val ActiveGreen = RidersColors.primary
 private val InactiveFill = Color(0xFFF3F4F6)
 private val InactiveBorder = Color(0xFFD8DDE3)
 private val InactiveGrey = Color(0xFF9AA3AB)
-
-@Composable
-private fun SelectionMark(selected: Boolean, color: Color, idle: Color) {
-    val mark = if (selected) color else idle
-    Box(
-        Modifier
-            .size(22.dp)
-            .clip(CircleShape)
-            .background(if (selected) color else Color.Transparent)
-            .border(2.dp, mark, CircleShape),
-        contentAlignment = Alignment.Center,
-    ) {
-        if (selected) {
-            Box(
-                Modifier
-                    .size(8.dp)
-                    .clip(CircleShape)
-                    .background(RidersColors.background),
-            )
-        }
-    }
-}
 
 private fun motorcycleFieldError(message: String?, expected: String): String? {
     return message?.takeIf { it == expected }

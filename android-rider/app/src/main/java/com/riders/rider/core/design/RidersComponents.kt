@@ -546,10 +546,16 @@ fun RidersFailureNotice(
     title: String? = null,
     onRetry: (() -> Unit)? = null,
 ) {
-    if (isConnectionFailure(message)) {
-        RidersNetworkNotice(onRetry = onRetry, modifier = modifier)
-    } else {
-        RidersErrorState(message = message, title = title, modifier = modifier)
+    val availability = rememberNetworkStatus(transportFailure = isConnectionFailure(message), backendFailure = false)
+    when {
+        showNetworkUnavailableWarning(availability, isConnectionFailure(message)) -> {
+            RidersNetworkNotice(onRetry = onRetry, modifier = modifier)
+        }
+        isConnectionFailure(message) && availability == NetworkAvailability.BackendUnavailable -> {
+            RidersErrorState(message = message, title = title, modifier = modifier, onRetry = onRetry)
+        }
+        isConnectionFailure(message) -> Unit
+        else -> RidersErrorState(message = message, title = title, modifier = modifier, onRetry = onRetry)
     }
 }
 

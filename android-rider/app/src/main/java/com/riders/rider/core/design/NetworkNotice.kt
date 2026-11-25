@@ -15,11 +15,14 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -48,6 +51,11 @@ private val LocalNetworkNotice = staticCompositionLocalOf<NetworkNoticeState?> {
 
 @Composable
 internal fun NetworkNoticeHost(content: @Composable () -> Unit) {
+    val context = LocalContext.current
+    DisposableEffect(context) {
+        RiderNetwork.ensureInstalled(context)
+        onDispose { }
+    }
     val state = remember { NetworkNoticeState() }
     CompositionLocalProvider(LocalNetworkNotice provides state) {
         Box(Modifier.fillMaxSize()) {
@@ -68,6 +76,25 @@ internal fun NetworkNoticeHost(content: @Composable () -> Unit) {
             }
         }
     }
+}
+
+@Composable
+fun rememberNetworkStatus(transportFailure: Boolean, backendFailure: Boolean): NetworkAvailability {
+    val link by RiderNetwork.link.collectAsStateWithLifecycle()
+    val since by RiderNetwork.transportSince.collectAsStateWithLifecycle()
+    val now by RiderNetwork.revision.collectAsStateWithLifecycle()
+    val reporter = remember { Any() }
+    SideEffect { RiderNetwork.setReporter(reporter, transportFailure) }
+    DisposableEffect(reporter) {
+        onDispose { RiderNetwork.setReporter(reporter, false) }
+    }
+    return classifyNetwork(
+        link = link,
+        transportFailure = transportFailure,
+        backendFailure = backendFailure,
+        transportSinceMillis = since,
+        nowMillis = if (now > 0L) now else since ?: 0L,
+    )
 }
 
 @Composable

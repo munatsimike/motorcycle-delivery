@@ -46,7 +46,9 @@ import {
   trackingFrameHolds,
   trackingRouteCamera,
   TRACKING_SHEET_OVERLAP,
-  TRACKING_TOP_CLEARANCE,
+  TRACKING_PIN_CLEARANCE,
+  TRACKING_SIDE_PADDING,
+  TRACKING_TOP_CHROME,
   trackingMapView,
   offerMapMarkers,
   riderMarkerForMap,
@@ -179,17 +181,28 @@ test('actions and camera follow the native tracking rules', () => {
   const width = 390;
   const height = 640;
   const framed = trackingRouteCamera(route, width, height, TRACKING_SHEET_OVERLAP);
+  const withRider = trackingRouteCamera(route, width, height, TRACKING_SHEET_OVERLAP, { includeRider: true, includeTag: true });
   const zoom = Math.min(zoomForSpan(framed.latitudeDelta, height), zoomForSpan(framed.longitudeDelta, width));
+  const riderZoom = Math.min(zoomForSpan(withRider.latitudeDelta, height), zoomForSpan(withRider.longitudeDelta, width));
   const tight = Math.min(zoomForSpan(0.06, height), zoomForSpan(0.07, width));
-  assert.ok(zoom < tight - 0.2);
+  assert.ok(zoom > tight - 0.35);
+  assert.ok(riderZoom > tight - 0.55);
   const degrees = 360 / (256 * 2 ** zoom);
   for (const point of route) {
     const x = width / 2 + (point.longitude - framed.longitude) / degrees;
     const y = height / 2 - (point.latitude - framed.latitude) / degrees;
-    assert.ok(x >= 32 + 45 && x <= width - 32 - 45);
-    assert.ok(y >= TRACKING_TOP_CLEARANCE && y <= height - TRACKING_SHEET_OVERLAP - 16);
+    assert.ok(x >= TRACKING_SIDE_PADDING - 2 && x <= width - TRACKING_SIDE_PADDING + 2);
+    assert.ok(y >= TRACKING_TOP_CHROME + 24 - 2 && y <= height - TRACKING_SHEET_OVERLAP - TRACKING_PIN_CLEARANCE + 2);
   }
   assert.equal(trackingFrameHolds(route, framed, width, height, TRACKING_SHEET_OVERLAP), true);
+  assert.equal(trackingFrameHolds(route, withRider, width, height, TRACKING_SHEET_OVERLAP, { includeRider: true, includeTag: true }), true);
+  const short = trackingRouteCamera(
+    [{ latitude: -17.82, longitude: 31.05 }, { latitude: -17.8204, longitude: 31.0504 }],
+    width,
+    height,
+    TRACKING_SHEET_OVERLAP,
+  );
+  assert.ok(short.latitudeDelta < 0.002);
   const drifted = route.map((point) => ({ latitude: point.latitude + 0.0002, longitude: point.longitude }));
   assert.equal(trackingFrameHolds(drifted, framed, width, height, TRACKING_SHEET_OVERLAP), true);
   assert.equal(trackingFrameHolds([{ latitude: -17.7, longitude: 31.2 }], framed, width, height, TRACKING_SHEET_OVERLAP), false);

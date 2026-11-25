@@ -7,6 +7,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.ContentTransform
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -69,7 +71,9 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.riders.rider.R
+import com.riders.rider.core.design.RiderTransition
 import com.riders.rider.core.design.RidersButtonTone
+import com.riders.rider.core.design.rememberRidersMotion
 import com.riders.rider.core.design.RidersErrorState
 import com.riders.rider.core.design.AppearanceMode
 import com.riders.rider.core.design.AppearanceViewModel
@@ -103,6 +107,10 @@ import com.riders.rider.feature.profile.domain.ProfilePhotoPhase
 import com.riders.rider.feature.profile.domain.ProfilePhotoState
 import com.riders.rider.feature.profile.domain.canStartProfilePhotoAction
 import com.riders.rider.feature.profile.domain.displayedProfilePhoto
+import com.riders.rider.navigation.deliveryBackEnter
+import com.riders.rider.navigation.deliveryBackExit
+import com.riders.rider.navigation.deliveryForwardEnter
+import com.riders.rider.navigation.deliveryForwardExit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -171,7 +179,21 @@ fun ProfileScreen(
     val board = ui.board
     val hasProfile = board.fullName.isNotBlank() || board.onboarding != null
     val displayedPhoto = displayedProfilePhoto(ui.photo, ui.photoBitmap, ui.photoPreview)
-    if (editingAddress) {
+    val addressMotion = rememberRidersMotion().millis(RiderTransition.DeliveryForward)
+    AnimatedContent(
+        targetState = editingAddress,
+        modifier = Modifier.fillMaxSize(),
+        transitionSpec = {
+            val opening = targetState
+            ContentTransform(
+                targetContentEnter = if (opening) deliveryForwardEnter(addressMotion) else deliveryBackEnter(addressMotion),
+                initialContentExit = if (opening) deliveryForwardExit(addressMotion) else deliveryBackExit(addressMotion),
+                sizeTransform = null,
+            )
+        },
+        label = "profile-address",
+    ) { editing ->
+    if (editing) {
         AddressEditor(
             initial = board.address,
             saving = ui.savingAddress,
@@ -321,6 +343,7 @@ fun ProfileScreen(
                 }
             }
         }
+    }
     }
     if (confirmLogout) {
         RidersDialog(visible = true, onDismiss = { confirmLogout = false }) {
@@ -538,6 +561,8 @@ private fun AddressEditor(
     Column(
         Modifier
             .fillMaxSize()
+            .background(RidersColors.canvas)
+            .statusBarsPadding()
             .imePadding()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = RidersSpacing.lg, vertical = RidersSpacing.xl),

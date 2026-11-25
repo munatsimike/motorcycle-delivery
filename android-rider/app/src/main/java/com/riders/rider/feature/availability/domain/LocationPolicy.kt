@@ -222,6 +222,8 @@ fun classifyLocationNotice(
     sawUnusableFix: Boolean,
     nowMillis: Long = 0L,
     acquisitionStartedAtMillis: Long? = null,
+    networkDisconnected: Boolean = true,
+    serviceStartPending: Boolean = false,
 ): LocationNotice? {
     if (!showWarning || failure == LocationUploadFailure.Rejected) {
         return null
@@ -232,7 +234,7 @@ fun classifyLocationNotice(
     if (!providersEnabled) {
         return LocationNotice.LocationDisabled
     }
-    if (failure == LocationUploadFailure.Network) {
+    if (failure == LocationUploadFailure.Network && networkDisconnected) {
         return LocationNotice.NoInternet
     }
     if (failure == LocationUploadFailure.Recoverable) {
@@ -241,7 +243,7 @@ fun classifyLocationNotice(
     if (!serverReached) {
         return LocationNotice.FixUnavailable
     }
-    if (sharingRequired && !serviceRunning) {
+    if (sharingRequired && !serviceRunning && !serviceStartPending) {
         return LocationNotice.ServiceStopped
     }
     val acquiring = !uploadFresh && locationAcquisitionOpen(nowMillis, acquisitionStartedAtMillis)

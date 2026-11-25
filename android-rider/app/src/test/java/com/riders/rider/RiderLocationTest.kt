@@ -25,6 +25,7 @@ import com.riders.rider.feature.availability.domain.locationSharingPaused
 import com.riders.rider.feature.availability.domain.locationUploadFailure
 import com.riders.rider.feature.availability.domain.noticeAfterConnectivityRestored
 import com.riders.rider.feature.availability.domain.resumeLocationSharing
+import com.riders.rider.feature.availability.LocationServiceGate
 import com.riders.rider.feature.availability.domain.sharingRecovery
 import com.riders.rider.feature.availability.domain.shouldRequestAcceptFix
 import com.riders.rider.feature.availability.domain.shouldShareLocation
@@ -546,8 +547,61 @@ class RiderLocationTest {
         assertEquals(LocationNotice.WaitingForFix, classify(nowMillis = 1_000L, acquisitionStartedAtMillis = 1_000L))
         assertEquals(LocationNotice.FixUnavailable, classify(nowMillis = 16_000L, acquisitionStartedAtMillis = 1_000L))
         assertEquals(LocationNotice.NoInternet, classify(failure = LocationUploadFailure.Network))
+        assertEquals(
+            LocationNotice.WaitingForFix,
+            classify(
+                failure = LocationUploadFailure.Network,
+                networkDisconnected = false,
+                nowMillis = 1_000L,
+                acquisitionStartedAtMillis = 1_000L,
+            ),
+        )
+        assertEquals(
+            LocationNotice.NoInternet,
+            classify(
+                failure = LocationUploadFailure.Network,
+                networkDisconnected = true,
+                nowMillis = 1_000L,
+                acquisitionStartedAtMillis = 1_000L,
+            ),
+        )
         assertEquals(LocationNotice.UploadPending, classify(failure = LocationUploadFailure.Recoverable))
         assertEquals(LocationNotice.ServiceStopped, classify(serviceRunning = false))
+        val first = LocationServiceGate.beginStart()
+        val replacement = LocationServiceGate.beginStart()
+        assertFalse(LocationServiceGate.applies(first))
+        assertTrue(LocationServiceGate.applies(replacement))
+        assertFalse(LocationServiceGate.isRunning())
+        LocationServiceGate.confirmRunning(first)
+        assertFalse(LocationServiceGate.isRunning())
+        LocationServiceGate.confirmRunning(replacement)
+        assertTrue(LocationServiceGate.isRunning())
+        LocationServiceGate.fail(first)
+        assertTrue(LocationServiceGate.isRunning())
+        LocationServiceGate.fail(replacement)
+        assertFalse(LocationServiceGate.isRunning())
+        assertTrue(LocationServiceGate.isFailed(replacement))
+        assertFalse(LocationServiceGate.applies(first))
+        val restarted = LocationServiceGate.beginStart()
+        LocationServiceGate.confirmRunning(restarted)
+        LocationServiceGate.markStopped(first)
+        assertTrue(LocationServiceGate.isRunning())
+        LocationServiceGate.markStopped(restarted)
+        assertTrue(LocationServiceGate.isStopped(restarted))
+        assertFalse(LocationServiceGate.isRunning())
+        assertEquals(
+            LocationNotice.WaitingForFix,
+            classify(
+                serviceRunning = false,
+                serviceStartPending = true,
+                nowMillis = 1_000L,
+                acquisitionStartedAtMillis = 1_000L,
+            ),
+        )
+        assertEquals(
+            LocationNotice.ServiceStopped,
+            classify(serviceRunning = false, serviceStartPending = false),
+        )
         assertNull(classify(showWarning = false, serviceRunning = false))
         assertNull(classify(failure = LocationUploadFailure.Rejected, serviceRunning = false))
         assertEquals(LocationNotice.FixUnavailable, classify(serverReached = false, sharingRequired = false))
@@ -640,6 +694,8 @@ class RiderLocationTest {
         sawUnusableFix: Boolean = false,
         nowMillis: Long = 0L,
         acquisitionStartedAtMillis: Long? = null,
+        networkDisconnected: Boolean = true,
+        serviceStartPending: Boolean = false,
     ): LocationNotice? {
         return classifyLocationNotice(
             showWarning = showWarning,
@@ -653,6 +709,8 @@ class RiderLocationTest {
             sawUnusableFix = sawUnusableFix,
             nowMillis = nowMillis,
             acquisitionStartedAtMillis = acquisitionStartedAtMillis,
+            networkDisconnected = networkDisconnected,
+            serviceStartPending = serviceStartPending,
         )
     }
 }

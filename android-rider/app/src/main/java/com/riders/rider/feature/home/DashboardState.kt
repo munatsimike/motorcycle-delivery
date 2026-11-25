@@ -1,6 +1,7 @@
 
 package com.riders.rider.feature.home
 
+import com.riders.rider.core.design.NetworkAvailability
 import com.riders.rider.core.network.ApiError
 import com.riders.rider.core.network.text
 import com.riders.rider.feature.delivery.domain.CommittedParcel
@@ -99,6 +100,82 @@ fun dashboardFailure(error: ApiError): DashboardFailure = when {
     error is ApiError.Unexpected && error.message == MARKETPLACE_DISABLED -> DashboardFailure.MarketplaceDisabled
     error is ApiError.Network || error is ApiError.Timeout -> DashboardFailure.Network
     else -> DashboardFailure.Other
+}
+
+fun dashboardFailureIsRecoverable(error: ApiError): Boolean = when (error) {
+    ApiError.Network,
+    ApiError.Timeout,
+    ApiError.Unavailable,
+    -> true
+    is ApiError.Unexpected -> true
+    else -> false
+}
+
+data class HomeNetworkSignals(
+    val connectionFailure: Boolean,
+    val backendFailure: Boolean,
+)
+
+fun homeNetworkSignals(
+    notice: String?,
+    onboard: ApiError?,
+    assignments: ApiError?,
+    assignmentsUnknown: Boolean,
+    assignmentError: ApiError?,
+    recoveryOffline: Boolean,
+    recoveryMessage: String?,
+): HomeNetworkSignals {
+    val surfaced = when {
+        !notice.isNullOrBlank() -> null
+        onboard != null && dashboardFailure(onboard) == DashboardFailure.Authentication -> null
+        assignments != null && dashboardFailure(assignments) == DashboardFailure.Authentication -> null
+        onboard != null && dashboardFailure(onboard) == DashboardFailure.MarketplaceDisabled -> null
+        assignmentError != null && dashboardFailure(assignmentError) == DashboardFailure.MarketplaceDisabled -> null
+        onboard != null && !dashboardFailureIsRecoverable(onboard) -> null
+        assignmentsUnknown -> assignments ?: ApiError.Network
+        recoveryOffline && recoveryMessage == null -> assignments ?: onboard ?: ApiError.Network
+        recoveryMessage == null && onboard != null -> onboard
+        recoveryMessage == null && assignmentError != null -> assignmentError
+        else -> null
+    }
+    return when (surfaced?.let(::dashboardFailure)) {
+        DashboardFailure.Network -> HomeNetworkSignals(connectionFailure = true, backendFailure = false)
+        DashboardFailure.Other -> if (surfaced is ApiError.Unavailable || surfaced is ApiError.Unexpected) {
+            HomeNetworkSignals(connectionFailure = false, backendFailure = true)
+        } else {
+            HomeNetworkSignals(connectionFailure = false, backendFailure = false)
+        }
+        else -> HomeNetworkSignals(connectionFailure = false, backendFailure = false)
+    }
+}
+
+enum class HomeConnectionWarning {
+    Hidden,
+    Snackbar,
+    Message,
+}
+
+fun homeConnectionWarning(
+    availability: NetworkAvailability,
+    connectionFailure: Boolean,
+    backendFailure: Boolean,
+    recoveryOutstanding: Boolean,
+    messageLooksLikeConnectionFailure: Boolean,
+): HomeConnectionWarning {
+    if (connectionFailure && availability == NetworkAvailability.Disconnected) {
+        return HomeConnectionWarning.Snackbar
+    }
+    if (recoveryOutstanding) {
+        return HomeConnectionWarning.Hidden
+    }
+    if (messageLooksLikeConnectionFailure && (backendFailure || availability == NetworkAvailability.BackendUnavailable)) {
+        return HomeConnectionWarning.Message
+    }
+    return HomeConnectionWarning.Hidden
+}
+
+fun networkRecoveryOutstanding(refreshPending: Boolean, completedAttempts: Int, maxAttempts: Int): Boolean {
+    return refreshPending && completedAttempts < maxAttempts
 }
 
 fun homeWalletAmount(availableCapacity: String?): String? {

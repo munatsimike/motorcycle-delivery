@@ -85,7 +85,8 @@ export function loadGoogleMaps(key: string): Promise<void> {
   return loader;
 }
 
-const HOME_MOTORCYCLE_WIDTH = 90;
+/** 72% of the previous 90px marker, matching the rider app. Rounded to 65px when drawn. */
+const HOME_MOTORCYCLE_WIDTH = 64.8;
 
 export function createHomeMap(element: HTMLElement, onAuthFailure: () => void): HomeMap {
   const maps = (window as GoogleWindow).google?.maps;

@@ -31,7 +31,8 @@ import {
 } from "./tracking";
 import { bindMapTheme } from "../theme/mapStyle";
 
-const TRACKING_MOTORCYCLE_WIDTH = 90;
+/** 72% of the previous 90px marker, matching the rider app. Rounded to 65px when drawn. */
+const TRACKING_MOTORCYCLE_WIDTH = 64.8;
 
 type Listener = { remove: () => void };
 type Marker = {
@@ -193,6 +194,8 @@ export function TrackingMap({
   const stopKey = stop
     ? `${stop.latitude.toFixed(5)}:${stop.longitude.toFixed(5)}`
     : "";
+  const riderShown = rider !== null;
+  const tagShown = Boolean(live && rider && summary);
   const stopKeyRef = useRef(stopKey);
   const frameRef = useRef(frame);
   const drawRef = useRef(draw);
@@ -315,7 +318,7 @@ export function TrackingMap({
         !destinationChanged &&
         sameSize &&
         size &&
-        trackingFrameHolds(activeRoutePoints(), held.frame, size.width, size.height, bottom)
+        trackingFrameHolds(activeRoutePoints(), held.frame, size.width, size.height, bottom, cameraOptions())
       ) {
         drawRef.current();
         return;
@@ -360,7 +363,7 @@ export function TrackingMap({
     }
     applyCamera(frameRef.current());
     drawRef.current();
-  }, [deliveryId, live, stopKey, markerKey, neighborhood, routeKey]);
+  }, [deliveryId, live, stopKey, markerKey, neighborhood, routeKey, riderShown, tagShown]);
 
   useEffect(() => {
     if (props.current.live && rider) followHeading(rider);
@@ -444,6 +447,14 @@ export function TrackingMap({
     return Math.max(TRACKING_SHEET_OVERLAP, Math.round(overlap));
   }
 
+  function cameraOptions() {
+    const current = props.current;
+    return {
+      includeRider: current.rider !== null,
+      includeTag: Boolean(current.live && current.rider && current.summary),
+    };
+  }
+
   function followsActiveRoute(): boolean {
     const current = props.current;
     if (current.neighborhood || current.deliveredCallout) return false;
@@ -503,6 +514,7 @@ export function TrackingMap({
         size.width,
         size.height,
         sheetOverlap(),
+        cameraOptions(),
       );
     }
     if (current.rider && current.stop) return trackingCameraRegion(current.rider, current.stop);

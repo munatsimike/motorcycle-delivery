@@ -9,13 +9,19 @@ export const TRACKING_SHEET_OVERLAP = 72;
 export const TRACKING_MARKER_CLEARANCE = 36;
 /** Horizontal inset so the route is not flush with the map edge. */
 export const TRACKING_SIDE_PADDING = 32;
+/** Back button and its offset, kept clear of the route. */
+export const TRACKING_TOP_CHROME = 56;
 /**
- * Room above the rider point for the 90px motorcycle and the distance/ETA tag.
- * The tag is drawn 94px above that point (24px pill, 70px gap).
+ * Top of the distance/ETA pill above the rider point.
+ * The pill is anchored 94px above that point.
  */
-export const TRACKING_TOP_CLEARANCE = 112;
-/** Pull the fitted zoom out so markers at the corners stay on screen. */
-export const TRACKING_ZOOM_EASE = 0.7;
+export const TRACKING_TAG_CLEARANCE = 94;
+/** Lower half of the 90px motorcycle, below its centre anchor. */
+export const TRACKING_RIDER_CLEARANCE = 45;
+/** Tip of a destination pin below its anchor. */
+export const TRACKING_PIN_CLEARANCE = 12;
+/** Shortest ground a fitted route may cover, so a point does not collapse the frame. */
+export const TRACKING_MIN_SPAN_METRES = 40;
 
 export type RiderPoint = {
   latitude: number;
@@ -700,30 +706,35 @@ export function offersFrameHolds(points: readonly RoutePoint[], frame: OffersMap
   });
 }
 
-function trackingPadding(width: number, height: number, bottomInset: number) {
-  let top = TRACKING_TOP_CLEARANCE;
-  let bottom = Math.max(0, bottomInset) + 16;
-  const spare = height - 80;
-  if (top + bottom > spare) {
-    const room = Math.max(0, spare);
-    const scale = top + bottom > 0 ? room / (top + bottom) : 1;
-    top = Math.round(top * scale);
-    bottom = Math.round(bottom * scale);
-  }
-  const side = Math.min(TRACKING_SIDE_PADDING, Math.max(8, Math.floor((width - 80) / 2)));
+const TRACKING_MIN_VIEW = 96;
+const METRES_PER_LATITUDE = 111_320;
+
+export type TrackingCameraOptions = {
+  includeRider?: boolean;
+  includeTag?: boolean;
+};
+
+function trackingPadding(width: number, height: number, bottomInset: number, options: TrackingCameraOptions = {}) {
+  const includeRider = options.includeRider === true;
+  const markerTop = options.includeTag === true
+    ? TRACKING_TAG_CLEARANCE
+    : includeRider
+      ? TRACKING_RIDER_CLEARANCE
+      : 24;
+  const markerBottom = includeRider ? TRACKING_RIDER_CLEARANCE : TRACKING_PIN_CLEARANCE;
+  const topDesired = TRACKING_TOP_CHROME + markerTop;
+  const bottomDesired = Math.max(0, bottomInset) + markerBottom;
+  const available = Math.max(0, height - TRACKING_MIN_VIEW);
+  const bottomFloor = Math.min(Math.max(0, bottomInset), available);
+  const top = Math.min(topDesired, Math.max(0, available - bottomFloor));
+  const bottomRoom = Math.max(bottomFloor, available - top);
+  const bottom = Math.max(bottomFloor, Math.min(bottomDesired, bottomRoom));
+  const sideCap = Math.floor(Math.max(0, width - TRACKING_MIN_VIEW) / 2);
+  const side = Math.min(TRACKING_SIDE_PADDING, sideCap);
   return { top, bottom, left: side, right: side };
 }
 
-/** Fits the active route, motorcycle, and destination into the map area above the card. */
-export function trackingRouteCamera(
-  points: readonly RoutePoint[],
-  width: number,
-  height: number,
-  bottomInset: number,
-): OffersMapFrame {
-  const safeWidth = width > 0 ? width : 360;
-  const safeHeight = height > 0 ? height : TRACKING_MAP_HEIGHT;
-  const padding = trackingPadding(safeWidth, safeHeight, bottomInset);
+function routeBounds(points: readonly RoutePoint[]) {
   let minLatitude = points[0]?.latitude ?? -17.8292;
   let maxLatitude = minLatitude;
   let minLongitude = points[0]?.longitude ?? 31.0522;
@@ -734,20 +745,45 @@ export function trackingRouteCamera(
     minLongitude = Math.min(minLongitude, point.longitude);
     maxLongitude = Math.max(maxLongitude, point.longitude);
   }
-  const spanLatitude = Math.max(maxLatitude - minLatitude, TRACKING_ZOOM_DELTA);
-  const spanLongitude = Math.max(maxLongitude - minLongitude, TRACKING_ZOOM_DELTA);
+  const midLatitude = (minLatitude + maxLatitude) / 2;
+  const midLongitude = (minLongitude + maxLongitude) / 2;
+  const latitudeSpan = (maxLatitude - minLatitude) * METRES_PER_LATITUDE;
+  const longitudeScale = Math.max(0.2, METRES_PER_LATITUDE * Math.cos((midLatitude * Math.PI) / 180));
+  const longitudeSpan = (maxLongitude - minLongitude) * longitudeScale;
+  const halfLatitude = Math.max(latitudeSpan, TRACKING_MIN_SPAN_METRES) / 2 / METRES_PER_LATITUDE;
+  const halfLongitude = Math.max(longitudeSpan, TRACKING_MIN_SPAN_METRES) / 2 / longitudeScale;
+  return {
+    minLatitude: midLatitude - halfLatitude,
+    maxLatitude: midLatitude + halfLatitude,
+    minLongitude: midLongitude - halfLongitude,
+    maxLongitude: midLongitude + halfLongitude,
+  };
+}
+
+/** Fits the active route, motorcycle, and destination into the map area above the card. */
+export function trackingRouteCamera(
+  points: readonly RoutePoint[],
+  width: number,
+  height: number,
+  bottomInset: number,
+  options: TrackingCameraOptions = {},
+): OffersMapFrame {
+  const safeWidth = width > 0 ? width : 360;
+  const safeHeight = height > 0 ? height : TRACKING_MAP_HEIGHT;
+  const padding = trackingPadding(safeWidth, safeHeight, bottomInset, options);
+  const bounds = routeBounds(points);
+  const spanLatitude = bounds.maxLatitude - bounds.minLatitude;
+  const spanLongitude = bounds.maxLongitude - bounds.minLongitude;
   const paddedWidth = Math.max(1, safeWidth - padding.left - padding.right);
   const paddedHeight = Math.max(1, safeHeight - padding.top - padding.bottom);
-  const fitZoom = Math.min(zoomForSpan(spanLatitude, paddedHeight), zoomForSpan(spanLongitude, paddedWidth));
-  const zoom = fitZoom - TRACKING_ZOOM_EASE;
+  const zoom = Math.min(zoomForSpan(spanLatitude, paddedHeight), zoomForSpan(spanLongitude, paddedWidth));
   const degreesPerPixel = 360 / (256 * 2 ** zoom);
   const offsetY = (padding.bottom - padding.top) / 2;
-  const ease = 2 ** TRACKING_ZOOM_EASE;
   return {
-    latitude: (minLatitude + maxLatitude) / 2 - offsetY * degreesPerPixel,
-    longitude: (minLongitude + maxLongitude) / 2,
-    latitudeDelta: spanLatitude * (safeHeight / paddedHeight) * ease,
-    longitudeDelta: spanLongitude * (safeWidth / paddedWidth) * ease,
+    latitude: (bounds.minLatitude + bounds.maxLatitude) / 2 - offsetY * degreesPerPixel,
+    longitude: (bounds.minLongitude + bounds.maxLongitude) / 2,
+    latitudeDelta: spanLatitude * (safeHeight / paddedHeight),
+    longitudeDelta: spanLongitude * (safeWidth / paddedWidth),
   };
 }
 
@@ -757,9 +793,10 @@ export function trackingFrameHolds(
   width: number,
   height: number,
   bottomInset: number,
+  options: TrackingCameraOptions = {},
 ): boolean {
   if (points.length === 0 || width <= 0 || height <= 0) return false;
-  const padding = trackingPadding(width, height, bottomInset);
+  const padding = trackingPadding(width, height, bottomInset, options);
   const zoom = Math.min(zoomForSpan(frame.latitudeDelta, height), zoomForSpan(frame.longitudeDelta, width));
   const degreesPerPixel = 360 / (256 * 2 ** zoom);
   return points.every((point) => {

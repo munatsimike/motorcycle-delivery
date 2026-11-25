@@ -1,10 +1,9 @@
 package com.riders.rider.feature.home
 
 import android.content.Context
-import android.net.ConnectivityManager
-import android.net.Network
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.riders.rider.core.design.RiderNetwork
 import com.riders.rider.core.network.ApiError
 import com.riders.rider.core.refresh.clearListedRefresh
 import com.riders.rider.core.refresh.homePageLoading
@@ -18,6 +17,7 @@ import com.riders.rider.feature.availability.domain.LOCATION_PERMISSION_REQUIRED
 import com.riders.rider.feature.availability.domain.LocationNotice
 import com.riders.rider.feature.delivery.data.ActiveDeliveryStore
 import com.riders.rider.feature.delivery.data.AssignmentRepository
+import com.riders.rider.feature.delivery.domain.ASSIGNMENT_RECOVERY_ATTEMPTS
 import com.riders.rider.feature.delivery.domain.ASSIGNMENT_RECOVERY_DELAY_MS
 import com.riders.rider.feature.delivery.domain.ASSIGNMENT_RECOVERY_MESSAGE
 import com.riders.rider.feature.delivery.domain.AssignmentCertainty
@@ -70,6 +70,9 @@ data class HomeUi(
     val active: ActiveDelivery? = null,
     val shift: HomeShift = homeShift(null, false, null),
     val error: String? = null,
+    val connectionFailure: Boolean = false,
+    val backendFailure: Boolean = false,
+    val networkRecoveryOutstanding: Boolean = false,
     val fullName: String = "",
     val walletBalance: String? = null,
     val walletCurrency: String? = null,
@@ -135,10 +138,10 @@ class HomeViewModel @Inject constructor(
     private var offerWatch: Job? = null
     private var hasLoaded = false
     private var homeVisits = 0
-    private val connectivity = context.getSystemService(ConnectivityManager::class.java)
-    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
-        override fun onAvailable(network: Network) {
-            viewModelScope.launch {
+
+    init {
+        viewModelScope.launch {
+            RiderNetwork.connectivityRestored.collect {
                 availability.noteConnectivityRestored()
                 if (retryWhenConnectivityReturns(state.value.assignmentRefreshPending, networkAvailable = true)) {
                     recoveryAttempts = 0
@@ -146,15 +149,11 @@ class HomeViewModel @Inject constructor(
                 }
             }
         }
-    }
-
-    init {
-        connectivity?.registerDefaultNetworkCallback(networkCallback)
+        RiderNetwork.ensureInstalled(context)
     }
 
     override fun onCleared() {
         offerWatch?.cancel()
-        connectivity?.unregisterNetworkCallback(networkCallback)
         super.onCleared()
     }
 
@@ -428,6 +427,15 @@ class HomeViewModel @Inject constructor(
             recoveryFailed = offline,
             marketplace = marketplace,
         )
+        val signals = homeNetworkSignals(
+            notice = notice,
+            onboard = onboardFailure,
+            assignments = (listed as? ApiResult.Err)?.error,
+            assignmentsUnknown = assignmentsUnknown,
+            assignmentError = assignmentError,
+            recoveryOffline = recovery.offline,
+            recoveryMessage = shift.recoveryMessage,
+        )
         state.value = HomeUi(
             loading = false,
             refreshing = false,
@@ -449,6 +457,13 @@ class HomeViewModel @Inject constructor(
                 assignmentError != null && shift.recoveryMessage == null -> assignmentError.text()
                 else -> null
             },
+            connectionFailure = signals.connectionFailure,
+            backendFailure = signals.backendFailure,
+            networkRecoveryOutstanding = networkRecoveryOutstanding(
+                refreshPending = listed is ApiResult.Err && failureUncertain,
+                completedAttempts = recoveryAttempts,
+                maxAttempts = ASSIGNMENT_RECOVERY_ATTEMPTS,
+            ),
             fullName = profileName ?: previous.fullName,
             walletBalance = if (wallet == null) state.value.walletBalance else dashboardWallet(wallet.activeWallet, wallet.balance, wallet.zig?.balance).balance,
             walletCurrency = if (wallet == null) state.value.walletCurrency else dashboardWallet(wallet.activeWallet, wallet.balance, wallet.zig?.balance).currency,
@@ -592,11 +607,4 @@ private fun workloadFor(
     return WorkloadCounts(flexible, previous.expressCount ?: 0)
 }
 
-private fun ApiError.isRecoverable(): Boolean = when (this) {
-    ApiError.Network,
-    ApiError.Timeout,
-    ApiError.Unavailable,
-    -> true
-    is ApiError.Unexpected -> true
-    else -> false
-}
+private fun ApiError.isRecoverable(): Boolean = dashboardFailureIsRecoverable(this)

@@ -456,10 +456,13 @@ internal fun approachTagIcon(context: android.content.Context, label: String): R
     return RiderMarkerIcon(BitmapDescriptorFactory.fromBitmap(bitmap), Offset(0.5f, 1f))
 }
 
+/** Original marker was 90dp. Current size is 72dp reduced by a further 10%. */
+internal const val RIDER_MOTORCYCLE_MARKER_DP = 64.8f
+
 /** Unrotated artwork for turn-by-turn, which rotates the marker itself. */
 internal fun riderMotorcycleImage(context: android.content.Context): Bitmap {
     val source = android.graphics.BitmapFactory.decodeResource(context.resources, R.drawable.rider_motorcycle_yellow_box)
-    val size = (90f * context.resources.displayMetrics.density).toInt().coerceAtLeast(1)
+    val size = (RIDER_MOTORCYCLE_MARKER_DP * context.resources.displayMetrics.density).toInt().coerceAtLeast(1)
     return Bitmap.createScaledBitmap(source, size, size, true).facingUp()
 }
 

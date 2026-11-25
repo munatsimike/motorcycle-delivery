@@ -51,6 +51,7 @@ class RiderLocationService : Service() {
     private var prompt: CancellationTokenSource? = null
     @Volatile private var updatesRequested = false
     @Volatile private var running = false
+    @Volatile private var startTicket = 0
 
     private val callback = object : LocationCallback() {
         override fun onLocationResult(result: LocationResult) {
@@ -62,22 +63,24 @@ class RiderLocationService : Service() {
     override fun onBind(intent: android.content.Intent?): IBinder? = null
 
     override fun onStartCommand(intent: android.content.Intent?, flags: Int, startId: Int): Int {
+        startTicket = intent?.getIntExtra(EXTRA_START_TICKET, startTicket) ?: startTicket
         if (!fineLocationGranted()) {
-            LocationServiceGate.markRunning(false)
-            availability.noteServiceStopped()
+            LocationServiceGate.fail(startTicket)
+            availability.noteServiceStopped(startTicket, failed = true)
             stopSelf()
             return START_NOT_STICKY
         }
         try {
             startAsForeground()
         } catch (_: SecurityException) {
-            LocationServiceGate.markRunning(false)
-            availability.noteServiceStopped()
+            LocationServiceGate.fail(startTicket)
+            availability.noteServiceStopped(startTicket, failed = true)
             stopSelf()
             return START_NOT_STICKY
         }
         running = true
-        LocationServiceGate.markRunning(true)
+        LocationServiceGate.confirmRunning(startTicket)
+        availability.noteServiceRunning()
         // The service is started only after sharing was already approved. Register
         // before the network re-check so a slow or hung status call cannot leave
         // the foreground service with no Fused Location request.
@@ -93,8 +96,8 @@ class RiderLocationService : Service() {
 
     override fun onDestroy() {
         running = false
-        LocationServiceGate.markRunning(false)
-        availability.noteServiceStopped()
+        LocationServiceGate.markStopped(startTicket)
+        availability.noteServiceStopped(startTicket)
         prompt?.cancel()
         if (fineLocationGranted()) {
             client.removeLocationUpdates(callback)
@@ -254,6 +257,7 @@ class RiderLocationService : Service() {
 
     companion object {
         const val ACTION_SHARE = "com.riders.rider.action.SHARE_LOCATION"
+        const val EXTRA_START_TICKET = "com.riders.rider.extra.LOCATION_START_TICKET"
         private const val CHANNEL = "rider_location"
         private const val NOTICE_ID = 41
     }

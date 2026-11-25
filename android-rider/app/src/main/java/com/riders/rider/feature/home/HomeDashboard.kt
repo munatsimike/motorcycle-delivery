@@ -105,9 +105,12 @@ import com.riders.rider.core.design.RidersDialogTitle
 import com.riders.rider.core.design.RidersDialogTone
 import com.riders.rider.core.design.RidersEmptyState
 import com.riders.rider.core.design.RidersErrorState
+import com.riders.rider.core.design.NetworkAvailability
 import com.riders.rider.core.design.RidersFailureNotice
 import com.riders.rider.core.design.RidersNetworkNotice
 import com.riders.rider.core.design.isConnectionFailure
+import com.riders.rider.core.design.networkWarningPending
+import com.riders.rider.core.design.rememberNetworkStatus
 import com.riders.rider.core.design.RidersCenteredContent
 import com.riders.rider.core.design.RidersLoadingState
 import com.riders.rider.core.design.RidersMotion
@@ -572,6 +575,9 @@ private fun LocationSharingPausedNotice(
     onRestartSharing: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    if (notice == LocationNotice.WaitingForFix) {
+        return
+    }
     val permissionSettings = notice == LocationNotice.PermissionMissing && permissionAction == LocationPermissionAction.Settings
     val title = when (notice) {
         LocationNotice.PermissionMissing -> "Location permission required"
@@ -713,6 +719,12 @@ fun HomeDashboard(
     ) {
         val horizontal = RidersSpacing.lg
         val readiness = ui.readiness
+        val accountMessage = ui.error ?: "Your account could not be loaded. Check your connection and try again."
+        val accountTransport = readiness == null && !ui.loading && isConnectionFailure(accountMessage)
+        val networkStatus = rememberNetworkStatus(
+            transportFailure = ui.connectionFailure || accountTransport,
+            backendFailure = ui.backendFailure,
+        )
         val statusTop = with(LocalDensity.current) { WindowInsets.statusBars.getTop(this).toDp() }
         val topInset = if (inShell) 0.dp else statusTop
         val headerHeight = topInset + 200.dp
@@ -780,11 +792,15 @@ fun HomeDashboard(
                             .weight(1f)
                             .padding(horizontal = horizontal),
                     ) {
-                        if (ui.loading) {
+                        if (
+                            ui.loading ||
+                            networkWarningPending(networkStatus, accountTransport) ||
+                            (accountTransport && ui.networkRecoveryOutstanding && networkStatus != NetworkAvailability.Disconnected)
+                        ) {
                             RidersLoadingState("Checking your account")
                         } else {
                             RidersFailureNotice(
-                                message = ui.error ?: "Your account could not be loaded. Check your connection and try again.",
+                                message = accountMessage,
                                 title = accountLoadFailureTitle(ui.error),
                                 onRetry = onRefresh,
                             )
@@ -889,7 +905,7 @@ fun HomeDashboard(
                     Modifier.padding(bottom = RidersSpacing.lg),
                     verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
                 ) {
-                    val locationNotice = ui.locationNotice
+                    val locationNotice = ui.locationNotice?.takeUnless { it == LocationNotice.WaitingForFix }
                     if (locationNotice != null) {
                         LocationSharingPausedNotice(
                             notice = locationNotice,
@@ -907,9 +923,24 @@ fun HomeDashboard(
                     } else {
                         null
                     }
-                    val pageConnection = isConnectionFailure(ui.error) || isConnectionFailure(recoveryText)
-                    if (pageConnection) {
-                        RidersNetworkNotice(onRetry = onRefresh, modifier = Modifier.padding(horizontal = horizontal))
+                    val failureText = ui.error ?: recoveryText
+                    when (
+                        homeConnectionWarning(
+                            availability = networkStatus,
+                            connectionFailure = ui.connectionFailure,
+                            backendFailure = ui.backendFailure,
+                            recoveryOutstanding = ui.networkRecoveryOutstanding,
+                            messageLooksLikeConnectionFailure = isConnectionFailure(failureText),
+                        )
+                    ) {
+                        HomeConnectionWarning.Snackbar -> RidersNetworkNotice(
+                            onRetry = onRefresh,
+                            modifier = Modifier.padding(horizontal = horizontal),
+                        )
+                        HomeConnectionWarning.Message -> if (failureText != null) {
+                            RidersErrorState(message = failureText, modifier = Modifier.padding(horizontal = horizontal))
+                        }
+                        HomeConnectionWarning.Hidden -> Unit
                     }
                     if (!ui.assignmentsUnknown) {
                         RequestsSection(
