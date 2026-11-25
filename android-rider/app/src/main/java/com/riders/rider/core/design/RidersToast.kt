@@ -9,6 +9,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -40,7 +41,12 @@ import com.riders.rider.feature.delivery.domain.RIDERS_TOAST_DISMISS_MS
 import com.riders.rider.feature.delivery.domain.acceptToast
 import kotlinx.coroutines.delay
 
-data class RidersToastEvent(val id: String, val message: String)
+data class RidersToastEvent(
+    val id: String,
+    val message: String,
+    val detail: String? = null,
+    val dismissMs: Long = RIDERS_TOAST_DISMISS_MS,
+)
 
 val LocalRidersToast = staticCompositionLocalOf<(RidersToastEvent) -> Unit> { {} }
 
@@ -59,15 +65,17 @@ fun RidersToastHost(content: @Composable () -> Unit) {
     }
     val shown = current.value
     var message by rememberSaveable { mutableStateOf("") }
+    var detail by rememberSaveable { mutableStateOf("") }
     if (shown != null) {
         message = shown.message
+        detail = shown.detail.orEmpty()
     }
     val motion = rememberRidersMotion()
     val duration = motion.duration(RidersMotion.CONFIRM_MS)
     LaunchedEffect(shown?.id) {
-        val id = shown?.id ?: return@LaunchedEffect
-        delay(RIDERS_TOAST_DISMISS_MS)
-        if (current.value?.id == id) {
+        val active = current.value ?: return@LaunchedEffect
+        delay(active.dismissMs)
+        if (current.value?.id == active.id) {
             current.value = null
         }
     }
@@ -84,19 +92,19 @@ fun RidersToastHost(content: @Composable () -> Unit) {
                 enter = slideInVertically(tween(duration)) { -it } + fadeIn(tween(duration)),
                 exit = slideOutVertically(tween(duration)) { -it } + fadeOut(tween(duration)),
             ) {
-                RidersToast(message)
+                RidersToast(message, detail)
             }
         }
     }
 }
 
 @Composable
-fun RidersToast(message: String, modifier: Modifier = Modifier) {
+fun RidersToast(message: String, detail: String = "", modifier: Modifier = Modifier) {
     Row(
         modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(RidersRadius.lg))
-            .background(RidersColors.primaryLight)
+            .background(RidersColors.primary)
             .padding(horizontal = RidersSpacing.lg, vertical = RidersSpacing.md)
             .semantics { liveRegion = LiveRegionMode.Polite },
         verticalAlignment = Alignment.CenterVertically,
@@ -105,9 +113,14 @@ fun RidersToast(message: String, modifier: Modifier = Modifier) {
         Icon(
             painter = painterResource(R.drawable.ic_check),
             contentDescription = null,
-            tint = RidersColors.primaryDark,
+            tint = RidersColors.textInverse,
             modifier = Modifier.size(18.dp),
         )
-        Text(message, style = RidersType.bodyStrong, color = RidersColors.primaryDark)
+        Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
+            Text(message, style = RidersType.bodyStrong, color = RidersColors.textInverse)
+            if (detail.isNotBlank()) {
+                Text(detail, style = RidersType.body, color = RidersColors.textInverse)
+            }
+        }
     }
 }

@@ -1,10 +1,9 @@
 package com.riders.rider.feature.delivery.domain
 
 /**
- * Tracks overlapping camera animations. A marker added while an animation is
- * running can fail to draw until the rider gestures, so new markers wait until
- * every in-flight animation has finished. A marker that is already attached
- * stays attached through later fits.
+ * Tracks overlapping camera animations for the pickup and drop-off pins.
+ * The motorcycle marker is not gated: it stays mounted through fits, heading
+ * changes, and short gaps in the GPS fix.
  */
 class MarkerCameraGate {
     private var depth = 0

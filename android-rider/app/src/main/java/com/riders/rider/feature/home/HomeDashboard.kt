@@ -119,12 +119,16 @@ import com.riders.rider.core.design.RidersSecondaryButton
 import com.riders.rider.core.design.RidersRadius
 import com.riders.rider.core.design.RidersSpacing
 import com.riders.rider.core.design.RidersStatusIndicator
+import com.riders.rider.core.design.LocalRidersToast
+import com.riders.rider.core.design.RidersToastEvent
 import com.riders.rider.core.design.RidersType
 import com.riders.rider.feature.delivery.domain.ActiveDelivery
 import com.riders.rider.core.network.OfferResponse
 import com.riders.rider.feature.offers.domain.RequestOverlay
 import com.riders.rider.feature.offers.domain.dismissedForSettledAttempts
 import com.riders.rider.feature.offers.domain.handleRequestMapSuccess
+import com.riders.rider.feature.offers.domain.OFFER_SENT_TOAST_DISMISS_MS
+import com.riders.rider.feature.offers.domain.offerSentToast
 import com.riders.rider.feature.offers.domain.overlayAfterSearchAttempt
 import com.riders.rider.feature.offers.domain.REQUEST_UNAVAILABLE
 import com.riders.rider.feature.offers.domain.requestCatalog
@@ -253,7 +257,15 @@ fun HomeScreen(
         )
     }
     var sealedAttempts by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
-    var offerSentVisible by remember { mutableStateOf(false) }
+    var offerSentHold by remember { mutableStateOf(false) }
+    val showToast = LocalRidersToast.current
+    LaunchedEffect(offerSentHold) {
+        if (!offerSentHold) {
+            return@LaunchedEffect
+        }
+        delay(OFFER_SENT_TOAST_DISMISS_MS)
+        offerSentHold = false
+    }
     val catalog = requestCatalog(offersUi.offers, ui.offers)
     val listedIds = if (ui.shift.showOffers) catalog.map { it.deliveryId } else emptyList()
     val pinnedId = overlay.openId?.trim()?.takeIf { id -> id.isNotEmpty() && catalog.any { it.deliveryId == id } }
@@ -280,10 +292,10 @@ fun HomeScreen(
             sealedAttempts = remaining
         }
     }
-    LaunchedEffect(eligibleIds, confirmOffline, overlay, offerSentVisible, requestsOpen, ui.shift.showOffers) {
+    LaunchedEffect(eligibleIds, confirmOffline, overlay, offerSentHold, requestsOpen, ui.shift.showOffers) {
         val next = overlay.sync(
             eligibleIds,
-            blocked = requestMapAutoOpenBlocked(confirmOffline, offerSentVisible, requestsOpen) || !ui.shift.showOffers,
+            blocked = requestMapAutoOpenBlocked(confirmOffline, requestsOpen, offerSentHold) || !ui.shift.showOffers,
         )
         if (next != overlay) {
             overlay = next
@@ -337,7 +349,13 @@ fun HomeScreen(
                 onActiveDeliveries()
             }
             if (handling.showOfferSent) {
-                offerSentVisible = true
+                requestsOpen = false
+                offerSentHold = true
+                val deadline = requestForMap(currentCatalog.value, emptyList(), event.deliveryId)?.searchExpiresAt
+                val toast = offerSentToast(event.deliveryId, deadline)
+                if (toast != null) {
+                    showToast(RidersToastEvent(toast.id, toast.title, toast.detail, toast.dismissMs))
+                }
             }
             if (handling.overlay != open) {
                 offersModel.refresh()
@@ -466,28 +484,10 @@ fun HomeScreen(
         RidersDialog(visible = true, onDismiss = { unavailableRequest = false }) {
             RidersDialogTitle(REQUEST_UNAVAILABLE)
             RidersDialogBody("This request has expired or is no longer available.")
-            RidersPrimaryButton(
-                label = "OK",
-                onClick = { unavailableRequest = false },
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-    }
-    if (offerSentVisible) {
-        RidersDialog(visible = true, onDismiss = { offerSentVisible = false }) {
-            RidersDialogTitle("Offer sent!")
-            RidersDialogBody("Waiting for the customer to choose a rider.")
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Spacer(Modifier.weight(1f))
-                RidersPrimaryButton(
+            RidersDialogActions {
+                RidersDialogTextButton(
                     label = "OK",
-                    onClick = { offerSentVisible = false },
-                    compact = true,
-                    modifier = Modifier.weight(1f),
+                    onClick = { unavailableRequest = false },
                 )
             }
         }

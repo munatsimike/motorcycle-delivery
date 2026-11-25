@@ -203,7 +203,7 @@ fun collectionMarkerPaddingPx(clearanceDp: Float, density: Float): Int {
  * Road distance and travel time from the routing service. Missing or invalid
  * values stay hidden rather than being estimated from a straight line.
  */
-const val PICKUP_ARRIVED_TAG = "0 m · 0 min"
+const val PICKUP_ARRIVED_TAG = "Arrived"
 
 /** Same Haversine rounding the customer site uses for the arrival check. */
 fun haversineMetres(from: GeoPoint, to: GeoPoint): Int {
@@ -219,7 +219,7 @@ fun haversineMetres(from: GeoPoint, to: GeoPoint): Int {
 }
 
 /**
- * Distance tag for the active stop. Within [ARRIVAL_METRES] straight-line metres the tag is zero.
+ * Distance tag for the active stop. Within [ARRIVAL_METRES] straight-line metres the tag says arrived.
  * A missing fix keeps the driving distance. This does not change the stored route.
  */
 fun pickupTagLabel(rider: GeoPoint?, stop: GeoPoint?, roadMetres: Double?, roadSeconds: Int?): String? {

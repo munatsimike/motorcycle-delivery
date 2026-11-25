@@ -11,7 +11,9 @@ import com.riders.rider.feature.offers.domain.requestForMap
 import com.riders.rider.feature.offers.domain.RequestMapSuccess
 import com.riders.rider.feature.offers.domain.RequestOverlay
 import com.riders.rider.feature.offers.domain.dismissedForSettledAttempts
+import com.riders.rider.feature.delivery.domain.toastDismissed
 import com.riders.rider.feature.offers.domain.handleRequestMapSuccess
+import com.riders.rider.feature.offers.domain.offerSentToast
 import com.riders.rider.feature.offers.domain.overlayAfterSearchAttempt
 import com.riders.rider.feature.offers.domain.requestActionAllowed
 import com.riders.rider.feature.offers.domain.searchAttemptKey
@@ -77,7 +79,7 @@ class RequestOverlayTest {
     }
 
     @Test
-    fun listedAndCustomOfferSuccessCloseTheMapAndShowOneDialog() {
+    fun listedAndCustomOfferSuccessCloseTheMapAndShowOneToast() {
         val open = RequestOverlay(openId = "delivery-1")
         val listed = handleRequestMapSuccess(open, RequestMapEvent("delivery-1", RequestMapSuccess.OfferSent))
         val custom = handleRequestMapSuccess(open, RequestMapEvent("delivery-1", RequestMapSuccess.OfferSent))
@@ -86,7 +88,17 @@ class RequestOverlayTest {
         assertFalse(listed.openDeliveries)
         assertTrue(custom.showOfferSent)
         assertFalse(handleRequestMapSuccess(listed.overlay, RequestMapEvent("delivery-1", RequestMapSuccess.OfferSent)).showOfferSent)
-        assertTrue(requestMapAutoOpenBlocked(offlineConfirmation = false, offerSentVisible = true))
+        val toast = offerSentToast("delivery-1", "2026-11-25T10:00:00Z")
+        assertEquals("offer-sent:delivery-1|2026-11-25T10:00:00Z", toast?.id)
+        assertEquals("Offer sent", toast?.title)
+        assertEquals("Waiting for the customer to respond.", toast?.detail)
+        assertEquals(6_000L, toast?.dismissMs)
+        val shownAt = 1_000L
+        assertFalse(toastDismissed(shownAt, shownAt + toast!!.dismissMs - 1, toast.dismissMs))
+        assertTrue(toastDismissed(shownAt, shownAt + toast.dismissMs, toast.dismissMs))
+        assertNull(offerSentToast(" ", null))
+        assertFalse(requestMapAutoOpenBlocked(offlineConfirmation = false))
+        assertTrue(requestMapAutoOpenBlocked(offlineConfirmation = false, offerSentHold = true))
         assertNull(listed.overlay.sync(listOf("delivery-1", "delivery-2"), blocked = true).openId)
     }
 
@@ -124,7 +136,7 @@ class RequestOverlayTest {
         assertNull(handled.sync(listOf("delivery-1"), blocked = false).openId)
         assertEquals("delivery-2", handled.sync(listOf("delivery-1", "delivery-2"), blocked = false).openId)
         assertEquals("delivery-2", handled.open("delivery-2").openId)
-        assertFalse(requestMapAutoOpenBlocked(offlineConfirmation = false, offerSentVisible = false))
+        assertFalse(requestMapAutoOpenBlocked(offlineConfirmation = false))
     }
 
     @Test
@@ -138,7 +150,7 @@ class RequestOverlayTest {
 
     @Test
     fun browsingTheListDoesNotAutoOpenButKeepsAnExplicitRequest() {
-        val blocked = requestMapAutoOpenBlocked(offlineConfirmation = false, offerSentVisible = false, browsingRequests = true)
+        val blocked = requestMapAutoOpenBlocked(offlineConfirmation = false, browsingRequests = true)
         val browsing = RequestOverlay().sync(listOf("a", "b"), blocked = blocked)
         assertNull(browsing.openId)
         val chosen = browsing.open("b")

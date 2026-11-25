@@ -94,8 +94,9 @@ import com.riders.rider.feature.delivery.presentation.dropoffPinColor
 import com.riders.rider.feature.delivery.presentation.RiderMapStyles
 import com.riders.rider.core.design.LocalAppDark
 import com.riders.rider.feature.delivery.presentation.RiderMapThemeStore
-import com.riders.rider.feature.delivery.presentation.riderMarkerIcon
-import com.riders.rider.feature.delivery.presentation.RiderMarkerIcon
+import com.riders.rider.feature.delivery.presentation.StableRiderMarkers
+import com.riders.rider.feature.delivery.presentation.approachTagIcon
+import com.riders.rider.feature.delivery.presentation.riderMotorcycleDescriptor
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.launch
@@ -164,16 +165,23 @@ fun RequestRouteMap(
     var markerPhase by remember(deliveryId) { mutableStateOf(MarkerCameraPhase()) }
     var pickupAttached by remember(deliveryId) { mutableStateOf(false) }
     var dropoffAttached by remember(deliveryId) { mutableStateOf(false) }
-    var riderAttached by remember(deliveryId) { mutableStateOf(false) }
-    var shownRider by remember(deliveryId) { mutableStateOf<RiderMarkerIcon?>(null) }
+    var heldRider by remember(deliveryId) { mutableStateOf<LatLng?>(null) }
+    val liveRider = rider?.let { LatLng(it.latitude, it.longitude) }
+    if (liveRider != null && liveRider != heldRider) {
+        heldRider = liveRider
+    }
     val riderGate = rider != null || framedRider
     val road = line.filter { it.latitude.isFinite() && it.longitude.isFinite() }
     val routeReady = road.size > 1
     val routeGate = routeReady || framedRoute
     val boundsPadding = collectionMarkerPaddingPx(12f, density.density)
     val stroke = with(density) { routeWidth.toPx() }
-    val riderMarker = remember(approachLabel, mapLoaded) {
-        if (mapLoaded) riderMarkerIcon(context, approachLabel) else null
+    val motorcycleIcon = remember(mapLoaded) {
+        if (mapLoaded) riderMotorcycleDescriptor(context) else null
+    }
+    val tagIcon = remember(approachLabel, mapLoaded) {
+        val label = approachLabel
+        if (mapLoaded && !label.isNullOrBlank()) approachTagIcon(context, label) else null
     }
     val statusTop = with(density) { WindowInsets.statusBars.getTop(this).toDp() }
 
@@ -249,9 +257,6 @@ fun RequestRouteMap(
         }
     }
 
-    if (markerPhase.acceptingNew && riderMarker != null) {
-        shownRider = riderMarker
-    }
     val nextPickup = markerStaysAttached(pickupAttached, markerPhase.acceptingNew, pickup != null && pickupIcon != null)
     if (nextPickup != pickupAttached) {
         pickupAttached = nextPickup
@@ -259,10 +264,6 @@ fun RequestRouteMap(
     val nextDropoff = markerStaysAttached(dropoffAttached, markerPhase.acceptingNew, dropoff != null && dropoffIcon != null)
     if (nextDropoff != dropoffAttached) {
         dropoffAttached = nextDropoff
-    }
-    val nextRider = markerStaysAttached(riderAttached, markerPhase.acceptingNew, rider != null && shownRider != null)
-    if (nextRider != riderAttached) {
-        riderAttached = nextRider
     }
     if (initial != null) {
         Box(modifier) {
@@ -327,19 +328,13 @@ fun RequestRouteMap(
                     zIndex = 2f,
                 )
             }
-            if (riderAttached && rider != null && shownRider != null) {
-                val position = LatLng(rider.latitude, rider.longitude)
-                val state = remember { MarkerState(position) }
-                LaunchedEffect(position) { state.position = position }
-                Marker(
-                    state = state,
-                    icon = shownRider!!.icon,
-                    anchor = shownRider!!.anchor,
-                    rotation = 0f,
-                    flat = false,
-                    zIndex = 3f,
-                )
-            }
+            StableRiderMarkers(
+                identity = deliveryId,
+                position = heldRider,
+                motorcycle = motorcycleIcon,
+                tag = tagIcon,
+                zIndex = 3f,
+            )
         }
         if (waitingForLocation) {
             Text(

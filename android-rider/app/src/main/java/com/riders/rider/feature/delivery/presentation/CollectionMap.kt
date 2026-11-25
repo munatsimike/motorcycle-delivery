@@ -138,17 +138,24 @@ fun CollectionMap(
     val markerGate = remember(assignmentId) { MarkerCameraGate() }
     var markerPhase by remember(assignmentId) { mutableStateOf(MarkerCameraPhase()) }
     var pickupAttached by remember(assignmentId) { mutableStateOf(false) }
-    var riderAttached by remember(assignmentId) { mutableStateOf(false) }
-    var shownRider by remember(assignmentId) { mutableStateOf<RiderMarkerIcon?>(null) }
+    var heldRider by remember(assignmentId) { mutableStateOf<LatLng?>(null) }
     val riderPoint = rider?.let { GeoPoint(it.latitude, it.longitude) }
+    val liveRider = riderPoint?.toLatLng()
+    if (liveRider != null && liveRider != heldRider) {
+        heldRider = liveRider
+    }
     val riderReady = riderPoint != null
     val riderGate = riderReady || framedWithRider
     val routeReady = route.line.size > 1
     val routeGate = routeReady || framedRoute
     val statusTop = with(density) { WindowInsets.statusBars.getTop(this).toDp() }
     val approachLabel = pickupTagLabel(riderPoint, pickup, route.metres, route.seconds)
-    val riderMarker = remember(approachLabel, mapLoaded) {
-        if (mapLoaded) riderMarkerIcon(context, approachLabel) else null
+    val motorcycleIcon = remember(mapLoaded) {
+        if (mapLoaded) riderMotorcycleDescriptor(context) else null
+    }
+    val tagIcon = remember(approachLabel, mapLoaded) {
+        val label = approachLabel
+        if (mapLoaded && !label.isNullOrBlank()) approachTagIcon(context, label) else null
     }
     val topClearance = statusTop + mapChromeClearance + pinClearance
     val mapHeightDp = with(density) { mapHeight.toDp() }
@@ -222,18 +229,10 @@ fun CollectionMap(
         }
     }
 
-    if (markerPhase.acceptingNew && riderMarker != null) {
-        shownRider = riderMarker
-    }
     val nextPickup = markerStaysAttached(pickupAttached, markerPhase.acceptingNew, pickup != null && pickupIcon != null)
     if (nextPickup != pickupAttached) {
         pickupAttached = nextPickup
     }
-    val nextRider = markerStaysAttached(riderAttached, markerPhase.acceptingNew, rider != null && shownRider != null)
-    if (nextRider != riderAttached) {
-        riderAttached = nextRider
-    }
-
     Box(modifier) {
         if (initial != null) {
             GoogleMap(
@@ -287,19 +286,13 @@ fun CollectionMap(
                         zIndex = 1f,
                     )
                 }
-                if (riderAttached && rider != null && shownRider != null) {
-                    val position = LatLng(rider!!.latitude, rider!!.longitude)
-                    val state = remember { MarkerState(position) }
-                    LaunchedEffect(position) { state.position = position }
-                    Marker(
-                        state = state,
-                        icon = shownRider!!.icon,
-                        anchor = shownRider!!.anchor,
-                        rotation = 0f,
-                        flat = false,
-                        zIndex = 2f,
-                    )
-                }
+                StableRiderMarkers(
+                    identity = assignmentId,
+                    position = heldRider,
+                    motorcycle = motorcycleIcon,
+                    tag = tagIcon,
+                    zIndex = 2f,
+                )
             }
         }
         if (pickup != null && rider == null) {
@@ -358,13 +351,57 @@ private fun loosenedBounds(points: List<GeoPoint>): LatLngBounds {
     )
 }
 
-/** Motorcycle marker. A distance label sits in a white pill 8dp above the image, anchored at the bike center. */
+/** Distance label. The bitmap is anchored on the motorcycle center, 8dp above the artwork. */
 internal data class RiderMarkerIcon(val icon: BitmapDescriptor, val anchor: Offset)
 
-internal fun riderMarkerIcon(context: android.content.Context, label: String?): RiderMarkerIcon {
-    if (label.isNullOrBlank()) {
-        return RiderMarkerIcon(riderMotorcycleBitmap(context), Offset(0.5f, 0.5f))
+/**
+ * Motorcycle and distance tag stay mounted for the life of [identity].
+ * A later fix only moves the existing marker states. Camera work does not remove them.
+ */
+@Composable
+internal fun StableRiderMarkers(
+    identity: String,
+    position: LatLng?,
+    motorcycle: BitmapDescriptor?,
+    tag: RiderMarkerIcon?,
+    zIndex: Float,
+) {
+    if (position == null || motorcycle == null) {
+        return
     }
+    val bikeState = remember(identity) { MarkerState(position) }
+    val tagState = remember(identity) { MarkerState(position) }
+    LaunchedEffect(position.latitude, position.longitude) {
+        val next = LatLng(position.latitude, position.longitude)
+        bikeState.position = next
+        tagState.position = next
+    }
+    Marker(
+        state = bikeState,
+        icon = motorcycle,
+        anchor = Offset(0.5f, 0.5f),
+        rotation = 0f,
+        flat = false,
+        zIndex = zIndex,
+    )
+    if (tag != null) {
+        Marker(
+            state = tagState,
+            icon = tag.icon,
+            anchor = tag.anchor,
+            rotation = 0f,
+            flat = false,
+            zIndex = zIndex + 1f,
+        )
+    }
+}
+
+internal fun riderMotorcycleDescriptor(context: android.content.Context): BitmapDescriptor {
+    return BitmapDescriptorFactory.fromBitmap(riderMotorcycleImage(context))
+}
+
+/** White pill only. Transparent space below it keeps the pill 8dp above a 90dp motorcycle centered on the same point. */
+internal fun approachTagIcon(context: android.content.Context, label: String): RiderMarkerIcon {
     val density = context.resources.displayMetrics.density
     val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xFF17211D.toInt()
@@ -380,9 +417,8 @@ internal fun riderMarkerIcon(context: android.content.Context, label: String?): 
     val gap = 8f * density
     val bike = (90f * density).toInt().coerceAtLeast(1)
     val shadow = 3f * density
-    val width = maxOf(badgeWidth + shadow * 2f, bike.toFloat()).toInt().coerceAtLeast(1)
-    val bikeTop = badgeHeight + gap
-    val height = (bikeTop + bike).toInt().coerceAtLeast(1)
+    val width = (badgeWidth + shadow * 2f).toInt().coerceAtLeast(1)
+    val height = (badgeHeight + gap + bike / 2f).toInt().coerceAtLeast(1)
     val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
     val badgeLeft = (width - badgeWidth) / 2f
@@ -411,11 +447,7 @@ internal fun riderMarkerIcon(context: android.content.Context, label: String?): 
         padV - textPaint.fontMetrics.ascent,
         textPaint,
     )
-    val source = android.graphics.BitmapFactory.decodeResource(context.resources, R.drawable.rider_motorcycle_yellow_box)
-    val scaled = Bitmap.createScaledBitmap(source, bike, bike, true).facingUp()
-    canvas.drawBitmap(scaled, (width - bike) / 2f, bikeTop, null)
-    val anchorY = (bikeTop + bike / 2f) / height.toFloat()
-    return RiderMarkerIcon(BitmapDescriptorFactory.fromBitmap(bitmap), Offset(0.5f, anchorY.coerceIn(0f, 1f)))
+    return RiderMarkerIcon(BitmapDescriptorFactory.fromBitmap(bitmap), Offset(0.5f, 1f))
 }
 
 /** Unrotated artwork for turn-by-turn, which rotates the marker itself. */

@@ -63,12 +63,37 @@ fun handleRequestMapSuccess(overlay: RequestOverlay, event: RequestMapEvent): Re
     }
 }
 
+const val OFFER_SENT_TOAST_TITLE = "Offer sent"
+const val OFFER_SENT_TOAST_DETAIL = "Waiting for the customer to respond."
+const val OFFER_SENT_TOAST_DISMISS_MS = 6_000L
+
+data class OfferSentToast(
+    val id: String,
+    val title: String,
+    val detail: String,
+    val dismissMs: Long,
+)
+
+/** Shown only after a listed or custom offer submission succeeds. */
+fun offerSentToast(deliveryId: String, searchDeadline: String?): OfferSentToast? {
+    val id = deliveryId.trim()
+    if (id.isEmpty()) {
+        return null
+    }
+    return OfferSentToast(
+        id = "offer-sent:${searchAttemptKey(id, searchDeadline)}",
+        title = OFFER_SENT_TOAST_TITLE,
+        detail = OFFER_SENT_TOAST_DETAIL,
+        dismissMs = OFFER_SENT_TOAST_DISMISS_MS,
+    )
+}
+
 fun requestMapAutoOpenBlocked(
     offlineConfirmation: Boolean,
-    offerSentVisible: Boolean,
     browsingRequests: Boolean = false,
+    offerSentHold: Boolean = false,
 ): Boolean {
-    return offlineConfirmation || offerSentVisible || browsingRequests
+    return offlineConfirmation || browsingRequests || offerSentHold
 }
 
 fun requestCatalog(primary: List<OfferResponse>, fallback: List<OfferResponse>): List<OfferResponse> {

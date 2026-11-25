@@ -120,7 +120,16 @@ fun TurnByTurnScreen(
     val markerGate = remember { MarkerCameraGate() }
     var markerPhase by remember { mutableStateOf(MarkerCameraPhase()) }
     var destinationAttached by remember { mutableStateOf(false) }
-    var motorcycleAttached by remember { mutableStateOf(false) }
+    var heldNavigation by remember { mutableStateOf<LatLng?>(null) }
+    var heldBearing by remember { mutableStateOf(0f) }
+    val liveNavigation = rider?.let { LatLng(it.latitude, it.longitude) }
+    if (liveNavigation != null && liveNavigation != heldNavigation) {
+        heldNavigation = liveNavigation
+    }
+    val liveBearing = bearing
+    if (liveBearing != null && liveBearing != heldBearing) {
+        heldBearing = liveBearing
+    }
     val stroke = with(LocalDensity.current) { 5.dp.toPx() }
     val routeKey = guided?.let { guidanceRouteKey(it.path, it.steps) }.orEmpty()
     var spokenRoute by remember { mutableStateOf("") }
@@ -155,7 +164,7 @@ fun TurnByTurnScreen(
         spoken = activeSpoken + next.id
     }
 
-    LaunchedEffect(camera.isMoving) {
+    LaunchedEffect(camera.isMoving, camera.cameraMoveStartedReason) {
         if (camera.isMoving && camera.cameraMoveStartedReason == CameraMoveStartedReason.GESTURE) {
             model.stopFollowing()
         }
@@ -207,14 +216,6 @@ fun TurnByTurnScreen(
     )
     if (nextDestination != destinationAttached) {
         destinationAttached = nextDestination
-    }
-    val nextMotorcycle = markerStaysAttached(
-        motorcycleAttached,
-        markerPhase.acceptingNew,
-        rider != null && motorcycleIcon != null,
-    )
-    if (nextMotorcycle != motorcycleAttached) {
-        motorcycleAttached = nextMotorcycle
     }
 
     BoxWithConstraints(Modifier.fillMaxSize().background(RidersColors.canvas)) {
@@ -273,15 +274,15 @@ fun TurnByTurnScreen(
                     )
                 }
             }
-            val fix = rider
+            val held = heldNavigation
             val icon = motorcycleIcon
-            if (fix != null && icon != null && motorcycleAttached) {
-                riderMarker.position = LatLng(fix.latitude, fix.longitude)
+            if (held != null && icon != null) {
+                riderMarker.position = held
                 Marker(
                     state = riderMarker,
                     icon = icon,
                     anchor = Offset(0.5f, 0.5f),
-                    rotation = bearing ?: 0f,
+                    rotation = heldBearing,
                     flat = true,
                     zIndex = 3f,
                 )

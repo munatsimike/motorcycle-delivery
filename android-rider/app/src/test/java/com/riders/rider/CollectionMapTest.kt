@@ -152,8 +152,8 @@ class CollectionMapTest {
         assertEquals(50, haversineMetres(north(50), pickup))
         assertEquals(51, haversineMetres(north(51), pickup))
         assertEquals("477 m · 2 min", pickupTagLabel(north(150), pickup, roadMetres, roadSeconds))
-        assertEquals("0 m · 0 min", pickupTagLabel(north(49), pickup, roadMetres, roadSeconds))
-        assertEquals("0 m · 0 min", pickupTagLabel(north(50), pickup, roadMetres, roadSeconds))
+        assertEquals("Arrived", pickupTagLabel(north(49), pickup, roadMetres, roadSeconds))
+        assertEquals("Arrived", pickupTagLabel(north(50), pickup, roadMetres, roadSeconds))
         assertEquals("477 m · 2 min", pickupTagLabel(north(51), pickup, roadMetres, roadSeconds))
         assertEquals("477 m · 2 min", pickupTagLabel(null, pickup, roadMetres, roadSeconds))
         assertEquals("477 m · 2 min", pickupTagLabel(north(10), null, roadMetres, roadSeconds))
@@ -162,8 +162,8 @@ class CollectionMapTest {
             dropoff.latitude + (metres / 6_371_000.0) * (180.0 / Math.PI),
             dropoff.longitude,
         )
-        assertEquals("0 m · 0 min", pickupTagLabel(northOfDropoff(49), dropoff, roadMetres, roadSeconds))
-        assertEquals("0 m · 0 min", pickupTagLabel(northOfDropoff(50), dropoff, roadMetres, roadSeconds))
+        assertEquals("Arrived", pickupTagLabel(northOfDropoff(49), dropoff, roadMetres, roadSeconds))
+        assertEquals("Arrived", pickupTagLabel(northOfDropoff(50), dropoff, roadMetres, roadSeconds))
         assertEquals("477 m · 2 min", pickupTagLabel(northOfDropoff(51), dropoff, roadMetres, roadSeconds))
         assertEquals("477 m · 2 min", pickupTagLabel(null, dropoff, roadMetres, roadSeconds))
     }
