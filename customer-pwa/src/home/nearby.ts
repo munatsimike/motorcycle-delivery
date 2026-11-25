@@ -22,6 +22,8 @@ export type DeviceLocation =
   | { status: 'ready'; latitude: number; longitude: number };
 
 export const NEARBY_MARKER_PRUNE_MS = 5_000;
+/** Home map marker cap. The availability count and rider search stay uncapped. */
+export const NEARBY_MARKER_LIMIT = 10;
 
 export function readNearbyRiderMap(value: unknown, now = new Date()): { count: number; points: NearbyRiderMapPoint[] } {
   if (!isRecord(value)) {
@@ -61,8 +63,42 @@ export function nearbyHomeCountLabel(state: NearbyAvailability): string {
   if (state.status === 'permission-denied') return 'Location needed';
   if (state.status === 'position-unavailable') return 'Location unavailable';
   if (state.status === 'check-failed') return 'Unable to check';
-  const riders = state.count === 1 ? 'rider' : 'riders';
-  return `${state.count} ${riders} nearby`;
+  if (state.count > NEARBY_MARKER_LIMIT) return '10+ available';
+  return `${state.count} available`;
+}
+
+/** Closest riders for the home map. Coordinates are copied from the source points. */
+export function closestNearbyMarkers(
+  points: readonly NearbyMarker[],
+  customer: { latitude: number; longitude: number } | null,
+  limit = NEARBY_MARKER_LIMIT,
+): NearbyMarker[] {
+  const ranked = [...points];
+  if (
+    customer
+    && Number.isFinite(customer.latitude)
+    && Number.isFinite(customer.longitude)
+  ) {
+    ranked.sort((left, right) => {
+      const distance = nearbyMetres(customer, left) - nearbyMetres(customer, right);
+      return distance || left.id.localeCompare(right.id);
+    });
+  }
+  return ranked.slice(0, Math.max(0, limit));
+}
+
+function nearbyMetres(
+  from: { latitude: number; longitude: number },
+  to: { latitude: number; longitude: number },
+): number {
+  const earth = 6_371_000;
+  const latitudeA = from.latitude * Math.PI / 180;
+  const latitudeB = to.latitude * Math.PI / 180;
+  const deltaLatitude = latitudeB - latitudeA;
+  const deltaLongitude = (to.longitude - from.longitude) * Math.PI / 180;
+  const haversine = Math.sin(deltaLatitude / 2) ** 2
+    + Math.cos(latitudeA) * Math.cos(latitudeB) * Math.sin(deltaLongitude / 2) ** 2;
+  return 2 * earth * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
 }
 
 export function locationFromGeolocationError(error: { code: number; message?: string }): Exclude<DeviceLocation, { status: 'ready' }> {

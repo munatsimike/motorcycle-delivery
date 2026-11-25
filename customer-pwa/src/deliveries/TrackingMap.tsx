@@ -1,18 +1,11 @@
 import { useEffect, useRef } from "react";
 import { CrosshairIcon } from "../components/CrosshairIcon";
-import riderRearMarker from "../assets/rider-motorcycle-rear.png";
-import riderFrontMarker from "../assets/rider-motorcycle-front.png";
-import nearby0 from "../assets/rider-motorcycle-nearby-0.png";
-import nearby1 from "../assets/rider-motorcycle-nearby-1.png";
-import nearby2 from "../assets/rider-motorcycle-nearby-2.png";
-import nearby3 from "../assets/rider-motorcycle-nearby-3.png";
-import nearby4 from "../assets/rider-motorcycle-nearby-4.png";
 import { mapsBrowserKey } from "../config/env";
 import { zoomForSpan } from "../home/camera";
-import { markerRotation, motorcycleMarkerIcon } from "../home/motorcycleMarker";
-import { loadGoogleMaps, nearbyMotorcycleVariant } from "../home/googleMap";
-
-const NEARBY_MOTORCYCLE_ANGLES = [nearby0, nearby1, nearby2, nearby3, nearby4];
+import { DIRECTIONAL_MOTORCYCLE_ICONS, directionalMotorcycleUrl } from "../home/directionalMotorcycles";
+import { squareMotorcycleMarkerIcon } from "../home/motorcycleMarker";
+import { motorcycleDirection, type MotorcycleDirection } from "./motorcycleDirection";
+import { loadGoogleMaps } from "../home/googleMap";
 import {
   SEARCH_PULSE_FRAME_MS,
   SEARCH_PULSE_MS,
@@ -22,11 +15,11 @@ import {
   advanceMotorcycleHeading,
   offersFrameHolds,
   offersMapCamera,
-  shortestBearingDelta,
   showsTrackingRoute,
-  smoothHeading,
   trackingCameraRegion,
   trackingCameraShouldMove,
+  trackingFrameHolds,
+  trackingRouteCamera,
   TRACKING_MAP_HEIGHT,
   TRACKING_MARKER_CLEARANCE,
   TRACKING_SHEET_OVERLAP,
@@ -38,11 +31,6 @@ import {
 import { bindMapTheme } from "../theme/mapStyle";
 
 const TRACKING_MOTORCYCLE_WIDTH = 90;
-// The front artwork's wheel points straight down, so a northbound heading turns it 180 degrees.
-const FORWARD_MOTORCYCLE = riderFrontMarker;
-const FORWARD_NOSE_DEGREES = 180;
-// The rear-view artwork points slightly right of straight up.
-const REAR_NOSE_DEGREES = 20;
 
 type Listener = { remove: () => void };
 type Marker = {
@@ -128,7 +116,7 @@ export function TrackingMap({
   const lineRef = useRef<Polyline | null>(null);
   const gestured = useRef(false);
   const programmatic = useRef(false);
-  const extras = useRef<Marker[]>([]);
+  const extras = useRef<Map<string, Marker>>(new Map());
   const pulseCircles = useRef<Circle[]>([]);
   const pulseTimer = useRef<number | null>(null);
   const pulseStarted = useRef(0);
@@ -142,15 +130,21 @@ export function TrackingMap({
     heading: null,
     anchor: null,
   });
-  const shownHeading = useRef<number | null>(null);
-  const headingTarget = useRef<number | null>(null);
-  const headingClock = useRef(0);
-  const spinTimer = useRef<number | null>(null);
+  const directionRef = useRef<MotorcycleDirection | null>(null);
+  const motorcycleIconUrl = useRef<string | null>(null);
+  const labelText = useRef<string | null>(null);
   const heldOffers = useRef<{
     width: number;
     height: number;
     frame: OffersMapFrame;
   } | null>(null);
+  const heldRoute = useRef<{
+    width: number;
+    height: number;
+    bottom: number;
+    frame: OffersMapFrame;
+  } | null>(null);
+  const framedIdentity = useRef("");
   const props = useRef({
     deliveryId,
     live,
@@ -244,28 +238,21 @@ export function TrackingMap({
           }),
         );
         rememberOffers(initial);
+        rememberRoute(initial);
         const resize = new ResizeObserver(() => {
-          if (
-            !props.current.neighborhood ||
-            !mapRef.current ||
-            gestured.current
-          )
-            return;
+          if (!mapRef.current || gestured.current) return;
+          const current = props.current;
+          if (!current.neighborhood && !followsActiveRoute()) return;
           const size = measuredMap();
-          const held = heldOffers.current;
           if (!size) return;
+          const held = current.neighborhood ? heldOffers.current : heldRoute.current;
           if (
             held &&
             Math.abs(size.width - held.width) < 8 &&
             Math.abs(size.height - held.height) < 8
           )
             return;
-          const next = frameRef.current();
-          programmatic.current = true;
-          mapRef.current.setCenter({ lat: next.latitude, lng: next.longitude });
-          mapRef.current.setZoom(zoomForFrame(next));
-          programmatic.current = false;
-          rememberOffers(next);
+          applyCamera(frameRef.current());
           drawRef.current();
         });
         resize.observe(element);
@@ -292,27 +279,56 @@ export function TrackingMap({
       if (maps && mapRef.current)
         maps.event.clearInstanceListeners(mapRef.current);
       mapRef.current = null;
-      if (spinTimer.current !== null) cancelAnimationFrame(spinTimer.current);
-      spinTimer.current = null;
     };
   }, []);
 
   useEffect(() => {
     headingTrack.current = { heading: null, anchor: null };
-    shownHeading.current = null;
-    headingTarget.current = null;
-    headingClock.current = 0;
-    if (spinTimer.current !== null) cancelAnimationFrame(spinTimer.current);
-    spinTimer.current = null;
+    directionRef.current = null;
+    motorcycleIconUrl.current = null;
+    labelText.current = null;
   }, [deliveryId]);
 
   useEffect(() => {
     const destinationChanged = stopKeyRef.current !== stopKey;
+    const identityChanged = framedIdentity.current !== deliveryId;
+    stopKeyRef.current = stopKey;
+    if (followsActiveRoute()) {
+      const switchingDelivery = identityChanged && framedIdentity.current !== "";
+      if (switchingDelivery) gestured.current = false;
+      if (gestured.current) {
+        drawRef.current();
+        return;
+      }
+      const size = measuredMap();
+      const bottom = sheetOverlap();
+      const held = heldRoute.current;
+      const sameSize =
+        size !== null &&
+        held !== null &&
+        Math.abs(size.width - held.width) < 8 &&
+        Math.abs(size.height - held.height) < 8 &&
+        held.bottom === bottom;
+      if (
+        !identityChanged &&
+        !destinationChanged &&
+        sameSize &&
+        size &&
+        trackingFrameHolds(activeRoutePoints(), held.frame, size.width, size.height, bottom)
+      ) {
+        drawRef.current();
+        return;
+      }
+      if (!mapRef.current) return;
+      framedIdentity.current = deliveryId;
+      applyCamera(frameRef.current());
+      drawRef.current();
+      return;
+    }
     const decision = trackingCameraShouldMove(
       destinationChanged,
       gestured.current,
     );
-    stopKeyRef.current = stopKey;
     gestured.current = decision.gestured;
     if (!decision.move) {
       drawRef.current();
@@ -341,22 +357,13 @@ export function TrackingMap({
         return;
       }
     }
-    const next = frameRef.current();
-    programmatic.current = true;
-    map.setCenter({ lat: next.latitude, lng: next.longitude });
-    map.setZoom(zoomForFrame(next));
-    programmatic.current = false;
-    rememberOffers(next);
+    applyCamera(frameRef.current());
     drawRef.current();
   }, [deliveryId, live, stopKey, markerKey, neighborhood, routeKey]);
 
   useEffect(() => {
     if (props.current.live && rider) followHeading(rider);
     drawRef.current();
-    return () => {
-      if (spinTimer.current !== null) cancelAnimationFrame(spinTimer.current);
-      spinTimer.current = null;
-    };
   }, [
     deliveryId,
     rider?.latitude,
@@ -381,34 +388,6 @@ export function TrackingMap({
       point,
       point.bearingDegrees,
     );
-    headingTarget.current = headingTrack.current.heading;
-    if (spinTimer.current === null) {
-      headingClock.current = 0;
-      spinTimer.current = requestAnimationFrame(tickHeading);
-    }
-  }
-
-  function tickHeading(now: number) {
-    const previous = headingClock.current;
-    headingClock.current = now;
-    const elapsed = previous === 0 ? 0 : now - previous;
-    const reduceMotion = window.matchMedia(
-      "(prefers-reduced-motion: reduce)",
-    ).matches;
-    const target = headingTarget.current;
-    const shown = shownHeading.current;
-    shownHeading.current =
-      shown == null || reduceMotion
-        ? target
-        : smoothHeading(shown, target, elapsed);
-    riderMarkerRef.current?.setOptions({
-      rotation: markerRotation(shownHeading.current, props.current.headingToDropoff ? REAR_NOSE_DEGREES : FORWARD_NOSE_DEGREES),
-    });
-    const settled =
-      shownHeading.current == null ||
-      target == null ||
-      Math.abs(shortestBearingDelta(shownHeading.current, target)) < 0.5;
-    spinTimer.current = settled ? null : requestAnimationFrame(tickHeading);
   }
 
   function zoomForFrame(next: {
@@ -418,7 +397,7 @@ export function TrackingMap({
     const height = node.current?.clientHeight || 480;
     const width = node.current?.clientWidth || height;
     const fitRoute = Boolean(props.current.pickup) && !props.current.live;
-    if (!props.current.neighborhood && !fitRoute)
+    if (!props.current.neighborhood && !fitRoute && !followsActiveRoute())
       return zoomForSpan(next.latitudeDelta, height);
     return Math.min(
       zoomForSpan(next.latitudeDelta, height),
@@ -443,6 +422,56 @@ export function TrackingMap({
     heldOffers.current = { width: size.width, height: size.height, frame };
   }
 
+  function rememberRoute(frame: OffersMapFrame) {
+    if (!followsActiveRoute()) {
+      heldRoute.current = null;
+      return;
+    }
+    const size = measuredMap();
+    if (!size) return;
+    heldRoute.current = { width: size.width, height: size.height, bottom: sheetOverlap(), frame };
+    framedIdentity.current = props.current.deliveryId;
+  }
+
+  function sheetOverlap(): number {
+    const map = node.current;
+    if (!map) return TRACKING_SHEET_OVERLAP;
+    const sheet = map.closest(".track")?.querySelector(".track-sheet");
+    if (!(sheet instanceof HTMLElement)) return TRACKING_SHEET_OVERLAP;
+    const overlap = map.getBoundingClientRect().bottom - sheet.getBoundingClientRect().top;
+    if (!Number.isFinite(overlap)) return TRACKING_SHEET_OVERLAP;
+    return Math.max(TRACKING_SHEET_OVERLAP, Math.round(overlap));
+  }
+
+  function followsActiveRoute(): boolean {
+    const current = props.current;
+    if (current.neighborhood || current.deliveredCallout) return false;
+    if (!current.live && current.pickup && current.stop) return false;
+    return current.live || current.rider !== null || (current.line.length > 1 && current.stop !== null);
+  }
+
+  function activeRoutePoints(): RoutePoint[] {
+    const current = props.current;
+    const route = current.hideRoute
+      ? []
+      : trackingRoute(current.line, current.rider, current.stop, current.pickup);
+    const points = [...route];
+    if (current.rider) points.push(current.rider);
+    if (current.stop) points.push(current.stop);
+    return points;
+  }
+
+  function applyCamera(next: OffersMapFrame) {
+    const map = mapRef.current;
+    if (!map) return;
+    programmatic.current = true;
+    map.setCenter({ lat: next.latitude, lng: next.longitude });
+    map.setZoom(zoomForFrame(next));
+    programmatic.current = false;
+    rememberOffers(next);
+    rememberRoute(next);
+  }
+
   function frame() {
     const current = props.current;
     if (current.neighborhood && current.stop) {
@@ -465,8 +494,17 @@ export function TrackingMap({
         points.length > 0 ? points : [current.pickup, current.stop],
       );
     }
-    if (current.rider && (current.live || current.stop))
-      return trackingCameraRegion(current.rider, current.stop);
+    if (followsActiveRoute()) {
+      const size = measuredMap() ?? { width: 360, height: TRACKING_MAP_HEIGHT };
+      const points = activeRoutePoints();
+      return trackingRouteCamera(
+        points.length > 0 ? points : current.stop ? [current.stop] : [],
+        size.width,
+        size.height,
+        sheetOverlap(),
+      );
+    }
+    if (current.rider && current.stop) return trackingCameraRegion(current.rider, current.stop);
     if (current.stop) return trackingCameraRegion(current.stop, null);
     return {
       latitude: -17.8292,
@@ -477,14 +515,8 @@ export function TrackingMap({
   }
 
   function move(animated: boolean) {
-    const map = mapRef.current;
-    if (!map || (gestured.current && !animated)) return;
-    const next = frame();
-    programmatic.current = true;
-    map.setCenter({ lat: next.latitude, lng: next.longitude });
-    map.setZoom(zoomForFrame(next));
-    programmatic.current = false;
-    rememberOffers(next);
+    if (!mapRef.current || (gestured.current && !animated)) return;
+    applyCamera(frame());
     void animated;
   }
 
@@ -564,10 +596,13 @@ export function TrackingMap({
       deliveredMarker.current.setMap(map);
     }
     const label = current.live && current.rider ? current.summary : null;
-    if (!label || !current.rider) {
+    const labelKey = label == null ? null : `${document.documentElement.dataset.theme === "dark" ? "dark" : "light"}:${label}`;
+    if (!label || !labelKey || !current.rider) {
       labelMarker.current?.setMap(null);
       labelMarker.current = null;
+      labelText.current = null;
     } else if (!labelMarker.current) {
+      labelText.current = labelKey;
       labelMarker.current = new maps.Marker({
         map,
         position: { lat: current.rider.latitude, lng: current.rider.longitude },
@@ -580,15 +615,22 @@ export function TrackingMap({
         lat: current.rider.latitude,
         lng: current.rider.longitude,
       });
-      labelMarker.current.setIcon(summaryIcon(maps, label));
+      if (labelText.current !== labelKey) {
+        labelText.current = labelKey;
+        labelMarker.current.setIcon(summaryIcon(maps, label));
+      }
       labelMarker.current.setMap(map);
     }
-    const rotation = current.live ? markerRotation(shownHeading.current, current.headingToDropoff ? REAR_NOSE_DEGREES : FORWARD_NOSE_DEGREES) : 0;
-    const activeMotorcycle = current.headingToDropoff ? riderRearMarker : FORWARD_MOTORCYCLE;
+    const direction =
+      motorcycleDirection(current.live ? headingTrack.current.heading : null, directionRef.current) ?? "north";
+    directionRef.current = direction;
+    const motorcycleUrl = DIRECTIONAL_MOTORCYCLE_ICONS[direction];
     if (!current.rider) {
       riderMarkerRef.current?.setMap(null);
       riderMarkerRef.current = null;
+      motorcycleIconUrl.current = null;
     } else if (!riderMarkerRef.current) {
+      motorcycleIconUrl.current = motorcycleUrl;
       riderMarkerRef.current = new maps.Marker({
         map,
         position: { lat: current.rider.latitude, lng: current.rider.longitude },
@@ -598,36 +640,52 @@ export function TrackingMap({
         clickable: false,
         optimized: false,
         zIndex: 3,
-        rotation,
-        icon: motorcycleMarkerIcon(maps, activeMotorcycle, undefined, TRACKING_MOTORCYCLE_WIDTH),
+        rotation: 0,
+        icon: squareMotorcycleMarkerIcon(maps, motorcycleUrl, TRACKING_MOTORCYCLE_WIDTH),
       });
     } else {
       riderMarkerRef.current.setPosition({
         lat: current.rider.latitude,
         lng: current.rider.longitude,
       });
-      riderMarkerRef.current.setIcon(motorcycleMarkerIcon(maps, activeMotorcycle, undefined, TRACKING_MOTORCYCLE_WIDTH));
-      riderMarkerRef.current.setOptions({ rotation });
+      if (motorcycleIconUrl.current !== motorcycleUrl) {
+        motorcycleIconUrl.current = motorcycleUrl;
+        riderMarkerRef.current.setIcon(squareMotorcycleMarkerIcon(maps, motorcycleUrl, TRACKING_MOTORCYCLE_WIDTH));
+        riderMarkerRef.current.setOptions({ rotation: 0 });
+      }
       riderMarkerRef.current.setMap(map);
     }
-    extras.current.forEach((marker) => marker.setMap(null));
-    extras.current = current.extraMarkers.map(
-      (point) =>
-        new maps.Marker({
-          map,
-          position: { lat: point.latitude, lng: point.longitude },
-          title: point.title,
-          clickable: false,
-          optimized: false,
-          zIndex: 3,
-          icon: motorcycleMarkerIcon(
-            maps,
-            NEARBY_MOTORCYCLE_ANGLES[nearbyMotorcycleVariant(point.id ?? `${point.latitude},${point.longitude}`)],
-            1,
-            TRACKING_MOTORCYCLE_WIDTH,
-          ),
-        }),
-    );
+    const seenExtras = new Set<string>();
+    current.extraMarkers.forEach((point, index) => {
+      const id = point.id ?? `${point.latitude},${point.longitude}`;
+      seenExtras.add(id);
+      const position = { lat: point.latitude, lng: point.longitude };
+      const existing = extras.current.get(id);
+      if (existing) {
+        existing.setPosition(position);
+        existing.setMap(map);
+        return;
+      }
+      extras.current.set(id, new maps.Marker({
+        map,
+        position,
+        title: point.title,
+        clickable: false,
+        optimized: false,
+        zIndex: 3,
+        rotation: 0,
+        icon: squareMotorcycleMarkerIcon(
+          maps,
+          directionalMotorcycleUrl(point.id ?? `extra-${index}`),
+          TRACKING_MOTORCYCLE_WIDTH,
+        ),
+      }));
+    });
+    for (const [id, marker] of extras.current) {
+      if (seenExtras.has(id)) continue;
+      marker.setMap(null);
+      extras.current.delete(id);
+    }
     syncSearchPulse();
   }
 

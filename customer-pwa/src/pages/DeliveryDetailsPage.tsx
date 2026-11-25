@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type RefObject } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useSession } from '../auth/sessionContext';
 import { Button } from '../components/Button';
-import { BackIcon, PhoneIcon } from '../components/icons';
+import { BackIcon } from '../components/icons';
 import { ButtonSpinner } from '../components/ButtonSpinner';
 import { modalActionFeedback, pageActionFeedback, searchAgainControl } from '../components/buttonState';
 import { deliveryCancelledToast, riderConfirmedToast, showSuccessToast } from '../components/successToast';
@@ -982,7 +982,7 @@ export function DeliveryDetailsPage() {
           {actions.cancel || actions.offers ? <Button ref={cancelTriggerRef} type="button" variant={actions.offers ? 'destructive' : 'tertiary'} size="compact" className={actions.offers ? undefined : 'track-cancel-text'} disabled={busy} onClick={() => { if (busyRef.current) return; setConfirmError(null); setConfirm('cancel'); }}>{busy && confirm === 'cancel' ? <><ButtonSpinner />{pageActionFeedback('cancel', true)?.label}</> : actions.offers ? 'Cancel request' : 'Cancel delivery'}</Button> : null}
           {actions.searchAgain && cooldownSeconds > 0 ? <div className="offer-response-timer"><span>You can search again in</span><strong role="timer">{offerResponseLabel(cooldownSeconds)}</strong></div> : null}
           {actions.searchAgain ? <Button type="button" disabled={searchAgainControl({ searching, busy, coolingDown: cooldownSeconds > 0 }).disabled} onClick={() => void searchAgain()}>{searching ? <><ButtonSpinner />{pageActionFeedback('search', true)?.label}</> : <><SearchIcon />Search again</>}</Button> : null}
-          {actions.deleteRequest ? <Button type="button" variant="destructive" size="compact" disabled={busy} onClick={() => { if (busyRef.current) return; setConfirmError(null); setConfirm('delete'); }}>{busy && confirm === 'delete' ? <><ButtonSpinner />{pageActionFeedback('delete', true)?.label}</> : 'Delete'}</Button> : null}
+          {actions.deleteRequest ? <Button type="button" variant="destructive" disabled={busy} onClick={() => { if (busyRef.current) return; setConfirmError(null); setConfirm('delete'); }}>{busy && confirm === 'delete' ? <><ButtonSpinner />{pageActionFeedback('delete', true)?.label}</> : 'Delete'}</Button> : null}
           {actions.adjustPrice && screen !== 'outcome' ? <button type="button" disabled={busy} onClick={openPrice}>Adjust price</button> : null}
           {actions.parcel && screen !== 'outcome' ? <button type="button" className="track-parcel" onClick={() => setParcelOpen(true)}>Parcel details<ChevronUp /></button> : null}
         </div>
@@ -1393,7 +1393,7 @@ function ContactLinks({
   const whatsApp = message ? `${chat}?text=${encodeURIComponent(message)}` : chat;
   return (
     <div className="track-contact">
-      <a className="track-icon-btn" href={call} aria-label={callLabel}><PhoneIcon /></a>
+      <a className="track-icon-btn" href={call} aria-label={callLabel}><span className="material-symbols-outlined" aria-hidden="true">call</span></a>
       <a className="track-icon-btn" href={whatsApp} aria-label={whatsAppLabel}><WhatsAppIcon /></a>
     </div>
   );

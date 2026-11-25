@@ -232,7 +232,7 @@ export function ProfilePage() {
         ) : isLoading ? null : <h1>More</h1>}
         {error ? <ErrorMessage>{error}</ErrorMessage> : null}
         {photoError ? <ErrorMessage>{photoError}</ErrorMessage> : null}
-        <Button type="button" variant="destructive" size="compact" className="profile-logout" disabled={isSigningOut} onClick={() => { void handleSignOut(); }}>
+        <Button type="button" variant="destructive" className="profile-logout" disabled={isSigningOut} onClick={() => { void handleSignOut(); }}>
           <MoreRowIcon kind="logout" />{isSigningOut ? <><ButtonSpinner />{pageActionFeedback('signOut', true)?.label}</> : 'Log out'}
         </Button>
       </div>

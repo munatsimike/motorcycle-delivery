@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { HARARE, INITIAL_SPAN, NEIGHBORHOOD_SPAN, cameraFor, shouldAutoFrame } from './camera.ts';
 import { CUSTOMER_LOCATION_DOT, customerLocationIcon } from './customerLocation.ts';
-import { markerRotation, motorcycleMarkerDisplaySize, MOTORCYCLE_NOSE_CLOCKWISE_DEGREES, NATIVE_MOTORCYCLE_MARKER } from './motorcycleMarker.ts';
 import {
+  closestNearbyMarkers,
   filterValidNearbyRiderPoints,
   locationFromGeolocationError,
   nearbyHomeCountLabel,
@@ -44,21 +44,6 @@ test('the first camera is Harare and a later fix stays locked', () => {
   assert.equal(shouldAutoFrame({ gestured: false, locked: false, customer: null, cardHeight: 220 }), false);
 });
 
-test('motorcycle markers use whole pixels at the native bitmap size', () => {
-  assert.equal(NATIVE_MOTORCYCLE_MARKER.width, 106);
-  assert.equal(NATIVE_MOTORCYCLE_MARKER.height, 115);
-  const phone = motorcycleMarkerDisplaySize(1.5);
-  assert.equal(phone.width, 71);
-  assert.equal(phone.height, 77);
-  assert.equal(Number.isInteger(phone.width) && Number.isInteger(phone.height), true);
-  const retina = motorcycleMarkerDisplaySize(3);
-  assert.equal(retina.width, 35);
-  assert.equal(retina.height, 38);
-  assert.ok(retina.width > 0 && retina.height > 0);
-  assert.equal(motorcycleMarkerDisplaySize(1).width, 106);
-  assert.equal(motorcycleMarkerDisplaySize(0).height, 115);
-});
-
 const RIDERS = [
   '11111111-1111-4111-8111-111111111111',
   '22222222-2222-4222-8222-222222222222',
@@ -67,13 +52,21 @@ const RIDERS = [
   '55555555-5555-4555-8555-555555555555',
 ] as const;
 
-test('the motorcycle artwork offset points its front along a travel bearing', () => {
-  assert.equal(MOTORCYCLE_NOSE_CLOCKWISE_DEGREES, 142);
-  assert.equal(markerRotation(null), 0);
-  assert.equal(markerRotation(Number.NaN), 0);
-  assert.equal(markerRotation(142), 0);
-  assert.equal(markerRotation(0), 218);
-  assert.equal(markerRotation(90), 308);
+test('the home map shows the ten closest riders and keeps their coordinates', () => {
+  const customer = { latitude: -17.8, longitude: 31.05 };
+  const points = Array.from({ length: 12 }, (_, index) => ({
+    id: `${index.toString(16).padStart(8, '0')}-1111-4111-8111-111111111111`,
+    latitude: customer.latitude + index * 0.01,
+    longitude: customer.longitude,
+    expiresAt: future,
+  }));
+  const shown = closestNearbyMarkers(points, customer);
+  assert.equal(shown.length, 10);
+  assert.deepEqual(shown.map((point) => point.latitude), points.slice(0, 10).map((point) => point.latitude));
+  assert.equal(shown[0]?.longitude, points[0]?.longitude);
+  assert.equal(points.length, 12);
+  assert.equal(nearbyHomeCountLabel({ status: 'ready', count: points.length }), '10+ available');
+  assert.equal(nearbyHomeCountLabel({ status: 'ready', count: 10 }), '10 available');
 });
 
 test('nearby responses keep only unexpired approximate points', () => {
@@ -158,9 +151,9 @@ test('location and rider status labels match the customer app', () => {
   assert.equal(nearbyHomeCountLabel({ status: 'permission-denied', canAskAgain: false }), 'Location needed');
   assert.equal(nearbyHomeCountLabel({ status: 'position-unavailable' }), 'Location unavailable');
   assert.equal(nearbyHomeCountLabel({ status: 'check-failed', message: 'offline' }), 'Unable to check');
-  assert.equal(nearbyHomeCountLabel({ status: 'ready', count: 0 }), '0 riders nearby');
-  assert.equal(nearbyHomeCountLabel({ status: 'ready', count: 1 }), '1 rider nearby');
-  assert.equal(nearbyHomeCountLabel({ status: 'ready', count: 2 }), '2 riders nearby');
+  assert.equal(nearbyHomeCountLabel({ status: 'ready', count: 0 }), '0 available');
+  assert.equal(nearbyHomeCountLabel({ status: 'ready', count: 1 }), '1 available');
+  assert.equal(nearbyHomeCountLabel({ status: 'ready', count: 2 }), '2 available');
   assert.equal(locationFromGeolocationError({ code: 1 }).status, 'permission-denied');
   assert.equal(locationFromGeolocationError({ code: 2, message: 'Location services are disabled' }).status, 'services-off');
   assert.equal(locationFromGeolocationError({ code: 3 }).status, 'position-unavailable');

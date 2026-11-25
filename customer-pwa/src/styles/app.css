@@ -785,14 +785,14 @@ button.home-status:disabled {
   width: 100%;
   padding: var(--space-md) var(--space-lg);
   border-radius: var(--radius-lg);
-  background: var(--primary-light);
-  color: var(--primary-dark);
+  background: var(--primary);
+  color: var(--text-inverse);
   box-shadow: var(--shadow);
 }
 
 .success-toast p {
   margin: 0;
-  color: var(--primary-dark);
+  color: var(--text-inverse);
   font-size: var(--body);
   font-weight: 600;
   line-height: 1.3;
@@ -804,7 +804,7 @@ button.home-status:disabled {
   place-items: center;
   width: 18px;
   height: 18px;
-  color: var(--primary-dark);
+  color: var(--text-inverse);
 }
 
 .success-toast-mark svg {
@@ -1823,9 +1823,10 @@ button.home-status:disabled {
 
 .delivery-facts-card {
   padding: var(--space-lg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: 0 8px 24px rgba(23, 33, 29, 0.08);
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
 }
 
 .outcome-status {

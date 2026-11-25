@@ -7,6 +7,7 @@ import { fetchNearbyRiders } from './nearbyApi';
 import {
   isNearbyRiderPointExpired,
   NEARBY_MARKER_PRUNE_MS,
+  closestNearbyMarkers,
   nextNearbyMarkers,
   type DeviceLocation,
   type NearbyAvailability,
@@ -17,7 +18,7 @@ import type { MapPoint } from './camera';
 const REFRESH_MS = 20_000;
 const POLL_MAX_AGE_MS = 15_000;
 
-export function useCustomerHome(mapElement: HTMLDivElement | null, cardHeight: number, iconUrl: string) {
+export function useCustomerHome(mapElement: HTMLDivElement | null, cardHeight: number) {
   const { accessToken } = useSession();
   const [availability, setAvailability] = useState<NearbyAvailability>({ status: 'loading' });
   const [customer, setCustomer] = useState<MapPoint | null>(null);
@@ -50,11 +51,11 @@ export function useCustomerHome(mapElement: HTMLDivElement | null, cardHeight: n
     let created: HomeMap | null = null;
     loadGoogleMaps(key).then((loaded) => {
       if (cancelled) return loaded;
-      created = createHomeMap(mapElement, iconUrl, () => {
+      created = createHomeMap(mapElement, () => {
         if (!cancelled) setMapProblem('Map is unavailable');
       });
       mapRef.current = created;
-      created.showMarkers(pointsRef.current);
+      created.showMarkers(closestNearbyMarkers(pointsRef.current, customerRef.current));
       created.tryInitialFrame(customerRef.current, cardRef.current);
       return loaded;
     }).catch(() => {
@@ -65,11 +66,11 @@ export function useCustomerHome(mapElement: HTMLDivElement | null, cardHeight: n
       created?.destroy();
       if (mapRef.current === created) mapRef.current = null;
     };
-  }, [iconUrl, mapElement]);
+  }, [mapElement]);
 
   useEffect(() => {
-    mapRef.current?.showMarkers(points);
-  }, [points]);
+    mapRef.current?.showMarkers(closestNearbyMarkers(points, customer));
+  }, [customer, points]);
 
   useEffect(() => {
     mapRef.current?.tryInitialFrame(customer, cardHeight);

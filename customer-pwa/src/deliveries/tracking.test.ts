@@ -43,6 +43,10 @@ import {
   showsTrackingRoute,
   trackingCameraRegion,
   trackingCameraShouldMove,
+  trackingFrameHolds,
+  trackingRouteCamera,
+  TRACKING_SHEET_OVERLAP,
+  TRACKING_TOP_CLEARANCE,
   trackingMapView,
   offerMapMarkers,
   riderMarkerForMap,
@@ -167,6 +171,28 @@ test('actions and camera follow the native tracking rules', () => {
   const camera = trackingCameraRegion({ latitude: -17.82, longitude: 31.05 }, { latitude: -17.821, longitude: 31.051 });
   assert.ok(camera.latitudeDelta > 0.01);
   assert.equal(camera.longitudeDelta, 0.01);
+  const route = [
+    { latitude: -17.82, longitude: 31.04 },
+    { latitude: -17.78, longitude: 31.02 },
+    { latitude: -17.76, longitude: 31.09 },
+  ];
+  const width = 390;
+  const height = 640;
+  const framed = trackingRouteCamera(route, width, height, TRACKING_SHEET_OVERLAP);
+  const zoom = Math.min(zoomForSpan(framed.latitudeDelta, height), zoomForSpan(framed.longitudeDelta, width));
+  const tight = Math.min(zoomForSpan(0.06, height), zoomForSpan(0.07, width));
+  assert.ok(zoom < tight - 0.2);
+  const degrees = 360 / (256 * 2 ** zoom);
+  for (const point of route) {
+    const x = width / 2 + (point.longitude - framed.longitude) / degrees;
+    const y = height / 2 - (point.latitude - framed.latitude) / degrees;
+    assert.ok(x >= 32 + 45 && x <= width - 32 - 45);
+    assert.ok(y >= TRACKING_TOP_CLEARANCE && y <= height - TRACKING_SHEET_OVERLAP - 16);
+  }
+  assert.equal(trackingFrameHolds(route, framed, width, height, TRACKING_SHEET_OVERLAP), true);
+  const drifted = route.map((point) => ({ latitude: point.latitude + 0.0002, longitude: point.longitude }));
+  assert.equal(trackingFrameHolds(drifted, framed, width, height, TRACKING_SHEET_OVERLAP), true);
+  assert.equal(trackingFrameHolds([{ latitude: -17.7, longitude: 31.2 }], framed, width, height, TRACKING_SHEET_OVERLAP), false);
   assert.deepEqual(trackingCameraShouldMove(false, true), { move: true, gestured: false });
   assert.deepEqual(trackingCameraShouldMove(true, true), { move: false, gestured: true });
   assert.equal(showsTrackingRoute(1), false);

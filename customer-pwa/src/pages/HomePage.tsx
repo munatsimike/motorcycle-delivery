@@ -2,7 +2,6 @@ import { useCallback, useState } from 'react';
 import { Button } from '../components/Button';
 import { CrosshairIcon } from '../components/CrosshairIcon';
 import riderCutout from '../assets/rider-cutout.webp';
-import riderMarker from '../assets/rider-motorcycle-marker.png';
 import { nearbyHomeCountLabel } from '../home/nearby';
 import { useCustomerHome } from '../home/useCustomerHome';
 
@@ -17,7 +16,7 @@ export function HomePage() {
     observer.observe(node);
     return () => observer.disconnect();
   }, []);
-  const home = useCustomerHome(mapNode, cardHeight, riderMarker);
+  const home = useCustomerHome(mapNode, cardHeight);
   const loading = home.availability.status === 'loading';
   const actionable = !loading && home.availability.status !== 'ready';
   const label = nearbyHomeCountLabel(home.availability);
