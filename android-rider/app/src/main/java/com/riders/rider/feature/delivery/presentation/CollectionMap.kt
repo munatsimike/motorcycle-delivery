@@ -64,6 +64,7 @@ import com.riders.rider.feature.delivery.domain.GeoPoint
 import com.riders.rider.feature.delivery.domain.ARRIVAL_METRES
 import com.riders.rider.feature.delivery.domain.haversineMetres
 import com.riders.rider.feature.delivery.domain.pickupTagLabel
+import com.riders.rider.feature.delivery.domain.PICKUP_ARRIVED_TAG
 import com.riders.rider.feature.delivery.domain.cameraHeading
 import com.riders.rider.feature.delivery.domain.reliableBearing
 import com.riders.rider.feature.delivery.domain.retainedHeading
@@ -400,11 +401,12 @@ internal fun riderMotorcycleDescriptor(context: android.content.Context): Bitmap
     return BitmapDescriptorFactory.fromBitmap(riderMotorcycleImage(context))
 }
 
-/** White pill only. Transparent space below it keeps the pill 8dp above a 90dp motorcycle centered on the same point. */
+/** Distance pill. Arrived uses solid primary green and white text. Transparent space below keeps the pill 8dp above a 90dp motorcycle. */
 internal fun approachTagIcon(context: android.content.Context, label: String): RiderMarkerIcon {
+    val arrived = label == PICKUP_ARRIVED_TAG
     val density = context.resources.displayMetrics.density
     val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF17211D.toInt()
+        color = if (arrived) android.graphics.Color.WHITE else 0xFF17211D.toInt()
         textSize = 14f * density
         typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
     }
@@ -439,7 +441,9 @@ internal fun approachTagIcon(context: android.content.Context, label: String): R
         badgeHeight,
         radius,
         radius,
-        Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE },
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = if (arrived) 0xFF169B62.toInt() else android.graphics.Color.WHITE
+        },
     )
     canvas.drawText(
         label,
