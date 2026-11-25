@@ -1,5 +1,6 @@
 package com.riders.rider.feature.offers.domain
 
+import com.riders.rider.core.network.OfferResponse
 import java.time.Instant
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
@@ -13,6 +14,7 @@ data class OfferBoard(
 const val OFFER_REFRESH_INTERVAL_MS = 20_000L
 const val OFFER_CLOCK_INTERVAL_MS = 1_000L
 const val OFFER_UNAVAILABLE = "This offer is no longer available."
+const val EXPIRED_REQUEST_DISMISS_MS = 3_000L
 
 fun offerBoardAfterLoad(previous: OfferBoard, count: Int?, error: String?): OfferBoard {
     return if (count != null) {
@@ -291,6 +293,84 @@ fun offerExpiryLabel(expiresAt: String, nowMillis: Long): String {
     val minutes = remainingSeconds / 60L
     val seconds = remainingSeconds % 60L
     return "$minutes:${seconds.toString().padStart(2, '0')}"
+}
+
+fun requestAttemptIdentity(deliveryId: String, searchExpiresAt: String?, expiresAt: String): String {
+    val deadline = searchExpiresAt?.trim().orEmpty().ifEmpty { expiresAt.trim() }
+    return searchAttemptKey(deliveryId, deadline.ifEmpty { null })
+}
+
+fun requestAttemptIdentity(offer: OfferResponse): String {
+    return requestAttemptIdentity(offer.deliveryId, offer.searchExpiresAt, offer.expiresAt)
+}
+
+/**
+ * When the rider-facing countdown becomes Expired.
+ * Matches [riderExpiryDisplay]: a search extension of 7 seconds or less expires at the search deadline.
+ */
+fun riderCountdownDeadlineMillis(searchExpiresAt: String?, expiresAt: String): Long? {
+    if (expiresAt.isBlank() && searchExpiresAt.isNullOrBlank()) {
+        return null
+    }
+    val finalDeadline = parseExpiry(expiresAt) ?: return null
+    val searchDeadline = searchExpiresAt?.let(::parseExpiry) ?: finalDeadline
+    if (finalDeadline <= searchDeadline || finalDeadline - searchDeadline <= 7_000L) {
+        return if (finalDeadline <= searchDeadline) finalDeadline else searchDeadline
+    }
+    return finalDeadline
+}
+
+data class ActionableRequestBoard(
+    val offers: List<OfferResponse>,
+    val seenAt: Map<String, Long>,
+    val retired: Set<String>,
+    val justRetired: List<String>,
+)
+
+/**
+ * Keeps a request that has just reached Expired long enough for the badge to be seen,
+ * then retires that attempt. A later deadline is a different attempt and stays open.
+ */
+fun retainActionableRequests(
+    offers: List<OfferResponse>,
+    seenAt: Map<String, Long>,
+    retired: Set<String>,
+    nowMillis: Long,
+    dismissAfterMs: Long = EXPIRED_REQUEST_DISMISS_MS,
+): ActionableRequestBoard {
+    val nextSeen = seenAt.toMutableMap()
+    val nextRetired = retired.toMutableSet()
+    val justRetired = mutableListOf<String>()
+    val visible = ArrayList<OfferResponse>(offers.size)
+    val live = mutableSetOf<String>()
+    for (offer in offers) {
+        val attempt = requestAttemptIdentity(offer)
+        if (attempt.isEmpty()) {
+            continue
+        }
+        live += attempt
+        if (attempt in nextRetired) {
+            continue
+        }
+        if (!requestCountdownExpired(offer.searchExpiresAt, offer.expiresAt, nowMillis)) {
+            nextSeen.remove(attempt)
+            visible += offer
+            continue
+        }
+        val started = nextSeen[attempt] ?: riderCountdownDeadlineMillis(offer.searchExpiresAt, offer.expiresAt) ?: nowMillis
+        if (attempt !in nextSeen) {
+            nextSeen[attempt] = started
+        }
+        if (nowMillis - started >= dismissAfterMs) {
+            nextRetired += attempt
+            nextSeen.remove(attempt)
+            justRetired += attempt
+        } else {
+            visible += offer
+        }
+    }
+    nextSeen.keys.retainAll(live)
+    return ActionableRequestBoard(visible, nextSeen, nextRetired, justRetired)
 }
 
 /** True when the rider-facing countdown has reached Expired. A blank deadline stays open. */

@@ -6,7 +6,12 @@ import com.riders.rider.core.network.StopResponse
 import com.riders.rider.feature.offers.domain.RequestBackTarget
 import com.riders.rider.feature.offers.domain.RequestMapEvent
 import com.riders.rider.feature.offers.domain.requestBackTarget
+import com.riders.rider.feature.offers.domain.EXPIRED_REQUEST_DISMISS_MS
+import com.riders.rider.feature.offers.domain.closeExpiredRequest
+import com.riders.rider.feature.offers.domain.requestAttemptIdentity
 import com.riders.rider.feature.offers.domain.requestCountdownExpired
+import com.riders.rider.feature.offers.domain.retainActionableRequests
+import com.riders.rider.feature.offers.domain.riderCountdownDeadlineMillis
 import com.riders.rider.feature.offers.domain.riderExpiryDisplay
 import com.riders.rider.feature.offers.domain.requestCatalog
 import com.riders.rider.feature.offers.domain.requestForMap
@@ -315,6 +320,54 @@ class RequestOverlayTest {
         )
         assertEquals("delivery-1", result.offer?.deliveryId)
         assertFalse(result.confirmed)
+    }
+
+    @Test
+    fun anExpiredRequestStaysForThreeSecondsThenLeavesWithoutClosingAnother() {
+        assertEquals(3_000L, EXPIRED_REQUEST_DISMISS_MS)
+        val search = "2026-10-28T11:00:00Z"
+        val expires = "2026-10-28T11:00:05Z"
+        val deadline = riderCountdownDeadlineMillis(search, expires)
+        val now = Instant.parse(search).toEpochMilli()
+        assertEquals(now, deadline)
+        assertFalse(requestCountdownExpired(search, expires, now - 1L))
+        assertTrue(requestCountdownExpired(search, expires, now))
+        val expired = requestOffer("delivery-1", "4.00").copy(searchExpiresAt = search, expiresAt = expires)
+        val other = requestOffer("delivery-2", "6.00").copy(
+            searchExpiresAt = "2026-10-28T11:10:00Z",
+            expiresAt = "2026-10-28T11:20:00Z",
+        )
+        val attempt = requestAttemptIdentity(expired)
+        val held = retainActionableRequests(listOf(expired, other), emptyMap(), emptySet(), now)
+        assertEquals(listOf("delivery-1", "delivery-2"), held.offers.map { it.deliveryId })
+        assertTrue(held.justRetired.isEmpty())
+        val stillHeld = retainActionableRequests(listOf(expired, other), held.seenAt, held.retired, now + EXPIRED_REQUEST_DISMISS_MS - 1L)
+        assertEquals(listOf("delivery-1", "delivery-2"), stillHeld.offers.map { it.deliveryId })
+        val retired = retainActionableRequests(listOf(expired, other), stillHeld.seenAt, stillHeld.retired, now + EXPIRED_REQUEST_DISMISS_MS)
+        assertEquals(listOf("delivery-2"), retired.offers.map { it.deliveryId })
+        assertEquals(listOf(attempt), retired.justRetired)
+        val renewed = expired.copy(searchExpiresAt = "2026-10-28T11:30:00Z", expiresAt = "2026-10-28T11:40:00Z")
+        val kept = retainActionableRequests(listOf(renewed, other), held.seenAt, emptySet(), now + 1_000L)
+        assertEquals(listOf("delivery-1", "delivery-2"), kept.offers.map { it.deliveryId })
+        assertTrue(kept.justRetired.isEmpty())
+        assertFalse(requestCountdownExpired(renewed.searchExpiresAt, renewed.expiresAt, now + 1_000L))
+        val open = RequestOverlay(openId = "delivery-1")
+        val closed = closeExpiredRequest(open, attempt, attempt)
+        assertNull(closed.openId)
+        assertTrue("delivery-1" in closed.dismissed)
+        val otherOpen = closeExpiredRequest(RequestOverlay(openId = "delivery-2"), requestAttemptIdentity(other), attempt)
+        assertEquals("delivery-2", otherOpen.openId)
+        assertTrue("delivery-1" in otherOpen.dismissed)
+        val renewedAttempt = requestAttemptIdentity(renewed)
+        val stillOpen = closeExpiredRequest(open, renewedAttempt, attempt)
+        assertEquals("delivery-1", stillOpen.openId)
+        assertFalse("delivery-1" in stillOpen.dismissed)
+        val stale = retainActionableRequests(listOf(expired), emptyMap(), emptySet(), now + EXPIRED_REQUEST_DISMISS_MS + 60_000L)
+        assertTrue(stale.offers.isEmpty())
+        assertEquals(listOf(attempt), stale.justRetired)
+        val openEnded = requestOffer("delivery-3", "1.00").copy(expiresAt = "", searchExpiresAt = null)
+        val stays = retainActionableRequests(listOf(openEnded), emptyMap(), emptySet(), now + 60_000L)
+        assertEquals(listOf("delivery-3"), stays.offers.map { it.deliveryId })
     }
 
     @Test

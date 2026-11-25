@@ -1,5 +1,5 @@
 import { NEIGHBORHOOD_SPAN, zoomForSpan } from '../home/camera.ts';
-import { isKnownDeliveryStatus, deliveryCanSearchAgain, type DeliveryCancellation, type DeliveryStatus } from './rules.ts';
+import { deliveryCardStatusLabel, deliveryCanSearchAgain, isKnownDeliveryStatus, type CustomerDelivery, type DeliveryCancellation, type DeliveryStatus } from './rules.ts';
 
 export const TRACKING_POLL_MS = 8_000;
 export const LIVE_LOCATION_MAX_AGE_MS = 60_000;
@@ -22,6 +22,11 @@ export const TRACKING_RIDER_CLEARANCE = 45;
 export const TRACKING_PIN_CLEARANCE = 12;
 /** Shortest ground a fitted route may cover, so a point does not collapse the frame. */
 export const TRACKING_MIN_SPAN_METRES = 40;
+/**
+ * Street-level ceiling after arrival. Fitting only the rider and stop is about
+ * 40 metres and zooms past the surrounding streets.
+ */
+export const ARRIVAL_MAX_ZOOM = 16;
 
 export type RiderPoint = {
   latitude: number;
@@ -347,6 +352,32 @@ export function dropoffStraightLineMetres(
   return freshStopMetres(delivery.riderLocation, delivery.dropoffLatitude, delivery.dropoffLongitude, now);
 }
 
+/** Customer-facing list status. Arrival stays derived from the 50-metre drop-off check. */
+export function customerListStatusLabel(
+  delivery: Pick<CustomerDelivery, 'status' | 'serviceClass' | 'deliverBy' | 'offerResponseExpired'> & {
+    openBidCount?: number;
+    dropoffLatitude?: number | null;
+    dropoffLongitude?: number | null;
+    riderLocation?: { latitude: number; longitude: number; updatedAt?: string | null } | null;
+  },
+  now = Date.now(),
+): string {
+  const metres = dropoffStraightLineMetres({
+    status: delivery.status,
+    dropoffLatitude: delivery.dropoffLatitude ?? null,
+    dropoffLongitude: delivery.dropoffLongitude ?? null,
+    riderLocation: delivery.riderLocation
+      ? {
+          latitude: delivery.riderLocation.latitude,
+          longitude: delivery.riderLocation.longitude,
+          updatedAt: delivery.riderLocation.updatedAt ?? null,
+        }
+      : null,
+  }, now);
+  if (withinArrival(metres)) return 'Arrived';
+  return deliveryCardStatusLabel({ ...delivery, openBidCount: delivery.openBidCount ?? 0 });
+}
+
 /** Straight-line metres to whichever stop is active. Missing or stale GPS stays null. */
 export function activeStopStraightLineMetres(
   delivery: Pick<CustomerDeliveryDetail, 'status' | 'pickupLatitude' | 'pickupLongitude' | 'dropoffLatitude' | 'dropoffLongitude' | 'riderLocation'>,
@@ -374,8 +405,14 @@ export function trackingHeadline(status: DeliveryStatus, distanceMetres?: number
     if (withinArrival(distanceMetres)) return 'Rider arrived';
     return status === 'RIDER_ASSIGNED' || status === 'COLLECTING' ? 'Rider coming' : 'Rider on the way';
   }
-  if (status === 'PICKED_UP' || status === 'COLLECTED' || status === 'OUT_FOR_DELIVERY') return 'Parcel collected';
-  if (status === 'IN_TRANSIT' || status === 'ARRIVED_AT_DROPOFF') return 'Your parcel is on the way';
+  if (status === 'PICKED_UP' || status === 'COLLECTED' || status === 'OUT_FOR_DELIVERY') {
+    if ((status === 'COLLECTED' || status === 'OUT_FOR_DELIVERY') && withinArrival(distanceMetres)) return 'Rider has arrived';
+    return 'Parcel collected';
+  }
+  if (status === 'IN_TRANSIT' || status === 'ARRIVED_AT_DROPOFF') {
+    if (withinArrival(distanceMetres)) return 'Rider has arrived';
+    return 'Your parcel is on the way';
+  }
   if (status === 'DELIVERED') return 'Parcel delivered';
   return null;
 }
@@ -383,6 +420,7 @@ export function trackingHeadline(status: DeliveryStatus, distanceMetres?: number
 export function trackingSubtitle(headline: string | null, dropoffAddress?: string | null): string | null {
   if (headline === 'Rider coming' || headline === 'Rider on the way') return 'Your rider is coming to pick up your parcel.';
   if (headline === 'Rider arrived') return 'Handover your parcel to the rider.';
+  if (headline === 'Rider has arrived') return 'Waiting for the rider to confirm delivery.';
   if (headline === 'Parcel collected') {
     const address = dropoffAddress?.trim();
     return address ? `On its way to ${address}.` : null;
@@ -633,6 +671,29 @@ export function riderWhatsAppUrl(phone: string | null): string | null {
 export function trackingCameraShouldMove(destinationChanged: boolean, gestured: boolean): { move: boolean; gestured: boolean } {
   if (destinationChanged && gestured) return { move: false, gestured: true };
   return { move: true, gestured: false };
+}
+
+/** An arrival that replaces a route already on screen keeps that camera. */
+export function keepArrivalCamera(alreadyFramed: boolean): boolean {
+  return alreadyFramed;
+}
+
+/** Widens a frame so its zoom does not pass the street-level arrival ceiling. */
+export function capTrackingCameraZoom(
+  frame: OffersMapFrame,
+  width: number,
+  height: number,
+  maxZoom: number,
+): OffersMapFrame {
+  const safeWidth = Math.max(1, width);
+  const safeHeight = Math.max(1, height);
+  const zoom = Math.min(zoomForSpan(frame.latitudeDelta, safeHeight), zoomForSpan(frame.longitudeDelta, safeWidth));
+  if (!Number.isFinite(zoom) || zoom <= maxZoom) return frame;
+  return {
+    ...frame,
+    latitudeDelta: (360 * safeHeight) / (256 * 2 ** maxZoom),
+    longitudeDelta: (360 * safeWidth) / (256 * 2 ** maxZoom),
+  };
 }
 
 export function showsTrackingRoute(pointCount: number): boolean {

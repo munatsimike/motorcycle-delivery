@@ -34,6 +34,8 @@ import {
   smoothHeading,
   straightLineMetres,
   trackingHeadline,
+  trackingSubtitle,
+  customerListStatusLabel,
   offerRiderName,
   riderPhotoPresentation,
   shouldPollDelivery,
@@ -45,6 +47,9 @@ import {
   trackingCameraShouldMove,
   trackingFrameHolds,
   trackingRouteCamera,
+  ARRIVAL_MAX_ZOOM,
+  capTrackingCameraZoom,
+  keepArrivalCamera,
   TRACKING_SHEET_OVERLAP,
   TRACKING_PIN_CLEARANCE,
   TRACKING_SIDE_PADDING,
@@ -203,6 +208,23 @@ test('actions and camera follow the native tracking rules', () => {
     TRACKING_SHEET_OVERLAP,
   );
   assert.ok(short.latitudeDelta < 0.002);
+  const arrived = trackingRouteCamera(
+    [{ latitude: -17.82, longitude: 31.05 }, { latitude: -17.82015, longitude: 31.05015 }],
+    width,
+    height,
+    TRACKING_SHEET_OVERLAP,
+    { includeRider: true, includeTag: true },
+  );
+  const arrivedZoom = Math.min(zoomForSpan(arrived.latitudeDelta, height), zoomForSpan(arrived.longitudeDelta, width));
+  assert.ok(arrivedZoom > ARRIVAL_MAX_ZOOM);
+  const capped = capTrackingCameraZoom(arrived, width, height, ARRIVAL_MAX_ZOOM);
+  const cappedZoom = Math.min(zoomForSpan(capped.latitudeDelta, height), zoomForSpan(capped.longitudeDelta, width));
+  assert.ok(Math.abs(cappedZoom - ARRIVAL_MAX_ZOOM) < 0.01);
+  assert.equal(capped.latitude, arrived.latitude);
+  assert.equal(capped.longitude, arrived.longitude);
+  assert.equal(capTrackingCameraZoom(framed, width, height, ARRIVAL_MAX_ZOOM), framed);
+  assert.equal(keepArrivalCamera(true), true);
+  assert.equal(keepArrivalCamera(false), false);
   const drifted = route.map((point) => ({ latitude: point.latitude + 0.0002, longitude: point.longitude }));
   assert.equal(trackingFrameHolds(drifted, framed, width, height, TRACKING_SHEET_OVERLAP), true);
   assert.equal(trackingFrameHolds([{ latitude: -17.7, longitude: 31.2 }], framed, width, height, TRACKING_SHEET_OVERLAP), false);
@@ -490,8 +512,10 @@ test('the distance tag says Arrived only inside 50 metres', () => {
   });
   assert.equal(dropoffStraightLineMetres(delivering(49), NOW), 49);
   assert.equal(tag(delivering(49)).tag, 'Arrived');
-  assert.equal(tag(delivering(49)).headline, 'Parcel collected');
+  assert.equal(tag(delivering(49)).headline, 'Rider has arrived');
+  assert.equal(trackingSubtitle('Rider has arrived', '4 Jason Moyo Street'), 'Waiting for the rider to confirm delivery.');
   assert.equal(tag(delivering(50)).tag, 'Arrived');
+  assert.equal(tag(delivering(50)).headline, 'Rider has arrived');
   assert.equal(tag(delivering(51)).tag, '477 m · 2 min');
   assert.equal(trackingHeadline('COLLECTED', dropoffStraightLineMetres(delivering(51), NOW)), 'Parcel collected');
   const staleDropoff = delivering(10, new Date(NOW - 61_000).toISOString());
@@ -555,8 +579,9 @@ test('the motorcycle follows travel direction for collection and delivery', () =
 });
 
 test('collected deliveries keep their status headlines', () => {
-  assert.equal(trackingHeadline('COLLECTED', 50), 'Parcel collected');
-  assert.equal(trackingHeadline('OUT_FOR_DELIVERY', 50), 'Parcel collected');
+  assert.equal(trackingHeadline('COLLECTED', 50), 'Rider has arrived');
+  assert.equal(trackingHeadline('OUT_FOR_DELIVERY', 50), 'Rider has arrived');
+  assert.equal(trackingHeadline('COLLECTED', 51), 'Parcel collected');
   assert.equal(trackingHeadline('PICKED_UP', 50), 'Parcel collected');
   assert.equal(trackingHeadline('IN_TRANSIT', 75), 'Your parcel is on the way');
   assert.equal(trackingHeadline('ARRIVED_AT_DROPOFF', 75), 'Your parcel is on the way');
@@ -568,6 +593,34 @@ test('collected deliveries keep their status headlines', () => {
   });
   assert.equal(pickupStraightLineMetres(collected, NOW), null);
   assert.equal(trackingHeadline(collected.status, pickupStraightLineMetres(collected, NOW)), 'Parcel collected');
+  assert.equal(customerListStatusLabel({
+    status: 'COLLECTED',
+    serviceClass: 'EXPRESS',
+    deliverBy: null,
+    openBidCount: 0,
+    dropoffLatitude: -17.83,
+    dropoffLongitude: 31.06,
+    riderLocation: {
+      latitude: -17.83 + (49 / 6_371_000) * (180 / Math.PI),
+      longitude: 31.06,
+      updatedAt: new Date(NOW).toISOString(),
+    },
+  }, NOW), 'Arrived');
+  assert.equal(customerListStatusLabel({
+    status: 'OUT_FOR_DELIVERY',
+    serviceClass: null,
+    deliverBy: null,
+    openBidCount: 0,
+  }, NOW), 'In transit');
+  assert.equal(customerListStatusLabel({
+    status: 'DELIVERED',
+    serviceClass: null,
+    deliverBy: null,
+    openBidCount: 0,
+    dropoffLatitude: -17.83,
+    dropoffLongitude: 31.06,
+    riderLocation: { latitude: -17.83, longitude: 31.06, updatedAt: new Date(NOW).toISOString() },
+  }, NOW), 'Delivered');
 });
 
 function northOf(point: { latitude: number; longitude: number }, metres: number) {

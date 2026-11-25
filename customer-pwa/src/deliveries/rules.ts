@@ -38,6 +38,9 @@ export type CustomerDelivery = {
   openBidCount: number;
   offerResponseExpiresAt?: string | null;
   offerResponseExpired?: boolean;
+  dropoffLatitude?: number | null;
+  dropoffLongitude?: number | null;
+  riderLocation?: { latitude: number; longitude: number; updatedAt?: string | null } | null;
 };
 
 const ACTIVE = new Set<DeliveryStatus>([
@@ -376,7 +379,33 @@ function readCustomerDelivery(value: unknown): CustomerDelivery {
     openBidCount,
     offerResponseExpiresAt: readDeadline(value.offerResponseExpiresAt) ?? null,
     offerResponseExpired: value.offerResponseExpired === true,
+    ...readListArrival(value),
   };
+}
+
+function readListArrival(value: Record<string, unknown>): Pick<CustomerDelivery, 'dropoffLatitude' | 'dropoffLongitude' | 'riderLocation'> {
+  const dropoffLatitude = readOptionalCoordinate(value.dropoffLatitude);
+  const dropoffLongitude = readOptionalCoordinate(value.dropoffLongitude);
+  const riderLocation = readListRiderLocation(value.riderLocation);
+  return {
+    ...(dropoffLatitude !== null && dropoffLongitude !== null ? { dropoffLatitude, dropoffLongitude } : {}),
+    ...(riderLocation ? { riderLocation } : {}),
+  };
+}
+
+function readOptionalCoordinate(value: unknown): number | null {
+  const coordinate = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : Number.NaN;
+  if (!Number.isFinite(coordinate) || Math.abs(coordinate) > 180) return null;
+  return coordinate;
+}
+
+function readListRiderLocation(value: unknown): CustomerDelivery['riderLocation'] {
+  if (!isRecord(value)) return null;
+  const latitude = readOptionalCoordinate(value.latitude);
+  const longitude = readOptionalCoordinate(value.longitude);
+  if (latitude === null || longitude === null || Math.abs(latitude) > 90) return null;
+  const updatedAt = typeof value.updatedAt === 'string' && !Number.isNaN(Date.parse(value.updatedAt)) ? value.updatedAt : null;
+  return { latitude, longitude, updatedAt };
 }
 
 function readServiceClass(value: unknown): ServiceClass | null | undefined {

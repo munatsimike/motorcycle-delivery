@@ -3,12 +3,12 @@ import { beginPageTransition } from '../motion/pageTransition';
 import { DeliveryLabels } from '../components/DeliveryLabels';
 import {
   deliveryCardAddress,
-  deliveryCardStatusLabel,
   deliveryContentKind,
   deliveryStatusTone,
   showsViewBids,
   type CustomerDelivery,
 } from './rules';
+import { customerListStatusLabel } from './tracking';
 
 export function DeliveryCard({
   delivery,
@@ -28,7 +28,7 @@ export function DeliveryCard({
           <DeliveryLabels kind={kind} serviceClass={delivery.serviceClass} />
         </span>
         <span className="delivery-status" style={{ background: tone.background, color: tone.color }}>
-          {deliveryCardStatusLabel(delivery)}
+          {customerListStatusLabel(delivery)}
         </span>
         <span className="delivery-stop">
           <Pin dropoff={false} />

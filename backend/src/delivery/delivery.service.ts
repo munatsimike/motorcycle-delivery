@@ -196,6 +196,59 @@ export class DeliveryService {
     };
   }
 
+  /** Fresh coordinates for the list. The PWA decides arrival with the existing 50-metre check. */
+  private async listDropoffFixes(rows: Array<{ id: string; status: DeliveryStatus }>) {
+    const fixes = new Map<string, { latitude: number; longitude: number; updatedAt: string }>();
+    const ids = rows.filter((row) => customerRoutesToDropoff(row.status)).map((row) => row.id);
+    const db = this.prisma as unknown as {
+      deliveryAssignment?: {
+        findMany: (args: {
+          where: { deliveryId: { in: string[] }; status: AssignmentStatus };
+          select: { deliveryId: true; riderProfileId: true };
+        }) => Promise<Array<{ deliveryId: string; riderProfileId: string }>>;
+      };
+      riderLocation?: {
+        findMany: (args: {
+          where: { riderProfileId: { in: string[] } };
+          select: { riderProfileId: true; latitude: true; longitude: true; updatedAt: true };
+        }) => Promise<Array<{
+          riderProfileId: string;
+          latitude: string | { toFixed(digits: number): string };
+          longitude: string | { toFixed(digits: number): string };
+          updatedAt: Date;
+        }>>;
+      };
+    };
+    if (ids.length === 0 || !db.deliveryAssignment?.findMany || !db.riderLocation?.findMany) {
+      return fixes;
+    }
+    const assignments = await db.deliveryAssignment.findMany({
+      where: { deliveryId: { in: ids }, status: AssignmentStatus.ACCEPTED },
+      select: { deliveryId: true, riderProfileId: true },
+    });
+    if (assignments.length === 0) {
+      return fixes;
+    }
+    const locations = await db.riderLocation.findMany({
+      where: { riderProfileId: { in: assignments.map((item) => item.riderProfileId) } },
+      select: { riderProfileId: true, latitude: true, longitude: true, updatedAt: true },
+    });
+    const byRider = new Map(locations.map((item) => [item.riderProfileId, item]));
+    for (const assignment of assignments) {
+      const location = byRider.get(assignment.riderProfileId);
+      if (!location) continue;
+      const latitude = coordinateNumber(pointText(location.latitude));
+      const longitude = coordinateNumber(pointText(location.longitude));
+      if (latitude === null || longitude === null) continue;
+      fixes.set(assignment.deliveryId, {
+        latitude,
+        longitude,
+        updatedAt: location.updatedAt.toISOString(),
+      });
+    }
+    return fixes;
+  }
+
   private async assignedRider(deliveryId: string): Promise<AssignedRiderView | null> {
     const assignment = await this.prisma.deliveryAssignment.findFirst({
       where: { deliveryId, status: { in: [AssignmentStatus.ACCEPTED, AssignmentStatus.COMPLETED] } },
@@ -268,12 +321,22 @@ export class DeliveryService {
           suggestedPrice: true,
           price: true,
           distanceMeters: true,
+          dropoffLatitude: true,
+          dropoffLongitude: true,
         },
       }),
     ]);
     const openBidCount = await countOpenBids(this.prisma, rows, new Date());
+    const riderFixes = await this.listDropoffFixes(rows);
     return {
-      data: rows.map((delivery) => toCustomerDeliverySummary(delivery, openBidCount.get(delivery.id) ?? 0)),
+      data: rows.map((delivery) => {
+        const summary = toCustomerDeliverySummary(delivery, openBidCount.get(delivery.id) ?? 0);
+        const fix = riderFixes.get(delivery.id);
+        const dropoffLatitude = coordinateNumber(pointTextOrNull(delivery.dropoffLatitude));
+        const dropoffLongitude = coordinateNumber(pointTextOrNull(delivery.dropoffLongitude));
+        if (!fix || dropoffLatitude === null || dropoffLongitude === null) return summary;
+        return { ...summary, dropoffLatitude, dropoffLongitude, riderLocation: fix };
+      }),
       pagination: {
         page,
         limit,
@@ -638,6 +701,11 @@ function coordinateNumber(value: string | null | undefined): number | null {
 
 function pointText(value: string | { toFixed(digits: number): string }): string {
   return typeof value === 'string' ? value : value.toFixed(7);
+}
+
+function pointTextOrNull(value: string | { toFixed(digits: number): string } | null | undefined): string | null {
+  if (value == null) return null;
+  return pointText(value);
 }
 
 function readIdempotencyKey(value: string | undefined): string {

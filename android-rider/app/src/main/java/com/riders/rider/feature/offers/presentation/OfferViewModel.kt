@@ -45,6 +45,9 @@ import com.riders.rider.feature.offers.domain.clockOffsetMillis
 import com.riders.rider.feature.offers.domain.marketplaceOffersError
 import com.riders.rider.feature.offers.domain.offerBoardAfterLoad
 import com.riders.rider.feature.offers.domain.offerIsExpired
+import com.riders.rider.feature.offers.domain.requestAttemptIdentity
+import com.riders.rider.feature.offers.domain.requestCountdownExpired
+import com.riders.rider.feature.offers.domain.retainActionableRequests
 import com.riders.rider.feature.offers.domain.matchingOfferIndex
 import com.riders.rider.feature.offers.domain.offerUnavailableAfterRefresh
 import com.riders.rider.feature.wallet.data.WalletRepository
@@ -79,6 +82,9 @@ data class OfferUi(
     val ownBidsKnown: Boolean = false,
     val bidListError: String? = null,
     val settledIds: Set<String> = emptySet(),
+    val expirySeenAt: Map<String, Long> = emptyMap(),
+    val retiredAttempts: Set<String> = emptySet(),
+    val expiryDismissals: List<String> = emptyList(),
 )
 
 @HiltViewModel
@@ -383,16 +389,54 @@ class OfferViewModel @Inject constructor(
             ?: current.selected?.takeIf { it.deliveryId == deliveryId }?.searchExpiresAt
     }
 
+    fun retireExpiredAttempt(attempt: String, observedNow: Long) {
+        val id = attempt.trim()
+        if (id.isEmpty()) {
+            return
+        }
+        val now = maxOf(adjustedNowMillis(System.currentTimeMillis(), clockOffset), observedNow)
+        state.update { current ->
+            if (id in current.retiredAttempts) {
+                return@update current
+            }
+            val offer = current.offers.firstOrNull { requestAttemptIdentity(it) == id }
+            if (offer != null && !requestCountdownExpired(offer.searchExpiresAt, offer.expiresAt, now)) {
+                return@update current
+            }
+            current.copy(
+                offers = current.offers.filterNot { requestAttemptIdentity(it) == id },
+                expirySeenAt = current.expirySeenAt - id,
+                retiredAttempts = current.retiredAttempts + id,
+                expiryDismissals = current.expiryDismissals + id,
+                nowMillis = now,
+            )
+        }
+    }
+
+    fun clearExpiryDismissals(handled: List<String>) {
+        if (handled.isEmpty()) {
+            return
+        }
+        val handledSet = handled.toSet()
+        state.update { current ->
+            val remaining = current.expiryDismissals.filterNot { it in handledSet }
+            if (remaining.size == current.expiryDismissals.size) current else current.copy(expiryDismissals = remaining)
+        }
+    }
+
     private fun publishNow() {
         val now = adjustedNowMillis(System.currentTimeMillis(), clockOffset)
         state.update { current ->
-            val active = current.offers.filterNot { it.expiresAt.isNotBlank() && offerIsExpired(it.expiresAt, now) }
+            val board = retainActionableRequests(current.offers, current.expirySeenAt, current.retiredAttempts, now)
             val selectedExpired = current.selected?.let {
                 it.expiresAt.isNotBlank() && offerIsExpired(it.expiresAt, now)
             } == true
             current.copy(
                 nowMillis = now,
-                offers = active,
+                offers = board.offers,
+                expirySeenAt = board.seenAt,
+                retiredAttempts = board.retired,
+                expiryDismissals = if (board.justRetired.isEmpty()) current.expiryDismissals else current.expiryDismissals + board.justRetired,
                 selected = if (selectedExpired) null else current.selected,
                 placingBid = if (selectedExpired) false else current.placingBid,
                 offerGone = if (selectedExpired) false else current.offerGone,
@@ -442,9 +486,14 @@ class OfferViewModel @Inject constructor(
             clockOffset = clockOffsetMillis(listed.serverNowMillis, System.currentTimeMillis())
         }
         val now = adjustedNowMillis(System.currentTimeMillis(), clockOffset)
-        val visible = availableRequests(listed.offers, openRequests)
-            .filterNot { it.expiresAt.isNotBlank() && offerIsExpired(it.expiresAt, now) }
         state.update { current ->
+            val board = retainActionableRequests(
+                availableRequests(listed.offers, openRequests),
+                current.expirySeenAt,
+                current.retiredAttempts,
+                now,
+            )
+            val visible = board.offers
             val replacement = current.selected?.let { selected ->
                 val index = matchingOfferIndex(
                     selected.assignmentId,
@@ -465,6 +514,9 @@ class OfferViewModel @Inject constructor(
             current.copy(
                 loading = false,
                 offers = visible,
+                expirySeenAt = board.seenAt,
+                retiredAttempts = board.retired,
+                expiryDismissals = if (board.justRetired.isEmpty()) current.expiryDismissals else current.expiryDismissals + board.justRetired,
                 selected = if (selectedExpired) null else if (gone) current.selected else replacement,
                 placingBid = if (selectedExpired) false else current.placingBid,
                 offerGone = gone,

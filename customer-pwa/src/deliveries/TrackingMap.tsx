@@ -19,6 +19,9 @@ import {
   trackingCameraRegion,
   trackingCameraShouldMove,
   trackingFrameHolds,
+  ARRIVAL_MAX_ZOOM,
+  capTrackingCameraZoom,
+  keepArrivalCamera,
   trackingRouteCamera,
   PICKUP_ARRIVED_TAG,
   TRACKING_MAP_HEIGHT,
@@ -304,6 +307,13 @@ export function TrackingMap({
         drawRef.current();
         return;
       }
+      if (
+        props.current.hideRoute &&
+        keepArrivalCamera(framedIdentity.current === deliveryId && heldRoute.current !== null)
+      ) {
+        drawRef.current();
+        return;
+      }
       const size = measuredMap();
       const bottom = sheetOverlap();
       const held = heldRoute.current;
@@ -509,13 +519,15 @@ export function TrackingMap({
     if (followsActiveRoute()) {
       const size = measuredMap() ?? { width: 360, height: TRACKING_MAP_HEIGHT };
       const points = activeRoutePoints();
-      return trackingRouteCamera(
+      const fitted = trackingRouteCamera(
         points.length > 0 ? points : current.stop ? [current.stop] : [],
         size.width,
         size.height,
         sheetOverlap(),
         cameraOptions(),
       );
+      if (!current.hideRoute) return fitted;
+      return capTrackingCameraZoom(fitted, size.width, size.height, ARRIVAL_MAX_ZOOM);
     }
     if (current.rider && current.stop) return trackingCameraRegion(current.rider, current.stop);
     if (current.stop) return trackingCameraRegion(current.stop, null);

@@ -9,6 +9,7 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
+import android.os.SystemClock
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -45,6 +46,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.Lifecycle
@@ -135,6 +137,11 @@ import com.riders.rider.feature.offers.domain.cachedNotificationOffer
 import com.riders.rider.feature.offers.domain.offerSentToast
 import com.riders.rider.feature.offers.domain.overlayAfterSearchAttempt
 import com.riders.rider.feature.offers.domain.REQUEST_UNAVAILABLE
+import com.riders.rider.feature.offers.domain.EXPIRED_REQUEST_DISMISS_MS
+import com.riders.rider.feature.offers.domain.closeExpiredRequest
+import com.riders.rider.feature.offers.domain.requestCountdownExpired
+import com.riders.rider.feature.offers.domain.riderCountdownDeadlineMillis
+import com.riders.rider.feature.offers.domain.requestAttemptIdentity
 import com.riders.rider.feature.offers.domain.requestCatalog
 import com.riders.rider.feature.offers.domain.requestForMap
 import com.riders.rider.feature.offers.domain.requestMapAutoOpenBlocked
@@ -272,7 +279,13 @@ fun HomeScreen(
         delay(OFFER_SENT_TOAST_DISMISS_MS)
         offerSentHold = false
     }
-    val catalog = requestCatalog(offersUi.offers, ui.offers)
+    val retiredAttempts = offersUi.retiredAttempts
+    val homeOffers = if (retiredAttempts.isEmpty()) {
+        ui.offers
+    } else {
+        ui.offers.filter { requestAttemptIdentity(it) !in retiredAttempts }
+    }
+    val catalog = requestCatalog(offersUi.offers, homeOffers)
     val pendingTap = requestTap?.trim()?.takeIf { it.isNotEmpty() && it != ignoredTap }
     val requestClock = if (offersUi.nowMillis > 0L) offersUi.nowMillis else System.currentTimeMillis()
     val previewRequest = pendingTap?.let { id ->
@@ -312,7 +325,7 @@ fun HomeScreen(
             overlay = next
         }
     }
-    val shownRequest = requestForMap(offersUi.offers, ui.offers, overlay.openId)
+    val shownRequest = requestForMap(offersUi.offers, homeOffers, overlay.openId)
     val shownMatchesTap = shownRequest != null && pendingTap != null &&
         notificationBidRequest(listOf(shownRequest), pendingTap) != null
     val displayRequest = when {
@@ -335,6 +348,61 @@ fun HomeScreen(
     }
     val currentOverlay = rememberUpdatedState(overlay)
     val currentCatalog = rememberUpdatedState(catalog)
+    val currentDisplayRequest = rememberUpdatedState(displayRequest)
+    val currentSealedAttempts = rememberUpdatedState(sealedAttempts)
+    LaunchedEffect(offersUi.expiryDismissals) {
+        val pending = offersUi.expiryDismissals
+        if (pending.isEmpty()) {
+            return@LaunchedEffect
+        }
+        val openAttempt = currentDisplayRequest.value?.let { requestAttemptIdentity(it) }
+        var next = currentOverlay.value
+        var sealed = currentSealedAttempts.value
+        for (attempt in pending) {
+            val closed = closeExpiredRequest(next, openAttempt, attempt)
+            if (closed.dismissed != next.dismissed) {
+                sealed = sealDismissedAttempt(sealed, attempt.substringBefore('|'), attempt.substringAfter('|', "").ifEmpty { null })
+            }
+            next = closed
+        }
+        if (next != currentOverlay.value) {
+            overlay = next
+        }
+        if (sealed != currentSealedAttempts.value) {
+            sealedAttempts = sealed
+        }
+        offersModel.clearExpiryDismissals(pending)
+    }
+    val watchedRequests = buildList {
+        addAll(catalog)
+        val shown = displayRequest
+        if (shown != null && catalog.none { requestAttemptIdentity(it) == requestAttemptIdentity(shown) }) {
+            add(shown)
+        }
+    }
+    watchedRequests.forEach { offer ->
+        val attempt = requestAttemptIdentity(offer)
+        key(attempt) {
+            LaunchedEffect(attempt) {
+                val snapshot = offersUi.nowMillis.takeIf { it > 0L } ?: System.currentTimeMillis()
+                val deadline = riderCountdownDeadlineMillis(offer.searchExpiresAt, offer.expiresAt)
+                if (deadline == null && !requestCountdownExpired(offer.searchExpiresAt, offer.expiresAt, snapshot)) {
+                    return@LaunchedEffect
+                }
+                val started = SystemClock.elapsedRealtime()
+                val due = (deadline ?: snapshot) + EXPIRED_REQUEST_DISMISS_MS
+                while (true) {
+                    val now = snapshot + (SystemClock.elapsedRealtime() - started)
+                    val remaining = due - now
+                    if (remaining <= 0L) {
+                        offersModel.retireExpiredAttempt(attempt, now)
+                        return@LaunchedEffect
+                    }
+                    delay(remaining.coerceAtMost(1_000L))
+                }
+            }
+        }
+    }
     LaunchedEffect(requestTap) {
         val requestId = requestTap?.trim().orEmpty()
         if (requestId.isEmpty()) {
@@ -407,7 +475,10 @@ fun HomeScreen(
         )
     } else {
     HomeDashboard(
-        ui = ui.copy(offers = catalog),
+        ui = ui.copy(
+            offers = catalog,
+            activeRequestCount = ui.activeRequestCount?.minus(ui.offers.size - homeOffers.size)?.coerceAtLeast(0),
+        ),
         profilePhoto = profilePhoto,
         greeting = ridersGreeting(Calendar.getInstance().get(Calendar.HOUR_OF_DAY)),
         onGoOnline = {

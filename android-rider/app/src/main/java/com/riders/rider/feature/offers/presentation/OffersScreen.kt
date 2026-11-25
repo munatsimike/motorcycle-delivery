@@ -526,6 +526,7 @@ private fun YourOfferDialogButtons(
             onClick = onDismiss,
             enabled = dismissEnabled,
             bordered = false,
+            compact = true,
             containerColor = RidersColors.card,
             contentColor = RidersColors.text,
             regular = true,
@@ -536,6 +537,7 @@ private fun YourOfferDialogButtons(
             onClick = onConfirm,
             enabled = confirmEnabled,
             loading = loading,
+            compact = true,
             modifier = Modifier.weight(1f),
         )
     }

@@ -54,8 +54,9 @@ import {
   showsRiderOffers,
   sortRiderOffers,
   trackingHeadline,
-  trackingMapView,
   trackingSubtitle,
+  customerListStatusLabel,
+  trackingMapView,
   withoutBidMapPoints,
   type CustomerBid,
   type CustomerDeliveryDetail,
@@ -66,7 +67,6 @@ import { bookingDraftFromDelivery } from '../booking/draft';
 import {
   cancelledDeliveryCopy,
   deliveryCardAddress,
-  deliveryCardStatusLabel,
   deliveryContentKind,
   deliveryDistanceLabel,
   deliveryOutcomeSupport,
@@ -865,7 +865,7 @@ export function DeliveryDetailsPage() {
           <>
             {screen !== 'offers' && delivery.serviceClass === 'EXPRESS' ? <p className="track-kicker">Urgent</p> : null}
             <div className="track-title-row">
-              <h1>{screen === 'offers' ? activeOfferCountLabel(offers.length) : (headline ?? deliveryCardStatusLabel({ status: delivery.status, serviceClass: delivery.serviceClass, deliverBy: delivery.deliverBy, openBidCount: offers.length }))}</h1>
+              <h1>{screen === 'offers' ? activeOfferCountLabel(offers.length) : (headline ?? customerListStatusLabel(delivery, now))}</h1>
               {live ? <p className="track-live-pill">Live</p> : null}
               {showSearchTimer ? (
                 <span className="offer-search-countdown" role="timer" aria-label="Rider search time remaining">

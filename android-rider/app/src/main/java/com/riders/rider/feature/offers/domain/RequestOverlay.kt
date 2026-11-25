@@ -270,6 +270,28 @@ fun sealDismissedAttempt(
     return sealed + (id to searchDeadline?.trim().orEmpty())
 }
 
+/** Closes the open request only when it is still the attempt that expired. */
+fun closeExpiredRequest(
+    overlay: RequestOverlay,
+    openAttempt: String?,
+    retiredAttempt: String,
+): RequestOverlay {
+    val retiredId = retiredAttempt.substringBefore('|').trim()
+    if (retiredId.isEmpty()) {
+        return overlay
+    }
+    val openId = overlay.openId?.trim().orEmpty()
+    if (openId == retiredId && openAttempt != null && openAttempt != retiredAttempt) {
+        return overlay
+    }
+    val dismissed = overlay.dismissed + retiredId
+    val open = if (openId == retiredId) null else overlay.openId
+    if (open == overlay.openId && dismissed == overlay.dismissed) {
+        return overlay
+    }
+    return overlay.copy(openId = open, dismissed = dismissed)
+}
+
 fun overlayAfterSearchAttempt(
     overlay: RequestOverlay,
     sealedAttempts: Map<String, String>,
