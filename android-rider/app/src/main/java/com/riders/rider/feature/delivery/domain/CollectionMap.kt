@@ -21,10 +21,13 @@ const val NEAR_PLACE_METRES = 700.0
 const val NEAR_PLACE_SPAN_METRES = 320.0
 
 /**
- * Shortest ground a delivery camera may show. A short pickup or drop-off is
- * expanded to this span so the fit does not zoom into the street.
+ * Shortest ground the delivered-pin camera may show. A single point is expanded
+ * to this span so the fit does not zoom into the street.
  */
 const val MIN_FRAME_SPAN_METRES = 1_500.0
+
+/** Shortest ground the collection and request route cameras may show. */
+const val ROUTE_MIN_FRAME_SPAN_METRES = 1_000.0
 
 /** Street-level zoom used when the rider is at the pickup. */
 const val NEAR_PLACE_ZOOM = 17f

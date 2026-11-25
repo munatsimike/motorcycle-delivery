@@ -81,6 +81,7 @@ import com.riders.rider.feature.delivery.domain.reliableBearing
 import com.riders.rider.feature.delivery.domain.retainedHeading
 import com.riders.rider.feature.delivery.presentation.animateHeadingUp
 import com.riders.rider.feature.delivery.presentation.showFittedCamera
+import com.riders.rider.feature.delivery.domain.ROUTE_MIN_FRAME_SPAN_METRES
 import com.riders.rider.feature.delivery.domain.withMinimumCameraSpan
 import com.riders.rider.feature.delivery.domain.collectionCameraFrame
 import com.riders.rider.feature.delivery.domain.collectionMarkerPaddingPx
@@ -105,7 +106,8 @@ import kotlinx.coroutines.sync.withLock
 
 // Reusable Google Maps route view for bids and other rider screens.
 // Pin shapes use the same drawable assets as the delivery cards.
-private const val FRAME_LOOSEN = 0.08
+private const val FRAME_LOOSEN = 0.04
+private const val DELIVERED_FRAME_LOOSEN = 0.08
 
 @Composable
 fun RequestRouteMap(
@@ -222,7 +224,7 @@ fun RequestRouteMap(
                 return@LaunchedEffect
             }
             val update = CameraUpdateFactory.newLatLngBounds(
-                loosened(withMinimumCameraSpan(frame.points)),
+                loosened(withMinimumCameraSpan(frame.points, ROUTE_MIN_FRAME_SPAN_METRES)),
                 boundsPadding,
             )
             cameraLock.withLock {
@@ -276,9 +278,9 @@ fun RequestRouteMap(
             },
             cameraPositionState = camera,
             contentPadding = PaddingValues(
-                start = 40.dp,
+                start = 32.dp,
                 top = statusTop + 64.dp,
-                end = 40.dp,
+                end = 32.dp,
                 bottom = sheetOverlap + 28.dp,
             ),
             properties = MapProperties(isMyLocationEnabled = false, mapStyleOptions = mapStyles.optionsFor(mapTheme, LocalAppDark.current)),
@@ -358,12 +360,12 @@ fun RequestRouteMap(
     }
 }
 
-private fun loosened(points: List<GeoPoint>): LatLngBounds {
+private fun loosened(points: List<GeoPoint>, loosen: Double = FRAME_LOOSEN): LatLngBounds {
     val bounds = LatLngBounds.builder().apply {
         points.forEach { include(LatLng(it.latitude, it.longitude)) }
     }.build()
-    val latitudePad = (bounds.northeast.latitude - bounds.southwest.latitude) * FRAME_LOOSEN / 2.0
-    val longitudePad = (bounds.northeast.longitude - bounds.southwest.longitude) * FRAME_LOOSEN / 2.0
+    val latitudePad = (bounds.northeast.latitude - bounds.southwest.latitude) * loosen / 2.0
+    val longitudePad = (bounds.northeast.longitude - bounds.southwest.longitude) * loosen / 2.0
     return LatLngBounds(
         LatLng(bounds.southwest.latitude - latitudePad, bounds.southwest.longitude - longitudePad),
         LatLng(bounds.northeast.latitude + latitudePad, bounds.northeast.longitude + longitudePad),
@@ -435,7 +437,7 @@ fun DeliveredDestinationMap(
         runCatching {
             camera.animate(
                 CameraUpdateFactory.newLatLngBounds(
-                    loosened(withMinimumCameraSpan(listOf(point))),
+                    loosened(withMinimumCameraSpan(listOf(point)), DELIVERED_FRAME_LOOSEN),
                     boundsPadding,
                 ),
                 450,

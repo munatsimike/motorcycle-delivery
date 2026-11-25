@@ -34,6 +34,7 @@ import com.riders.rider.feature.offers.domain.AcceptedDelivery
 import com.riders.rider.feature.offers.domain.OFFER_UNAVAILABLE
 import com.riders.rider.feature.offers.domain.REQUEST_UNAVAILABLE
 import com.riders.rider.feature.offers.domain.notificationRequestCanOpen
+import com.riders.rider.feature.offers.domain.openNotificationRequest
 import com.riders.rider.feature.offers.notification.PendingOffer
 import com.riders.rider.feature.offers.domain.OfferBoard
 import com.riders.rider.feature.offers.domain.OfferRefreshGate
@@ -169,26 +170,30 @@ class OfferViewModel @Inject constructor(
 
     suspend fun resolveNotificationRequest(assignmentId: String): OfferResponse? {
         val now = adjustedNowMillis(System.currentTimeMillis(), clockOffset)
-        return when (val opened = bids.openRequests()) {
-            is ApiResult.Ok -> {
-                openRequests = opened.value
-                bids.refreshOwnBids(null)
-                val visible = availableRequests(emptyList(), openRequests)
-                applyListed(ListedOffers(emptyList(), fromNetwork = true, serverNowMillis = null))
-                val match = notificationBidRequest(visible, assignmentId)
-                val canOpen = notificationRequestCanOpen(
-                    match != null,
-                    match?.expiresAt,
-                    adjustedNowMillis(System.currentTimeMillis(), clockOffset),
-                )
-                state.update { it.copy(selected = null, offerGone = false, nowMillis = now, loading = false) }
-                if (canOpen) match else null
-            }
-            else -> {
-                state.update { it.copy(selected = null, offerGone = false, nowMillis = now, loading = false) }
-                null
-            }
+        val cached = state.value.offers.ifEmpty { availableRequests(emptyList(), openRequests) }
+        val result = openNotificationRequest(
+            scope = viewModelScope,
+            tappedId = assignmentId,
+            cached = cached,
+            settled = state.value.settledIds,
+            nowMillis = now,
+            loadRequests = {
+                when (val opened = bids.openRequests()) {
+                    is ApiResult.Ok -> {
+                        openRequests = opened.value
+                        availableRequests(emptyList(), opened.value)
+                    }
+                    else -> null
+                }
+            },
+            loadOwnBids = { bids.refreshOwnBids(null) },
+            match = ::notificationBidRequest,
+        )
+        if (result.confirmed) {
+            applyListed(ListedOffers(emptyList(), fromNetwork = true, serverNowMillis = null))
         }
+        state.update { it.copy(selected = null, offerGone = false, nowMillis = now, loading = false) }
+        return result.offer
     }
 
     fun refresh() {

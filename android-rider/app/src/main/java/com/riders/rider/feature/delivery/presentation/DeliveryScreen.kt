@@ -1565,6 +1565,7 @@ private fun DeliveredPage(
                     price = ui.agreedPrice,
                 currency = ui.currency,
                 paymentMethod = ui.paymentMethod,
+                serviceClass = ui.serviceClass,
         modifier = Modifier.fillMaxWidth(),
                     senderName = ui.contacts?.pickupName.orEmpty(),
                     customerSender = true,

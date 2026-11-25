@@ -16,6 +16,8 @@ import com.riders.rider.feature.profile.domain.loadProfilePhotoBytes
 import com.riders.rider.feature.profile.domain.profilePhotoAfterAccount
 import com.riders.rider.feature.profile.domain.profilePhotoAwaitingStored
 import com.riders.rider.feature.profile.domain.profilePhotoDownloadFailed
+import com.riders.rider.feature.profile.domain.profilePhotoLoadDismissed
+import com.riders.rider.feature.profile.domain.profilePhotoLoadFailureIsSilent
 import com.riders.rider.feature.profile.domain.profilePhotoIssue
 import com.riders.rider.feature.profile.domain.profilePhotoRemoveFailed
 import com.riders.rider.feature.profile.domain.profilePhotoRemoveStarted
@@ -141,7 +143,7 @@ class RiderProfilePhotoTest {
     }
 
     @Test
-    fun profilePhotoDownloadShowsTheErrorAfterTwoNetworkFailuresAndKeepsACurrentPhoto() = runBlocking {
+    fun profilePhotoDownloadFallsBackToInitialsAfterTwoNetworkFailures() = runBlocking {
         var calls = 0
         val result = loadProfilePhotoBytes {
             calls += 1
@@ -149,23 +151,17 @@ class RiderProfilePhotoTest {
         }
         assertEquals(2, calls)
         val error = (result as ApiResult.Err).error
+        assertTrue(profilePhotoLoadFailureIsSilent(error))
         val visible = ProfilePhotoState(hasStoredPhoto = true, showingStored = true, phase = ProfilePhotoPhase.Loading)
-        val failed = profilePhotoDownloadFailed(
-            visible,
-            error.text(),
-            keepVisiblePhoto = keepsStoredProfilePhoto(error, wasVisible = true),
-        )
-        assertEquals(ProfilePhotoRetry.Download, failed.retry)
-        assertEquals(ApiError.Network.text(), failed.error)
-        assertTrue(failed.showingStored)
-        assertEquals("photo", displayedProfilePhoto(failed, "photo", null))
-        val firstLoad = profilePhotoDownloadFailed(
-            visible.copy(showingStored = false),
-            error.text(),
-            keepVisiblePhoto = keepsStoredProfilePhoto(error, wasVisible = false),
-        )
-        assertFalse(firstLoad.showingStored)
-        assertNull(displayedProfilePhoto(firstLoad, "photo", null))
+        val failed = profilePhotoLoadDismissed(visible)
+        assertNull(failed.error)
+        assertNull(failed.retry)
+        assertFalse(failed.showingStored)
+        assertNull(displayedProfilePhoto(failed, "photo", null))
+        assertFalse(profilePhotoLoadFailureIsSilent(ApiError.SessionEnded))
+        val session = profilePhotoDownloadFailed(visible, ApiError.SessionEnded.text())
+        assertEquals(ApiError.SessionEnded.text(), session.error)
+        assertEquals(ProfilePhotoRetry.Download, session.retry)
     }
 
     @Test

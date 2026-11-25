@@ -59,7 +59,6 @@ import com.riders.rider.core.design.RidersCenteredContent
 import com.riders.rider.core.design.RidersEmptyState
 import com.riders.rider.core.design.RidersFailureNotice
 import com.riders.rider.core.design.RidersLoadingState
-import com.riders.rider.core.design.RidersInlineAction
 import com.riders.rider.core.design.RidersPrimaryButton
 import com.riders.rider.core.design.RidersPullRefresh
 import com.riders.rider.core.design.RidersSecondaryButton
@@ -81,8 +80,8 @@ import com.riders.rider.feature.delivery.presentation.cardLocationPinHeight
 import com.riders.rider.feature.delivery.presentation.cardLocationPinWidth
 import com.riders.rider.feature.delivery.presentation.deliveryContentMatches
 import com.riders.rider.feature.delivery.presentation.filteredContentTitle
-import com.riders.rider.feature.offers.domain.canAcceptOffer
 import com.riders.rider.feature.offers.domain.offerIsExpired
+import com.riders.rider.feature.offers.domain.requestCountdownExpired
 import com.riders.rider.feature.offers.domain.offerDistanceLabel
 import com.riders.rider.feature.offers.domain.CustomOfferDialogState
 import com.riders.rider.feature.offers.domain.CustomOfferPhase
@@ -411,42 +410,19 @@ private fun IncomingOfferActions(
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
             error = priceError ?: if (dialog.phase == CustomOfferPhase.Idle) dialog.error else null,
         )
-        if (mapDecline) {
-            MapOfferDialogButtons(
-                confirmLabel = customOfferButtonLabel(sending),
-                dismissLabel = "Cancel",
-                onConfirm = {
-                    val parsed = bidAmountCents(dialog.amount) ?: return@MapOfferDialogButtons
-                    val started = beginCustomOfferSubmit(dialog, submitError) ?: return@MapOfferDialogButtons
-                    dialog = started
-                    onSubmitBid(formatBidDollars(parsed))
-                },
-                onDismiss = { dialog = dismissCustomOfferDialog(dialog) },
-                confirmEnabled = canAct && cents != null && !accepting && !sending,
-                dismissEnabled = !sending,
-            )
-        } else {
-            RidersDialogActions {
-                RidersDialogTextButton(
-                    label = "Cancel",
-                    tone = RidersDialogTone.Neutral,
-                    enabled = !sending,
-                    regular = true,
-                    onClick = { dialog = dismissCustomOfferDialog(dialog) },
-                )
-                RidersDialogTextButton(
-                    label = customOfferButtonLabel(sending),
-                    loading = sending,
-                    enabled = canAct && cents != null && !accepting && !sending,
-                    onClick = {
-                        val parsed = bidAmountCents(dialog.amount) ?: return@RidersDialogTextButton
-                        val started = beginCustomOfferSubmit(dialog, submitError) ?: return@RidersDialogTextButton
-                        dialog = started
-                        onSubmitBid(formatBidDollars(parsed))
-                    },
-                )
-            }
-        }
+        YourOfferDialogButtons(
+            confirmLabel = customOfferButtonLabel(sending),
+            loading = sending,
+            confirmEnabled = canAct && cents != null && !accepting && !sending,
+            dismissEnabled = !sending,
+            onConfirm = {
+                val parsed = bidAmountCents(dialog.amount) ?: return@YourOfferDialogButtons
+                val started = beginCustomOfferSubmit(dialog, submitError) ?: return@YourOfferDialogButtons
+                dialog = started
+                onSubmitBid(formatBidDollars(parsed))
+            },
+            onDismiss = { dialog = dismissCustomOfferDialog(dialog) },
+        )
     }
     if (mapDecline) {
         RidersDialog(visible = confirmAccept, onDismiss = { if (!busy) confirmAccept = false }) {
@@ -512,33 +488,56 @@ private fun IncomingOfferActions(
             soft = false,
             compact = true,
         )
-        if (mapDecline) {
-            RidersSecondaryButton(
-                label = DECLINE_REQUEST,
-                loadingLabel = "Declining",
-                loading = declining,
-                enabled = canAct && !accepting && !submittingBid,
-                onClick = { confirmDecline = true },
-                bordered = false,
-                compact = true,
-                containerColor = RidersColors.dangerSurface,
-                contentColor = RidersColors.destructive,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = RidersSpacing.sm),
-            )
-        } else {
-            RidersInlineAction(
-                label = DECLINE_REQUEST,
-                loadingLabel = "Declining",
-                loading = declining,
-                enabled = canAct && !accepting && !submittingBid,
-                onClick = onDecline,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = RidersSpacing.xs),
-            )
-        }
+        RidersSecondaryButton(
+            label = DECLINE_REQUEST,
+            loadingLabel = "Declining",
+            loading = declining,
+            enabled = canAct && !accepting && !submittingBid,
+            onClick = { if (mapDecline) confirmDecline = true else onDecline() },
+            bordered = false,
+            compact = true,
+            containerColor = RidersColors.dangerSurface,
+            contentColor = RidersColors.destructive,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = RidersSpacing.sm),
+        )
+    }
+}
+
+@Composable
+private fun YourOfferDialogButtons(
+    confirmLabel: String,
+    loading: Boolean,
+    confirmEnabled: Boolean,
+    dismissEnabled: Boolean,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(top = RidersSpacing.sm),
+        horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RidersSecondaryButton(
+            label = "Cancel",
+            onClick = onDismiss,
+            enabled = dismissEnabled,
+            bordered = false,
+            containerColor = RidersColors.card,
+            contentColor = RidersColors.text,
+            regular = true,
+            modifier = Modifier.weight(1f),
+        )
+        RidersPrimaryButton(
+            label = confirmLabel,
+            onClick = onConfirm,
+            enabled = confirmEnabled,
+            loading = loading,
+            modifier = Modifier.weight(1f),
+        )
     }
 }
 
@@ -678,16 +677,16 @@ fun OfferRequestCard(
         SentOfferCard(offer, sentAmount)
         return
     }
-    var awaiting by remember(offer.deliveryId) { mutableStateOf(false) }
+    var awaiting by remember(offer.deliveryId, offer.searchExpiresAt, offer.expiresAt) { mutableStateOf(false) }
     val tracked = deferLoading
     LaunchedEffect(accepting, submittingBid) {
         if (!accepting && !submittingBid) {
             awaiting = false
         }
     }
-    val tickingNow = rememberOfferCountdownNow(nowMillis)
+    val tickingNow = rememberOfferCountdownNow(offer.deliveryId, offer.searchExpiresAt, offer.expiresAt, nowMillis)
     val canAct = bidsOpen && acceptPressEnabled(
-        canAcceptOffer(offer.expiresAt, tickingNow, accepting = false, unavailable = false),
+        !requestCountdownExpired(offer.searchExpiresAt, offer.expiresAt, tickingNow),
         confirmed = false,
     ) && !accepting && !submittingBid
     RidersCard(modifier = Modifier.fillMaxWidth(), onClick = if (settled) null else onOpen, bordered = false, bottomPadding = RidersSpacing.xs) {
@@ -781,9 +780,14 @@ private fun OfferSummary(offer: OfferResponse, nowMillis: Long, detailed: Boolea
 
 /** Keep the server-adjusted snapshot clock moving while the offer is visible. */
 @Composable
-private fun rememberOfferCountdownNow(serverNowSnapshot: Long): Long {
-    var now by remember(serverNowSnapshot) { mutableLongStateOf(serverNowSnapshot) }
-    LaunchedEffect(serverNowSnapshot) {
+private fun rememberOfferCountdownNow(
+    deliveryId: String,
+    searchExpiresAt: String?,
+    expiresAt: String,
+    serverNowSnapshot: Long,
+): Long {
+    var now by remember(deliveryId, searchExpiresAt, expiresAt, serverNowSnapshot) { mutableLongStateOf(serverNowSnapshot) }
+    LaunchedEffect(deliveryId, searchExpiresAt, expiresAt, serverNowSnapshot) {
         val startedAt = SystemClock.elapsedRealtime()
         while (true) {
             now = serverNowSnapshot + (SystemClock.elapsedRealtime() - startedAt)

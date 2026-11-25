@@ -74,6 +74,7 @@ import com.riders.rider.feature.delivery.domain.MarkerCameraGate
 import com.riders.rider.feature.delivery.domain.MarkerCameraPhase
 import com.riders.rider.feature.delivery.domain.markerStaysAttached
 import com.riders.rider.feature.delivery.domain.parseGeoPoint
+import com.riders.rider.feature.delivery.domain.ROUTE_MIN_FRAME_SPAN_METRES
 import com.riders.rider.feature.delivery.domain.withMinimumCameraSpan
 import com.riders.rider.feature.offers.presentation.locationDrawableMarker
 import kotlinx.coroutines.sync.Mutex
@@ -81,10 +82,11 @@ import kotlinx.coroutines.sync.withLock
 
 private val routeBlue = Color(0xFF1A73E8)
 private val sideClearance = 40.dp
+private val horizontalPadding = 32.dp
 private val pinClearance = 48.dp
 private val boundsAir = 12.dp
-/** Shows about 8% more ground than a tight fit, at every distance. */
-private const val FRAME_LOOSEN = 0.08
+/** Shows about 4% more ground than a tight fit, at every distance. */
+private const val FRAME_LOOSEN = 0.04
 /** Circular back control: 12.dp under the status bar, 44.dp tall, plus an 8.dp gap. */
 private val mapChromeClearance = 64.dp
 
@@ -198,7 +200,7 @@ fun CollectionMap(
                 return@LaunchedEffect
             }
             val update = CameraUpdateFactory.newLatLngBounds(
-                loosenedBounds(withMinimumCameraSpan(frame.points)),
+                loosenedBounds(withMinimumCameraSpan(frame.points, ROUTE_MIN_FRAME_SPAN_METRES)),
                 boundsPadding,
             )
             cameraLock.withLock {
@@ -245,9 +247,9 @@ fun CollectionMap(
                     },
                 cameraPositionState = camera,
                 contentPadding = PaddingValues(
-                    start = sideClearance,
+                    start = horizontalPadding,
                     top = topPadding,
-                    end = sideClearance,
+                    end = horizontalPadding,
                     bottom = bottomPadding,
                 ),
                 properties = MapProperties(isMyLocationEnabled = false, mapStyleOptions = mapStyle),

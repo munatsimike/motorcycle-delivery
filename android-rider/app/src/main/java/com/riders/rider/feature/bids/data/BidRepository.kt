@@ -14,6 +14,11 @@ import com.riders.rider.feature.delivery.domain.decodeRouteLine
 import com.riders.rider.feature.delivery.domain.parseGeoPoint
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -33,6 +38,8 @@ class BidRepository @Inject constructor(
     val ownBidsFlow: StateFlow<List<OwnBid>> = ownBidsState.asStateFlow()
     val ownBidsKnownFlow: StateFlow<Boolean> = ownBidsKnownState.asStateFlow()
     val bidListProblemFlow: StateFlow<String?> = bidListProblemState.asStateFlow()
+    private val openRequestsLock = Mutex()
+    private var openRequestsFlight: Deferred<ApiResult<List<OpenBidRequest>>>? = null
 
     suspend fun requestRoad(deliveryId: String): List<GeoPoint> {
         return when (val result = apiCall { riders.requestRoad(deliveryId) }) {
@@ -49,6 +56,35 @@ class BidRepository @Inject constructor(
     }
 
     suspend fun openRequests(): ApiResult<List<OpenBidRequest>> {
+        val existing = openRequestsLock.withLock { openRequestsFlight?.takeIf { it.isActive } }
+        if (existing != null) {
+            return existing.await()
+        }
+        return coroutineScope {
+            val created = async { loadOpenRequests() }
+            val winner = openRequestsLock.withLock {
+                val current = openRequestsFlight?.takeIf { it.isActive }
+                if (current != null) {
+                    created.cancel()
+                    current
+                } else {
+                    openRequestsFlight = created
+                    created
+                }
+            }
+            try {
+                winner.await()
+            } finally {
+                openRequestsLock.withLock {
+                    if (openRequestsFlight == winner) {
+                        openRequestsFlight = null
+                    }
+                }
+            }
+        }
+    }
+
+    private suspend fun loadOpenRequests(): ApiResult<List<OpenBidRequest>> {
         return when (val result = apiCall { riders.bidRequests() }) {
             is ApiResult.Ok -> ApiResult.Ok(result.value.map { request ->
                 OpenBidRequest(

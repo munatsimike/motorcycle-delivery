@@ -6,6 +6,8 @@ import com.riders.rider.core.network.StopResponse
 import com.riders.rider.feature.offers.domain.RequestBackTarget
 import com.riders.rider.feature.offers.domain.RequestMapEvent
 import com.riders.rider.feature.offers.domain.requestBackTarget
+import com.riders.rider.feature.offers.domain.requestCountdownExpired
+import com.riders.rider.feature.offers.domain.riderExpiryDisplay
 import com.riders.rider.feature.offers.domain.requestCatalog
 import com.riders.rider.feature.offers.domain.requestForMap
 import com.riders.rider.feature.offers.domain.RequestMapSuccess
@@ -19,12 +21,20 @@ import com.riders.rider.feature.offers.domain.requestActionAllowed
 import com.riders.rider.feature.offers.domain.searchAttemptKey
 import com.riders.rider.feature.offers.domain.requestMapAutoOpenBlocked
 import com.riders.rider.feature.offers.domain.requestMapNotice
+import com.riders.rider.feature.offers.domain.cachedNotificationOffer
+import com.riders.rider.feature.offers.domain.openNotificationRequest
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.test.currentTime
+import kotlinx.coroutines.test.runTest
+import java.time.Instant
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class RequestOverlayTest {
     @Test
     fun opensTheFirstEligibleRequestAndKeepsItWhenAnotherArrives() {
@@ -177,6 +187,36 @@ class RequestOverlayTest {
     }
 
     @Test
+    fun aRenewedRequestReplacesTheExpiredAttemptInBothViews() {
+        val now = Instant.parse("2026-10-28T11:10:00Z").toEpochMilli()
+        val expired = requestOffer("delivery-1", "4.00").copy(
+            expiresAt = "2026-10-28T11:06:00Z",
+            searchExpiresAt = "2026-10-28T11:06:00Z",
+        )
+        val renewed = requestOffer("delivery-1", "5.00").copy(
+            expiresAt = "2026-10-28T11:16:00Z",
+            searchExpiresAt = "2026-10-28T11:16:00Z",
+        )
+        val mapped = requestForMap(listOf(expired), listOf(renewed), "delivery-1")
+        val listed = requestCatalog(listOf(expired), listOf(renewed)).single()
+        assertEquals("5.00", mapped?.offeredPrice)
+        assertEquals("5.00", listed.offeredPrice)
+        assertEquals(riderExpiryDisplay(renewed.searchExpiresAt, renewed.expiresAt, now), riderExpiryDisplay(mapped!!.searchExpiresAt, mapped.expiresAt, now))
+        assertEquals("Expires in 6:00", riderExpiryDisplay(mapped.searchExpiresAt, mapped.expiresAt, now))
+        assertFalse(requestCountdownExpired(mapped.searchExpiresAt, mapped.expiresAt, now))
+        assertTrue(requestCountdownExpired(expired.searchExpiresAt, expired.expiresAt, now))
+        val minimized = riderExpiryDisplay(listed.searchExpiresAt, listed.expiresAt, now)
+        val expanded = riderExpiryDisplay(mapped.searchExpiresAt, mapped.expiresAt, now)
+        assertEquals(minimized, expanded)
+        val later = now + 60_000L
+        assertEquals("Expires in 5:00", riderExpiryDisplay(mapped.searchExpiresAt, mapped.expiresAt, later))
+        assertFalse(requestCountdownExpired(mapped.searchExpiresAt, mapped.expiresAt, later))
+        assertTrue(requestCountdownExpired("", "", now).not())
+        val openEnded = requestOffer("delivery-2", "1.00").copy(expiresAt = "", searchExpiresAt = null)
+        assertFalse(requestCountdownExpired(openEnded.searchExpiresAt, openEnded.expiresAt, now))
+    }
+
+    @Test
     fun aNewSearchAttemptIsActionableAfterThePreviousAttemptSettled() {
         val first = "2026-10-28T11:06:00.000Z"
         val renewed = "2026-10-28T12:06:00.000Z"
@@ -194,6 +234,85 @@ class RequestOverlayTest {
         assertEquals(emptySet<String>(), released.first.dismissed)
         val manual = overlayAfterSearchAttempt(closed, emptyMap(), listOf("delivery-1" to renewed))
         assertEquals(setOf("delivery-1"), manual.first.dismissed)
+    }
+
+    @Test
+    fun aCachedNotificationIsReadyBeforeTheRequestListReturns() = runTest {
+        val offer = requestOffer("delivery-1", "4.00").copy(expiresAt = "2099-01-01T00:00:00.000Z")
+        val match = { offers: List<OfferResponse>, id: String -> offers.firstOrNull { it.deliveryId == id } }
+        assertEquals("delivery-1", cachedNotificationOffer("delivery-1", listOf(offer), emptySet(), 0L, match)?.deliveryId)
+        assertNull(cachedNotificationOffer("delivery-1", listOf(offer), setOf("delivery-1"), 0L, match))
+        val started = currentTime
+        var ownBidsFinished = false
+        val result = openNotificationRequest(
+            scope = this,
+            tappedId = "delivery-1",
+            cached = listOf(offer),
+            settled = emptySet(),
+            nowMillis = 0L,
+            loadRequests = { delay(80); listOf(offer) },
+            loadOwnBids = { delay(200); ownBidsFinished = true },
+            match = match,
+        )
+        assertEquals(80L, currentTime - started)
+        assertFalse(ownBidsFinished)
+        assertEquals("delivery-1", result.offer?.deliveryId)
+        assertTrue(result.confirmed)
+    }
+
+    @Test
+    fun thePreviousNotificationPathWaitedForTheRequestListAndOwnBids() = runTest {
+        val started = currentTime
+        delay(80)
+        delay(200)
+        assertEquals(280L, currentTime - started)
+    }
+
+    @Test
+    fun aMissingOrExpiredNotificationStaysClosedAfterTheRequestList() = runTest {
+        val expired = requestOffer("delivery-1", "4.00").copy(expiresAt = "2020-01-01T00:00:00.000Z")
+        val match = { offers: List<OfferResponse>, id: String -> offers.firstOrNull { it.deliveryId == id } }
+        val missing = openNotificationRequest(
+            scope = this,
+            tappedId = "delivery-9",
+            cached = emptyList(),
+            settled = emptySet(),
+            nowMillis = 1_900_000_000_000,
+            loadRequests = { listOf(expired) },
+            loadOwnBids = {},
+            match = match,
+        )
+        assertNull(missing.offer)
+        assertTrue(missing.confirmed)
+        val closed = openNotificationRequest(
+            scope = this,
+            tappedId = "delivery-1",
+            cached = listOf(expired),
+            settled = emptySet(),
+            nowMillis = 1_900_000_000_000,
+            loadRequests = { listOf(expired) },
+            loadOwnBids = {},
+            match = match,
+        )
+        assertNull(closed.offer)
+        assertTrue(closed.confirmed)
+    }
+
+    @Test
+    fun aFailedRequestRefreshKeepsTheCachedNotification() = runTest {
+        val offer = requestOffer("delivery-1", "4.00").copy(expiresAt = "2099-01-01T00:00:00.000Z")
+        val result = openNotificationRequest(
+            scope = this,
+            tappedId = "delivery-1",
+            cached = listOf(offer),
+            settled = emptySet(),
+            nowMillis = 0L,
+            loadRequests = { null },
+            loadOwnBids = {},
+            match = { offers, id -> offers.firstOrNull { it.deliveryId == id } },
+        )
+        assertEquals("delivery-1", result.offer?.deliveryId)
+        assertFalse(result.confirmed)
     }
 }
 

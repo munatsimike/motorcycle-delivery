@@ -9,7 +9,10 @@ import com.riders.rider.feature.delivery.domain.STREET_LEVEL_ZOOM
 import com.riders.rider.feature.delivery.domain.approachSummary
 import com.riders.rider.feature.delivery.domain.haversineMetres
 import com.riders.rider.feature.delivery.domain.pickupTagLabel
+import com.riders.rider.feature.delivery.domain.MIN_FRAME_SPAN_METRES
+import com.riders.rider.feature.delivery.domain.ROUTE_MIN_FRAME_SPAN_METRES
 import com.riders.rider.feature.delivery.domain.collectionCameraFrame
+import com.riders.rider.feature.delivery.domain.withMinimumCameraSpan
 import com.riders.rider.feature.delivery.domain.collectionMarkerPaddingPx
 import com.riders.rider.feature.delivery.domain.decodeEncodedPolyline
 import com.riders.rider.feature.delivery.domain.decodeRouteLine
@@ -124,6 +127,16 @@ class CollectionMapTest {
         assertTrue(unavailable!!.streetLevel)
         assertEquals(1, unavailable.points.size)
         assertNull(collectionCameraFrame(null, null))
+        val short = listOf(pickup, GeoPoint(pickup.latitude + 200 / 111_320.0, pickup.longitude))
+        val routeFrame = withMinimumCameraSpan(short, ROUTE_MIN_FRAME_SPAN_METRES)
+        val deliveredFrame = withMinimumCameraSpan(short, MIN_FRAME_SPAN_METRES)
+        assertEquals(1_000.0, ROUTE_MIN_FRAME_SPAN_METRES, 0.0)
+        assertEquals(1_500.0, MIN_FRAME_SPAN_METRES, 0.0)
+        assertTrue(latitudeSpanMetres(routeFrame) >= ROUTE_MIN_FRAME_SPAN_METRES - 1)
+        assertTrue(latitudeSpanMetres(deliveredFrame) >= MIN_FRAME_SPAN_METRES - 1)
+        assertTrue(latitudeSpanMetres(routeFrame) < latitudeSpanMetres(deliveredFrame))
+        val wide = listOf(pickup, GeoPoint(pickup.latitude + 2_000 / 111_320.0, pickup.longitude + 2_000 / 111_320.0))
+        assertEquals(wide, withMinimumCameraSpan(wide, ROUTE_MIN_FRAME_SPAN_METRES))
         assertEquals(90, collectionMarkerPaddingPx(36f, 2.5f))
         assertEquals(0, collectionMarkerPaddingPx(36f, 0f))
     }
@@ -229,4 +242,9 @@ class CollectionMapTest {
         assertEquals(deliveryRouteKey(pickup, dropoff), deliveryRouteKey(GeoPoint(-17.8252004, 31.0335004), GeoPoint(-17.8300004, 31.0400004)))
         assertTrue(deliveryRouteKey(pickup, dropoff) != deliveryRouteKey(dropoff, pickup))
     }
+}
+
+private fun latitudeSpanMetres(points: List<GeoPoint>): Double {
+    val latitudes = points.map { it.latitude }
+    return (latitudes.max() - latitudes.min()) * 111_320.0
 }

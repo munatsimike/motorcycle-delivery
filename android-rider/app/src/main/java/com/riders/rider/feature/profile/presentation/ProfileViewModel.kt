@@ -1,5 +1,6 @@
 package com.riders.rider.feature.profile.presentation
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.riders.rider.core.network.ApiResult
@@ -28,6 +29,8 @@ import com.riders.rider.feature.profile.domain.ProfilePhotoDownloadGate
 import com.riders.rider.feature.profile.domain.keepsStoredProfilePhoto
 import com.riders.rider.feature.profile.domain.loadProfilePhotoBytes
 import com.riders.rider.feature.profile.domain.profilePhotoDownloadFailed
+import com.riders.rider.feature.profile.domain.profilePhotoLoadDismissed
+import com.riders.rider.feature.profile.domain.profilePhotoLoadFailureIsSilent
 import com.riders.rider.feature.profile.domain.profilePhotoDownloadFinished
 import com.riders.rider.feature.profile.domain.profilePhotoDownloadMissing
 import com.riders.rider.feature.profile.domain.profilePhotoIssue
@@ -334,25 +337,29 @@ class ProfileViewModel @Inject constructor(
             currentPhoto.photoBitmap != null &&
             currentPhoto.board.hasProfilePhoto
         when (val result = loadProfilePhotoBytes { photos.download() }) {
-            is ApiResult.Err -> state.update { current ->
+            is ApiResult.Err -> {
+                Log.w(PROFILE_PHOTO_LOG, "Profile photo could not be loaded: ${result.error.text()}")
+                state.update { current ->
                 if (!acceptsStoredPhoto(current.photo)) {
                     return@update current
                 }
                 val missing = result.error.text() == "No profile photo has been uploaded"
-                val keepVisiblePhoto = !missing && keepsStoredProfilePhoto(
+                val silent = !missing && profilePhotoLoadFailureIsSilent(result.error)
+                val keepVisiblePhoto = !missing && !silent && keepsStoredProfilePhoto(
                     result.error,
                     wasVisible && current.photoBitmap != null && current.board.hasProfilePhoto && current.photo.hasStoredPhoto,
                 )
                 current.copy(
                     board = if (missing) current.board.copy(hasProfilePhoto = false) else current.board,
-                    photo = if (missing) {
-                        profilePhotoDownloadMissing(current.photo)
-                    } else {
-                        profilePhotoDownloadFailed(current.photo, result.error.text(), keepVisiblePhoto)
+                    photo = when {
+                        missing -> profilePhotoDownloadMissing(current.photo)
+                        silent -> profilePhotoLoadDismissed(current.photo)
+                        else -> profilePhotoDownloadFailed(current.photo, result.error.text(), keepVisiblePhoto)
                     },
-                    photoBitmap = if (missing) null else current.photoBitmap,
+                    photoBitmap = if (missing || silent) null else current.photoBitmap,
                     photoPreview = null,
                 )
+                }
             }
             is ApiResult.Ok -> {
                 val bitmap = withContext(Dispatchers.IO) { decodeProfilePhoto(result.value) }
@@ -361,8 +368,10 @@ class ProfileViewModel @Inject constructor(
                         return@update current
                     }
                     if (bitmap == null) {
+                        Log.w(PROFILE_PHOTO_LOG, "Profile photo could not be decoded")
                         current.copy(
-                            photo = profilePhotoDownloadFailed(current.photo, "Profile photo could not be loaded"),
+                            photo = profilePhotoLoadDismissed(current.photo),
+                            photoBitmap = null,
                             photoPreview = null,
                         )
                     } else {
@@ -385,6 +394,8 @@ class ProfileViewModel @Inject constructor(
         }
     }
 }
+
+private const val PROFILE_PHOTO_LOG = "RidersProfilePhoto"
 
 private fun acceptsStoredPhoto(photo: ProfilePhotoState): Boolean {
     return photo.phase == ProfilePhotoPhase.Loading || photo.retry == ProfilePhotoRetry.Download

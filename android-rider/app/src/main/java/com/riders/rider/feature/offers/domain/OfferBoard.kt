@@ -293,6 +293,14 @@ fun offerExpiryLabel(expiresAt: String, nowMillis: Long): String {
     return "$minutes:${seconds.toString().padStart(2, '0')}"
 }
 
+/** True when the rider-facing countdown has reached Expired. A blank deadline stays open. */
+fun requestCountdownExpired(searchExpiresAt: String?, expiresAt: String, nowMillis: Long): Boolean {
+    if (expiresAt.isBlank() && searchExpiresAt.isNullOrBlank()) {
+        return false
+    }
+    return riderExpiryDisplay(searchExpiresAt, expiresAt, nowMillis) == "Expired"
+}
+
 /** Rider-only display. The real action cutoff remains expiresAt. */
 fun riderExpiryDisplay(searchExpiresAt: String?, expiresAt: String, nowMillis: Long): String {
     val finalDeadline = parseExpiry(expiresAt) ?: return "Expired"

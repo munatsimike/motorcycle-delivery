@@ -178,6 +178,24 @@ class ProfilePhotoDownloadGate {
     }
 }
 
+/** Picture bytes failed. Session and access failures stay visible; a bad image or connection does not. */
+fun profilePhotoLoadFailureIsSilent(error: ApiError): Boolean = when (error) {
+    ApiError.SessionEnded, ApiError.SessionUncertain, ApiError.SignedInElsewhere, ApiError.Forbidden -> false
+    else -> true
+}
+
+/** Drops a picture that could not be loaded and leaves the initials avatar in place. */
+fun profilePhotoLoadDismissed(current: ProfilePhotoState): ProfilePhotoState {
+    return current.copy(
+        phase = ProfilePhotoPhase.Idle,
+        showingPreview = false,
+        showingStored = false,
+        progress = null,
+        error = null,
+        retry = null,
+    )
+}
+
 fun profilePhotoDownloadFailed(
     current: ProfilePhotoState,
     message: String,

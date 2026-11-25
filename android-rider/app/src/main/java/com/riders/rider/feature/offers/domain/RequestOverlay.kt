@@ -1,6 +1,9 @@
 package com.riders.rider.feature.offers.domain
 
 import com.riders.rider.core.network.OfferResponse
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 
 /** Which incoming request, if any, is shown on the home map. Dismissed ids stay closed for this visit. */
 data class RequestOverlay(
@@ -107,10 +110,83 @@ fun requestCatalog(primary: List<OfferResponse>, fallback: List<OfferResponse>):
     primary.forEach { offer ->
         val id = offer.deliveryId.trim()
         if (id.isNotEmpty()) {
-            byId[id] = offer
+            val existing = byId[id]
+            byId[id] = if (existing == null) offer else fresherRequest(existing, offer)
         }
     }
     return byId.values.toList()
+}
+
+/** A renewed search has a later deadline. An older expired attempt must not replace it. */
+fun fresherRequest(current: OfferResponse, incoming: OfferResponse): OfferResponse {
+    val currentAttempt = requestAttemptKey(current)
+    val incomingAttempt = requestAttemptKey(incoming)
+    val newer = incomingAttempt > currentAttempt
+    val sameAttempt = incomingAttempt.isNotEmpty() && incomingAttempt == currentAttempt
+    return if (newer || sameAttempt) incoming else current
+}
+
+private fun requestAttemptKey(offer: OfferResponse): String {
+    return offer.searchExpiresAt?.trim().orEmpty().ifEmpty { offer.expiresAt.trim() }
+}
+
+data class NotificationOpenResult(
+    val offer: OfferResponse?,
+    val confirmed: Boolean,
+)
+
+/** A request already on screen can open before the network confirms it is still available. */
+fun cachedNotificationOffer(
+    tappedId: String,
+    cached: List<OfferResponse>,
+    settled: Set<String>,
+    nowMillis: Long,
+    match: (List<OfferResponse>, String) -> OfferResponse?,
+): OfferResponse? {
+    val found = match(cached, tappedId) ?: return null
+    if (requestSettled(found.deliveryId, found.searchExpiresAt, settled)) {
+        return null
+    }
+    if (!notificationRequestCanOpen(true, found.expiresAt, nowMillis)) {
+        return null
+    }
+    return found
+}
+
+/**
+ * Confirms a tapped request from the open-request list.
+ * Own bids refresh in parallel and do not delay the result.
+ */
+suspend fun openNotificationRequest(
+    scope: CoroutineScope,
+    tappedId: String,
+    cached: List<OfferResponse>,
+    settled: Set<String>,
+    nowMillis: Long,
+    loadRequests: suspend () -> List<OfferResponse>?,
+    loadOwnBids: suspend () -> Unit,
+    match: (List<OfferResponse>, String) -> OfferResponse?,
+): NotificationOpenResult {
+    scope.launch {
+        try {
+            loadOwnBids()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+        }
+    }
+    val loaded = loadRequests()
+    if (loaded == null) {
+        return NotificationOpenResult(
+            offer = cachedNotificationOffer(tappedId, cached, settled, nowMillis, match),
+            confirmed = false,
+        )
+    }
+    val found = match(loaded, tappedId)
+    val open = found != null &&
+        !requestSettled(found.deliveryId, found.searchExpiresAt, settled) &&
+        notificationRequestCanOpen(true, found.expiresAt, nowMillis)
+    return NotificationOpenResult(offer = if (open) found else null, confirmed = true)
 }
 
 fun requestForMap(
@@ -122,7 +198,13 @@ fun requestForMap(
     if (id.isEmpty()) {
         return null
     }
-    return primary.firstOrNull { it.deliveryId == id } ?: fallback.firstOrNull { it.deliveryId == id }
+    val fromPrimary = primary.firstOrNull { it.deliveryId == id }
+    val fromFallback = fallback.firstOrNull { it.deliveryId == id }
+    return when {
+        fromPrimary == null -> fromFallback
+        fromFallback == null -> fromPrimary
+        else -> fresherRequest(fromFallback, fromPrimary)
+    }
 }
 
 enum class RequestBackTarget {
