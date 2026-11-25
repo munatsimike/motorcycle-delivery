@@ -863,7 +863,7 @@ export function DeliveryDetailsPage() {
           />
         ) : (
           <>
-            {delivery.serviceClass === 'EXPRESS' ? <p className="track-kicker">Urgent</p> : null}
+            {screen !== 'offers' && delivery.serviceClass === 'EXPRESS' ? <p className="track-kicker">Urgent</p> : null}
             <div className="track-title-row">
               <h1>{screen === 'offers' ? activeOfferCountLabel(offers.length) : (headline ?? deliveryCardStatusLabel({ status: delivery.status, serviceClass: delivery.serviceClass, deliverBy: delivery.deliverBy, openBidCount: offers.length }))}</h1>
               {live ? <p className="track-live-pill">Live</p> : null}
