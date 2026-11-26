@@ -125,9 +125,9 @@ fun RidersBrandMark(modifier: Modifier = Modifier) {
         horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md),
     ) {
         Image(
-            painter = painterResource(R.drawable.rider_image),
+            painter = painterResource(R.drawable.rider_cutout),
             contentDescription = null,
-            modifier = Modifier.size(width = 129.dp, height = 97.dp),
+            modifier = Modifier.size(width = 116.dp, height = 87.dp),
             contentScale = ContentScale.Fit,
         )
         RidersBrandLogo()

@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -59,6 +60,7 @@ import com.google.maps.android.compose.rememberCameraPositionState
 import com.riders.rider.R
 import com.riders.rider.core.design.RidersColors
 import com.riders.rider.core.design.RidersFailureNotice
+import com.riders.rider.core.design.RidersTransientNotice
 import com.riders.rider.core.design.RidersSpacing
 import com.riders.rider.core.network.OfferResponse
 import com.riders.rider.feature.offers.domain.OfferActionProgress
@@ -136,6 +138,8 @@ fun RequestMapOverlay(
     onInterest: () -> Unit,
     onClose: () -> Unit,
     routes: RequestRouteModel = hiltViewModel(),
+    additionalRequestCount: Int = 0,
+    onBrowseRequests: () -> Unit = {},
 ) {
     val pickup = remember(offer.deliveryId, offer.pickup.latitude, offer.pickup.longitude) {
         parseGeoPoint(offer.pickup.latitude, offer.pickup.longitude)
@@ -184,6 +188,25 @@ fun RequestMapOverlay(
                 modifier = Modifier.size(20.dp),
             )
         }
+        if (additionalRequestCount > 0) {
+            Box(
+                Modifier.align(Alignment.TopStart)
+                    .padding(
+                        top = with(density) { WindowInsets.statusBars.getTop(this).toDp() } + RidersSpacing.md,
+                        start = RidersSpacing.lg,
+                    )
+                    .shadow(8.dp, RoundedCornerShape(24.dp))
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(RidersColors.sheet)
+                    .clickable(role = Role.Button, onClick = onBrowseRequests)
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+            ) {
+                Text(
+                    text = if (additionalRequestCount == 1) "1 more request" else "$additionalRequestCount more requests",
+                    color = RidersColors.text,
+                )
+            }
+        }
         Column(
             Modifier
                 .align(Alignment.BottomCenter)
@@ -214,7 +237,15 @@ fun RequestMapOverlay(
                 mapDecline = true,
             )
             if (!error.isNullOrBlank()) {
-                RidersFailureNotice(message = error)
+                if (error == com.riders.rider.feature.bids.domain.BID_AMOUNT_INVALID ||
+                    error == com.riders.rider.feature.bids.domain.BID_LIST_UNAVAILABLE ||
+                    error == com.riders.rider.feature.bids.domain.OFFERS_NOT_AVAILABLE ||
+                    error == com.riders.rider.feature.bids.domain.EXPRESS_BIDS_UNAVAILABLE ||
+                    error == "A fresh location is required") {
+                    RidersFailureNotice(message = error)
+                } else {
+                    RidersTransientNotice(error)
+                }
             }
         }
         Box(

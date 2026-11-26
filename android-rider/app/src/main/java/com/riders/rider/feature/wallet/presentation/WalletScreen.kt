@@ -60,6 +60,7 @@ import com.riders.rider.core.design.RidersColors
 import com.riders.rider.core.design.RidersCenteredContent
 import com.riders.rider.core.design.RidersEmptyState
 import com.riders.rider.core.design.RidersFailureNotice
+import com.riders.rider.core.design.RidersTransientNotice
 import com.riders.rider.core.design.RidersLoadingState
 import com.riders.rider.core.design.RidersPullRefresh
 import com.riders.rider.core.design.RidersRadius
@@ -185,17 +186,15 @@ fun WalletScreen(
                 verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
             ) {
                 if (board.error != null) {
-                    RidersFailureNotice(
-                        message = board.error,
-                        onRetry = { model.refresh(fromUser = true) },
-                    )
+                    RidersTransientNotice(message = board.error, passive = true)
                 }
                 HistoryHeading(
                     canSeeAll = board.nextCursor != null,
                     enabled = !ui.paging && !ui.refreshing,
                     onSeeAll = model::loadMore,
                 )
-                if (board.entries.isEmpty()) {
+                if (ui.paging && !ui.refreshing) RidersLoadingState("Loading transactions")
+                if (board.entries.isEmpty() && !ui.paging && !ui.refreshing) {
                     Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                         RidersEmptyState(
                             title = "No wallet activity",
@@ -219,6 +218,9 @@ fun WalletScreen(
                             }
                         }
                     }
+                }
+                if (board.nextCursor != null && !ui.paging && !ui.refreshing) {
+                    androidx.compose.material3.TextButton(onClick = model::loadMore) { Text("Load more") }
                 }
             }
         }
@@ -337,7 +339,7 @@ private fun BalanceCard(summary: WalletSummary, onTopUp: () -> Unit) {
                 RidersChangingText(
                     value = signedWalletLabel(summary.currency, summary.balance),
                     style = RidersType.title.copy(fontSize = 32.sp, fontWeight = FontWeight.Bold, lineHeight = 38.sp),
-                    color = if (!zig && walletBalanceIsNegative(summary.balance)) RidersColors.error else RidersColors.text,
+                    color = if (walletBalanceIsNegative(summary.balance)) RidersColors.error else RidersColors.text,
                 )
             }
             Text(

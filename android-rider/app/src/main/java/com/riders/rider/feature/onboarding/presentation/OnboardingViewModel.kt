@@ -1,6 +1,9 @@
 package com.riders.rider.feature.onboarding.presentation
 
 import androidx.lifecycle.SavedStateHandle
+import com.riders.rider.core.design.RidersToastEvent
+import com.riders.rider.core.design.ridersSuccessToast
+import com.riders.rider.feature.onboarding.domain.MOTORBIKE_TOAST_DISMISS_MS
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.riders.rider.core.network.ApiResult
@@ -58,8 +61,8 @@ class OnboardingViewModel @Inject constructor(
 ) : ViewModel() {
     private val state = MutableStateFlow(OnboardingUi(step = onboardingFocus(savedState.get<String>("step")) ?: OnboardingStep.Profile))
     val ui: StateFlow<OnboardingUi> = state.asStateFlow()
-    private val toasts = MutableSharedFlow<String>(extraBufferCapacity = 1)
-    val motorcycleToasts: SharedFlow<String> = toasts.asSharedFlow()
+    private val toasts = MutableSharedFlow<RidersToastEvent>(extraBufferCapacity = 4)
+    val successToasts: SharedFlow<RidersToastEvent> = toasts.asSharedFlow()
 
     fun refresh() {
         viewModelScope.launch {
@@ -137,8 +140,9 @@ class OnboardingViewModel @Inject constructor(
                         licence = result.value,
                         onboarding = onboard,
                         error = null,
-                        notice = "Your licence has been saved.",
+                        notice = null,
                     )
+                    toasts.tryEmit(ridersSuccessToast("Your licence has been saved."))
                 }
                 is ApiResult.Err -> state.value = state.value.copy(
                     uploading = false,
@@ -206,7 +210,7 @@ class OnboardingViewModel @Inject constructor(
                         notice = null,
                     )
                     if (!advance) {
-                        toasts.tryEmit(MOTORBIKE_SAVED_TOAST)
+                        toasts.tryEmit(ridersSuccessToast(MOTORBIKE_SAVED_TOAST, MOTORBIKE_TOAST_DISMISS_MS))
                     }
                     val licenceReady = saved.onboarding?.licenceVerificationStatus == "VERIFIED" || saved.licence != null
                     val next = if (advance) nextOnboardingStep(OnboardingStep.Motorcycle, licenceReady, true) else null
@@ -232,7 +236,7 @@ class OnboardingViewModel @Inject constructor(
             when (val result = verification.removeMotorcycle(target)) {
                 is ApiResult.Ok -> {
                     state.value = state.value.copy(savingMotorcycle = false)
-                    toasts.tryEmit(MOTORBIKE_REMOVED_TOAST)
+                    toasts.tryEmit(ridersSuccessToast(MOTORBIKE_REMOVED_TOAST, MOTORBIKE_TOAST_DISMISS_MS))
                     refresh()
                 }
                 is ApiResult.Err -> state.value = state.value.copy(

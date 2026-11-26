@@ -74,7 +74,6 @@ import com.riders.rider.R
 import com.riders.rider.core.design.RiderTransition
 import com.riders.rider.core.design.RidersButtonTone
 import com.riders.rider.core.design.rememberRidersMotion
-import com.riders.rider.core.design.RidersErrorState
 import com.riders.rider.core.design.AppearanceMode
 import com.riders.rider.core.design.AppearanceViewModel
 import com.riders.rider.core.design.LocalAppDark
@@ -87,6 +86,7 @@ import com.riders.rider.core.design.RidersDialogTextButton
 import com.riders.rider.core.design.RidersDialogTitle
 import com.riders.rider.core.design.RidersDialogTone
 import com.riders.rider.core.design.RidersFailureNotice
+import com.riders.rider.core.design.RidersTransientNotice
 import com.riders.rider.core.design.RidersLoadingState
 import com.riders.rider.core.design.RidersPullRefresh
 import com.riders.rider.core.design.RidersRadius
@@ -303,17 +303,28 @@ fun ProfileScreen(
                 verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
             ) {
                 if (board.error != null) {
-                    RidersFailureNotice(
-                        message = board.error.orEmpty(),
-                        onRetry = { model.refresh(force = true) },
-                    )
+                    RidersTransientNotice(board.error, passive = true)
                 }
                 ui.photo.error?.let { message ->
-                    RidersErrorState(
-                        message = message,
-                        retryLabel = if (ui.photo.retry != null) "Try again" else null,
-                        onRetry = model::retryPhoto,
-                    )
+                    if (message in setOf(
+                            "Choose a profile photo", "Profile photo is too large",
+                            "Profile photo must be a JPEG, PNG, or WebP file",
+                        )) {
+                        Text(message, style = RidersType.caption, color = RidersColors.error,
+                            textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                    } else {
+                        RidersTransientNotice(message)
+                    }
+                    if (ui.photo.retry != null) {
+                        RidersSecondaryButton(
+                            label = "Try again",
+                            onClick = model::retryPhoto,
+                            bordered = false,
+                            containerColor = RidersColors.background,
+                            icon = R.drawable.ic_refresh,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
                 }
                 RidersSecondaryButton(
                     label = "Log out",
@@ -577,7 +588,11 @@ private fun AddressEditor(
             model = search,
         )
         if (error != null) {
-            Text(error, style = RidersType.caption, color = RidersColors.error)
+            if (error == "Address is required") {
+                Text(error, style = RidersType.caption, color = RidersColors.error)
+            } else {
+                RidersTransientNotice(error)
+            }
         }
         RidersPrimaryButton(
             label = "Save address",

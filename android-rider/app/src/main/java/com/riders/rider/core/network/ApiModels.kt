@@ -236,6 +236,12 @@ data class LiveAssignmentsResponse(
 )
 
 @Serializable
+data class CompletedAssignmentsPageResponse(
+    val assignments: List<ActiveAssignmentBody>,
+    val nextCursor: String? = null,
+)
+
+@Serializable
 data class ActiveAssignmentBody(
     val assignmentId: String,
     val deliveryId: String,

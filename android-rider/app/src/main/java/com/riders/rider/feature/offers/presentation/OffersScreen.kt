@@ -1,4 +1,4 @@
-﻿package com.riders.rider.feature.offers.presentation
+package com.riders.rider.feature.offers.presentation
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -53,6 +53,7 @@ import com.riders.rider.core.design.acceptPressEnabled
 import com.riders.rider.core.design.RidersCenteredContent
 import com.riders.rider.core.design.RidersEmptyState
 import com.riders.rider.core.design.RidersFailureNotice
+import com.riders.rider.core.design.RidersTransientNotice
 import com.riders.rider.core.design.RidersLoadingState
 import com.riders.rider.core.design.RidersPrimaryButton
 import com.riders.rider.core.design.RidersPullRefresh
@@ -127,9 +128,7 @@ fun OffersScreen(
             .then(if (inShell) Modifier else Modifier.statusBarsPadding())
             .then(if (inShell) Modifier else Modifier.navigationBarsPadding()),
     ) {
-    val pool = remember(ui.offers, ui.ownBids, ui.sentAmounts, unbidOnly) {
-        if (unbidOnly) newMarketplaceOffers(ui.offers, ui.ownBids, ui.sentAmounts) else ui.offers
-    }
+    val pool = if (unbidOnly) compactAvailableRequests(ui) else ui.offers
     val shown = remember(pool, contentKind, sort) {
         sortDeliveries(pool.filter { deliveryContentMatches(it.parcel.description, contentKind) }, sort,
             { it.expiresAt }, { it.distanceMeters }, { it.offeredPrice }, { it.deliveryId })
@@ -282,7 +281,9 @@ private fun OfferList(
             key(offer.deliveryId) {
             val sentAmount = resolvedSubmittedAmount(ui.ownBids, offer.deliveryId, ui.sentAmounts[offer.deliveryId])
             val openRequest = onOpen?.let { open -> { open(offer) } }
-            OfferRequestCard(
+            if (unbidOnly && openRequest != null) {
+                CompactRequestCard(offer, onOpen = openRequest)
+            } else OfferRequestCard(
                 offer,
                 ui.nowMillis,
                 accepting = ui.accepting,
@@ -312,10 +313,19 @@ private fun OfferList(
         submitProblem = ui.bidError,
     )
     if (bidProblem != null && ui.offers.isNotEmpty()) {
-        RidersFailureNotice(message = bidProblem)
+        if (bidProblem in setOf(
+            com.riders.rider.feature.bids.domain.BID_AMOUNT_INVALID,
+            com.riders.rider.feature.bids.domain.BID_LIST_UNAVAILABLE,
+            com.riders.rider.feature.bids.domain.OFFERS_NOT_AVAILABLE,
+            com.riders.rider.feature.bids.domain.EXPRESS_BIDS_UNAVAILABLE,
+        )) {
+            RidersFailureNotice(message = bidProblem)
+        } else {
+            RidersTransientNotice(bidProblem, passive = ui.bidError == null)
+        }
     }
     if (ui.error != null && ui.offers.isNotEmpty()) {
-        RidersFailureNotice(message = ui.error, onRetry = onRetry)
+        RidersTransientNotice(ui.error, passive = true)
     }
 }
 

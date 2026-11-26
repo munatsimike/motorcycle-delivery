@@ -49,6 +49,10 @@ data class RidersToastEvent(
     val dismissMs: Long = RIDERS_TOAST_DISMISS_MS,
 )
 
+/** Create an ephemeral confirmation only when a user action succeeds. */
+fun ridersSuccessToast(message: String, dismissMs: Long = RIDERS_TOAST_DISMISS_MS): RidersToastEvent =
+    RidersToastEvent(java.util.UUID.randomUUID().toString(), message, dismissMs = dismissMs)
+
 val LocalRidersToast = staticCompositionLocalOf<(RidersToastEvent) -> Unit> { {} }
 
 @Composable

@@ -1,5 +1,9 @@
 package com.riders.rider.feature.bids.presentation
 
+import com.riders.rider.core.design.RidersToastEvent
+import com.riders.rider.core.design.ridersSuccessToast
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.riders.rider.core.network.ApiResult
@@ -38,6 +42,8 @@ class BidBoardViewModel @Inject constructor(
     private val pending: com.riders.rider.feature.offers.notification.PendingOffer,
 ) : ViewModel() {
     private val state = MutableStateFlow(BidBoardUi())
+    private val toasts = MutableSharedFlow<RidersToastEvent>(extraBufferCapacity = 4)
+    val successToasts = toasts.asSharedFlow()
     val ui: StateFlow<BidBoardUi> = combine(state, bids.ownBidPageFlow) { chrome, page ->
         chrome.copy(bids = page.bids, nextCursor = page.nextCursor)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, state.value.copy(
@@ -113,7 +119,10 @@ class BidBoardViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 when (val result = bids.withdraw(bidId)) {
-                    is ApiResult.Ok -> reload(null)
+                    is ApiResult.Ok -> {
+                        toasts.tryEmit(ridersSuccessToast("Offer withdrawn"))
+                        reload(null)
+                    }
                     is ApiResult.Err -> reload(result.error.text())
                 }
             } finally {

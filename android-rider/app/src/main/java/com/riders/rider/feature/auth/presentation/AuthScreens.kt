@@ -67,6 +67,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.riders.rider.core.design.RiderTheme
 import com.riders.rider.core.design.RidersColors
 import com.riders.rider.core.design.RidersFailureNotice
+import com.riders.rider.core.design.RidersTransientNotice
+import com.riders.rider.core.design.NetworkLink
+import com.riders.rider.core.design.NotificationSnackbarHost
+import com.riders.rider.core.design.RiderNetwork
 import com.riders.rider.core.design.isConnectionFailure
 import com.riders.rider.core.design.RidersPrimaryButton
 import com.riders.rider.core.design.RidersRadius
@@ -113,7 +117,7 @@ fun WelcomeScreen(onSignIn: () -> Unit, onRegister: () -> Unit) {
             contentAlignment = Alignment.BottomCenter,
         ) {
             Image(
-                painter = painterResource(R.drawable.riders_motorcycle),
+                painter = painterResource(R.drawable.rider_cutout),
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Fit,
@@ -196,14 +200,14 @@ fun SignInScreen(
     val ui by model.ui.collectAsStateWithLifecycle()
     var phone by rememberSaveable { mutableStateOf("") }
     LaunchedEffect(ui.completedPhone) {
-        ui.completedPhone?.let(onCodeSent)
+        val completed = ui.completedPhone ?: return@LaunchedEffect
+        onCodeSent(completed)
     }
     SignInContent(
         phone = phone,
         onPhone = { phone = it },
         loading = ui.loading,
         error = ui.error ?: notice?.takeUnless { showsSignedOutDialog(it) },
-        codeSent = ui.completedPhone != null,
         onSubmit = { model.startWhatsAppLogin(riderPhoneEntry(phone, allowDutchTestNumbers = BuildConfig.DEBUG)) },
         onCreateAccount = onCreateAccount,
     )
@@ -230,7 +234,6 @@ fun RegisterScreen(
         onConsent = { consent = it },
         loading = ui.loading,
         error = ui.error,
-        codeSent = ui.completedPhone != null,
         onSubmit = {
             model.startWhatsAppRegistration(
                 riderPhoneEntry(phone, allowDutchTestNumbers = BuildConfig.DEBUG),
@@ -267,7 +270,6 @@ fun OtpScreen(
         loading = ui.loading,
         resending = ui.resending,
         error = ui.error,
-        signedIn = ui.completedPhone != null,
         whatsapp = flow == "whatsapp" || flow == "whatsapp_login" || flow == "login",
         secondsRemaining = ui.secondsRemaining,
         onSubmit = { model.submit(flow, phone, code) },
@@ -281,7 +283,6 @@ private fun SignInContent(
     onPhone: (String) -> Unit,
     loading: Boolean,
     error: String?,
-    codeSent: Boolean,
     onSubmit: () -> Unit,
     onCreateAccount: () -> Unit,
 ) {
@@ -312,7 +313,7 @@ private fun SignInContent(
             color = RidersColors.textSecondary,
         )
         Spacer(Modifier.height(RidersSpacing.xl))
-        AuthFeedback(error = error, success = if (codeSent) "Code sent" else null, onRetry = onSubmit)
+        AuthFeedback(error = error, onRetry = onSubmit)
         RidersPrimaryButton(
             label = "Send code",
             onClick = onSubmit,
@@ -330,7 +331,6 @@ private fun RegisterContent(
     onPhone: (String) -> Unit,
     loading: Boolean,
     error: String?,
-    codeSent: Boolean,
     onSubmit: () -> Unit,
     onSignIn: () -> Unit,
     consent: Boolean = false,
@@ -364,7 +364,7 @@ private fun RegisterContent(
             )
         }
         Spacer(Modifier.height(RidersSpacing.xl))
-        AuthFeedback(error = error, success = if (codeSent) "Code sent" else null, onRetry = onSubmit)
+        AuthFeedback(error = error, onRetry = onSubmit)
         RidersPrimaryButton(
             label = "Create account",
             onClick = onSubmit,
@@ -452,7 +452,7 @@ private fun AccountContent(
             imeAction = ImeAction.Done,
         )
         Spacer(Modifier.height(RidersSpacing.sm))
-        AuthFeedback(error = error, success = null, onRetry = onSubmit)
+        AuthFeedback(error = error, onRetry = onSubmit)
         RidersPrimaryButton(
             label = "Create account",
             onClick = onSubmit,
@@ -470,7 +470,6 @@ private fun OtpContent(
     onCode: (String) -> Unit,
     loading: Boolean,
     error: String?,
-    signedIn: Boolean,
     onSubmit: () -> Unit,
     whatsapp: Boolean = false,
     secondsRemaining: Int = 0,
@@ -486,9 +485,9 @@ private fun OtpContent(
             color = RidersColors.textSecondary,
         )
         Spacer(Modifier.height(RidersSpacing.xxl))
-        OtpCodeField(value = code, onValueChange = onCode, enabled = !loading, error = error != null)
+        OtpCodeField(value = code, onValueChange = onCode, enabled = !loading, error = error != null && !isConnectionFailure(error))
         Spacer(Modifier.height(RidersSpacing.lg))
-        AuthFeedback(error = error, success = if (signedIn) "Signed in" else null, onRetry = onSubmit)
+        AuthFeedback(error = error, onRetry = onSubmit)
         RidersPrimaryButton(
             label = "Verify",
             onClick = onSubmit,
@@ -519,22 +518,11 @@ private fun OtpContent(
 }
 
 @Composable
-private fun AuthFeedback(error: String?, success: String?, onRetry: (() -> Unit)? = null) {
+private fun AuthFeedback(error: String?, onRetry: (() -> Unit)? = null) {
     when {
+        error != null && isConnectionFailure(error) -> RidersTransientNotice(error)
         error != null -> {
             RidersFailureNotice(message = error, onRetry = onRetry)
-            if (!isConnectionFailure(error)) {
-                Spacer(Modifier.height(RidersSpacing.lg))
-            }
-        }
-        success != null -> {
-            Text(
-                success,
-                style = RidersType.captionStrong,
-                color = RidersColors.primaryDark,
-                modifier = Modifier.fillMaxWidth(),
-                textAlign = TextAlign.Center,
-            )
             Spacer(Modifier.height(RidersSpacing.lg))
         }
     }
@@ -706,19 +694,25 @@ private fun OtpDigitRow(
 
 @Composable
 private fun AuthScaffold(content: @Composable ColumnScope.() -> Unit) {
-    Box(Modifier.fillMaxSize().background(RidersColors.background)) {
-        val horizontal = RidersSpacing.lg
-        Column(
-            Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .statusBarsPadding()
-                .navigationBarsPadding()
-                .imePadding()
-                .padding(horizontal = horizontal)
-                .padding(top = RidersSpacing.lg, bottom = RidersSpacing.xxl),
-            content = content,
-        )
+    val link by RiderNetwork.link.collectAsStateWithLifecycle()
+    Box(Modifier.fillMaxSize().background(RidersColors.background).imePadding()) {
+        NotificationSnackbarHost(
+            incoming = null,
+            onConsumed = {},
+            suppress = link == NetworkLink.Disconnected,
+        ) {
+            val horizontal = RidersSpacing.lg
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+                    .padding(horizontal = horizontal)
+                    .padding(top = RidersSpacing.lg, bottom = RidersSpacing.xxl),
+                content = content,
+            )
+        }
     }
 }
 
@@ -732,7 +726,7 @@ private fun PreviewWelcome() {
 @Composable
 private fun PreviewSignIn() {
     RiderTheme {
-        SignInContent("771234567", {}, false, null, false, {}, {})
+        SignInContent("771234567", {}, false, null, {}, {})
     }
 }
 
@@ -740,7 +734,7 @@ private fun PreviewSignIn() {
 @Composable
 private fun PreviewSignInError() {
     RiderTheme {
-        SignInContent("", {}, false, "Enter a valid Zimbabwe mobile number", false, {}, {})
+        SignInContent("", {}, false, "Enter a valid Zimbabwe mobile number", {}, {})
     }
 }
 
@@ -748,7 +742,7 @@ private fun PreviewSignInError() {
 @Composable
 private fun PreviewSignInLoading() {
     RiderTheme {
-        SignInContent("771234567", {}, true, null, false, {}, {})
+        SignInContent("771234567", {}, true, null, {}, {})
     }
 }
 
@@ -756,7 +750,7 @@ private fun PreviewSignInLoading() {
 @Composable
 private fun PreviewRegister() {
     RiderTheme {
-        RegisterContent("771234567", {}, false, null, false, {}, {})
+        RegisterContent("771234567", {}, false, null, {}, {})
     }
 }
 
@@ -769,7 +763,6 @@ private fun PreviewRegisterNetwork() {
             {},
             false,
             "Network request failed. Check your connection and try again.",
-            false,
             {},
             {},
         )
@@ -780,7 +773,7 @@ private fun PreviewRegisterNetwork() {
 @Composable
 private fun PreviewOtp() {
     RiderTheme {
-        OtpContent("+263771234567", "123", {}, false, null, false, {})
+        OtpContent("+263771234567", "123", {}, false, null, {})
     }
 }
 
@@ -788,7 +781,7 @@ private fun PreviewOtp() {
 @Composable
 private fun PreviewOtpInvalid() {
     RiderTheme {
-        OtpContent("+263771234567", "123456", {}, false, "Verification code is invalid", false, {})
+        OtpContent("+263771234567", "123456", {}, false, "Verification code is invalid", {})
     }
 }
 
@@ -802,17 +795,8 @@ private fun PreviewOtpSession() {
             {},
             false,
             "Your session could not be saved on this device.",
-            false,
             {},
         )
-    }
-}
-
-@Preview(name = "OTP success", showBackground = true, widthDp = 360)
-@Composable
-private fun PreviewOtpSuccess() {
-    RiderTheme {
-        OtpContent("+263771234567", "123456", {}, false, null, true, {})
     }
 }
 
@@ -820,6 +804,6 @@ private fun PreviewOtpSuccess() {
 @Composable
 private fun PreviewSmallAuth() {
     RiderTheme {
-        SignInContent("771234567", {}, false, null, false, {}, {})
+        SignInContent("771234567", {}, false, null, {}, {})
     }
 }

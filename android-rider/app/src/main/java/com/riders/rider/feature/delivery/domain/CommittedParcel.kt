@@ -3,6 +3,7 @@ package com.riders.rider.feature.delivery.domain
 import com.riders.rider.feature.offers.domain.requestAmountLabel
 import com.riders.rider.core.network.ActiveAssignmentBody
 
+@kotlinx.serialization.Serializable
 data class CommittedParcel(
     val deliveryId: String,
     val assignmentId: String,
@@ -63,6 +64,9 @@ data class CompletedBoard(
     val loading: Boolean = false,
     val refreshing: Boolean = false,
     val loaded: Boolean = false,
+    val nextCursor: String? = null,
+    val paging: Boolean = false,
+    val pageError: String? = null,
     val deliveries: List<CommittedParcel> = emptyList(),
     val error: String? = null,
 )
@@ -84,6 +88,10 @@ fun applyCompletedBoard(current: CompletedBoard, incoming: List<CommittedParcel>
     }
     return current.copy(loading = false, refreshing = false, error = error)
 }
+
+fun appendCompletedPage(current: CompletedBoard, incoming: List<CommittedParcel>, nextCursor: String?): CompletedBoard =
+    current.copy(deliveries = (current.deliveries + completedDeliveries(incoming)).distinctBy { it.assignmentId },
+        nextCursor = nextCursor, paging = false, pageError = null)
 
 fun serviceClassLabel(serviceClass: String?): String? = when (serviceClass) {
     "FLEXIBLE" -> "Flexible"

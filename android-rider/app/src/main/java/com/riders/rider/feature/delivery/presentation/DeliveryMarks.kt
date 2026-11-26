@@ -194,6 +194,7 @@ fun DeliverySummaryCard(
     serviceClass: String? = null,
     filled: Boolean = true,
     containerColor: Color? = null,
+    interactionEnabled: Boolean = true,
 ) {
     val shape = RoundedCornerShape(RidersRadius.lg)
     val dark = LocalAppDark.current
@@ -215,7 +216,7 @@ fun DeliverySummaryCard(
             .clip(shape)
             .background(containerColor ?: if (filled) RidersColors.card else RidersColors.background)
             .border(1.dp, RidersColors.border, shape)
-            .clickable(role = Role.Button, onClick = onClick),
+            .then(if (interactionEnabled) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier),
     ) {
         Box(
             Modifier

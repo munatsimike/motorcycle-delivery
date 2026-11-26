@@ -1,6 +1,8 @@
 package com.riders.rider.feature.offers.presentation
 
 import android.os.SystemClock
+import com.riders.rider.core.design.RidersToastEvent
+import com.riders.rider.core.design.ridersSuccessToast
 import androidx.lifecycle.ViewModel
 import com.riders.rider.feature.bids.domain.shouldRefreshOwnBids
 import kotlinx.coroutines.flow.first
@@ -122,6 +124,8 @@ class OfferViewModel @Inject constructor(
     val ui: StateFlow<OfferUi> = state.asStateFlow()
     private val mapEvents = MutableSharedFlow<RequestMapEvent>(extraBufferCapacity = 1)
     val requestMapEvents: SharedFlow<RequestMapEvent> = mapEvents.asSharedFlow()
+    private val toasts = MutableSharedFlow<RidersToastEvent>(extraBufferCapacity = 4)
+    val successToasts = toasts.asSharedFlow()
     private var incomingGate = IncomingRequestGate()
     private val refreshLock = Mutex()
     private val refreshSignals = Channel<Unit>(Channel.CONFLATED)
@@ -319,6 +323,7 @@ class OfferViewModel @Inject constructor(
                             settledIds = settled,
                         )
                     }
+                    if (sessions.isCurrent(sessionIdentity)) toasts.tryEmit(ridersSuccessToast("Request declined"))
                     mapEvents.tryEmit(RequestMapEvent(deliveryId, RequestMapSuccess.Declined, deadline))
                     refresh()
                 }
@@ -484,6 +489,7 @@ class OfferViewModel @Inject constructor(
                                 settledIds = it.settledIds + searchAttemptKey(offer.deliveryId, offer.searchExpiresAt),
                             )
                         }
+                        if (sessions.isCurrent(identity)) toasts.tryEmit(ridersSuccessToast("Delivery accepted"))
                         mapEvents.tryEmit(RequestMapEvent(offer.deliveryId, RequestMapSuccess.Accepted, offer.searchExpiresAt))
                     }
                     is ApiResult.Err -> state.update { it.copy(error = result.error.text()) }

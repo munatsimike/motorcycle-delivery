@@ -70,10 +70,10 @@ import com.riders.rider.core.design.RidersDialogBody
 import com.riders.rider.core.design.RidersDialogTextButton
 import com.riders.rider.core.design.RidersDialogTitle
 import com.riders.rider.core.design.RidersDialogTone
-import com.riders.rider.core.design.RidersToastEvent
 import com.riders.rider.core.design.RidersColors
 import com.riders.rider.core.design.RidersCenteredContent
 import com.riders.rider.core.design.RidersFailureNotice
+import com.riders.rider.core.design.RidersTransientNotice
 import com.riders.rider.core.design.RidersInlineAction
 import com.riders.rider.core.design.RidersLoadingState
 import com.riders.rider.core.design.RidersMotion
@@ -92,7 +92,6 @@ import com.riders.rider.feature.onboarding.domain.OnboardingStep
 import com.riders.rider.feature.onboarding.domain.approvalStatusTitle
 import com.riders.rider.feature.onboarding.domain.canEditMotorcycle
 import com.riders.rider.feature.onboarding.domain.canReplaceLicence
-import com.riders.rider.feature.onboarding.domain.MOTORBIKE_TOAST_DISMISS_MS
 import com.riders.rider.feature.onboarding.domain.canSelectMotorcycle
 import com.riders.rider.feature.onboarding.domain.motorbikeRemovalMessage
 import com.riders.rider.feature.onboarding.domain.removingLastApprovedMotorbike
@@ -123,15 +122,7 @@ fun OnboardingScreen(
     }
     val showToast = LocalRidersToast.current
     LaunchedEffect(model) {
-        model.motorcycleToasts.collect { message ->
-            showToast(
-                RidersToastEvent(
-                    id = "motorbike-$message-${System.nanoTime()}",
-                    message = message,
-                    dismissMs = MOTORBIKE_TOAST_DISMISS_MS,
-                ),
-            )
-        }
+        model.successToasts.collect { event -> showToast(event) }
     }
     LaunchedEffect(Unit) { model.refresh() }
     LaunchedEffect(ui.step, ui.loading, ui.refreshing, ui.addingMotorcycle, ui.editingId, ui.motorcycles) {
@@ -228,11 +219,19 @@ fun OnboardingScreen(
                         )
                         OnboardingStep.Status -> StatusStep(ui, onHome = onFinished)
                     }
-                    if (ui.step != OnboardingStep.Motorcycle) {
-                        ui.notice?.let { SavedNotice(it) }
-                    }
                     if (ui.error != null) {
-                        RidersFailureNotice(message = ui.error ?: "", onRetry = model::refresh)
+                        if (ui.error in setOf(
+                            "Enter a registration number", "Enter a make", "Enter a model", "Enter a colour",
+                            "Choose a licence image", "Licence image is too large",
+                            "Licence image must be a JPEG, PNG, or WebP file",
+                            "Photo access was denied. Allow photos and try again.",
+                            "A verified licence cannot be replaced yet",
+                            "Upload your driving licence to continue.", "Add your motorbike to continue.",
+                        )) {
+                            RidersFailureNotice(message = ui.error.orEmpty(), onRetry = model::refresh)
+                        } else {
+                            RidersTransientNotice(ui.error, passive = true)
+                        }
                     }
                     if (!focused && !motorcycleForm && ui.step != OnboardingStep.Status) {
                         val licenceUploaded = ui.licence != null || ui.onboarding?.licenceVerificationStatus == "VERIFIED"
@@ -292,27 +291,6 @@ private fun backStepLabel(step: OnboardingStep, focused: Boolean): String {
         OnboardingStep.Licence -> "Driving licence"
         OnboardingStep.Motorcycle -> "Motorbike"
         OnboardingStep.Status -> "Approval status"
-    }
-}
-
-@Composable
-private fun SavedNotice(message: String) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(RidersRadius.lg))
-            .background(RidersColors.primaryLight)
-            .padding(RidersSpacing.lg),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
-    ) {
-        Icon(
-            painter = painterResource(R.drawable.ic_check),
-            contentDescription = null,
-            tint = RidersColors.primaryDark,
-            modifier = Modifier.size(18.dp),
-        )
-        Text(message, style = RidersType.bodyStrong, color = RidersColors.primaryDark)
     }
 }
 

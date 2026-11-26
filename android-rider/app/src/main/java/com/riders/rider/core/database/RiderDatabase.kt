@@ -49,8 +49,30 @@ interface OfferDao {
     suspend fun writeAll(entities: List<OfferEntity>)
 }
 
-@Database(entities = [OnboardingEntity::class, OfferEntity::class], version = 1, exportSchema = false)
+@Entity(tableName = "delivery_snapshot", primaryKeys = ["owner", "kind"])
+data class DeliverySnapshotEntity(val owner: String, val kind: String, val savedAt: Long, val ciphertext: ByteArray)
+
+@Dao
+interface DeliverySnapshotDao {
+    @Query("SELECT * FROM delivery_snapshot WHERE owner = :owner AND kind = :kind")
+    suspend fun read(owner: String, kind: String): DeliverySnapshotEntity?
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun write(row: DeliverySnapshotEntity)
+    @Query("DELETE FROM delivery_snapshot WHERE owner != :owner")
+    suspend fun purgeOthers(owner: String)
+    @Query("DELETE FROM delivery_snapshot")
+    suspend fun clear()
+}
+
+val DELIVERY_CACHE_MIGRATION = object : androidx.room.migration.Migration(1, 2) {
+    override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS delivery_snapshot (owner TEXT NOT NULL, kind TEXT NOT NULL, savedAt INTEGER NOT NULL, ciphertext BLOB NOT NULL, PRIMARY KEY(owner, kind))")
+    }
+}
+
+@Database(entities = [OnboardingEntity::class, OfferEntity::class, DeliverySnapshotEntity::class], version = 2, exportSchema = true)
 abstract class RiderDatabase : RoomDatabase() {
+    abstract fun deliverySnapshotDao(): DeliverySnapshotDao
     abstract fun onboardingDao(): OnboardingDao
     abstract fun offerDao(): OfferDao
 }

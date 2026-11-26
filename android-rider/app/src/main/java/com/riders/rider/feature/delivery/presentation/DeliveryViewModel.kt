@@ -1,5 +1,9 @@
 package com.riders.rider.feature.delivery.presentation
 
+import com.riders.rider.core.design.RidersToastEvent
+import com.riders.rider.core.design.ridersSuccessToast
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.riders.rider.core.network.ApiResult
@@ -111,6 +115,8 @@ class DeliveryViewModel @Inject constructor(
 ) : ViewModel() {
     private val state = MutableStateFlow(DeliveryUi())
     val ui: StateFlow<DeliveryUi> = state.asStateFlow()
+    private val toasts = MutableSharedFlow<RidersToastEvent>(extraBufferCapacity = 4)
+    val successToasts = toasts.asSharedFlow()
     private val actions = DeliveryActionGate()
     private var opening = false
     private var eventReload: String? = null
@@ -220,9 +226,9 @@ class DeliveryViewModel @Inject constructor(
         }
         viewModelScope.launch {
             try {
-                when (val result = assignments.refreshCompleted()) {
+                when (val result = assignments.findCompleted(deliveryId)) {
                     is ApiResult.Ok -> {
-                        val selected = result.value.firstOrNull { it.deliveryId == deliveryId }
+                        val selected = result.value
                         state.value = if (selected == null) {
                             DeliveryUi(deliveryId = deliveryId, missing = true, readOnly = true, title = "Delivery")
                         } else {
@@ -483,6 +489,7 @@ class DeliveryViewModel @Inject constructor(
                                     error = null,
                                 )
                             }
+                            if (sessions.isCurrent(sessionIdentity)) toasts.tryEmit(ridersSuccessToast(DELIVERY_COMPLETED))
                         } else {
                             val selected = assignments.parcel(current.deliveryId)?.copy(status = confirmed)
                             if (selected == null) {

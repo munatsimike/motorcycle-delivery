@@ -87,6 +87,8 @@ import com.riders.rider.core.design.RidersColors
 import com.riders.rider.core.design.RidersRadius
 import com.riders.rider.core.design.RidersEmptyState
 import com.riders.rider.core.design.RidersFailureNotice
+import com.riders.rider.core.design.LocalRidersToast
+import com.riders.rider.core.design.RidersTransientNotice
 import com.riders.rider.core.design.RidersLoadingState
 import com.riders.rider.R
 import com.riders.rider.core.design.RidersPrimaryButton
@@ -124,6 +126,10 @@ fun DeliveryScreen(
     guidanceModel: TurnByTurnModel = hiltViewModel(),
 ) {
     val ui by model.ui.collectAsStateWithLifecycle()
+    val showToast = LocalRidersToast.current
+    androidx.compose.runtime.LaunchedEffect(model, completed) {
+        if (!completed) model.successToasts.collect { event -> showToast(event) }
+    }
     val riderArrived by mapModel.arrived.collectAsStateWithLifecycle()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var detailsOpen by remember(ui.deliveryId) { mutableStateOf(false) }
@@ -185,6 +191,11 @@ fun DeliveryScreen(
             cancelOpen = false
         }
     }
+    val showTemporaryError = !ui.missing && !ui.readOnly &&
+        (ui.pickupAddress.isNotBlank() || ui.parcelDescription.isNotBlank()) &&
+        !cancelOpen && !detailsOpen && confirmAction == null && guidance == null &&
+        !deliveryErrorNeedsInline(ui)
+    RidersTransientNotice(ui.error.takeIf { showTemporaryError })
     val blocked = ui.syncing || ui.busy != DeliveryBusy.None
     val statusTop = with(LocalDensity.current) { WindowInsets.statusBars.getTop(this).toDp() }
     val navigationBottom = with(LocalDensity.current) { WindowInsets.navigationBars.getBottom(this).toDp() }
@@ -795,11 +806,8 @@ private fun DeliveryActionBlock(
                 )
             }
                 }
-                if (ui.error != null) {
-                    RidersFailureNotice(
-                message = ui.error,
-                onRetry = { model.load(ui.deliveryId, fromUser = true, completed = completed) },
-            )
+        if (ui.error != null && deliveryErrorNeedsInline(ui)) {
+            RidersFailureNotice(message = ui.error, onRetry = { model.load(ui.deliveryId, fromUser = true, completed = completed) })
         }
         ui.completionMessage?.takeUnless { ui.status == "DELIVERED" }?.let { message ->
             Text(
@@ -1265,6 +1273,10 @@ private fun CancelDeliveryModal(
     }
 }
 
+private fun deliveryErrorNeedsInline(ui: DeliveryUi): Boolean = ui.readOnly ||
+    ui.error == com.riders.rider.feature.delivery.domain.DELIVERY_STATUS_UNAVAILABLE ||
+    ui.error == com.riders.rider.feature.delivery.domain.ASSIGNMENT_RECOVERY_MESSAGE
+
 private fun readyForCollection(status: String): Boolean = status == "RIDER_ASSIGNED" ||
     status == "ASSIGNED" ||
     status == "COLLECTING" ||
@@ -1439,11 +1451,8 @@ private fun CollectedPage(
                                     plain = true,
                                 )
                             }
-                            if (!ui.error.isNullOrBlank()) {
-                                RidersFailureNotice(
-                                    message = ui.error,
-                                    onRetry = { model.load(deliveryId, fromUser = true, completed = completed) },
-                                )
+                            if (!ui.error.isNullOrBlank() && deliveryErrorNeedsInline(ui)) {
+                                RidersFailureNotice(message = ui.error, onRetry = { model.load(deliveryId, fromUser = true, completed = completed) })
                             }
                             if (canFinish) {
                                 RidersPrimaryButton(

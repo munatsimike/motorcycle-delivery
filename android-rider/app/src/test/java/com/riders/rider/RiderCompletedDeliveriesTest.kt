@@ -85,6 +85,17 @@ class RiderCompletedDeliveriesTest {
         assertTrue(empty.deliveries.isEmpty())
     }
 
+    @Test
+    fun appendPageDeduplicatesAndPreservesExistingRows() {
+        val first = parcel("first", "DELIVERED", "2026-10-20T08:00:00Z")
+        val second = parcel("second", "DELIVERED", "2026-10-19T08:00:00Z")
+        val board = CompletedBoard(loaded = true, deliveries = listOf(first), nextCursor = "opaque", paging = true)
+        val result = com.riders.rider.feature.delivery.domain.appendCompletedPage(board, listOf(first, second), null)
+        assertEquals(listOf(first, second), result.deliveries)
+        assertNull(result.nextCursor)
+        assertFalse(result.paging)
+    }
+
     private fun parcel(
         id: String,
         status: String,

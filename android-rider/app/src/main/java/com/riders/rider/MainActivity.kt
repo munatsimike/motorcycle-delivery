@@ -44,6 +44,17 @@ class MainActivity : FragmentActivity() {
 
     @Inject lateinit var cleanup: com.riders.rider.core.session.SessionCleanup
 
+    private val notice = kotlinx.coroutines.flow.MutableStateFlow<com.riders.rider.core.design.NotificationMessage?>(null)
+    private var noticeOwner: String? = null
+    private val seenNotices = linkedSetOf<String>()
+
+    private fun showNotice(owner: String, id: String, message: String) {
+        if (noticeOwner != owner) { seenNotices.clear(); noticeOwner = owner }
+        if (!seenNotices.add(id)) return
+        if (seenNotices.size > 64) seenNotices.remove(seenNotices.first())
+        notice.value = com.riders.rider.core.design.NotificationMessage(id, message)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         runCatching { captureOffer(intent) }
@@ -68,7 +79,13 @@ class MainActivity : FragmentActivity() {
                     val profile: ProfileViewModel = hiltViewModel(key = "session-profile:$identity")
                     DisposableEffect(identity) { onDispose { if (!sessions.isCurrent(identity)) profile.clearPrivateState() } }
                     if (sessions.isCurrent(identity) && ui.entry == AppEntry.Home) {
-                        RiderNavHost(signedIn = true, sessionUncertain = ui.sessionUncertain, onSignInAgain = profile::logout)
+                        val message by notice.collectAsStateWithLifecycle()
+                        com.riders.rider.core.design.NotificationSnackbarHost(
+                            incoming = message.takeIf { noticeOwner == identity && !ui.sessionUncertain },
+                            onConsumed = { notice.compareAndSet(it, null) },
+                        ) {
+                            RiderNavHost(signedIn = true, sessionUncertain = ui.sessionUncertain, onSignInAgain = profile::logout)
+                        }
                     } else if (!sessions.isCurrent(identity)) {
                         RiderNavHost(signedIn = false, notice = ui.notice)
                     }
@@ -91,6 +108,12 @@ class MainActivity : FragmentActivity() {
         val owner = intent.getStringExtra(com.riders.rider.feature.offers.notification.NOTIFICATION_SESSION)
         intent.removeExtra(com.riders.rider.feature.offers.notification.NOTIFICATION_SESSION)
         if (owner == null || !sessions.isCurrent(owner)) return
+        val expiredId = intent.getStringExtra(com.riders.rider.feature.offers.notification.EXPIRED_BID_EXTRA)?.trim().orEmpty()
+        intent.removeExtra(com.riders.rider.feature.offers.notification.EXPIRED_BID_EXTRA)
+        if (validNotificationId(expiredId)) {
+            bids.invalidateOwnBids()
+            showNotice(owner, "expired:$expiredId", "Your offer expired. The customer did not accept an offer in time.")
+        }
         val requestId = intent?.getStringExtra(OFFER_EXTRA_ASSIGNMENT_ID)?.trim().orEmpty()
         if (validNotificationId(requestId)) {
             pendingOffer.notificationTapped(requestId)
@@ -108,6 +131,7 @@ class MainActivity : FragmentActivity() {
             assignments.invalidateAssignments()
             bids.invalidateOwnBids()
             pendingOffer.acceptedBidTapped(deliveryId)
+            showNotice(owner, "accepted:$deliveryId", "Your offer was accepted.")
             intent?.removeExtra(ACCEPTED_BID_EXTRA_DELIVERY_ID)
             if (intent?.getStringExtra("type") == "v2_bid_accepted") {
                 intent.removeExtra("type")
@@ -118,7 +142,7 @@ class MainActivity : FragmentActivity() {
         if (validNotificationId(cancelledDeliveryId)) {
             assignments.invalidateAssignments()
             bids.invalidateOwnBids()
-            pendingOffer.customerCancelledTapped(cancelledDeliveryId)
+            showNotice(owner, "cancelled:$cancelledDeliveryId", "The customer cancelled the delivery.")
             intent?.removeExtra(CUSTOMER_CANCELLED_EXTRA_DELIVERY_ID)
         }
         if (intent?.getBooleanExtra(ACCOUNT_APPROVED_EXTRA, false) == true) {

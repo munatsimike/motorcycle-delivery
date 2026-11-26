@@ -34,6 +34,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
+const val EXPIRED_BID_EXTRA = "riders.internal.expired_bid"
 const val NOTIFICATION_SESSION = "riders.internal.notification_session"
 
 @Singleton
@@ -124,6 +125,7 @@ class OfferNotificationPoster @Inject constructor(
             putExtra(NOTIFICATION_SESSION, sessions.snapshot().identity)
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
+        open.putExtra(EXPIRED_BID_EXTRA, deliveryId)
         val pending = PendingIntent.getActivity(
             context, offerNotificationId("expired:$deliveryId"), open,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,

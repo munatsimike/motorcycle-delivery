@@ -105,6 +105,7 @@ import com.riders.rider.core.design.RidersEmptyState
 import com.riders.rider.core.design.RidersErrorState
 import com.riders.rider.core.design.NetworkAvailability
 import com.riders.rider.core.design.RidersFailureNotice
+import com.riders.rider.core.design.RidersTransientNotice
 import com.riders.rider.core.design.RidersNetworkNotice
 import com.riders.rider.core.design.isConnectionFailure
 import com.riders.rider.core.design.networkWarningPending
@@ -142,7 +143,7 @@ import com.riders.rider.feature.offers.domain.requestMapNotice
 import com.riders.rider.feature.offers.domain.requestMapAutoOpenBlocked
 import com.riders.rider.feature.offers.domain.requestSettled
 import com.riders.rider.feature.offers.domain.sealDismissedAttempt
-import com.riders.rider.feature.offers.presentation.OfferRequestCard
+import com.riders.rider.feature.offers.presentation.CompactRequestCard
 import com.riders.rider.feature.offers.presentation.OfferViewModel
 import com.riders.rider.feature.offers.notification.rememberOfferInbox
 import com.riders.rider.feature.offers.presentation.RequestMapOverlay
@@ -176,6 +177,9 @@ fun HomeScreen(
     onSetup: () -> Unit = {},
     inShell: Boolean = false,
     homeSelected: Boolean = true,
+    externalRequestId: String? = null,
+    externalBrowseRequests: Boolean = false,
+    onExternalRequestConsumed: () -> Unit = {},
     onRequestOverlayVisible: (Boolean) -> Unit = {},
     profilePhoto: Bitmap? = null,
     model: HomeViewModel = hiltViewModel(),
@@ -202,7 +206,7 @@ fun HomeScreen(
     LaunchedEffect(Unit) { model.onHomeShown() }
     val pollOffers = appResumed && homeSelected && (ui.onboarding == null ||
         shouldPollMarketplace(true, ui.onboarding?.availability, ui.onboarding?.receiving))
-    DisposableEffect(offersModel, appResumed, homeSelected, pollOffers) {
+    if (!inShell) DisposableEffect(offersModel, appResumed, homeSelected, pollOffers) {
         offersModel.setScreenResumed(appResumed && homeSelected, pollOffers)
         onDispose { offersModel.setScreenResumed(false) }
     }
@@ -255,7 +259,7 @@ fun HomeScreen(
     }
     var requestsOpen by rememberSaveable { mutableStateOf(false) }
     val requestPageState = rememberSaveableStateHolder()
-    var unavailableRequest by remember { mutableStateOf(false) }
+    val showNotification = com.riders.rider.core.design.LocalNotificationSnackbar.current
     var ignoredTap by remember { mutableStateOf<String?>(null) }
     val pendingRequests = rememberOfferInbox()
     val requestTap by pendingRequests.taps.collectAsStateWithLifecycle()
@@ -276,6 +280,22 @@ fun HomeScreen(
     val requestClock = offersUi.nowMillis
     val previewRequest = pendingTap?.let { id ->
         cachedNotificationOffer(id, catalog, offersUi.settledIds, requestClock, ::notificationBidRequest)
+    }
+    LaunchedEffect(homeSelected, externalRequestId, externalBrowseRequests) {
+        if (!homeSelected || (!externalBrowseRequests && externalRequestId == null)) return@LaunchedEffect
+        if (externalBrowseRequests) {
+            overlay = overlay.minimise()
+            requestsOpen = true
+        } else {
+            val target = catalog.firstOrNull { it.deliveryId == externalRequestId }
+            if (target != null && target.deliveryId in autoOpenRequestIds(listOf(target), offersModel.nowMillis()) &&
+                !requestSettled(target.deliveryId, target.searchExpiresAt, offersUi.settledIds)) {
+                overlay = overlay.open(target.deliveryId)
+            } else {
+                requestsOpen = true
+            }
+        }
+        onExternalRequestConsumed()
     }
     val listedIds = if (ui.shift.showOffers) catalog.map { it.deliveryId } else emptyList()
     val pinnedId = overlay.openId?.trim()?.takeIf { id -> id.isNotEmpty() && catalog.any { it.deliveryId == id } }
@@ -303,12 +323,13 @@ fun HomeScreen(
         }
     }
     val listSettled = !ui.loading && ui.readiness != null && !offersUi.loading && offersUi.requestsConfirmed && offersUi.ownBidsKnown
-    val deliberateBlock = !homeSelected || requestMapAutoOpenBlocked(confirmOffline, requestsOpen) || unavailableRequest ||
+    val deliberateBlock = !homeSelected || requestMapAutoOpenBlocked(confirmOffline, requestsOpen) ||
         pendingTap != null || overlay.openId != null
     val homeReady = appResumed && listSettled && ui.shift.showOffers
     val autoOpenIds = if (ui.shift.showOffers) {
         autoOpenRequestIds(
-            catalog.filter { requestStillNeedsOffer(it.deliveryId, offersUi.ownBids, offersUi.sentAmounts) },
+            catalog.filter { requestStillNeedsOffer(it.deliveryId, offersUi.ownBids, offersUi.sentAmounts) &&
+                !requestSettled(it.deliveryId, it.searchExpiresAt, offersUi.settledIds) },
             requestClock,
         )
     } else emptyList()
@@ -399,7 +420,7 @@ fun HomeScreen(
             !requestCountdownExpired(offer.searchExpiresAt, offer.expiresAt, offersModel.nowMillis())) {
             overlay = currentOverlay.value.open(offer.deliveryId)
         } else {
-            unavailableRequest = true
+            showNotification(com.riders.rider.core.design.NotificationMessage("unavailable:$requestId", "This request has expired or is no longer available."))
         }
     }
     LaunchedEffect(offersModel) {
@@ -478,6 +499,15 @@ fun HomeScreen(
                     onDecline = { offersModel.decline(displayRequest) },
                     declining = offersUi.declining,
                     onInterest = { offersModel.expressInterest(displayRequest) },
+                    additionalRequestCount = autoOpenIds.count { it != displayRequest.deliveryId },
+                    onBrowseRequests = {
+                        if (pendingTap != null) {
+                            ignoredTap = pendingTap
+                            pendingRequests.clear()
+                        }
+                        requestsOpen = true
+                        overlay = overlay.open(displayRequest.deliveryId).minimise()
+                    },
                     onClose = {
                         if (pendingTap != null) {
                             ignoredTap = pendingTap
@@ -507,9 +537,7 @@ fun HomeScreen(
                     HomeDashboard(
                         ui = ui,
                         requestOffers = catalog,
-                        activeRequestCount = if (offersUi.requestsConfirmed) catalog.count {
-                            requestStillNeedsOffer(it.deliveryId, offersUi.ownBids, offersUi.sentAmounts)
-                        } else null,
+                        activeRequestCount = if (offersUi.requestsConfirmed) autoOpenIds.size else null,
                         requestNowMillis = requestClock,
                         profilePhoto = profilePhoto,
                         greeting = ridersGreeting(Calendar.getInstance().get(Calendar.HOUR_OF_DAY)),
@@ -589,20 +617,6 @@ fun HomeScreen(
                 }
             }
         }
-    if (unavailableRequest) {
-        RidersDialog(visible = true, onDismiss = { unavailableRequest = false }) {
-            RidersDialogTitle(REQUEST_UNAVAILABLE)
-            RidersDialogBody("This request has expired or is no longer available.")
-            RidersDialogActions {
-                RidersPrimaryButton(
-                    label = "OK",
-                    onClick = { unavailableRequest = false },
-                    compact = true,
-                    modifier = Modifier.fillMaxWidth().height(44.dp),
-                )
-            }
-        }
-    }
     if (confirmOffline) {
         RidersDialog(visible = true, onDismiss = { confirmOffline = false }) {
             RidersDialogTitle(OFFLINE_WITH_DELIVERIES_TITLE)
@@ -794,7 +808,7 @@ fun HomeDashboard(
         val accountMessage = ui.error ?: "Your account could not be loaded. Check your connection and try again."
         val accountTransport = readiness == null && !ui.loading && isConnectionFailure(accountMessage)
         val networkStatus = rememberNetworkStatus(
-            transportFailure = ui.connectionFailure || accountTransport,
+            transportFailure = ui.connectionFailure || accountTransport || isConnectionFailure(ui.error),
             backendFailure = ui.backendFailure,
         )
         val statusTop = with(LocalDensity.current) { WindowInsets.statusBars.getTop(this).toDp() }
@@ -945,6 +959,7 @@ fun HomeDashboard(
                             loading = ui.loading,
                             changingAvailability = ui.changingAvailability,
                             pendingOnline = ui.pendingOnline,
+                            walletInsufficient = ui.walletInsufficient,
                             showFinishSetup = ui.onboarding != null && needsOnboarding(ui.onboarding) && !readiness.canGoOnline && !ui.applicationSubmitted,
                             showViewApplication = ui.applicationSubmitted,
                             showGoOnline = ui.shift.showGoOnline && readiness.canGoOnline,
@@ -999,7 +1014,7 @@ fun HomeDashboard(
                     when (
                         homeConnectionWarning(
                             availability = networkStatus,
-                            connectionFailure = ui.connectionFailure,
+                            connectionFailure = ui.connectionFailure || isConnectionFailure(failureText),
                             backendFailure = ui.backendFailure,
                             recoveryOutstanding = ui.networkRecoveryOutstanding,
                             messageLooksLikeConnectionFailure = isConnectionFailure(failureText),
@@ -1010,7 +1025,11 @@ fun HomeDashboard(
                             modifier = Modifier.padding(horizontal = horizontal),
                         )
                         HomeConnectionWarning.Message -> if (failureText != null) {
-                            RidersErrorState(message = failureText, modifier = Modifier.padding(horizontal = horizontal))
+                            if (ui.assignmentsUnknown || ui.shift.recoveryFailed) {
+                                RidersErrorState(message = failureText, modifier = Modifier.padding(horizontal = horizontal))
+                            } else {
+                                RidersTransientNotice(failureText, passive = true)
+                            }
                         }
                         HomeConnectionWarning.Hidden -> Unit
                     }
@@ -1042,7 +1061,13 @@ fun HomeDashboard(
                         )
                     }
                     if (ui.error != null && ui.error != ui.shift.recoveryMessage && !isConnectionFailure(ui.error)) {
-                        RidersErrorState(message = ui.error, modifier = Modifier.padding(horizontal = horizontal))
+                        if (ui.assignmentsUnknown || ui.shift.recoveryFailed ||
+                            ui.error == com.riders.rider.feature.availability.domain.LOCATION_PERMISSION_REQUIRED ||
+                            ui.error == com.riders.rider.feature.bids.domain.OFFERS_NOT_AVAILABLE) {
+                            RidersErrorState(message = ui.error, modifier = Modifier.padding(horizontal = horizontal))
+                        } else {
+                            RidersTransientNotice(ui.error, passive = true)
+                        }
                     }
                     Spacer(Modifier.height(RidersSpacing.lg))
                 }
@@ -1166,6 +1191,11 @@ private fun HomeSummaries(
         if (insufficient) {
             Text(
                 INSUFFICIENT_WALLET_CAPACITY,
+                style = RidersType.bodyStrong,
+                color = RidersColors.error,
+            )
+            Text(
+                "Top up your wallet to receive delivery requests.",
                 style = RidersType.caption,
                 color = RidersColors.error,
             )
@@ -1269,6 +1299,7 @@ private fun AvailabilityCard(
     loading: Boolean,
     changingAvailability: Boolean,
     pendingOnline: Boolean? = null,
+    walletInsufficient: Boolean,
     showFinishSetup: Boolean,
     showViewApplication: Boolean,
     showGoOnline: Boolean,
@@ -1293,8 +1324,8 @@ private fun AvailabilityCard(
     val onlineNow = !goingOnline &&
         (readiness.availabilityLabel == "Online" || readiness.availabilityLabel == "Available")
     val statusTitle = RidersType.heading.copy(
-        fontSize = 18.sp,
-        lineHeight = 22.sp,
+        fontSize = 20.sp,
+        lineHeight = 26.sp,
         platformStyle = PlatformTextStyle(includeFontPadding = false),
     )
     RidersCard(
@@ -1320,14 +1351,15 @@ private fun AvailabilityCard(
                         ) {
                             Box(
                                 Modifier
-                                    .size(10.dp)
+                                    .size(12.dp)
                                     .clip(CircleShape)
                                     .background(Color(0xFF3DAF78)),
                             )
                             Text("You are online", style = statusTitle, color = RidersColors.text)
                         }
                         Text(
-                            "Stay online to receive delivery requests.",
+                            if (walletInsufficient) "Delivery requests are paused."
+                            else "Stay online to receive delivery requests.",
                             style = RidersType.body,
                             color = RidersColors.textSecondary,
                         )
@@ -1338,7 +1370,7 @@ private fun AvailabilityCard(
                         ) {
                             Box(
                                 Modifier
-                                    .size(10.dp)
+                                    .size(12.dp)
                                     .clip(CircleShape)
                                     .background(RidersColors.textSecondary),
                             )
@@ -1356,7 +1388,7 @@ private fun AvailabilityCard(
                         ) {
                             Box(
                                 Modifier
-                                    .size(10.dp)
+                                    .size(12.dp)
                                     .clip(CircleShape)
                                     .background(RidersColors.textSecondary),
                             )
@@ -1477,7 +1509,10 @@ private fun RequestsSection(
     contentBottom: Float,
 ) {
     val shown = requestOffers
-        .filter { requestStillNeedsOffer(it.deliveryId, offerBids, offerAmounts) }
+        .filter { requestStillNeedsOffer(it.deliveryId, offerBids, offerAmounts) &&
+            !requestSettled(it.deliveryId, it.searchExpiresAt, settledRequests) &&
+            it.deliveryId in autoOpenRequestIds(listOf(it), requestNowMillis) }
+        .distinctBy { it.deliveryId }
         .take(2)
     val hasRequests = ui.shift.showOffers && shown.isNotEmpty()
     val nowMillis = requestNowMillis.takeIf { it > 0L } ?: System.currentTimeMillis()
@@ -1509,28 +1544,7 @@ private fun RequestsSection(
                 verticalArrangement = Arrangement.spacedBy(RidersSpacing.md),
             ) {
             shown.forEach { offer ->
-                val sentAmount = resolvedSubmittedAmount(offerBids, offer.deliveryId, offerAmounts[offer.deliveryId])
-                OfferRequestCard(
-                    offer,
-                    nowMillis,
-                    accepting = offerAccepting,
-                    submittingBid = offerSubmitting,
-                    submitProgress = offerSubmitProgress,
-                    statusLabel = if (sentAmount == null) offerStatus[offer.deliveryId] else null,
-                    sentAmount = sentAmount,
-                    bidsOpen = marketplaceBidButtonsVisible(offer.serviceClass, offerBidsKnown, offerBidError ?: offerListError),
-                    onAccept = { onAcceptOffer(offer) },
-                    onBid = { onBidOffer(offer) },
-                    onSubmitBid = { amount -> onSubmitBid(offer, amount) },
-                    onDecline = { onDeclineOffer(offer) },
-                    declining = offerDeclining,
-                    submitError = offerBidError,
-                    onInterest = { onInterestOffer(offer) },
-                    settled = requestSettled(offer.deliveryId, offer.searchExpiresAt, settledRequests),
-                    onOpen = if (requestSettled(offer.deliveryId, offer.searchExpiresAt, settledRequests)) null else {
-                        { onOpenRequest(offer) }
-                    },
-                )
+                CompactRequestCard(offer, onOpen = { onOpenRequest(offer) })
             }
             val bidProblem = displayedBidProblem(
                 hasMarketplaceRequest = shown.any { it.serviceClass == "EXPRESS" || it.serviceClass == "FLEXIBLE" },
@@ -1538,7 +1552,16 @@ private fun RequestsSection(
                 submitProblem = offerBidError,
             )
             if (bidProblem != null) {
-                RidersFailureNotice(message = bidProblem)
+                if (bidProblem in setOf(
+                        com.riders.rider.feature.bids.domain.BID_AMOUNT_INVALID,
+                        com.riders.rider.feature.bids.domain.BID_LIST_UNAVAILABLE,
+                        com.riders.rider.feature.bids.domain.OFFERS_NOT_AVAILABLE,
+                        com.riders.rider.feature.bids.domain.EXPRESS_BIDS_UNAVAILABLE,
+                    )) {
+                    RidersFailureNotice(message = bidProblem)
+                } else {
+                    RidersTransientNotice(bidProblem, passive = offerBidError == null)
+                }
             }
             }
         } else {

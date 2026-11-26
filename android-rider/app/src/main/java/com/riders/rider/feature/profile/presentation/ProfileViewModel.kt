@@ -1,6 +1,10 @@
 package com.riders.rider.feature.profile.presentation
 
 import android.util.Log
+import com.riders.rider.core.design.RidersToastEvent
+import com.riders.rider.core.design.ridersSuccessToast
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.riders.rider.core.network.ApiResult
@@ -80,6 +84,8 @@ class ProfileViewModel @Inject constructor(
 ) : ViewModel() {
     private val state = MutableStateFlow(ProfileUi())
     val ui: StateFlow<ProfileUi> = state.asStateFlow()
+    private val toasts = MutableSharedFlow<RidersToastEvent>(extraBufferCapacity = 4)
+    val successToasts = toasts.asSharedFlow()
     private var busy = false
     private var profileVisible = false
     private var pendingPhoto: ByteArray? = null
@@ -161,6 +167,7 @@ class ProfileViewModel @Inject constructor(
                             board = it.board.copy(address = result.value.address.orEmpty()),
                         )
                     }
+                    toasts.tryEmit(ridersSuccessToast("Address updated"))
                     onSaved()
                 }
                 is ApiResult.Err -> state.update { it.copy(savingAddress = false, addressError = result.error.text()) }
@@ -225,6 +232,7 @@ class ProfileViewModel @Inject constructor(
                             photoBitmap = null,
                         )
                     }
+                    toasts.tryEmit(ridersSuccessToast("Profile photo updated"))
                     requestStoredPhoto()
                 }
             }
@@ -257,6 +265,7 @@ class ProfileViewModel @Inject constructor(
                             photoPreview = null,
                         )
                     }
+                    toasts.tryEmit(ridersSuccessToast("Profile photo removed"))
                 }
             }
         }

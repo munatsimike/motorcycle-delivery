@@ -102,9 +102,7 @@ class RiderLocationService : Service() {
         LocationServiceGate.markStopped(startTicket)
         availability.noteServiceStopped(startTicket)
         prompt?.cancel()
-        if (fineLocationGranted()) {
-            client.removeLocationUpdates(callback)
-        }
+        runCatching { client.removeLocationUpdates(callback) }
         updatesRequested = false
         scope.cancel()
         super.onDestroy()
@@ -136,6 +134,7 @@ class RiderLocationService : Service() {
             client.requestLocationUpdates(request, callback, Looper.getMainLooper())
                 .addOnFailureListener {
                     updatesRequested = false
+                    if (running) scope.launch { stopSharing() }
                 }
             true
         } catch (_: SecurityException) {
@@ -227,9 +226,7 @@ class RiderLocationService : Service() {
         freshness.invalidate()
         withContext(Dispatchers.Main) {
             prompt?.cancel()
-            if (fineLocationGranted()) {
-                client.removeLocationUpdates(callback)
-            }
+            runCatching { client.removeLocationUpdates(callback) }
             updatesRequested = false
             ServiceCompat.stopForeground(this@RiderLocationService, ServiceCompat.STOP_FOREGROUND_REMOVE)
             stopSelf()

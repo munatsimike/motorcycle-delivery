@@ -33,6 +33,7 @@ data class ActiveDelivery(
     val paymentMethod: String? = null,
 )
 
+@Serializable
 data class DeliveryContacts(
     val pickupName: String,
     val pickupPhone: String,

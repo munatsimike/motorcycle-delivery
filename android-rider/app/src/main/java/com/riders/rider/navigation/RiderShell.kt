@@ -35,6 +35,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavBackStackEntry
+import kotlinx.coroutines.flow.collect
 import com.riders.rider.R
 import com.riders.rider.core.design.LocalRidersToast
 import com.riders.rider.core.design.NetworkSnackbarClearance
@@ -48,6 +49,9 @@ import com.riders.rider.core.design.rememberRidersMotion
 import com.riders.rider.feature.home.DeliveriesScreen
 import com.riders.rider.feature.home.HomeScreen
 import com.riders.rider.feature.offers.presentation.OfferViewModel
+import com.riders.rider.feature.offers.presentation.CompactRequestCard
+import com.riders.rider.feature.offers.presentation.compactAvailableRequests
+import com.riders.rider.feature.offers.domain.shouldPollMarketplace
 import com.riders.rider.feature.offers.notification.rememberOfferInbox
 import com.riders.rider.feature.offers.notification.rememberOfferPush
 import com.riders.rider.feature.home.HomeViewModel
@@ -103,7 +107,17 @@ fun RiderShell(
     }
     val home: HomeViewModel = hiltViewModel()
     val requests: OfferViewModel = hiltViewModel()
+    LaunchedEffect(requests) {
+        requests.successToasts.collect { event -> showToast(event) }
+    }
+    val homeUi by home.ui.collectAsStateWithLifecycle()
+    val requestUi by requests.ui.collectAsStateWithLifecycle()
+    var externalRequestId by rememberSaveable { mutableStateOf<String?>(null) }
+    var externalBrowseRequests by rememberSaveable { mutableStateOf(false) }
     val profile: ProfileViewModel = hiltViewModel()
+    LaunchedEffect(profile) {
+        profile.successToasts.collect { event -> showToast(event) }
+    }
     val profileUi by profile.ui.collectAsStateWithLifecycle()
     val profilePhoto = displayedProfilePhoto(profileUi.photo, profileUi.photoBitmap, profileUi.photoPreview)
     LaunchedEffect(Unit) { profile.refresh() }
@@ -116,6 +130,18 @@ fun RiderShell(
         pendingRequests.clearApproval()
     }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
+    var resumed by remember(lifecycle) { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) }
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, _ -> resumed = lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
+    val pollRequests = resumed && (homeUi.onboarding == null || shouldPollMarketplace(true, homeUi.onboarding?.availability, homeUi.onboarding?.receiving))
+    DisposableEffect(requests, resumed, pollRequests) {
+        requests.setScreenResumed(resumed, pollRequests)
+        onDispose { requests.setScreenResumed(false) }
+    }
+    val compactRequests = if (homeUi.shift.showOffers && requestUi.requestsConfirmed && resumed) compactAvailableRequests(requestUi) else emptyList()
     DisposableEffect(lifecycle, entry) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
@@ -134,10 +160,25 @@ fun RiderShell(
     }
     NetworkSnackbarClearance(80.dp)
     var requestOverlayVisible by remember { mutableStateOf(false) }
+    com.riders.rider.core.design.NotificationSnackbarClearance(
+        if (requestOverlayVisible && tab == RiderDestination.Home) 0.dp
+        else if (tab != RiderDestination.Home && compactRequests.isNotEmpty()) 180.dp else 80.dp,
+    )
     Scaffold(
         containerColor = RidersColors.background,
         bottomBar = {
             if (!requestOverlayVisible || tab != RiderDestination.Home) Column(Modifier.background(RidersColors.background)) {
+            if (tab != RiderDestination.Home && compactRequests.isNotEmpty()) {
+                CompactRequestCard(
+                    offer = compactRequests.first(),
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    onOpen = {
+                        externalBrowseRequests = false
+                        externalRequestId = compactRequests.first().deliveryId
+                        tabName = RiderDestination.Home.name
+                    },
+                )
+            }
             Box(Modifier.fillMaxWidth().height(1.dp).background(RidersColors.border))
             NavigationBar(containerColor = RidersColors.background) {
                 RiderDestination.entries.forEach { destination ->
@@ -203,6 +244,9 @@ fun RiderShell(
                         onSetup = onSetup,
                         inShell = true,
                         homeSelected = tab == RiderDestination.Home,
+                        externalRequestId = externalRequestId,
+                        externalBrowseRequests = externalBrowseRequests,
+                        onExternalRequestConsumed = { externalRequestId = null; externalBrowseRequests = false },
                         onRequestOverlayVisible = { requestOverlayVisible = it },
                         profilePhoto = profilePhoto,
                         model = home,

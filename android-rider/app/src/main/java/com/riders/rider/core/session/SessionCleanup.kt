@@ -19,6 +19,7 @@ class SessionCleanup @Inject constructor(
     private val database: RiderDatabase,
     private val deliveries: ActiveDeliveryStore,
     private val assignments: AssignmentRepository,
+    private val offline: com.riders.rider.feature.delivery.data.OfflineDeliveryCache,
     private val bids: BidRepository,
     private val verification: VerificationRepository,
     private val push: OfferPushCoordinator,
@@ -50,9 +51,17 @@ class SessionCleanup @Inject constructor(
             context.stopService(android.content.Intent(context, com.riders.rider.feature.availability.RiderLocationService::class.java))
         }
         withContext(Dispatchers.IO) {
-            // Room is now unused for PII. Delete old rows without a destructive schema migration.
-            runCatching { database.clearAllTables() }
+            // Remove legacy plaintext rows; delivery snapshots are encrypted.
+            runCatching {
+                database.openHelper.writableDatabase.execSQL("DELETE FROM onboarding_cache")
+                database.offerDao().clear()
+
+            }
             runCatching { deliveries.purgeLegacyAndOtherSessions() }
+        }
+        try { offline.purgeInactive() } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) {
+            android.util.Log.w("SessionCleanup", "Snapshot cleanup failed")
+            return@withLock
         }
         prepared = identity
     }

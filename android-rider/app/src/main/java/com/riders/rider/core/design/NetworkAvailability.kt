@@ -150,29 +150,24 @@ object RiderNetwork {
         connectivity = manager
         val registered = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
-                publish(network, announceRestored = true)
+                handler.post { refreshDefaultNetwork() }
             }
 
             override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
-                publish(network, announceRestored = false)
+                handler.post { refreshDefaultNetwork() }
             }
 
             override fun onLost(network: Network) {
-                markDown()
+                handler.post { refreshDefaultNetwork() }
             }
 
             override fun onUnavailable() {
-                markDown()
+                handler.post { refreshDefaultNetwork() }
             }
         }
         callback = registered
-        val active = manager.activeNetwork
-        if (active == null) {
-            markDown()
-        } else {
-            publish(active, announceRestored = true)
-        }
         manager.registerDefaultNetworkCallback(registered)
+        refreshDefaultNetwork()
     }
 
     fun setReporter(id: Any, active: Boolean) {
@@ -197,7 +192,12 @@ object RiderNetwork {
         }
     }
 
-    private fun publish(network: Network, announceRestored: Boolean) {
+    private fun refreshDefaultNetwork() {
+        val network = connectivity?.activeNetwork
+        if (network == null) markDown() else publish(network)
+    }
+
+    private fun publish(network: Network) {
         val capabilities = connectivity?.getNetworkCapabilities(network)
         val validated = networkIsValidated(
             hasInternet = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true,
@@ -213,7 +213,7 @@ object RiderNetwork {
         val now = SystemClock.elapsedRealtime()
         linkState.value = snapshot.link
         revisionState.value = now
-        if (announceRestored || entered) {
+        if (entered) {
             restored.tryEmit(Unit)
         }
     }

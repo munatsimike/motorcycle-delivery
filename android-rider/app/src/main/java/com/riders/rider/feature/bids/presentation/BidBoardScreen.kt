@@ -33,6 +33,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.riders.rider.core.design.LocalRidersToast
+import kotlinx.coroutines.flow.collect
 import com.riders.rider.R
 import com.riders.rider.core.design.RidersCard
 import com.riders.rider.core.design.RidersDialog
@@ -46,6 +48,7 @@ import com.riders.rider.core.design.RidersColors
 import com.riders.rider.core.design.RidersCenteredContent
 import com.riders.rider.core.design.RidersEmptyState
 import com.riders.rider.core.design.RidersFailureNotice
+import com.riders.rider.core.design.RidersTransientNotice
 import com.riders.rider.core.design.RidersLoadingState
 import com.riders.rider.core.design.RidersPullRefresh
 import com.riders.rider.core.design.RidersSecondaryButton
@@ -80,6 +83,10 @@ fun BidBoardScreen(
     model: BidBoardViewModel = hiltViewModel(),
 ) {
     val ui by model.ui.collectAsStateWithLifecycle()
+    val showToast = LocalRidersToast.current
+    LaunchedEffect(model) {
+        model.successToasts.collect { event -> showToast(event) }
+    }
     var confirmWithdraw by remember { mutableStateOf<String?>(null) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var appVisible by remember { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) }
@@ -122,6 +129,7 @@ fun BidBoardScreen(
         { it.bidId },
     )
     }
+    RidersTransientNotice(ui.error.takeIf { pending.isNotEmpty() }, passive = true)
     val centered = phase != BidBoardPhase.Ready || shown.isEmpty()
     RidersPullRefresh(refreshing = ui.refreshing, onRefresh = model::pullRefresh, modifier = modifier) {
         if (centered) {
@@ -178,9 +186,6 @@ fun BidBoardScreen(
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
-            }
-            if (ui.error != null && pending.isNotEmpty()) {
-                item(key = "error") { RidersFailureNotice(message = ui.error.orEmpty(), onRetry = model::refresh) }
             }
         }
         }

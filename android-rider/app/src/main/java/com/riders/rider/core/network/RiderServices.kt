@@ -142,6 +142,12 @@ interface RiderService {
     @GET("riders/me/assignments/completed")
     suspend fun completedAssignments(): LiveAssignmentsResponse
 
+    @GET("riders/me/assignments/completed/page")
+    suspend fun completedAssignmentsPage(
+        @Query("limit") limit: Int = 20,
+        @Query("cursor") cursor: String? = null,
+    ): CompletedAssignmentsPageResponse
+
     @GET("riders/me/assignments/active")
     suspend fun activeAssignment(): ActiveAssignmentResponse
 

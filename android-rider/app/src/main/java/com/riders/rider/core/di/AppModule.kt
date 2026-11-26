@@ -44,7 +44,7 @@ object AppModule {
     @Provides
     @Singleton
     fun database(@ApplicationContext context: Context): RiderDatabase {
-        return Room.databaseBuilder(context, RiderDatabase::class.java, "rider.db").build()
+        return Room.databaseBuilder(context, RiderDatabase::class.java, "rider.db").addMigrations(com.riders.rider.core.database.DELIVERY_CACHE_MIGRATION).build()
     }
 
     @Provides

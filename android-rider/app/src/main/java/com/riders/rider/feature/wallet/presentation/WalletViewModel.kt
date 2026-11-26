@@ -8,7 +8,6 @@ import com.riders.rider.core.network.text
 import com.riders.rider.feature.wallet.data.WalletPage
 import com.riders.rider.feature.wallet.data.WalletRepository
 import com.riders.rider.feature.wallet.domain.WalletBoard
-import com.riders.rider.feature.wallet.domain.WalletLoadGate
 import com.riders.rider.feature.wallet.domain.WalletRefresh
 import com.riders.rider.feature.wallet.domain.WalletSummary
 import com.riders.rider.feature.wallet.domain.walletAfterPage
@@ -21,6 +20,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
 
 data class WalletUi(
     val loading: Boolean = true,
@@ -38,14 +38,16 @@ class WalletViewModel @Inject constructor(
 ) : ViewModel() {
     private val state = MutableStateFlow(WalletUi())
     val ui: StateFlow<WalletUi> = state.asStateFlow()
-    private val gate = WalletLoadGate()
+    private var request: Job? = null
+    private var generation = 0L
     private var currencyChosen = false
 
     fun refresh(fromUser: Boolean = false) {
-        viewModelScope.launch {
-            gate.run {
+        val token = ++generation
+        request?.cancel()
+        request = viewModelScope.launch {
                 val hasSummary = state.value.board.summary != null
-                state.update { it.copy(refreshing = fromUser && hasSummary, loading = !hasSummary) }
+                state.update { it.copy(refreshing = hasSummary, loading = !hasSummary, paging = false) }
                 try {
                     val summary = wallets.summary()
                     val serverWallet = (summary as? ApiResult.Ok)?.value?.activeWallet
@@ -55,6 +57,7 @@ class WalletViewModel @Inject constructor(
                         state.value.currency
                     }
                     val page = wallets.transactions(cursor = null, currency = selected)
+                    if (token != generation) return@launch
                     state.update { current ->
                         val refreshed = walletRefresh(summary, page, selected)
                         if (current.currency != selected && currencyChosen) {
@@ -69,28 +72,30 @@ class WalletViewModel @Inject constructor(
                         }
                     }
                 } finally {
-                    state.update { it.copy(loading = false, refreshing = false) }
+                    if (token == generation) state.update { it.copy(loading = false, refreshing = false) }
                 }
-            }
         }
     }
 
     fun loadMore() {
-        if (!shouldLoadWalletPage(state.value.board.nextCursor, state.value.refreshing || state.value.paging)) {
+        if (!shouldLoadWalletPage(state.value.board.nextCursor, state.value.loading || state.value.refreshing || state.value.paging || request?.isActive == true)) {
             return
         }
-        viewModelScope.launch {
-            gate.run {
-                val cursor = state.value.board.nextCursor ?: return@run
-                state.update { it.copy(paging = true) }
+        val cursor = state.value.board.nextCursor ?: return
+        val currency = state.value.currency
+        val token = ++generation
+        state.update { it.copy(paging = true) }
+        request = viewModelScope.launch {
                 try {
-                    when (val page = wallets.transactions(cursor, state.value.currency)) {
+                    val page = wallets.transactions(cursor, currency)
+                    if (token != generation || state.value.currency != currency) return@launch
+                    when (page) {
                         is ApiResult.Ok -> state.update { current ->
                             current.copy(
                                 board = walletAfterPage(
                                     current.board,
                                     entries = page.value.entries,
-                                    nextCursor = page.value.nextCursor,
+                                    nextCursor = page.value.nextCursor?.takeUnless { it == cursor },
                                     error = null,
                                 ),
                             )
@@ -107,9 +112,8 @@ class WalletViewModel @Inject constructor(
                         }
                     }
                 } finally {
-                    state.update { it.copy(paging = false) }
+                    if (token == generation) state.update { it.copy(paging = false) }
                 }
-            }
         }
     }
 
