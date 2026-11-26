@@ -108,7 +108,8 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+           isMinifyEnabled = true
+            isShrinkResources = true
             signingConfig = signingConfigs.getByName("release")
             buildConfigField("String", "API_BASE_URL", "\"${apiBaseUrl(true)}\"")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
