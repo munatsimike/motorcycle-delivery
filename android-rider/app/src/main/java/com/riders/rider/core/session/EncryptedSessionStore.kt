@@ -18,15 +18,15 @@ class EncryptedSessionStore @Inject constructor(
     @ApplicationContext context: Context,
 ) : SessionStore {
     private val preferences: SharedPreferences? = open(context)
-    private val state = MutableStateFlow(readStored())
-    private val generation = MutableStateFlow(preferences?.getString(IDENTITY, null) ?: newSessionIdentity())
+    private val state = MutableStateFlow(readSafely { readStored() })
+    private val generation = MutableStateFlow(readSafely { preferences?.getString(IDENTITY, null) } ?: newSessionIdentity())
     override val identity = generation.asStateFlow()
     init {
-        if (state.value != null && preferences?.getString(IDENTITY, null) == null) {
+        if (state.value != null && readSafely { preferences?.getString(IDENTITY, null) } == null) {
             runCatching { preferences?.edit()?.putString(IDENTITY, generation.value)?.commit() }
         }
     }
-    private val uncertain = MutableStateFlow(preferences?.getBoolean(REFRESH_UNCERTAIN, false) == true)
+    private val uncertain = MutableStateFlow(readSafely { preferences?.getBoolean(REFRESH_UNCERTAIN, false) } == true)
     override val session: StateFlow<AuthSession?> = state.asStateFlow()
     override val refreshUncertain: StateFlow<Boolean> = uncertain.asStateFlow()
 
@@ -38,8 +38,8 @@ class EncryptedSessionStore @Inject constructor(
         snapshot() == expected && persist(session, expected.identity)
 
     private fun persist(session: AuthSession, id: String): Boolean {
-        val editor = preferences?.edit() ?: return false
         return try {
+            val editor = preferences?.edit() ?: return false
             val saved = editor
                 .putString(IDENTITY, id)
                 .putString(ACCESS, session.accessToken)
@@ -56,6 +56,8 @@ class EncryptedSessionStore @Inject constructor(
             saved
         } catch (_: GeneralSecurityException) {
             false
+        } catch (_: SecurityException) {
+            false
         } catch (_: IOException) {
             false
         }
@@ -65,6 +67,7 @@ class EncryptedSessionStore @Inject constructor(
         try {
             preferences?.edit()?.clear()?.commit()
         } catch (_: GeneralSecurityException) {
+        } catch (_: SecurityException) {
         } catch (_: IOException) {
         }
         state.value = null
@@ -77,10 +80,25 @@ class EncryptedSessionStore @Inject constructor(
             preferences?.edit()?.putBoolean(REFRESH_UNCERTAIN, true)?.commit() == true
         } catch (_: GeneralSecurityException) {
             false
+        } catch (_: SecurityException) {
+            false
         } catch (_: IOException) {
             false
         }
         uncertain.value = true
+    }
+
+    // A corrupt or inaccessible encrypted entry must not crash app startup.
+    private fun <T> readSafely(block: () -> T): T? = try {
+        block()
+    } catch (_: GeneralSecurityException) {
+        null
+    } catch (_: SecurityException) {
+        null
+    } catch (_: ClassCastException) {
+        null
+    } catch (_: IOException) {
+        null
     }
 
     private fun readStored(): AuthSession? {
@@ -116,6 +134,8 @@ class EncryptedSessionStore @Inject constructor(
                     EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
                 )
             } catch (_: GeneralSecurityException) {
+                null
+            } catch (_: SecurityException) {
                 null
             } catch (_: IOException) {
                 null
