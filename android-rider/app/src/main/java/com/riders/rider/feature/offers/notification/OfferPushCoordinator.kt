@@ -1,7 +1,6 @@
 package com.riders.rider.feature.offers.notification
 
 import android.content.Context
-import com.google.android.gms.tasks.Tasks
 import com.google.firebase.FirebaseApp
 import com.google.firebase.messaging.FirebaseMessaging
 import com.riders.rider.core.network.ApiResult
@@ -17,7 +16,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -32,6 +35,8 @@ class OfferPushCoordinator @Inject constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     @Volatile private var registeredToken: String? = null
     private val registrationLock = Mutex()
+    private val tokenLock = Any()
+    private var tokenGeneration = 0L
     private val prefs = context.getSharedPreferences(ShownOfferStore.PREFS, Context.MODE_PRIVATE)
     private val ownerKey = "registered_session"
     private val tokenPrefs by lazy { com.riders.rider.core.session.privateCache(context, "rider_push_private") }
@@ -60,8 +65,11 @@ class OfferPushCoordinator @Inject constructor(
     }
 
     fun onNewToken(token: String) {
-        writeToken(token)
-        registeredToken = null
+        synchronized(tokenLock) {
+            tokenGeneration++
+            writeToken(token)
+            registeredToken = null
+        }
         if (sessions.read() != null) {
             scope.launch { registerCurrentToken() }
         }
@@ -106,16 +114,30 @@ class OfferPushCoordinator @Inject constructor(
     }
 
     private suspend fun currentToken(): String? {
-        readToken()?.let { return it }
-        if (!firebaseReady(context)) {
-            return null
+        val generation = synchronized(tokenLock) {
+            readToken()?.let { return it }
+            tokenGeneration
         }
+        if (!firebaseReady(context)) return null
         return try {
-            val token = withContext(Dispatchers.IO) {
-                Tasks.await(FirebaseMessaging.getInstance().token)
+            val token = withTimeoutOrNull(15_000L) {
+                suspendCancellableCoroutine<String> { continuation ->
+                    FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+                        if (task.isSuccessful) continuation.resume(task.result)
+                        else continuation.resumeWithException(task.exception ?: IllegalStateException("FCM token unavailable"))
+                    }
+                }
+            } ?: return null
+            synchronized(tokenLock) {
+                // A token refresh may have arrived while Firebase was resolving the token.
+                if (tokenGeneration != generation) readToken()
+                else {
+                    writeToken(token)
+                    token
+                }
             }
-            writeToken(token)
-            token
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
             null
         }
