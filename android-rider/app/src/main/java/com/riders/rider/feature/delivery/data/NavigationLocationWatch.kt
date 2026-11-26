@@ -13,6 +13,7 @@ import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
+import com.google.android.gms.tasks.CancellationTokenSource
 import com.riders.rider.feature.availability.RiderLocationHub
 import com.riders.rider.feature.availability.domain.gpsFix
 import com.riders.rider.feature.availability.domain.isDispatchUsable
@@ -32,19 +33,20 @@ class NavigationLocationWatch @Inject constructor(
 ) {
     private val client by lazy { LocationServices.getFusedLocationProviderClient(context) }
     private var callback: LocationCallback? = null
+    private var promptToken: CancellationTokenSource? = null
 
     @SuppressLint("MissingPermission")
     fun start() {
         if (!fineLocationGranted()) {
             return
         }
-        prompt()
         if (callback != null) {
             return
         }
+        prompt()
         val updates = object : LocationCallback() {
             override fun onLocationResult(result: LocationResult) {
-                publish(result.lastLocation)
+                if (callback === this) publish(result.lastLocation)
             }
         }
         val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1_000L)
@@ -56,40 +58,52 @@ class NavigationLocationWatch @Inject constructor(
         try {
             callback = updates
             client.requestLocationUpdates(request, updates, Looper.getMainLooper())
-                .addOnFailureListener { stop() }
+                .addOnFailureListener { if (callback === updates) stop() }
         } catch (_: SecurityException) {
             callback = null
         }
     }
 
     fun stop() {
+        promptToken?.cancel()
+        promptToken = null
         val updates = callback ?: return
         callback = null
-        if (fineLocationGranted()) {
+        try {
             client.removeLocationUpdates(updates)
+        } catch (_: SecurityException) {
+            // Permission may have been revoked while the screen was open.
         }
     }
 
     @SuppressLint("MissingPermission")
     private fun prompt() {
         try {
-            client.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
-                .addOnSuccessListener { point -> publish(point) }
+            if (promptToken != null) return
+            val token = CancellationTokenSource()
+            promptToken = token
+            client.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, token.token)
+                .addOnSuccessListener { point ->
+                    if (promptToken === token) publish(point)
+                }
+                .addOnCompleteListener { if (promptToken === token) promptToken = null }
         } catch (_: SecurityException) {
+            promptToken?.cancel()
+            promptToken = null
             return
         }
     }
 
     private fun publish(point: Location?) {
-        if (point == null) {
+        if (point == null || !fineLocationGranted()) {
             return
         }
-        val age = (System.currentTimeMillis() - point.time).coerceAtLeast(0L)
+        val age = System.currentTimeMillis() - point.time
         val accuracy = if (point.hasAccuracy()) point.accuracy else null
         if (!isDispatchUsable(age, accuracy)) {
             return
         }
-        hub.publish(gpsFix(point))
+        hub.publish(gpsFix(point), point.time)
     }
 
     private fun fineLocationGranted(): Boolean {

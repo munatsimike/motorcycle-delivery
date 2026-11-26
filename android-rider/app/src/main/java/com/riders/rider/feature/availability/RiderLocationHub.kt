@@ -7,6 +7,7 @@ import javax.inject.Singleton
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 
 data class SharedFix(val fix: GpsFix, val atMillis: Long)
 
@@ -22,7 +23,10 @@ class RiderLocationHub @Inject constructor() {
     fun clear() { latest.value = null }
 
     fun publish(fix: GpsFix, atMillis: Long = System.currentTimeMillis()) {
-        latest.value = SharedFix(fix, atMillis)
+        latest.update { previous ->
+            if (previous != null && previous.atMillis > atMillis) previous
+            else SharedFix(fix, atMillis)
+        }
     }
 
     fun fresh(nowMillis: Long): GpsFix? {

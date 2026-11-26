@@ -13,6 +13,7 @@ import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
+import com.google.android.gms.tasks.CancellationTokenSource
 import com.riders.rider.feature.availability.LocationServiceGate
 import com.riders.rider.feature.availability.RiderLocationHub
 import com.riders.rider.feature.availability.domain.gpsFix
@@ -34,6 +35,7 @@ class CollectionLocationWatch @Inject constructor(
 ) {
     private val client by lazy { LocationServices.getFusedLocationProviderClient(context) }
     private var callback: LocationCallback? = null
+    private var promptToken: CancellationTokenSource? = null
 
     fun sync() {
         if (LocationServiceGate.isRunning()) {
@@ -49,7 +51,7 @@ class CollectionLocationWatch @Inject constructor(
                     stop()
                     return
                 }
-                publish(result.lastLocation)
+                if (callback === this) publish(result.lastLocation)
             }
         }
         val policy = locationUpdatePolicy()
@@ -62,7 +64,7 @@ class CollectionLocationWatch @Inject constructor(
         try {
             callback = updates
             client.requestLocationUpdates(request, updates, Looper.getMainLooper())
-                .addOnFailureListener { stop() }
+                .addOnFailureListener { if (callback === updates) stop() }
         } catch (_: SecurityException) {
             callback = null
         }
@@ -74,31 +76,43 @@ class CollectionLocationWatch @Inject constructor(
             return
         }
         try {
-            client.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
-                .addOnSuccessListener { point -> publish(point) }
+            if (promptToken != null) return
+            val token = CancellationTokenSource()
+            promptToken = token
+            client.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, token.token)
+                .addOnSuccessListener { point ->
+                    if (promptToken === token) publish(point)
+                }
+                .addOnCompleteListener { if (promptToken === token) promptToken = null }
         } catch (_: SecurityException) {
+            promptToken?.cancel()
+            promptToken = null
             return
         }
     }
 
     fun stop() {
+        promptToken?.cancel()
+        promptToken = null
         val updates = callback ?: return
         callback = null
-        if (fineLocationGranted()) {
+        try {
             client.removeLocationUpdates(updates)
+        } catch (_: SecurityException) {
+            // Permission may have been revoked while the screen was open.
         }
     }
 
     private fun publish(point: Location?) {
-        if (point == null) {
+        if (point == null || !fineLocationGranted()) {
             return
         }
-        val age = (System.currentTimeMillis() - point.time).coerceAtLeast(0L)
+        val age = System.currentTimeMillis() - point.time
         val accuracy = if (point.hasAccuracy()) point.accuracy else null
         if (!isDispatchUsable(age, accuracy)) {
             return
         }
-        hub.publish(gpsFix(point))
+        hub.publish(gpsFix(point), point.time)
     }
 
     fun hasFineLocation(): Boolean = fineLocationGranted()

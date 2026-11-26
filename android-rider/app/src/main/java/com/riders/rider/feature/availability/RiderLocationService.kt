@@ -154,7 +154,7 @@ class RiderLocationService : Service() {
         try {
             client.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, token.token)
                 .addOnSuccessListener { point ->
-                    if (!running) {
+                    if (!running || prompt !== token) {
                         return@addOnSuccessListener
                     }
                     if (point != null) {
@@ -175,7 +175,7 @@ class RiderLocationService : Service() {
                     if (!running) {
                         return@addOnSuccessListener
                     }
-                    val age = cached?.let { (System.currentTimeMillis() - it.time).coerceAtLeast(0L) }
+                    val age = cached?.let { System.currentTimeMillis() - it.time }
                     val accuracy = cached?.let { if (it.hasAccuracy()) it.accuracy else null }
                     if (cached != null && age != null && isDispatchUsable(age, accuracy)) {
                         scope.launch { deliver(cached) }
@@ -202,10 +202,10 @@ class RiderLocationService : Service() {
             stopSharing()
             return
         }
-        val age = (System.currentTimeMillis() - point.time).coerceAtLeast(0L)
+        val age = System.currentTimeMillis() - point.time
         val accuracy = if (point.hasAccuracy()) point.accuracy else null
         if (isDispatchUsable(age, accuracy)) {
-            locations.publish(gpsFix(point))
+            locations.publish(gpsFix(point), point.time)
         } else {
             availability.noteUnusableFix()
         }
