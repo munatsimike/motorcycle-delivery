@@ -103,6 +103,7 @@ class DeliveryViewModel @Inject constructor(
     private val offers: OfferRepository,
     private val assignments: AssignmentRepository,
     private val deliveries: ActiveDeliveryStore,
+    private val sessions: com.riders.rider.core.session.SessionStore,
     private val availability: AvailabilityRepository,
     private val onboarding: OnboardingRepository,
     private val transitions: TransitionKeyStore,
@@ -112,8 +113,26 @@ class DeliveryViewModel @Inject constructor(
     val ui: StateFlow<DeliveryUi> = state.asStateFlow()
     private val actions = DeliveryActionGate()
     private var opening = false
+    private var eventReload: String? = null
+    private var cancellationRefresh = false
+    fun refreshForCancellation(deliveryId: String) {
+        eventReload = deliveryId
+        state.update { it.copy(readOnly = true) }
+        drainEventReload()
+    }
+    private fun drainEventReload() {
+        if (opening || state.value.busy != DeliveryBusy.None) return
+        val id = eventReload ?: return
+        eventReload = null
+        cancellationRefresh = true
+        state.update { it.copy(readOnly = true) }
+        load(id)
+    }
+
+    private val sessionIdentity = sessions.snapshot().identity
 
     fun load(deliveryId: String, fromUser: Boolean = false, completed: Boolean = false) {
+        if (!sessions.isCurrent(sessionIdentity)) return
         if (completed) {
             loadCompleted(deliveryId, fromUser)
             return
@@ -127,7 +146,7 @@ class DeliveryViewModel @Inject constructor(
         opening = true
         viewModelScope.launch {
             try {
-                val onboard = onboarding.loadCurrent()
+                val onboard = onboarding.loadCurrent(shareInFlight = !fromUser)
                 val openForNewBids = when (onboard) {
                     is ApiResult.Ok -> {
                         val present = onboard.value.receiving != null
@@ -137,6 +156,11 @@ class DeliveryViewModel @Inject constructor(
                     is ApiResult.Err -> assignments.marketplace() == true
                 }
                 val listed = assignments.refreshList()
+                if (cancellationRefresh && listed is ApiResult.Err) {
+                    state.update { it.copy(readOnly = true, syncing = false, error = listed.error.text()) }
+                    return@launch
+                }
+                if (listed is ApiResult.Ok) cancellationRefresh = false
                 val failureUncertain = listed is ApiResult.Err && assignmentFailureIsUncertain(listed.error)
                 val recovery = recoverAssignments(
                     fetchSucceeded = listed is ApiResult.Ok,
@@ -171,9 +195,12 @@ class DeliveryViewModel @Inject constructor(
                     }
                     else -> loadSingular(deliveryId, fromUser)
                 }
+            } catch (_: java.io.IOException) {
+                state.update { it.copy(syncing = false, readOnly = true, error = "Delivery data could not be read securely. Try again.") }
             } finally {
                 opening = false
                 state.update { it.copy(refreshing = false) }
+                drainEventReload()
             }
         }
     }
@@ -280,6 +307,7 @@ class DeliveryViewModel @Inject constructor(
     }
 
     private suspend fun loadSingular(deliveryId: String, fromUser: Boolean) {
+                val identity = sessionIdentity
                 val stored = deliveries.read()?.takeIf { it.deliveryId == deliveryId }
                 if (stored != null) {
                     state.update {
@@ -290,10 +318,11 @@ class DeliveryViewModel @Inject constructor(
                     state.update { DeliveryUi(deliveryId = deliveryId, syncing = true, refreshing = fromUser) }
                 }
                 val sync = syncOpenDelivery(deliveryId, stored, assignments.lookup())
+                if (!sessions.isCurrent(identity)) return
                 when (sync.kind) {
                     DeliverySyncKind.Replace -> {
                         val snapshot = sync.snapshot ?: return
-                        deliveries.write(snapshot)
+                        deliveries.write(snapshot, identity)
                         state.value = present(snapshot, null, sync.contacts, syncing = false, busy = DeliveryBusy.None)
                     }
                     DeliverySyncKind.Keep -> {
@@ -306,7 +335,7 @@ class DeliveryViewModel @Inject constructor(
                     }
                     DeliverySyncKind.Leave -> {
                         if (stored != null) {
-                            deliveries.clear()
+                            deliveries.clear(identity)
                             refreshWallet()
                         }
                         state.update { it.copy(syncing = false, finished = true, error = null, contacts = null) }
@@ -322,8 +351,9 @@ class DeliveryViewModel @Inject constructor(
     }
 
     fun confirmCancellation(reason: String, note: String) {
+        if (!sessions.isCurrent(sessionIdentity)) return
         val current = state.value
-        if (!assignments.hasConfirmedAssignments() || !current.marketplaceParcel || !current.cancelVisible || current.completionMessage != null) {
+        if (current.readOnly || !assignments.hasConfirmedAssignments() || !current.marketplaceParcel || !current.cancelVisible || current.completionMessage != null) {
             return
         }
         if (current.pendingCancelReason == null && reason.isBlank()) {
@@ -345,7 +375,10 @@ class DeliveryViewModel @Inject constructor(
                     current.pendingCancelReason ?: reason,
                     current.pendingCancelNote ?: note.trim().ifEmpty { null },
                 )
-                when (val result = offers.cancelAssignment(attempt.assignmentId, attempt.reason, attempt.note, attempt.key)) {
+                if (!sessions.isCurrent(sessionIdentity)) return@launch
+                val result = offers.cancelAssignment(attempt.assignmentId, attempt.reason, attempt.note, attempt.key)
+                if (!sessions.isCurrent(sessionIdentity)) return@launch
+                when (result) {
                     is ApiResult.Ok -> {
                         transitions.clearCancellation(current.assignmentId)
                         transitions.clearProgress(current.deliveryId)
@@ -370,15 +403,20 @@ class DeliveryViewModel @Inject constructor(
                     }
                     is ApiResult.Err -> settleCancellationFailure(current.deliveryId, current.assignmentId, result.error.text(), result.error)
                 }
+            } catch (_: java.io.IOException) {
+                state.update { it.copy(error = "Delivery retry data could not be saved securely. Try again.") }
             } finally {
                 actions.finish()
                 state.update { it.copy(busy = DeliveryBusy.None) }
+                drainEventReload()
             }
         }
     }
 
     private fun advanceCommitted() {
+        if (!sessions.isCurrent(sessionIdentity)) return
         val current = state.value
+        if (current.readOnly) return
         val blocked = blockedDeliveryConfirmationMessage(
             marketplaceParcel = current.marketplaceParcel,
             assignmentsConfirmed = assignments.hasConfirmedAssignments(),
@@ -410,7 +448,10 @@ class DeliveryViewModel @Inject constructor(
                     state.update { it.copy(error = DELIVERY_STATUS_UNAVAILABLE) }
                     return@launch
                 }
-                when (val result = offers.progressWithKey(current.deliveryId, attempt.targetStatus, attempt.key)) {
+                if (!sessions.isCurrent(sessionIdentity)) return@launch
+                val result = offers.progressWithKey(current.deliveryId, attempt.targetStatus, attempt.key)
+                if (!sessions.isCurrent(sessionIdentity)) return@launch
+                when (result) {
                     is ApiResult.Ok -> {
                         val confirmed = result.value.status
                         if (!v2StatusReached(confirmed, attempt.targetStatus)) {
@@ -453,9 +494,12 @@ class DeliveryViewModel @Inject constructor(
                     }
                     is ApiResult.Err -> settleProgressFailure(current.deliveryId, attempt.targetStatus, result.error.text(), result.error)
                 }
+            } catch (_: java.io.IOException) {
+                state.update { it.copy(error = "Delivery retry data could not be saved securely. Try again.") }
             } finally {
                 actions.finish()
                 state.update { it.copy(busy = DeliveryBusy.None) }
+                drainEventReload()
             }
         }
     }

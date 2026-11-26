@@ -29,7 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -47,6 +47,7 @@ import com.riders.rider.feature.delivery.domain.riderCancellationLanding
 import com.riders.rider.core.design.rememberRidersMotion
 import com.riders.rider.feature.home.DeliveriesScreen
 import com.riders.rider.feature.home.HomeScreen
+import com.riders.rider.feature.offers.presentation.OfferViewModel
 import com.riders.rider.feature.offers.notification.rememberOfferInbox
 import com.riders.rider.feature.offers.notification.rememberOfferPush
 import com.riders.rider.feature.home.HomeViewModel
@@ -101,6 +102,7 @@ fun RiderShell(
         tabName = RiderDestination.Home.name
     }
     val home: HomeViewModel = hiltViewModel()
+    val requests: OfferViewModel = hiltViewModel()
     val profile: ProfileViewModel = hiltViewModel()
     val profileUi by profile.ui.collectAsStateWithLifecycle()
     val profilePhoto = displayedProfilePhoto(profileUi.photo, profileUi.photoBitmap, profileUi.photoPreview)
@@ -114,15 +116,6 @@ fun RiderShell(
         pendingRequests.clearApproval()
     }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    DisposableEffect(entry) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                home.refresh()
-            }
-        }
-        entry.lifecycle.addObserver(observer)
-        onDispose { entry.lifecycle.removeObserver(observer) }
-    }
     DisposableEffect(lifecycle, entry) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
@@ -209,9 +202,11 @@ fun RiderShell(
                         onDelivery = onDelivery,
                         onSetup = onSetup,
                         inShell = true,
+                        homeSelected = tab == RiderDestination.Home,
                         onRequestOverlayVisible = { requestOverlayVisible = it },
                         profilePhoto = profilePhoto,
                         model = home,
+                        offersModel = requests,
                     )
                     RiderDestination.Deliveries -> DeliveriesScreen(
                         onAccepted = onAccepted,

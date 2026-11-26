@@ -13,7 +13,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import com.riders.rider.core.design.LocalAppDark
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
@@ -48,9 +48,11 @@ class CompletedDeliveriesViewModel @Inject constructor(
     val ui: StateFlow<CompletedBoard> = state.asStateFlow()
     private var busy = false
     private var rerun = false
+    private var loadedRevision = -1L
+    val completedChanges = assignments.completedChanges
 
     fun ensureLoaded() {
-        fetch(force = false)
+        fetch(force = loadedRevision != completedChanges.value)
     }
 
     fun refresh() {
@@ -65,10 +67,11 @@ class CompletedDeliveriesViewModel @Inject constructor(
         }
         busy = true
         state.value = next
+        val revision = completedChanges.value
         viewModelScope.launch {
             try {
                 state.value = when (val result = assignments.refreshCompleted()) {
-                    is ApiResult.Ok -> applyCompletedBoard(state.value, result.value, null)
+                    is ApiResult.Ok -> { loadedRevision = revision; applyCompletedBoard(state.value, result.value, null) }
                     is ApiResult.Err -> applyCompletedBoard(state.value, null, result.error.text())
                 }
             } finally {
@@ -91,7 +94,8 @@ fun CompletedDeliveriesPane(
     model: CompletedDeliveriesViewModel = hiltViewModel(),
 ) {
     val ui by model.ui.collectAsStateWithLifecycle()
-    LaunchedEffect(Unit) {
+    val revision by model.completedChanges.collectAsStateWithLifecycle()
+    LaunchedEffect(revision) {
         model.ensureLoaded()
     }
     val visible = sortDeliveries(

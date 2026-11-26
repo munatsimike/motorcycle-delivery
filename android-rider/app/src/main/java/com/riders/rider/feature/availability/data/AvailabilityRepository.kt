@@ -1,6 +1,10 @@
 package com.riders.rider.feature.availability.data
 
 import android.Manifest
+import android.os.SystemClock
+import com.riders.rider.core.session.AuthSession
+import com.riders.rider.feature.delivery.data.AssignmentRefresh
+import com.riders.rider.feature.onboarding.domain.RiderOnboarding
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -92,6 +96,14 @@ class AvailabilityRepository @Inject constructor(
     }
 
     suspend fun applySharing() = recover(userRetry = false)
+
+    /** Reuse only a fresh, successful, unmodified dashboard read from this session. */
+    suspend fun applyDashboardSharing(
+        onboard: RiderOnboarding?,
+        listed: AssignmentRefresh,
+        session: AuthSession?,
+        startedAt: Long,
+    ) = recover(userRetry = false, dashboard = DashboardSharing(onboard, listed, session, startedAt))
 
     suspend fun retryLocationSharing() = recover(userRetry = true)
 
@@ -193,9 +205,9 @@ class AvailabilityRepository @Inject constructor(
         }
     }
 
-    private suspend fun recover(userRetry: Boolean) {
+    private suspend fun recover(userRetry: Boolean, dashboard: DashboardSharing? = null) {
         recovery.withLock {
-            val evaluation = evaluateSharing()
+            val evaluation = dashboard?.let(::evaluateDashboardSharing) ?: evaluateSharing()
             val verdict = evaluation.verdict
             val permitted = fineLocationGranted()
             val running = LocationServiceGate.isRunning()
@@ -293,6 +305,31 @@ class AvailabilityRepository @Inject constructor(
         }
     }
 
+    private fun evaluateDashboardSharing(snapshot: DashboardSharing): SharingEvaluation? {
+        val onboard = snapshot.onboard ?: return null
+        val listed = snapshot.listed.result as? ApiResult.Ok ?: return null
+        if (snapshot.session == null || sessions.read() != snapshot.session ||
+            SystemClock.elapsedRealtime() - snapshot.startedAt !in 0L..3_000L ||
+            !committed.isCurrentRefresh(snapshot.listed.token)) return null
+        committed.rememberShift(onboard.availability, onboard.receiving)
+        return confirmedSharing(onboard.availability, onboard.receiving, listed.value.map { it.status })
+    }
+
+    private fun confirmedSharing(availability: String, receiving: Boolean?, statuses: List<String>): SharingEvaluation {
+        val should = locationSharingDecision(
+            hasSession = true,
+            permissionGranted = true,
+            onboardingReached = true,
+            receivingRequests = receiving,
+            availability = availability,
+            assignmentFetchSucceeded = true,
+            fetchedStatuses = statuses,
+            confirmedStatuses = emptyList(),
+            confirmedThisProcess = false,
+        )
+        return SharingEvaluation(if (should) SharingVerdict.Required else SharingVerdict.NotRequired, null)
+    }
+
     private suspend fun evaluateSharing(): SharingEvaluation {
         if (sessions.read() == null) {
             return SharingEvaluation(SharingVerdict.NotRequired, null)
@@ -325,21 +362,7 @@ class AvailabilityRepository @Inject constructor(
                 SharingEvaluation(SharingVerdict.Unknown, listedError)
             }
         }
-        val should = locationSharingDecision(
-            hasSession = true,
-            permissionGranted = true,
-            onboardingReached = true,
-            receivingRequests = onboard.value.receiving,
-            availability = onboard.value.availability,
-            assignmentFetchSucceeded = true,
-            fetchedStatuses = listedOk.value.map { parcel -> parcel.status },
-            confirmedStatuses = emptyList(),
-            confirmedThisProcess = false,
-        )
-        return SharingEvaluation(
-            if (should) SharingVerdict.Required else SharingVerdict.NotRequired,
-            null,
-        )
+        return confirmedSharing(onboard.value.availability, onboard.value.receiving, listedOk.value.map { it.status })
     }
 
     suspend fun refreshForAccept(): Boolean {
@@ -359,8 +382,11 @@ class AvailabilityRepository @Inject constructor(
         }
     }
 
-    suspend fun upload(fix: GpsFix): Boolean {
-        return when (val result = apiCall { riders.location(LocationRequest(fix.latitude, fix.longitude)) }) {
+    suspend fun upload(fix: GpsFix, identity: String = sessions.snapshot().identity): Boolean {
+        if (!sessions.isCurrent(identity)) return false
+        val result = apiCall { riders.location(LocationRequest(fix.latitude, fix.longitude)) }
+        if (!sessions.isCurrent(identity)) return false
+        return when (result) {
             is ApiResult.Ok -> {
                 freshness.markConfirmed(System.currentTimeMillis())
                 synchronized(noticeLock) {
@@ -515,3 +541,5 @@ private fun authoritativeLocationStop(result: ApiResult<*>): Boolean {
     val error = (result as? ApiResult.Err)?.error ?: return false
     return error is ApiError.SessionEnded || error is ApiError.SignedInElsewhere || error is ApiError.Forbidden
 }
+
+private data class DashboardSharing(val onboard: RiderOnboarding?, val listed: AssignmentRefresh, val session: AuthSession?, val startedAt: Long)

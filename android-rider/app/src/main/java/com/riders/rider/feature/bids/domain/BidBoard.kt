@@ -95,6 +95,7 @@ fun bidAmountCents(raw: String): Int? {
     val parts = text.split('.')
     val dollars = parts[0].toLongOrNull() ?: return null
     val centsPart = parts.getOrNull(1)?.padEnd(2, '0')?.toIntOrNull() ?: 0
+    if (dollars > Int.MAX_VALUE / 100L) return null
     val cents = dollars * 100 + centsPart
     if (cents <= 0 || cents > Int.MAX_VALUE) {
         return null
@@ -114,6 +115,10 @@ fun nextBidAttempt(existing: BidAttempt?, deliveryId: String, amountCents: Int, 
     }
     return BidAttempt(deliveryId, amountCents, freshKey)
 }
+
+fun bidRetryAmountProblem(attempt: BidAttempt, requestedCents: Int): String? =
+    if (attempt.amountCents == requestedCents) null else
+        "Your previous offer of ${formatBidDollars(attempt.amountCents)} is unresolved. Retry that amount before changing it."
 
 fun bidAttemptAfterRefresh(existing: BidAttempt?, bids: List<OwnBid>): BidAttempt? {
     if (existing == null) {

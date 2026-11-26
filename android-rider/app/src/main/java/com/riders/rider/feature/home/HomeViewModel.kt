@@ -1,6 +1,8 @@
 package com.riders.rider.feature.home
 
 import android.content.Context
+import android.os.SystemClock
+import com.riders.rider.core.session.SessionStore
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.riders.rider.core.design.RiderNetwork
@@ -9,7 +11,6 @@ import com.riders.rider.core.refresh.clearListedRefresh
 import com.riders.rider.core.refresh.homePageLoading
 import com.riders.rider.core.refresh.homePullIndicator
 import com.riders.rider.core.network.ApiResult
-import com.riders.rider.core.network.OfferResponse
 import com.riders.rider.core.network.WalletSummaryResponse
 import com.riders.rider.core.network.text
 import com.riders.rider.feature.availability.data.AvailabilityRepository
@@ -29,15 +30,8 @@ import com.riders.rider.feature.delivery.domain.recoverAssignments
 import com.riders.rider.feature.delivery.domain.retryWhenConnectivityReturns
 import com.riders.rider.feature.delivery.domain.ActiveDelivery
 import com.riders.rider.feature.delivery.domain.DeliveryRecoveryCoordinator
-import com.riders.rider.feature.bids.data.BidRepository
 import com.riders.rider.feature.bids.domain.OFFERS_NOT_AVAILABLE
-import com.riders.rider.feature.bids.domain.OpenBidRequest
-import com.riders.rider.feature.bids.domain.OwnBid
-import com.riders.rider.feature.bids.domain.availableRequests
-import com.riders.rider.feature.bids.domain.newMarketplaceOffers
-import com.riders.rider.feature.offers.domain.OFFER_REFRESH_INTERVAL_MS
 import com.riders.rider.feature.offers.domain.shouldLoadHomeDocuments
-import com.riders.rider.feature.offers.domain.shouldPollMarketplace
 import com.riders.rider.feature.offers.notification.PendingOffer
 import com.riders.rider.feature.onboarding.data.OnboardingRepository
 import com.riders.rider.feature.onboarding.data.VerificationRepository
@@ -50,12 +44,11 @@ import com.riders.rider.feature.wallet.domain.dashboardWallet
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -79,10 +72,7 @@ data class HomeUi(
     val walletInsufficient: Boolean = false,
     val usdDebtBalance: String? = null,
     val walletRestricted: Boolean = false,
-    val activeRequestCount: Int? = null,
     val activeDeliveryTotal: Int? = null,
-    val offers: List<OfferResponse> = emptyList(),
-    val ownBids: List<OwnBid> = emptyList(),
     val flexibleCount: Int? = null,
     val expressCount: Int? = null,
     val committedV2: Boolean = false,
@@ -102,21 +92,24 @@ class HomeViewModel @Inject constructor(
     private val assignments: AssignmentRepository,
     private val identity: VerificationRepository,
     private val wallets: WalletRepository,
-    private val bids: BidRepository,
     private val pendingOffers: PendingOffer,
+    private val sessions: SessionStore,
 ) : ViewModel() {
     private val state = MutableStateFlow(HomeUi())
     val ui: StateFlow<HomeUi> = state.asStateFlow()
-    private var dashboardBusy = false
+    private val dashboardBusy = MutableStateFlow(false)
     private var refreshTicket = 0
-    private var openRequests = emptyList<OpenBidRequest>()
+    private var eventRefreshQueued = false
+
+    private fun refreshForDeliveryEvent() {
+        if (dashboardBusy.value) eventRefreshQueued = true else refresh()
+    }
+
+    private fun drainEventRefresh() {
+        if (eventRefreshQueued) { eventRefreshQueued = false; refresh() }
+    }
 
     init {
-        viewModelScope.launch {
-            bids.ownBidsFlow.collect { loaded ->
-                state.value = state.value.copy(ownBids = loaded)
-            }
-        }
         viewModelScope.launch {
             availability.locationNotice.collect { notice ->
                 state.value = state.value.copy(locationNotice = notice)
@@ -129,15 +122,23 @@ class HomeViewModel @Inject constructor(
         }
         viewModelScope.launch {
             pendingOffers.acceptedArrivals.collect {
+                refreshForDeliveryEvent()
+                wallets.summary()
+            }
+        }
+    }
+    init {
+        viewModelScope.launch {
+            pendingOffers.customerCancelledArrivals.collect {
+                refreshForDeliveryEvent()
                 wallets.summary()
             }
         }
     }
     private var recoveryAttempts = 0
     private var locationRestart = false
-    private var offerWatch: Job? = null
-    private var hasLoaded = false
     private var homeVisits = 0
+    private var lastWalletUpdateAt: Long? = null
 
     init {
         viewModelScope.launch {
@@ -152,26 +153,6 @@ class HomeViewModel @Inject constructor(
         RiderNetwork.ensureInstalled(context)
     }
 
-    override fun onCleared() {
-        offerWatch?.cancel()
-        super.onCleared()
-    }
-
-    fun watchOffers(active: Boolean) {
-        offerWatch?.cancel()
-        offerWatch = null
-        if (!active) {
-            return
-        }
-        offerWatch = viewModelScope.launch {
-            refreshOfferCount()
-            while (isActive) {
-                delay(OFFER_REFRESH_INTERVAL_MS)
-                refreshOfferCount()
-            }
-        }
-    }
-
     fun refresh() {
         startRefresh(fromUser = false)
     }
@@ -183,7 +164,8 @@ class HomeViewModel @Inject constructor(
     fun onHomeShown() {
         val visitsSoFar = homeVisits
         homeVisits += 1
-        if (shouldRefreshWalletOnHomeVisit(visitsSoFar)) {
+        if (shouldRefreshWalletOnHomeVisit(visitsSoFar) &&
+            lastWalletUpdateAt?.let { SystemClock.elapsedRealtime() - it in 0L..30_000L } != true) {
             refreshWallet()
         }
     }
@@ -193,10 +175,10 @@ class HomeViewModel @Inject constructor(
     }
 
     private fun startRefresh(fromUser: Boolean) {
-        if (dashboardBusy) {
+        if (dashboardBusy.value) {
             return
         }
-        dashboardBusy = true
+        dashboardBusy.value = true
         val ticket = ++refreshTicket
         val current = state.value
         val showIndicator = homePullIndicator(
@@ -205,15 +187,8 @@ class HomeViewModel @Inject constructor(
             errorVisible = current.error != null,
         )
         state.value = current.copy(refreshing = showIndicator)
-        val launch = !hasLoaded
-        hasLoaded = true
-        val marketplace = fromUser || launch || shouldPollMarketplace(
-            appVisible = true,
-            availability = current.onboarding?.availability,
-            receiving = current.onboarding?.receiving,
-        )
-        val wallet = fromUser || launch || current.walletBalance == null
-        val profile = fromUser || launch || current.fullName.isBlank()
+        val wallet = fromUser || current.walletBalance == null
+        val profile = fromUser || current.fullName.isBlank()
         viewModelScope.launch {
             try {
                 load(
@@ -221,16 +196,17 @@ class HomeViewModel @Inject constructor(
                     notice = null,
                     confirmedReceiving = null,
                     includeWallet = wallet,
-                    includeMarketplace = marketplace,
                     includeProfile = profile,
                     refreshTicket = ticket,
+                    shareInFlight = !fromUser,
                 )
             } finally {
                 if (ticket == refreshTicket) {
                     val cleared = clearListedRefresh(ticket, refreshTicket, state.value.loading, state.value.refreshing)
                     state.value = state.value.copy(loading = cleared.loading, refreshing = cleared.refreshing)
-                    dashboardBusy = false
+                    dashboardBusy.value = false
                     scheduleAssignmentRecovery()
+                    drainEventRefresh()
                 }
             }
         }
@@ -252,10 +228,11 @@ class HomeViewModel @Inject constructor(
         val started = beginAvailabilityChange(
             AvailabilityChange(
                 availability = state.value.onboarding?.availability,
-                changing = dashboardBusy || state.value.changingAvailability,
+                changing = dashboardBusy.value || state.value.changingAvailability,
             ),
         ) ?: return
-        dashboardBusy = true
+        dashboardBusy.value = true
+        ++refreshTicket
         state.value = state.value.copy(
             changingAvailability = started.changing,
             pendingOnline = online,
@@ -276,7 +253,6 @@ class HomeViewModel @Inject constructor(
                             confirmed.error,
                             confirmedReceiving = null,
                             includeWallet = false,
-                            includeMarketplace = online,
                             includeProfile = state.value.fullName.isBlank(),
                         )
                     }
@@ -293,8 +269,9 @@ class HomeViewModel @Inject constructor(
                     }
                 }
             } finally {
-                dashboardBusy = false
+                dashboardBusy.value = false
                 scheduleAssignmentRecovery()
+                drainEventRefresh()
             }
         }
     }
@@ -304,9 +281,9 @@ class HomeViewModel @Inject constructor(
         notice: String?,
         confirmedReceiving: Boolean?,
         includeWallet: Boolean = true,
-        includeMarketplace: Boolean = true,
         includeProfile: Boolean = true,
         refreshTicket: Int? = null,
+        shareInFlight: Boolean = false,
     ) {
         if (refreshTicket != null && refreshTicket != this.refreshTicket) {
             return
@@ -326,19 +303,24 @@ class HomeViewModel @Inject constructor(
                 marketplace = previous.onboarding?.receiving != null,
             ),
         )
-        val onboard = onboarding.loadCurrent()
+        val snapshotSession = sessions.read()
+        val snapshotStarted = SystemClock.elapsedRealtime()
+        val (onboard, profileName) = coroutineScope {
+            val onboardCall = async { onboarding.loadCurrent(shareInFlight = shareInFlight) }
+            val profileCall = async {
+                if (!includeProfile && previous.fullName.isNotBlank()) {
+                    previous.fullName
+                } else {
+                    (identity.profile(shareInFlight = shareInFlight) as? ApiResult.Ok)?.value?.fullName?.trim()?.takeIf { it.isNotEmpty() }
+                }
+            }
+            onboardCall.await() to profileCall.await()
+        }
         val approval = (onboard as? ApiResult.Ok)?.value?.approvalStatus ?: previous.onboarding?.approvalStatus
         val includeDocuments = shouldLoadHomeDocuments(approval, identity.documentsConfirmedFor(approval))
-        val profileName = if (!includeProfile && previous.fullName.isNotBlank()) {
-            previous.fullName
-        } else {
-            (identity.profile() as? ApiResult.Ok)?.value?.fullName?.trim()?.takeIf { it.isNotEmpty() }
-        }
-        val (wallet, requestCount, listed, submitted, offers) = coroutineScope {
+        val (wallet, stamped, submitted) = coroutineScope {
             val walletCall = if (includeWallet) async { wallets.summary() } else null
-            val openCall = if (includeMarketplace) async { bids.openRequests() } else null
-            val ownCall = if (includeMarketplace) async { bids.refreshOwnBids(null) } else null
-            val assignmentsCall = async { assignments.refreshList() }
+            val assignmentsCall = async { assignments.refreshStamped() }
             val licenceCall = if (includeDocuments) async { identity.licence() } else null
             val motorcyclesCall = if (includeDocuments) async { identity.motorcycles() } else null
             val walletResult = walletCall?.await()
@@ -361,16 +343,10 @@ class HomeViewModel @Inject constructor(
                 previous.applicationSubmitted
             }
             val loadedWallet = (walletResult as? ApiResult.Ok)?.value
-            val opened = openCall?.await()
-            ownCall?.await()
-            val actionable = if (opened is ApiResult.Ok) {
-                openRequests = opened.value
-                newMarketplaceOffers(availableRequests(emptyList(), opened.value), bids.ownBidsFlow.value)
-            } else {
-                null
-            }
-            HomeLoad(loadedWallet, actionable?.size, assignmentResult, applicationSubmitted, actionable)
+            HomeLoad(loadedWallet, assignmentResult, applicationSubmitted)
         }
+        if (wallet != null) lastWalletUpdateAt = SystemClock.elapsedRealtime()
+        val listed = stamped.result
         val recovery = DeliveryRecoveryCoordinator(
             read = deliveries::read,
             write = deliveries::write,
@@ -411,7 +387,13 @@ class HomeViewModel @Inject constructor(
         if (refreshTicket != null && refreshTicket != this.refreshTicket) {
             return
         }
-        availability.applySharing()
+        val rawOnboard = (onboard as? ApiResult.Ok)?.value
+        if (confirmedAvailability == null && confirmedReceiving == null && rawOnboard != null &&
+            receivingAlignment(rawOnboard.availability, rawOnboard.receiving) == ReceivingAlignment.None) {
+            availability.applyDashboardSharing(rawOnboard, stamped, snapshotSession, snapshotStarted)
+        } else {
+            availability.applySharing()
+        }
         val onboardFailure = (onboard as? ApiResult.Err)?.error
         val offline = recovery.offline || (
             onboardFailure != null
@@ -472,14 +454,11 @@ class HomeViewModel @Inject constructor(
                 if (shown.showUsdDebt) shown.usdBalance else null
             },
             walletRestricted = wallet?.newDeliveriesRestricted ?: state.value.walletRestricted,
-            activeRequestCount = requestCount ?: previous.activeRequestCount,
             activeDeliveryTotal = when {
                 assignmentsUnknown -> null
                 listed is ApiResult.Ok -> dashboardActiveCount(listed.value)
                 else -> previous.activeDeliveryTotal
             },
-            offers = offers ?: previous.offers,
-            ownBids = bids.ownBidsFlow.value,
             flexibleCount = counts?.flexible,
             expressCount = counts?.express,
             committedV2 = committedV2,
@@ -532,6 +511,7 @@ class HomeViewModel @Inject constructor(
     }
 
     private fun applyWallet(wallet: WalletSummaryResponse) {
+        lastWalletUpdateAt = SystemClock.elapsedRealtime()
         val shown = dashboardWallet(wallet.activeWallet, wallet.balance, wallet.zig?.balance)
         state.value = state.value.copy(
             walletBalance = shown.balance,
@@ -539,31 +519,6 @@ class HomeViewModel @Inject constructor(
             walletInsufficient = shown.insufficient,
             usdDebtBalance = if (shown.showUsdDebt) shown.usdBalance else null,
             walletRestricted = wallet.newDeliveriesRestricted,
-        )
-    }
-
-    private suspend fun refreshOfferCount() {
-        if (dashboardBusy) {
-            return
-        }
-        val current = state.value.onboarding
-        if (!shouldPollMarketplace(appVisible = true, current?.availability, current?.receiving)) {
-            return
-        }
-        val opened = bids.openRequests()
-        if (dashboardBusy || opened !is ApiResult.Ok) {
-            return
-        }
-        openRequests = opened.value
-        bids.refreshOwnBids(null)
-        if (dashboardBusy) {
-            return
-        }
-        val actionable = newMarketplaceOffers(availableRequests(emptyList(), openRequests), bids.ownBidsFlow.value)
-        state.value = state.value.copy(
-            activeRequestCount = actionable.size,
-            offers = actionable,
-            ownBids = bids.ownBidsFlow.value,
         )
     }
 
@@ -586,10 +541,8 @@ class HomeViewModel @Inject constructor(
 
 private data class HomeLoad<TWallet, TListed>(
     val wallet: TWallet,
-    val requestCount: Int?,
     val listed: TListed,
     val submitted: Boolean,
-    val offers: List<OfferResponse>?,
 )
 
 private fun workloadFor(

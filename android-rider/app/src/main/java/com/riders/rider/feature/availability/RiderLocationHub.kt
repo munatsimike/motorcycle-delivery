@@ -19,6 +19,8 @@ class RiderLocationHub @Inject constructor() {
     private val latest = MutableStateFlow<SharedFix?>(null)
     val fixes: StateFlow<SharedFix?> = latest.asStateFlow()
 
+    fun clear() { latest.value = null }
+
     fun publish(fix: GpsFix, atMillis: Long = System.currentTimeMillis()) {
         latest.value = SharedFix(fix, atMillis)
     }

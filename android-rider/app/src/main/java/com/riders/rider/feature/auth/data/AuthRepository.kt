@@ -57,6 +57,7 @@ class AuthRepository @Inject constructor(
     }
 
     suspend fun verify(flow: String, phone: String, code: String): ApiResult<VerifyOutcome> {
+        val identity = sessions.snapshot().identity
         val call = when (flow) {
             "whatsapp", "registration" -> suspend { auth.verifyWhatsAppRegistration(VerifyRequest(phone, code)) }
             "whatsapp_login", "login" -> suspend { auth.verifyWhatsAppLogin(VerifyRequest(phone, code)) }
@@ -64,7 +65,7 @@ class AuthRepository @Inject constructor(
         }
         return when (val result = apiCall(establishedSession = false) { call() }) {
             is ApiResult.Err -> result
-            is ApiResult.Ok -> verificationOutcome(result.value)
+            is ApiResult.Ok -> verificationOutcome(result.value, identity)
         }
     }
 
@@ -103,30 +104,32 @@ class AuthRepository @Inject constructor(
     }
 
     suspend fun completeRegistration(token: String, fullName: String, address: String): ApiResult<VerifyOutcome> {
+        val identity = sessions.snapshot().identity
         return when (val result = apiCall(establishedSession = false) {
             auth.completeWhatsAppRegistration(RiderRegistrationCompleteRequest(token, fullName, address))
         }) {
             is ApiResult.Err -> result
-            is ApiResult.Ok -> saveSession(result.value)
+            is ApiResult.Ok -> saveSession(result.value, identity)
         }
     }
 
     suspend fun logout() {
+        val identity = sessions.snapshot().identity
         try {
             auth.logout()
         } catch (_: Exception) {
             // Local sign-out still clears the session when the server cannot be reached.
         }
-        sessions.clear()
+        sessions.clearIfCurrent(identity)
     }
 
-    private suspend fun verificationOutcome(response: RiderVerificationResponse): ApiResult<VerifyOutcome> {
+    private suspend fun verificationOutcome(response: RiderVerificationResponse, identity: String): ApiResult<VerifyOutcome> {
         val accessToken = response.accessToken
         val refreshToken = response.refreshToken
         val accessTokenExpiresAt = response.accessTokenExpiresAt
         val refreshTokenExpiresAt = response.refreshTokenExpiresAt
         if (!accessToken.isNullOrBlank() && !refreshToken.isNullOrBlank() && !accessTokenExpiresAt.isNullOrBlank() && !refreshTokenExpiresAt.isNullOrBlank()) {
-            return saveSession(SessionResponse(accessToken, refreshToken, accessTokenExpiresAt, refreshTokenExpiresAt))
+            return saveSession(SessionResponse(accessToken, refreshToken, accessTokenExpiresAt, refreshTokenExpiresAt), identity)
         }
         val registrationToken = response.registrationToken
         if (response.status == "verified" && !registrationToken.isNullOrBlank()) {
@@ -140,8 +143,8 @@ class AuthRepository @Inject constructor(
         return ApiResult.Err(ApiError.Validation("Verification code is invalid"))
     }
 
-    private suspend fun saveSession(session: SessionResponse): ApiResult<VerifyOutcome> {
-        val saved = withContext(Dispatchers.IO) { sessions.write(session.toSession()) }
+    private suspend fun saveSession(session: SessionResponse, identity: String): ApiResult<VerifyOutcome> {
+        val saved = withContext(Dispatchers.IO) { sessions.writeIfCurrent(identity, session.toSession()) }
         if (!saved) {
             return ApiResult.Err(ApiError.Unexpected(SessionStorageException.MESSAGE))
         }

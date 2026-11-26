@@ -30,51 +30,62 @@ private data class AttemptFile(
 @Singleton
 class BidAttemptStore @Inject constructor(
     @param:ApplicationContext private val context: Context,
+    sessions: com.riders.rider.core.session.SessionStore,
 ) {
     private val mutex = Mutex()
+    private val storage = com.riders.rider.core.session.PrivateRetryFile(context, "rider_bid_attempts_private", sessions)
     private val fileKey = stringPreferencesKey("attempts")
     private val newKey = { UUID.randomUUID().toString() }
 
     suspend fun attempt(deliveryId: String, amountCents: Int): BidAttempt = mutex.withLock {
-        val file = read()
+        val owner = storage.owner()
+        val file = read(owner)
         val next = nextBidAttempt(file.attempts[deliveryId], deliveryId, amountCents, newKey())
         if (file.attempts[deliveryId] != next) {
-            write(file.copy(attempts = file.attempts + (deliveryId to next)))
+            write(owner, file.copy(attempts = file.attempts + (deliveryId to next)))
         }
         next
     }
 
     suspend fun pending(deliveryId: String): BidAttempt? = mutex.withLock {
-        read().attempts[deliveryId]
+        read(storage.owner()).attempts[deliveryId]
     }
 
     suspend fun clear(deliveryId: String) = mutex.withLock {
-        val file = read()
+        val owner = storage.owner()
+        val file = read(owner)
         if (file.attempts.containsKey(deliveryId)) {
-            write(file.copy(attempts = file.attempts - deliveryId))
+            write(owner, file.copy(attempts = file.attempts - deliveryId))
         }
     }
 
     suspend fun retain(bids: List<OwnBid>) = mutex.withLock {
-        val file = read()
+        val owner = storage.owner()
+        val file = read(owner)
         val remaining = file.attempts.filterValues { attempt -> bidAttemptAfterRefresh(attempt, bids) != null }
         if (remaining.size != file.attempts.size) {
-            write(file.copy(attempts = remaining))
+            write(owner, file.copy(attempts = remaining))
         }
     }
 
-    private suspend fun read(): AttemptFile {
-        val raw = context.bidAttemptStore.data.first()[fileKey] ?: return AttemptFile()
-        return try {
-            AttemptJson.decodeFromString<AttemptFile>(raw)
-        } catch (_: Exception) {
-            AttemptFile()
+    suspend fun migrateLegacy() = mutex.withLock {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val legacy = context.bidAttemptStore.data.first()[fileKey]
+            storage.migrate(legacy)
+            if (legacy != null) context.bidAttemptStore.edit { it.remove(fileKey) }
         }
+        Unit
     }
 
-    private suspend fun write(file: AttemptFile) {
-        context.bidAttemptStore.edit { preferences ->
-            preferences[fileKey] = AttemptJson.encodeToString(file)
-        }
+    private suspend fun read(owner: com.riders.rider.core.session.PrivateRetryFile.Owner): AttemptFile = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val legacy = context.bidAttemptStore.data.first()[fileKey]
+        val raw = storage.read(owner, legacy)
+        if (legacy != null) context.bidAttemptStore.edit { it.remove(fileKey) }
+        if (raw.isNullOrBlank()) AttemptFile() else AttemptJson.decodeFromString(AttemptFile.serializer(), raw)
     }
+
+    private suspend fun write(owner: com.riders.rider.core.session.PrivateRetryFile.Owner, file: AttemptFile) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        storage.write(owner, AttemptJson.encodeToString(AttemptFile.serializer(), file))
+    }
+
 }

@@ -19,6 +19,7 @@ import com.riders.rider.feature.delivery.domain.shouldRequestPickupRoute
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -45,6 +46,7 @@ class CollectedRouteModel @Inject constructor(
     private var job: Job? = null
     private var listening: Job? = null
     private var clock: Job? = null
+    private var approachJob: Job? = null
     private var followingId: String? = null
     private var followingDropoff: GeoPoint? = null
     private val confirmedDropoffs = mutableMapOf<String, GeoPoint>()
@@ -58,7 +60,7 @@ class CollectedRouteModel @Inject constructor(
             return
         }
         val next = assignmentId + "|" + deliveryRouteKey(pickup, dropoff)
-        if (requestedKey == next && line.size > 2) {
+        if (requestedKey == next && (line.size > 2 || job?.isActive == true)) {
             return
         }
         val replacing = requestedKey != next
@@ -93,6 +95,8 @@ class CollectedRouteModel @Inject constructor(
         arrivedAtDropoff = confirmedDropoffs[assignmentId] == dropoff
         locationGranted = watch.hasFineLocation()
         if (changed) {
+            approachJob?.cancel()
+            approachJob = null
             lastOrigin = null
             lastRequestAtMillis = null
             roadMetres = null
@@ -116,15 +120,22 @@ class CollectedRouteModel @Inject constructor(
         publishRider()
     }
 
-    fun stopFollowing() {
+    fun pauseFollowing() {
         val started = listening != null
         listening?.cancel()
         listening = null
         clock?.cancel()
         clock = null
+        if (approachJob?.isActive == true) lastRequestAtMillis = null
+        approachJob?.cancel()
+        approachJob = null
         if (started) {
             watch.stop()
         }
+    }
+
+    fun stopFollowing() {
+        pauseFollowing()
         followingId = null
         followingDropoff = null
         lastOrigin = null
@@ -163,15 +174,20 @@ class CollectedRouteModel @Inject constructor(
             liveLine = emptyList()
             return
         }
+        if (arrivedAtDropoff) {
+            approachJob?.cancel()
+            return
+        }
+        if (approachJob?.isActive == true) return
         val origin = GeoPoint(fix.latitude, fix.longitude)
         val now = System.currentTimeMillis()
         if (!shouldRequestPickupRoute(lastOrigin, origin, lastRequestAtMillis, now)) {
             return
         }
         lastRequestAtMillis = now
-        viewModelScope.launch {
+        approachJob = viewModelScope.launch {
             val road = routes.approachDropoff(assignmentId, fix)
-            if (followingId != assignmentId || followingDropoff != dropoff || rider == null) {
+            if (followingId != assignmentId || followingDropoff != dropoff || rider == null || arrivedAtDropoff) {
                 return@launch
             }
             if (!isRiderDropoffRoad(road.line, origin, dropoff)) {

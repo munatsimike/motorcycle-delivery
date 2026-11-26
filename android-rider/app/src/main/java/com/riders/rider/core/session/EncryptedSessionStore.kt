@@ -19,16 +19,29 @@ class EncryptedSessionStore @Inject constructor(
 ) : SessionStore {
     private val preferences: SharedPreferences? = open(context)
     private val state = MutableStateFlow(readStored())
+    private val generation = MutableStateFlow(preferences?.getString(IDENTITY, null) ?: newSessionIdentity())
+    override val identity = generation.asStateFlow()
+    init {
+        if (state.value != null && preferences?.getString(IDENTITY, null) == null) {
+            runCatching { preferences?.edit()?.putString(IDENTITY, generation.value)?.commit() }
+        }
+    }
     private val uncertain = MutableStateFlow(preferences?.getBoolean(REFRESH_UNCERTAIN, false) == true)
     override val session: StateFlow<AuthSession?> = state.asStateFlow()
     override val refreshUncertain: StateFlow<Boolean> = uncertain.asStateFlow()
 
     override fun read(): AuthSession? = state.value
 
-    override fun write(session: AuthSession): Boolean {
+    @Synchronized override fun write(session: AuthSession): Boolean = persist(session, newSessionIdentity())
+
+    @Synchronized override fun replaceIfCurrent(expected: SessionSnapshot, session: AuthSession): Boolean =
+        snapshot() == expected && persist(session, expected.identity)
+
+    private fun persist(session: AuthSession, id: String): Boolean {
         val editor = preferences?.edit() ?: return false
         return try {
             val saved = editor
+                .putString(IDENTITY, id)
                 .putString(ACCESS, session.accessToken)
                 .putString(REFRESH, session.refreshToken)
                 .putString(ACCESS_EXPIRY, session.accessTokenExpiresAt)
@@ -38,6 +51,7 @@ class EncryptedSessionStore @Inject constructor(
             if (saved) {
                 state.value = session
                 uncertain.value = false
+                generation.value = id
             }
             saved
         } catch (_: GeneralSecurityException) {
@@ -47,7 +61,7 @@ class EncryptedSessionStore @Inject constructor(
         }
     }
 
-    override fun clear() {
+    @Synchronized override fun clear() {
         try {
             preferences?.edit()?.clear()?.commit()
         } catch (_: GeneralSecurityException) {
@@ -55,19 +69,18 @@ class EncryptedSessionStore @Inject constructor(
         }
         state.value = null
         uncertain.value = false
+        generation.value = newSessionIdentity()
     }
 
-    override fun markRefreshUncertain() {
-        val saved = try {
+    @Synchronized override fun markRefreshUncertain() {
+        try {
             preferences?.edit()?.putBoolean(REFRESH_UNCERTAIN, true)?.commit() == true
         } catch (_: GeneralSecurityException) {
             false
         } catch (_: IOException) {
             false
         }
-        if (saved) {
-            uncertain.value = true
-        }
+        uncertain.value = true
     }
 
     private fun readStored(): AuthSession? {
@@ -83,6 +96,7 @@ class EncryptedSessionStore @Inject constructor(
     }
 
     private companion object {
+        const val IDENTITY = "local_session_identity"
         const val ACCESS = "access_token"
         const val REFRESH = "refresh_token"
         const val ACCESS_EXPIRY = "access_token_expires_at"

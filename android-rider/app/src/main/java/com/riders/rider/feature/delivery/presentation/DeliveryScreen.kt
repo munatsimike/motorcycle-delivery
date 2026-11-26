@@ -71,11 +71,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.flow.collect
 import com.riders.rider.core.design.RidersBottomSheet
 import com.riders.rider.core.design.RidersDialog
 import com.riders.rider.core.design.RidersDialogBody
@@ -131,6 +132,19 @@ fun DeliveryScreen(
     var cancelReason by remember(ui.deliveryId) { mutableStateOf<String?>(null) }
     var guidance by remember { mutableStateOf<GuidanceTarget?>(null) }
     var destinationNote by remember(ui.deliveryId, ui.status) { mutableStateOf<String?>(null) }
+    val inbox = com.riders.rider.feature.offers.notification.rememberOfferInbox()
+    androidx.compose.runtime.LaunchedEffect(inbox, deliveryId, completed) {
+        if (!completed) inbox.customerCancelledArrivals.collect { id ->
+            if (id == deliveryId) model.refreshForCancellation(id)
+        }
+    }
+    androidx.compose.runtime.LaunchedEffect(ui.missing, ui.readOnly, ui.status) {
+        if (ui.missing || (ui.readOnly && ui.marketplaceParcel) || ui.status == "CANCELLED") {
+            guidance = null
+            confirmAction = null
+            cancelOpen = false
+        }
+    }
     BackHandler(enabled = guidance != null) { guidance = null }
     DisposableEffect(lifecycle, deliveryId) {
         val observer = LifecycleEventObserver { _, event ->
@@ -184,13 +198,23 @@ fun DeliveryScreen(
             routeModel.load(ui.assignmentId, pickupPoint, dropoffPoint)
         }
     }
-    androidx.compose.runtime.DisposableEffect(collected, ui.assignmentId, dropoffPoint, guidance) {
-        if (guidance == null && collected && dropoffPoint != null) {
-            routeModel.follow(ui.assignmentId, dropoffPoint)
-        } else {
+    androidx.compose.runtime.DisposableEffect(lifecycle, collected, ui.assignmentId, dropoffPoint, guidance) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> if (guidance == null && collected && dropoffPoint != null) {
+                    routeModel.follow(ui.assignmentId, dropoffPoint)
+                } else {
+                    routeModel.stopFollowing()
+                }
+                Lifecycle.Event.ON_STOP -> routeModel.pauseFollowing()
+                else -> Unit
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose {
+            lifecycle.removeObserver(observer)
             routeModel.stopFollowing()
         }
-        onDispose { routeModel.stopFollowing() }
     }
     androidx.compose.runtime.LaunchedEffect(guidance) {
         val active = guidance

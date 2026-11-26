@@ -69,6 +69,11 @@ class PendingOffer @Inject constructor() {
         acceptedTap.value = null
     }
 
+    fun acknowledgeAcceptedTap(deliveryId: String) {
+        // Do not clear a newer notification tap while acknowledging this one.
+        acceptedTap.compareAndSet(deliveryId, null)
+    }
+
     fun customerCancelledArrived(deliveryId: String) {
         customerCancelledArrivalsFlow.tryEmit(deliveryId)
     }
@@ -76,6 +81,8 @@ class PendingOffer @Inject constructor() {
     fun customerCancelledTapped(deliveryId: String) {
         customerCancelledTap.value = deliveryId.trim()
     }
+
+    fun acknowledgeCustomerCancelledTap(deliveryId: String) { customerCancelledTap.compareAndSet(deliveryId, null) }
 
     fun clearCustomerCancelled() {
         customerCancelledTap.value = null

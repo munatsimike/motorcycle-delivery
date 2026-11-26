@@ -44,6 +44,7 @@ import com.riders.rider.feature.profile.domain.signOutLeavesRiderOnDuty
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -105,8 +106,8 @@ class ProfileViewModel @Inject constructor(
         state.update { it.copy(loading = cold, refreshing = !cold) }
         viewModelScope.launch {
             try {
-                val profile = verification.profile()
-                val onboard = verification.onboarding()
+                val profile = verification.profile(shareInFlight = !force)
+                val onboard = verification.onboarding(shareInFlight = !force)
                 val motorcycles = verification.motorcycles()
                 val reported = profileRefreshError(profile, onboard, motorcycles)
                 val failure = if (profileVisible) reported else profileErrorAfterLeave(reported)
@@ -185,11 +186,14 @@ class ProfileViewModel @Inject constructor(
         val previous = state.value.photoBitmap
         state.update { it.copy(photo = profilePhotoUploadStarted(it.photo)) }
         viewModelScope.launch {
-            val preview = withContext(Dispatchers.IO) { decodeProfilePhoto(bytes) }
+            val (uploadBytes, preview) = withContext(Dispatchers.IO) {
+                val prepared = stripJpegMetadata(prepareProfilePhotoUpload(bytes))
+                prepared to decodeProfilePhoto(prepared)
+            }
             state.update { current ->
                 if (current.photo.phase != ProfilePhotoPhase.Uploading) current else current.copy(photoPreview = preview)
             }
-            when (val result = photos.upload(bytes) { sent ->
+            when (val result = photos.upload(uploadBytes) { sent ->
                 state.update { current ->
                     if (current.photo.phase != ProfilePhotoPhase.Uploading) {
                         current
@@ -277,6 +281,12 @@ class ProfileViewModel @Inject constructor(
         state.update { it.copy(photo = it.photo.copy(error = message, retry = null)) }
     }
 
+    fun clearPrivateState() {
+        viewModelScope.coroutineContext.cancelChildren()
+        pendingPhoto = null
+        state.value = ProfileUi()
+    }
+
     fun logout() {
         if (state.value.signingOut) {
             return
@@ -289,12 +299,8 @@ class ProfileViewModel @Inject constructor(
         endAvailabilityForSignOut()
         offerPush.forget()
         auth.logout()
-        verification.invalidateDocuments()
-        assignments.clearSession()
         availability.applySharing()
-        deliveries.clear()
-        acceptKeys.clearAll()
-        state.update { it.copy(signingOut = false) }
+        clearPrivateState()
     }
 
     private fun syncStoredPhoto(hasProfilePhoto: Boolean) {

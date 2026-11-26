@@ -20,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,7 +37,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.riders.rider.R
 import com.riders.rider.core.design.RidersBottomSheet
@@ -51,6 +52,7 @@ import com.riders.rider.feature.delivery.presentation.filteredContentTitle
 import com.riders.rider.feature.bids.presentation.BidBoardScreen
 import com.riders.rider.core.network.OfferResponse
 import com.riders.rider.feature.offers.presentation.OffersScreen
+import com.riders.rider.feature.offers.presentation.OfferViewModel
 import com.riders.rider.navigation.DeliveryBoardTab
 import com.riders.rider.navigation.defaultDeliveryBoardTab
 import com.riders.rider.navigation.deliveryBoardTabLabel
@@ -361,9 +363,10 @@ fun AvailableRequestsPage(
     availability: String?,
     receiving: Boolean?,
     modifier: Modifier = Modifier,
+    model: OfferViewModel,
 ) {
-    var content by remember { mutableStateOf(DeliveryContent.All) }
-    var sort by remember { mutableStateOf(DeliveryListSort.Newest) }
+    var content by rememberSaveable { mutableStateOf(DeliveryContent.All) }
+    var sort by rememberSaveable { mutableStateOf(DeliveryListSort.Newest) }
     var sortOpen by remember { mutableStateOf(false) }
     var filterOpen by remember { mutableStateOf(false) }
     Column(modifier.fillMaxSize().background(RidersColors.background)) {
@@ -411,6 +414,7 @@ fun AvailableRequestsPage(
             sort = sort,
             unbidOnly = true,
             browseOnOpen = onOpen,
+            model = model,
         )
     }
 }

@@ -1,14 +1,20 @@
 package com.riders.rider.feature.offers.domain
 
 import com.riders.rider.core.network.OfferResponse
+import java.time.Instant
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.channels.ReceiveChannel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.launch
 
 /** Which incoming request, if any, is shown on the home map. Dismissed ids stay closed for this visit. */
 data class RequestOverlay(
     val openId: String? = null,
     val dismissed: Set<String> = emptySet(),
+    val minimised: Set<String> = emptySet(),
 ) {
     fun sync(offerIds: List<String>, blocked: Boolean): RequestOverlay {
         val available = offerIds.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
@@ -35,6 +41,114 @@ data class RequestOverlay(
         val id = openId ?: return this
         return copy(openId = null, dismissed = dismissed + id)
     }
+
+    /** Collapse the map back to the home card without treating the request as closed. */
+    fun minimise(): RequestOverlay {
+        val id = openId?.trim().orEmpty()
+        if (id.isEmpty()) {
+            return this
+        }
+        return copy(openId = null, minimised = minimised + id)
+    }
+}
+
+/** Keep the request that is already maximised, without choosing a different one. */
+fun retainOpenRequest(overlay: RequestOverlay, offerIds: List<String>): RequestOverlay {
+    val available = offerIds.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+    val current = overlay.openId?.takeIf { it in available }
+    return if (current == overlay.openId) overlay else overlay.copy(openId = current)
+}
+
+data class IncomingRequestGate(
+    val primed: Boolean = false,
+    val catchUp: Boolean = false,
+    val knownIds: Set<String> = emptySet(),
+    val pendingMaximiseId: String? = null,
+    /** A request that should open maximised once Home is ready. Not emitted yet. */
+    val heldMaximiseId: String? = null,
+)
+
+data class IncomingRequestStep(
+    val gate: IncomingRequestGate,
+    val maximiseId: String? = null,
+)
+
+/**
+ * A transient startup/resume block must not consume a new request. Deliberate blocks (another
+ * map, a dialog, or browsing) remember it without opening. Returning from another screen catches
+ * up silently. The caller acknowledges the chosen id synchronously when it updates the overlay.
+ */
+fun stepIncomingRequest(
+    gate: IncomingRequestGate,
+    visibleIds: List<String>,
+    listSettled: Boolean,
+    canMaximise: Boolean,
+    suppressedIds: Set<String>,
+    deferMaximise: Boolean = !listSettled || !gate.primed,
+): IncomingRequestStep {
+    val visible = visibleIds.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+    val suppressed = suppressedIds.map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+    val eligible = visible.filterNot { it in suppressed }
+    val known = gate.knownIds + visible
+    if (gate.catchUp) {
+        return IncomingRequestStep(
+            gate.copy(
+                primed = gate.primed || listSettled,
+                catchUp = !listSettled,
+                knownIds = known,
+                heldMaximiseId = null,
+                pendingMaximiseId = null,
+            ),
+        )
+    }
+    val candidate = gate.heldMaximiseId?.takeIf { it in eligible }
+        ?: eligible.firstOrNull { !gate.primed || it !in gate.knownIds }
+    if (deferMaximise && (!listSettled || !canMaximise)) {
+        // Do not mark the arriving ids known yet. If the held request expires before Home
+        // becomes ready, another fresh, valid request can still be selected.
+        return IncomingRequestStep(gate.copy(heldMaximiseId = candidate, pendingMaximiseId = null))
+    }
+    val pending = gate.pendingMaximiseId?.takeIf { it in eligible }
+    val maximise = if (listSettled && canMaximise && pending == null) candidate else null
+    return IncomingRequestStep(
+        gate.copy(
+            primed = true,
+            knownIds = known,
+            heldMaximiseId = null,
+            pendingMaximiseId = if (canMaximise) maximise ?: pending else null,
+        ),
+        maximise,
+    )
+}
+
+/** Refresh immediately on Home entry and push arrivals; polling is only the fallback. */
+suspend fun watchHomeRequests(
+    signals: ReceiveChannel<Unit>,
+    awaitReady: suspend () -> Unit,
+    refresh: suspend () -> Boolean,
+    intervalMs: Long = OFFER_REFRESH_INTERVAL_MS,
+) {
+    while (currentCoroutineContext().isActive) {
+        awaitReady()
+        // A push already queued before this fetch is covered by the fetch itself.
+        signals.tryReceive()
+        // A refresh invalidated by a concurrent dashboard load is retried once it is ready.
+        if (refresh()) {
+            withTimeoutOrNull(intervalMs) { signals.receive() }
+        }
+    }
+}
+
+/** Ids that may open on the map. An expired countdown is not one of them. */
+fun autoOpenRequestIds(offers: List<OfferResponse>, nowMillis: Long): List<String> {
+    return offers.mapNotNull { offer ->
+        val id = offer.deliveryId.trim()
+        if (id.isEmpty() || requestCountdownExpired(offer.searchExpiresAt, offer.expiresAt, nowMillis)) {
+            null
+        } else {
+            id
+        }
+    }.distinct()
 }
 
 enum class RequestMapSuccess {
@@ -46,6 +160,7 @@ enum class RequestMapSuccess {
 data class RequestMapEvent(
     val deliveryId: String,
     val success: RequestMapSuccess,
+    val searchDeadline: String? = null,
 )
 
 data class RequestMapHandling(
@@ -54,16 +169,34 @@ data class RequestMapHandling(
     val showOfferSent: Boolean,
 )
 
-fun handleRequestMapSuccess(overlay: RequestOverlay, event: RequestMapEvent): RequestMapHandling {
-    if (overlay.openId != event.deliveryId) {
+fun handleRequestMapSuccess(
+    overlay: RequestOverlay,
+    event: RequestMapEvent,
+    currentSearchDeadline: String? = null,
+): RequestMapHandling {
+    val id = event.deliveryId.trim()
+    // A delayed completion must not close a renewed search for the same delivery.
+    if (event.success == RequestMapSuccess.Declined && !currentSearchDeadline.isNullOrBlank() &&
+        !requestSettled(id, currentSearchDeadline, setOf(searchAttemptKey(id, event.searchDeadline)))) {
         return RequestMapHandling(overlay, openDeliveries = false, showOfferSent = false)
     }
-    val closed = overlay.dismiss()
+    if (id.isEmpty() || id in overlay.dismissed || (overlay.openId != null && overlay.openId != id)) {
+        return RequestMapHandling(overlay, openDeliveries = false, showOfferSent = false)
+    }
+    val closed = overlay.copy(openId = null, dismissed = overlay.dismissed + id)
     return when (event.success) {
         RequestMapSuccess.Accepted -> RequestMapHandling(closed, openDeliveries = true, showOfferSent = false)
         RequestMapSuccess.OfferSent -> RequestMapHandling(closed, openDeliveries = false, showOfferSent = true)
         RequestMapSuccess.Declined -> RequestMapHandling(closed, openDeliveries = false, showOfferSent = false)
     }
+}
+
+/** Home and the request map must not keep a request after it has been accepted, declined, or sent. */
+fun withoutSettledRequests(offers: List<OfferResponse>, settled: Set<String>): List<OfferResponse> {
+    if (offers.isEmpty() || settled.isEmpty()) {
+        return offers
+    }
+    return offers.filterNot { requestSettled(it.deliveryId, it.searchExpiresAt, settled) }
 }
 
 const val OFFER_SENT_TOAST_TITLE = "Offer sent"
@@ -94,9 +227,8 @@ fun offerSentToast(deliveryId: String, searchDeadline: String?): OfferSentToast?
 fun requestMapAutoOpenBlocked(
     offlineConfirmation: Boolean,
     browsingRequests: Boolean = false,
-    offerSentHold: Boolean = false,
 ): Boolean {
-    return offlineConfirmation || browsingRequests || offerSentHold
+    return offlineConfirmation || browsingRequests
 }
 
 fun requestCatalog(primary: List<OfferResponse>, fallback: List<OfferResponse>): List<OfferResponse> {
@@ -147,7 +279,8 @@ fun cachedNotificationOffer(
     if (requestSettled(found.deliveryId, found.searchExpiresAt, settled)) {
         return null
     }
-    if (!notificationRequestCanOpen(true, found.expiresAt, nowMillis)) {
+    if (!notificationRequestCanOpen(true, found.expiresAt, nowMillis) ||
+        requestCountdownExpired(found.searchExpiresAt, found.expiresAt, nowMillis)) {
         return null
     }
     return found
@@ -185,7 +318,8 @@ suspend fun openNotificationRequest(
     val found = match(loaded, tappedId)
     val open = found != null &&
         !requestSettled(found.deliveryId, found.searchExpiresAt, settled) &&
-        notificationRequestCanOpen(true, found.expiresAt, nowMillis)
+        notificationRequestCanOpen(true, found.expiresAt, nowMillis) &&
+        !requestCountdownExpired(found.searchExpiresAt, found.expiresAt, nowMillis)
     return NotificationOpenResult(offer = if (open) found else null, confirmed = true)
 }
 
@@ -228,13 +362,22 @@ fun searchAttemptKey(deliveryId: String, searchDeadline: String?): String {
 
 fun requestSettled(deliveryId: String, searchDeadline: String?, settled: Set<String>): Boolean {
     val id = deliveryId.trim()
-    if (id.isEmpty()) {
+    if (id.isEmpty() || settled.isEmpty()) {
         return false
     }
     if (searchAttemptKey(id, searchDeadline) in settled) {
         return true
     }
-    return searchDeadline.isNullOrBlank() && id in settled
+    if (searchDeadline.isNullOrBlank()) return id in settled
+    // A slower refresh may still contain an older search for this delivery. It is
+    // not actionable after a later attempt has been settled, but a renewal is.
+    val deadline = runCatching { Instant.parse(searchDeadline.trim()) }.getOrNull() ?: return false
+    val prefix = "$id|"
+    return settled.any { key ->
+        key.startsWith(prefix) && runCatching {
+            !Instant.parse(key.removePrefix(prefix)).isBefore(deadline)
+        }.getOrDefault(false)
+    }
 }
 
 fun requestActionAllowed(

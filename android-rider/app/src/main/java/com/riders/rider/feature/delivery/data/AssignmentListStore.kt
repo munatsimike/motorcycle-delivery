@@ -6,11 +6,20 @@ import com.riders.rider.feature.delivery.domain.updateParcelStatus
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 @Singleton
 class AssignmentListStore @Inject constructor() {
     private val parcels = MutableStateFlow<List<CommittedParcel>>(emptyList())
+    val parcelsFlow = parcels.asStateFlow()
     private var generation = 0L
+    private var revision = 0L
+    private var sessionEpoch = 0L
+
+    @Synchronized fun readRevision(): Pair<Long, Long> = sessionEpoch to revision
+
+    @Synchronized fun invalidateRead() { revision += 1; generation += 1; lastRefreshApplied = false }
+    private var confirmedGeneration: Long? = null
     private var marketplace: Boolean? = null
     private var assignmentsConfirmed = false
     private var lastRefreshApplied = false
@@ -21,6 +30,9 @@ class AssignmentListStore @Inject constructor() {
     fun current(): List<CommittedParcel> = parcels.value
 
     @Synchronized
+    fun beginIfRevision(expected: Pair<Long, Long>): Long? = if (readRevision() == expected) begin() else null
+
+    @Synchronized
     fun begin(): Long {
         generation += 1
         return generation
@@ -29,14 +41,18 @@ class AssignmentListStore @Inject constructor() {
     @Synchronized
     fun confirm(requestGeneration: Long, incoming: List<CommittedParcel>): List<CommittedParcel> {
         val applied = requestGeneration == generation
-        lastRefreshApplied = applied
+        if (applied) lastRefreshApplied = true
         val next = applyAssignmentRefresh(parcels.value, requestGeneration, generation, incoming)
         parcels.value = next
         if (applied) {
             assignmentsConfirmed = true
+            confirmedGeneration = requestGeneration
         }
         return next
     }
+
+    @Synchronized
+    fun isCurrentRefresh(token: Long): Boolean = token == generation && token == confirmedGeneration
 
     fun hasConfirmedAssignments(): Boolean = assignmentsConfirmed
 
@@ -44,7 +60,7 @@ class AssignmentListStore @Inject constructor() {
 
     @Synchronized
     fun confirmStatus(deliveryId: String, status: String) {
-        generation += 1
+        invalidateRead()
         parcels.value = updateParcelStatus(parcels.value, deliveryId, status)
     }
 
@@ -57,7 +73,7 @@ class AssignmentListStore @Inject constructor() {
         if (assignmentId.isBlank()) {
             return
         }
-        generation += 1
+        invalidateRead()
         parcels.value = parcels.value.filter { it.assignmentId != assignmentId }
     }
 
@@ -81,10 +97,12 @@ class AssignmentListStore @Inject constructor() {
 
     @Synchronized
     fun clearSession() {
-        generation += 1
+        sessionEpoch += 1
+        invalidateRead()
         parcels.value = emptyList()
         marketplace = null
         assignmentsConfirmed = false
+        confirmedGeneration = null
         shiftConfirmed = false
         rememberedAvailability = null
         rememberedReceiving = null

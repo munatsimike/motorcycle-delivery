@@ -16,6 +16,16 @@ const val OFFER_CLOCK_INTERVAL_MS = 1_000L
 const val OFFER_UNAVAILABLE = "This offer is no longer available."
 const val EXPIRED_REQUEST_DISMISS_MS = 3_000L
 
+/** Time left before an expired request closes, on the same clock that paints the countdown. */
+fun millisUntilExpiredRequestCloses(
+    deadlineMillis: Long?,
+    nowMillis: Long,
+    holdMs: Long = EXPIRED_REQUEST_DISMISS_MS,
+): Long {
+    val closeAt = (deadlineMillis ?: nowMillis) + holdMs
+    return (closeAt - nowMillis).coerceAtLeast(0L)
+}
+
 fun offerBoardAfterLoad(previous: OfferBoard, count: Int?, error: String?): OfferBoard {
     return if (count != null) {
         OfferBoard(count = count, loading = false, error = null)
@@ -135,7 +145,37 @@ fun beginCustomOfferSubmit(dialog: CustomOfferDialogState, currentError: String?
     if (!dialog.open || dialog.phase != CustomOfferPhase.Idle) {
         return null
     }
-    return dialog.copy(phase = CustomOfferPhase.Waiting, error = null, awaitingError = currentError)
+    return dialog.copy(open = false, phase = CustomOfferPhase.Idle, error = null, awaitingError = currentError)
+}
+
+fun resumeCustomOfferDialog(dialog: CustomOfferDialogState, listedPrice: String): CustomOfferDialogState {
+    val amount = dialog.amount.ifBlank { listedPrice }
+    return CustomOfferDialogState(open = true, amount = amount)
+}
+
+enum class OfferSubmitTarget {
+    Accept,
+    YourOffer,
+}
+
+data class OfferActionProgress(
+    val deliveryId: String,
+    val target: OfferSubmitTarget,
+)
+
+data class OfferButtonLoading(
+    val accept: Boolean = false,
+    val yourOffer: Boolean = false,
+)
+
+fun offerButtonLoading(progress: OfferActionProgress?, deliveryId: String): OfferButtonLoading {
+    if (progress == null || progress.deliveryId != deliveryId) {
+        return OfferButtonLoading()
+    }
+    return when (progress.target) {
+        OfferSubmitTarget.Accept -> OfferButtonLoading(accept = true)
+        OfferSubmitTarget.YourOffer -> OfferButtonLoading(yourOffer = true)
+    }
 }
 
 fun observeCustomOfferSubmit(

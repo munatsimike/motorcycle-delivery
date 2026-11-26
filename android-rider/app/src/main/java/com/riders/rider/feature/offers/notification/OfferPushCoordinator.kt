@@ -18,17 +18,42 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 @Singleton
 class OfferPushCoordinator @Inject constructor(
-    @ApplicationContext private val context: Context,
+    @param:ApplicationContext private val context: Context,
     private val riders: RiderService,
     private val sessions: SessionStore,
     private val pending: PendingOffer,
     private val shown: ShownOfferStore,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private var registeredToken: String? = null
+    @Volatile private var registeredToken: String? = null
+    private val registrationLock = Mutex()
+    private val prefs = context.getSharedPreferences(ShownOfferStore.PREFS, Context.MODE_PRIVATE)
+    private val ownerKey = "registered_session"
+    private val tokenPrefs by lazy { com.riders.rider.core.session.privateCache(context, "rider_push_private") }
+    fun canReceive(identity: String): Boolean = sessions.isCurrent(identity) && prefs.getString(ownerKey, null) == identity
+    private fun cancelDeliveryNotifications() {
+        val manager = context.getSystemService(android.app.NotificationManager::class.java)
+        if (android.os.Build.VERSION.SDK_INT >= 23) {
+            manager.activeNotifications.filter { it.notification.flags and android.app.Notification.FLAG_FOREGROUND_SERVICE == 0 }
+                .forEach { manager.cancel(it.tag, it.id) }
+        }
+    }
+    fun resetRegistration(clearNotifications: Boolean = false) {
+        registeredToken = null
+        if (!clearNotifications) return
+        prefs.edit().remove(ownerKey).apply()
+        cancelDeliveryNotifications()
+        shown.clear()
+        pending.clear()
+        pending.clearAccepted()
+        pending.clearCustomerCancelled()
+        pending.clearApproval()
+    }
 
     fun onHome() {
         scope.launch { registerCurrentToken() }
@@ -42,12 +67,13 @@ class OfferPushCoordinator @Inject constructor(
         }
     }
 
-    suspend fun forget() {
+    suspend fun forget() = registrationLock.withLock {
         val token = readToken()
-        val signedIn = sessions.read() != null
+        val identity = sessions.snapshot().identity
+        val signedIn = sessions.isCurrent(identity)
         if (canRemovePushDevice(signedIn, token) && token != null) {
             val removed = apiCall { riders.removePushDevice(PushDeviceRequest(token)) }
-            if (removed is ApiResult.Ok) {
+            if (removed is ApiResult.Ok && sessions.isCurrent(identity)) {
                 writeToken(null)
                 registeredToken = null
             }
@@ -55,24 +81,27 @@ class OfferPushCoordinator @Inject constructor(
             writeToken(null)
             registeredToken = null
         }
-        shown.clear()
-        pending.clear()
-        pending.clearAccepted()
-        pending.clearCustomerCancelled()
-        pending.clearApproval()
+        if (sessions.snapshot().identity == identity) resetRegistration(clearNotifications = true)
     }
 
     private suspend fun registerCurrentToken() {
-        if (sessions.read() == null) {
-            return
-        }
-        val token = currentToken() ?: return
-        if (token == registeredToken) {
-            return
-        }
-        val result = apiCall { riders.registerPushDevice(PushDeviceRequest(token)) }
-        if (result is com.riders.rider.core.network.ApiResult.Ok) {
-            registeredToken = token
+        registrationLock.withLock {
+            if (sessions.read() == null) {
+                return
+            }
+            val identity = sessions.snapshot().identity
+            val token = currentToken() ?: return
+            if (!sessions.isCurrent(identity)) return
+            if (token == registeredToken && canReceive(identity)) {
+                return
+            }
+            val result = apiCall { riders.registerPushDevice(PushDeviceRequest(token)) }
+            synchronized(sessions) {
+                if (result is ApiResult.Ok && sessions.isCurrent(identity) && readToken() == token) {
+                    registeredToken = token
+                    prefs.edit().putString(ownerKey, identity).apply()
+                }
+            }
         }
     }
 
@@ -92,20 +121,24 @@ class OfferPushCoordinator @Inject constructor(
         }
     }
 
-    private fun readToken(): String? {
-        return context.getSharedPreferences(ShownOfferStore.PREFS, Context.MODE_PRIVATE)
-            .getString(ShownOfferStore.TOKEN, null)
-            ?.takeIf { it.isNotBlank() }
-    }
+    private fun readToken(): String? = runCatching {
+        val legacy = prefs.getString(ShownOfferStore.TOKEN, null)
+        if (legacy != null) {
+            if (!tokenPrefs.contains(ShownOfferStore.TOKEN)) {
+                if (!tokenPrefs.edit().putString(ShownOfferStore.TOKEN, legacy).commit()) return@runCatching null
+            }
+            prefs.edit().remove(ShownOfferStore.TOKEN).apply()
+        }
+        tokenPrefs.getString(ShownOfferStore.TOKEN, null)?.takeIf { it.isNotBlank() }
+    }.getOrNull()
 
     private fun writeToken(token: String?) {
-        val editor = context.getSharedPreferences(ShownOfferStore.PREFS, Context.MODE_PRIVATE).edit()
-        if (token.isNullOrBlank()) {
-            editor.remove(ShownOfferStore.TOKEN)
-        } else {
-            editor.putString(ShownOfferStore.TOKEN, token)
+        runCatching {
+            val editor = tokenPrefs.edit()
+            if (token.isNullOrBlank()) editor.remove(ShownOfferStore.TOKEN)
+            else editor.putString(ShownOfferStore.TOKEN, token)
+            if (editor.commit()) prefs.edit().remove(ShownOfferStore.TOKEN).apply()
         }
-        editor.apply()
     }
 }
 

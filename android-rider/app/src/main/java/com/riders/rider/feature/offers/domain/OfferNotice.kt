@@ -113,6 +113,16 @@ fun riderOfferOpensV1Offers(@Suppress("UNUSED_PARAMETER") notice: RiderNotice): 
 
 fun acceptedBidDeliveryId(notice: RiderNotice): String? = (notice as? RiderNotice.BidAccepted)?.deliveryId
 
+/** App-posted notifications carry our extra; FCM-rendered notifications carry the data payload. */
+fun acceptedBidTapDeliveryId(explicitId: String?, payloadType: String?, payloadDeliveryId: String?): String? {
+    explicitId?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
+    if (payloadType != "v2_bid_accepted") return null
+    return payloadDeliveryId?.trim()?.takeIf { it.isNotEmpty() }
+}
+
+fun acceptedDeliveryAlreadyOpen(deliveryId: String, currentDeliveryId: String?, completed: Boolean): Boolean =
+    deliveryId == currentDeliveryId && !completed
+
 fun offerNotificationId(assignmentId: String): Int = assignmentId.hashCode() and 0x7fffffff
 
 fun offerAttemptKey(deliveryId: String, expiresAt: String?): String {

@@ -3,6 +3,7 @@ package com.riders.rider.feature.delivery.presentation
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.Typeface
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -38,8 +39,11 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.model.BitmapDescriptor
 import com.google.android.gms.maps.model.BitmapDescriptorFactory
@@ -168,11 +172,22 @@ fun CollectionMap(
     val boundsPadding = collectionMarkerPaddingPx(boundsAir.value, density.density)
     val stroke = with(density) { 4.dp.toPx() }
 
-    DisposableEffect(assignmentId, pickup) {
-        if (assignmentId.isNotBlank() && pickup != null) {
-            model.activate(CollectionTarget(assignmentId, pickup))
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle, assignmentId, pickup) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> if (assignmentId.isNotBlank() && pickup != null) {
+                    model.activate(CollectionTarget(assignmentId, pickup))
+                }
+                Lifecycle.Event.ON_STOP -> model.deactivate()
+                else -> Unit
+            }
         }
-        onDispose { model.deactivate() }
+        lifecycle.addObserver(observer)
+        onDispose {
+            lifecycle.removeObserver(observer)
+            model.deactivate()
+        }
     }
 
     LaunchedEffect(assignmentId, pickup, riderGate, routeGate, mapLoaded, mapWidth, mapHeight, recenter, sheetOverlap) {
@@ -403,7 +418,18 @@ internal fun riderMotorcycleDescriptor(context: android.content.Context): Bitmap
     return BitmapDescriptorFactory.fromBitmap(riderMotorcycleImage(context))
 }
 
-/** Distance pill. Arrived uses solid primary green and white text. Transparent space below keeps the pill 8dp above a 90dp motorcycle. */
+internal const val TAG_TIP_WIDTH_DP = 12f
+internal const val TAG_TIP_HEIGHT_DP = 6f
+internal const val TAG_VISIBLE_GAP_DP = 6f
+
+/** Space from the motorcycle centre up to the tag tip, after the image's transparent top. */
+internal fun tagSpaceBelowTipDp(markerDp: Float, topInsetFraction: Float): Float {
+    val insetDp = topInsetFraction.coerceIn(0f, 1f) * markerDp
+    val visibleAboveCenter = (markerDp / 2f - insetDp).coerceAtLeast(0f)
+    return visibleAboveCenter + TAG_VISIBLE_GAP_DP
+}
+
+/** Distance pill. Arrived uses solid primary green and white text. The tip sits 6dp above the visible motorcycle. */
 internal fun approachTagIcon(context: android.content.Context, label: String): RiderMarkerIcon {
     val arrived = label == PICKUP_ARRIVED_TAG
     val density = context.resources.displayMetrics.density
@@ -418,15 +444,21 @@ internal fun approachTagIcon(context: android.content.Context, label: String): R
     val textHeight = textPaint.fontMetrics.run { descent - ascent }
     val badgeWidth = textWidth + padH * 2f
     val badgeHeight = textHeight + padV * 2f
-    val gap = 8f * density
-    val bike = (90f * density).toInt().coerceAtLeast(1)
+    val tipWidth = TAG_TIP_WIDTH_DP * density
+    val tipHeight = TAG_TIP_HEIGHT_DP * density
+    val belowTip = tagSpaceBelowTipDp(RIDER_MOTORCYCLE_MARKER_DP, motorcycleTopInsetFraction(context)) * density
     val shadow = 3f * density
     val width = (badgeWidth + shadow * 2f).toInt().coerceAtLeast(1)
-    val height = (badgeHeight + gap + bike / 2f).toInt().coerceAtLeast(1)
+    val height = (badgeHeight + tipHeight + belowTip).toInt().coerceAtLeast(1)
     val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
     val badgeLeft = (width - badgeWidth) / 2f
     val radius = badgeHeight / 2f
+    val fill = if (arrived) 0xFF169B62.toInt() else android.graphics.Color.WHITE
+    val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x3317211D }
+    val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = fill }
+    val tip = tagTip(width / 2f, badgeHeight, tipWidth, tipHeight)
+    val shadowTip = tagTip(width / 2f, badgeHeight + shadow, tipWidth, tipHeight)
     canvas.drawRoundRect(
         badgeLeft,
         shadow,
@@ -434,8 +466,9 @@ internal fun approachTagIcon(context: android.content.Context, label: String): R
         shadow + badgeHeight,
         radius,
         radius,
-        Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x3317211D },
+        shadowPaint,
     )
+    canvas.drawPath(shadowTip, shadowPaint)
     canvas.drawRoundRect(
         badgeLeft,
         0f,
@@ -443,10 +476,9 @@ internal fun approachTagIcon(context: android.content.Context, label: String): R
         badgeHeight,
         radius,
         radius,
-        Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = if (arrived) 0xFF169B62.toInt() else android.graphics.Color.WHITE
-        },
+        fillPaint,
     )
+    canvas.drawPath(tip, fillPaint)
     canvas.drawText(
         label,
         badgeLeft + padH,
@@ -456,18 +488,64 @@ internal fun approachTagIcon(context: android.content.Context, label: String): R
     return RiderMarkerIcon(BitmapDescriptorFactory.fromBitmap(bitmap), Offset(0.5f, 1f))
 }
 
+private fun tagTip(centerX: Float, badgeBottom: Float, tipWidth: Float, tipHeight: Float): Path {
+    return Path().apply {
+        moveTo(centerX - tipWidth / 2f, badgeBottom)
+        lineTo(centerX + tipWidth / 2f, badgeBottom)
+        lineTo(centerX, badgeBottom + tipHeight)
+        close()
+    }
+}
+
 /** Original marker was 90dp. Current size is 72dp reduced by a further 10%. */
 internal const val RIDER_MOTORCYCLE_MARKER_DP = 64.8f
 
-/** Unrotated artwork for turn-by-turn, which rotates the marker itself. */
-internal fun riderMotorcycleImage(context: android.content.Context): Bitmap {
-    val source = android.graphics.BitmapFactory.decodeResource(context.resources, R.drawable.rider_motorcycle_yellow_box)
+/** Cache only the final, small marker bitmap; no Activity or Context is retained. */
+private data class CachedMotorcycleMarker(
+    val size: Int,
+    val bitmap: Bitmap,
+    val topInsetFraction: Float,
+)
+
+private var cachedMotorcycleMarker: CachedMotorcycleMarker? = null
+
+@Synchronized
+private fun cachedMotorcycleMarker(context: android.content.Context): CachedMotorcycleMarker {
     val size = (RIDER_MOTORCYCLE_MARKER_DP * context.resources.displayMetrics.density).toInt().coerceAtLeast(1)
-    return Bitmap.createScaledBitmap(source, size, size, true).facingUp()
+    cachedMotorcycleMarker?.takeIf { it.size == size }?.let { return it }
+    val source = android.graphics.BitmapFactory.decodeResource(context.resources, R.drawable.rider_motorcycle_yellow_box)
+    // Keep the existing square display dimensions and orientation.
+    val bitmap = Bitmap.createScaledBitmap(source, size, size, true)
+    if (source !== bitmap) source.recycle()
+    // Do not recycle a previous cached bitmap: a visible map may still hold it.
+    return CachedMotorcycleMarker(size, bitmap, motorcycleTopInsetFraction(bitmap)).also {
+        cachedMotorcycleMarker = it
+    }
 }
 
-/** The marker PNG already includes the desired upright, slightly-right-facing pose. */
-private fun Bitmap.facingUp(): Bitmap = this
+/** Unrotated artwork for turn-by-turn, which rotates the marker itself. */
+internal fun riderMotorcycleImage(context: android.content.Context): Bitmap = cachedMotorcycleMarker(context).bitmap
+
+/** Fraction of transparent space above the artwork, calculated once per marker size. */
+internal fun motorcycleTopInsetFraction(context: android.content.Context): Float = cachedMotorcycleMarker(context).topInsetFraction
+
+internal fun motorcycleTopInsetFraction(bitmap: Bitmap): Float {
+    val height = bitmap.height
+    val width = bitmap.width
+    if (height <= 0 || width <= 0) {
+        return 0f
+    }
+    val pixels = IntArray(width)
+    for (y in 0 until height) {
+        bitmap.getPixels(pixels, 0, width, 0, y, width, 1)
+        for (pixel in pixels) {
+            if (pixel ushr 24 > 16) {
+                return y.toFloat() / height.toFloat()
+            }
+        }
+    }
+    return 0f
+}
 
 internal fun riderMotorcycleBitmap(context: android.content.Context): BitmapDescriptor {
     val image = riderMotorcycleImage(context)

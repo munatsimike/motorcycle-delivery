@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -36,7 +37,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.android.gms.maps.CameraUpdateFactory
@@ -60,6 +61,7 @@ import com.riders.rider.core.design.RidersColors
 import com.riders.rider.core.design.RidersFailureNotice
 import com.riders.rider.core.design.RidersSpacing
 import com.riders.rider.core.network.OfferResponse
+import com.riders.rider.feature.offers.domain.OfferActionProgress
 import com.riders.rider.feature.bids.data.BidRepository
 import com.riders.rider.feature.delivery.domain.GeoPoint
 import com.riders.rider.feature.delivery.domain.collectionCameraFrame
@@ -70,6 +72,7 @@ import com.riders.rider.feature.delivery.presentation.RiderMapThemeStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
 
 private val pickupGreen = Color(0xFF169B62)
 private val dropoffBlue = Color(0xFF1A73E8)
@@ -81,18 +84,33 @@ class RequestRouteModel @Inject constructor(
 ) : ViewModel() {
     var line by mutableStateOf<List<GeoPoint>>(emptyList())
         private set
-    private var requested: String? = null
+    private data class RouteKey(val deliveryId: String, val pickup: GeoPoint?, val dropoff: GeoPoint?)
+    private var requested: RouteKey? = null
+    private var job: Job? = null
+    private val cache = LinkedHashMap<RouteKey, List<GeoPoint>>(16, 0.75f, true)
 
-    fun load(deliveryId: String) {
-        if (requested == deliveryId) {
-            return
+    fun cancelPending(deliveryId: String, pickup: GeoPoint?, dropoff: GeoPoint?) {
+        if (requested == RouteKey(deliveryId, pickup, dropoff)) {
+            job?.cancel()
+            job = null
         }
-        requested = deliveryId
-        line = emptyList()
-        viewModelScope.launch {
+    }
+
+    fun load(deliveryId: String, pickup: GeoPoint?, dropoff: GeoPoint?) {
+        val key = RouteKey(deliveryId, pickup, dropoff)
+        if (requested == key && (line.size > 1 || job?.isActive == true)) return
+        job?.cancel()
+        requested = key
+        line = cache[key].orEmpty()
+        if (line.size > 1) return
+        job = viewModelScope.launch {
             val road = bids.requestRoad(deliveryId)
-            if (requested == deliveryId) {
+            if (requested == key) {
                 line = road
+                if (road.size > 1 && pickup != null && dropoff != null) {
+                    cache[key] = road
+                    while (cache.size > 12) cache.remove(cache.keys.first())
+                }
             }
         }
     }
@@ -104,6 +122,7 @@ fun RequestMapOverlay(
     nowMillis: Long,
     accepting: Boolean,
     submittingBid: Boolean,
+    submitProgress: OfferActionProgress? = null,
     statusLabel: String?,
     sentAmount: String?,
     bidsOpen: Boolean,
@@ -124,7 +143,10 @@ fun RequestMapOverlay(
     val dropoff = remember(offer.deliveryId, offer.dropoff.latitude, offer.dropoff.longitude) {
         parseGeoPoint(offer.dropoff.latitude, offer.dropoff.longitude)
     }
-    LaunchedEffect(offer.deliveryId) { routes.load(offer.deliveryId) }
+    LaunchedEffect(offer.deliveryId, pickup, dropoff) { routes.load(offer.deliveryId, pickup, dropoff) }
+    DisposableEffect(routes, offer.deliveryId, pickup, dropoff) {
+        onDispose { routes.cancelPending(offer.deliveryId, pickup, dropoff) }
+    }
     val density = LocalDensity.current
     var sheetHeight by remember { mutableStateOf(0.dp) }
     var recenter by remember { mutableIntStateOf(0) }
@@ -170,13 +192,14 @@ fun RequestMapOverlay(
                 .shadow(12.dp, cardShape, ambientColor = RidersColors.shadow, spotColor = RidersColors.shadow)
                 .clip(cardShape)
                 .background(RidersColors.background)
-                .padding(RidersSpacing.lg),
+                .padding(start = RidersSpacing.lg, end = RidersSpacing.lg, bottom = RidersSpacing.lg),
         ) {
             OfferRequestCard(
                 offer = offer,
                 nowMillis = nowMillis,
                 accepting = accepting,
                 submittingBid = submittingBid,
+                submitProgress = submitProgress,
                 statusLabel = statusLabel,
                 sentAmount = sentAmount,
                 bidsOpen = bidsOpen,

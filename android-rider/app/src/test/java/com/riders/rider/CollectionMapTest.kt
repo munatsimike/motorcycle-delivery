@@ -1,6 +1,11 @@
 package com.riders.rider
 
+import com.riders.rider.feature.delivery.presentation.RIDER_MOTORCYCLE_MARKER_DP
 import com.riders.rider.feature.delivery.presentation.RiderMapTheme
+import com.riders.rider.feature.delivery.presentation.TAG_TIP_HEIGHT_DP
+import com.riders.rider.feature.delivery.presentation.TAG_TIP_WIDTH_DP
+import com.riders.rider.feature.delivery.presentation.TAG_VISIBLE_GAP_DP
+import com.riders.rider.feature.delivery.presentation.tagSpaceBelowTipDp
 import com.riders.rider.feature.delivery.domain.APPROACH_PLACE_ZOOM
 import com.riders.rider.feature.delivery.domain.GeoPoint
 import com.riders.rider.feature.delivery.domain.NEAR_PLACE_ZOOM
@@ -187,6 +192,14 @@ class CollectionMapTest {
     fun showsRoadDistanceAndTimeOnlyWhenTheRouteProvidesBoth() {
         assertEquals("850 m · 3 min", approachSummary(850.0, 180))
         assertEquals("1.5 km · 4 min", approachSummary(1_500.0, 210))
+        assertEquals(12f, TAG_TIP_WIDTH_DP)
+        assertEquals(6f, TAG_TIP_HEIGHT_DP)
+        assertEquals(6f, TAG_VISIBLE_GAP_DP)
+        val topInset = 106f / 1312f
+        val belowTip = tagSpaceBelowTipDp(RIDER_MOTORCYCLE_MARKER_DP, topInset)
+        val visibleAboveCenter = RIDER_MOTORCYCLE_MARKER_DP / 2f - topInset * RIDER_MOTORCYCLE_MARKER_DP
+        assertEquals(visibleAboveCenter + 6f, belowTip, 0.01f)
+        assertTrue(tagSpaceBelowTipDp(RIDER_MOTORCYCLE_MARKER_DP, 0.2f) < belowTip)
         assertEquals("10 km · < 1 min", approachSummary(10_000.0, 20))
         assertNull(approachSummary(0.0, 0))
         assertNull(approachSummary(null, 180))

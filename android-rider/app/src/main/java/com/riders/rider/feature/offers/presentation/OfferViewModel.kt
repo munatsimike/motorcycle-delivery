@@ -1,6 +1,9 @@
 package com.riders.rider.feature.offers.presentation
 
+import android.os.SystemClock
 import androidx.lifecycle.ViewModel
+import com.riders.rider.feature.bids.domain.shouldRefreshOwnBids
+import kotlinx.coroutines.flow.first
 import androidx.lifecycle.viewModelScope
 import com.riders.rider.core.network.ApiError
 import com.riders.rider.core.network.ApiResult
@@ -14,40 +17,52 @@ import com.riders.rider.feature.delivery.domain.toActiveDelivery
 import com.riders.rider.feature.bids.data.BidAttemptStore
 import com.riders.rider.feature.bids.data.BidRepository
 import com.riders.rider.feature.bids.domain.BID_AMOUNT_INVALID
-import com.riders.rider.feature.bids.domain.OpenBidRequest
 import com.riders.rider.feature.bids.domain.OwnBid
 import com.riders.rider.feature.bids.domain.availableRequests
 import com.riders.rider.feature.bids.domain.notificationBidRequest
 import com.riders.rider.feature.bids.domain.bidAmountCents
+import com.riders.rider.feature.bids.domain.bidRetryAmountProblem
+import com.riders.rider.feature.bids.domain.formatBidDollars
+import com.riders.rider.feature.bids.domain.keepsBidAttempt
 import com.riders.rider.feature.bids.domain.marketplaceBidButtonsVisible
-import com.riders.rider.feature.bids.domain.optimisticAmountsAfterServerRefresh
-import com.riders.rider.feature.offers.data.ListedOffers
 import com.riders.rider.feature.offers.data.OfferRepository
+import com.riders.rider.feature.offers.domain.OfferActionProgress
+import com.riders.rider.feature.offers.domain.OfferSubmitTarget
 import com.riders.rider.feature.offers.domain.bidSubmissionAfterResult
 import com.riders.rider.feature.offers.domain.RequestMapEvent
 import com.riders.rider.feature.offers.domain.RequestMapSuccess
 import com.riders.rider.feature.offers.domain.offerSentConfirmation
 import com.riders.rider.feature.offers.domain.requestActionAllowed
 import com.riders.rider.feature.offers.domain.searchAttemptKey
+import com.riders.rider.feature.offers.domain.requestSettled
+import com.riders.rider.feature.offers.domain.withoutSettledRequests
 import com.riders.rider.feature.offers.domain.sentOffersAfterRefresh
 import com.riders.rider.feature.offers.domain.AcceptedDelivery
 import com.riders.rider.feature.offers.domain.OFFER_UNAVAILABLE
 import com.riders.rider.feature.offers.domain.REQUEST_UNAVAILABLE
 import com.riders.rider.feature.offers.domain.notificationRequestCanOpen
-import com.riders.rider.feature.offers.domain.openNotificationRequest
 import com.riders.rider.feature.offers.notification.PendingOffer
 import com.riders.rider.feature.offers.domain.OfferBoard
-import com.riders.rider.feature.offers.domain.OfferRefreshGate
-import com.riders.rider.feature.offers.domain.OfferWatch
 import com.riders.rider.feature.offers.domain.adjustedNowMillis
 import com.riders.rider.feature.offers.domain.canAcceptOffer
-import com.riders.rider.feature.offers.domain.clockOffsetMillis
-import com.riders.rider.feature.offers.domain.marketplaceOffersError
 import com.riders.rider.feature.offers.domain.offerBoardAfterLoad
 import com.riders.rider.feature.offers.domain.offerIsExpired
 import com.riders.rider.feature.offers.domain.requestAttemptIdentity
 import com.riders.rider.feature.offers.domain.requestCountdownExpired
+import com.riders.rider.feature.offers.domain.IncomingRequestGate
+import com.riders.rider.feature.offers.domain.watchHomeRequests
+import com.riders.rider.feature.offers.domain.OFFER_CLOCK_INTERVAL_MS
+import com.riders.rider.feature.offers.domain.cachedNotificationOffer
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import com.riders.rider.feature.offers.domain.retainActionableRequests
+import com.riders.rider.feature.offers.domain.stepIncomingRequest
 import com.riders.rider.feature.offers.domain.matchingOfferIndex
 import com.riders.rider.feature.offers.domain.offerUnavailableAfterRefresh
 import com.riders.rider.feature.wallet.data.WalletRepository
@@ -65,6 +80,7 @@ import kotlinx.coroutines.launch
 data class OfferUi(
     val loading: Boolean = true,
     val refreshing: Boolean = false,
+    val requestsConfirmed: Boolean = false,
     val offers: List<OfferResponse> = emptyList(),
     val selected: OfferResponse? = null,
     val accepting: Boolean = false,
@@ -74,6 +90,7 @@ data class OfferUi(
     val bidError: String? = null,
     val accepted: AcceptedDelivery? = null,
     val submittingBid: Boolean = false,
+    val submitProgress: OfferActionProgress? = null,
     val declining: Boolean = false,
     val placingBid: Boolean = false,
     val sentLabels: Map<String, String> = emptyMap(),
@@ -91,6 +108,7 @@ data class OfferUi(
 class OfferViewModel @Inject constructor(
     private val offers: OfferRepository,
     private val deliveries: ActiveDeliveryStore,
+    private val sessions: com.riders.rider.core.session.SessionStore,
     private val assignments: AssignmentRepository,
     private val bids: BidRepository,
     private val bidAttempts: BidAttemptStore,
@@ -99,25 +117,27 @@ class OfferViewModel @Inject constructor(
     private val pending: PendingOffer,
     private val wallets: WalletRepository,
 ) : ViewModel() {
+    private val sessionIdentity = sessions.snapshot().identity
     private val state = MutableStateFlow(OfferUi(nowMillis = System.currentTimeMillis()))
     val ui: StateFlow<OfferUi> = state.asStateFlow()
     private val mapEvents = MutableSharedFlow<RequestMapEvent>(extraBufferCapacity = 1)
     val requestMapEvents: SharedFlow<RequestMapEvent> = mapEvents.asSharedFlow()
-    private val refreshGate = OfferRefreshGate()
-    private var openRequests = emptyList<OpenBidRequest>()
-    private var presented = false
-    private var clockOffset = 0L
-    private val watch = OfferWatch(
-        scope = viewModelScope,
-        refresh = { refreshOffers() },
-        tick = { publishNow() },
-    )
+    private var incomingGate = IncomingRequestGate()
+    private val refreshLock = Mutex()
+    private val refreshSignals = Channel<Unit>(Channel.CONFLATED)
+    private var watchJob: Job? = null
     private var screenResumed = false
-    private var requestsEnabled = true
+    private var pollingEnabled = false
+    private var lastOwnBidSuccess: Long? = null
+    private var bidRefreshVersion = 0L
+    private var bidRefreshHandled = -1L
+
+    fun nowMillis(): Long = adjustedNowMillis(System.currentTimeMillis(), bids.requestClockOffset)
 
     init {
         viewModelScope.launch {
-            bids.ownBidsFlow.collect { loaded ->
+            bids.ownBidPageFlow.collect { page ->
+                val loaded = page.bids
                 state.update {
                     it.copy(
                         ownBids = loaded,
@@ -144,73 +164,108 @@ class OfferViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
-            pending.bidExpired.collect {
-                if (screenResumed) refreshOffers()
-            }
+            pending.bidExpired.collect { invalidateBidStatus() }
         }
         viewModelScope.launch {
-            pending.arrived.collect {
-                if (screenResumed) {
-                    refreshOffers()
+            pending.arrived.collect { invalidateBidStatus() }
+        }
+        viewModelScope.launch {
+            pending.acceptedArrivals.collect { invalidateBidStatus() }
+        }
+        viewModelScope.launch {
+            pending.customerCancelledArrivals.collect { invalidateBidStatus() }
+        }
+    }
+
+    private fun invalidateBidStatus() {
+        bidRefreshVersion += 1
+        refreshSignals.trySend(Unit)
+    }
+
+    private fun bidStatusDue(force: Boolean): Boolean = shouldRefreshOwnBids(
+        bids.ownBidsKnownFlow.value,
+        bids.ownBidPageFlow.value.bids.any { it.status == "OPEN" } || state.value.offers.isNotEmpty(),
+        lastOwnBidSuccess, SystemClock.elapsedRealtime(), force || bidRefreshVersion != bidRefreshHandled,
+    )
+
+    private suspend fun refreshBidStatus(force: Boolean = false) {
+        val version = bidRefreshVersion
+        if (!bidStatusDue(force)) return
+        if (bids.refreshOwnBids(null) is ApiResult.Ok) {
+            lastOwnBidSuccess = SystemClock.elapsedRealtime()
+            bidRefreshHandled = version
+        }
+    }
+
+    fun setScreenResumed(resumed: Boolean, poll: Boolean = resumed) {
+        if (screenResumed == resumed && pollingEnabled == poll) return
+        screenResumed = resumed
+        pollingEnabled = poll
+        watchJob?.cancel()
+        watchJob = null
+        if (!resumed) return
+        if (poll) {
+            bidRefreshVersion += 1
+            state.update { it.copy(requestsConfirmed = false) }
+        }
+        publishNow()
+        watchJob = viewModelScope.launch {
+            val clock = launch {
+                while (true) {
+                    state.first { it.offers.isNotEmpty() || it.selected != null }
+                    publishNow()
+                    delay(OFFER_CLOCK_INTERVAL_MS)
                 }
+            }
+            try {
+                if (poll) {
+                    watchHomeRequests(refreshSignals, awaitReady = {}, refresh = {
+                        refreshOffers()
+                        true
+                    })
+                } else {
+                    clock.join()
+                }
+            } finally {
+                clock.cancel()
             }
         }
     }
 
-    fun setScreenResumed(resumed: Boolean) {
-        screenResumed = resumed
-        if (resumed) {
-            publishNow()
-        }
-        watch.setResumed(resumed && requestsEnabled)
+    fun leaveHomeDashboard() {
+        incomingGate = incomingGate.copy(catchUp = true, pendingMaximiseId = null, heldMaximiseId = null)
     }
 
-    fun setRequestsEnabled(enabled: Boolean) {
-        val becameEnabled = enabled && !requestsEnabled
-        requestsEnabled = enabled
-        watch.setResumed(screenResumed && enabled)
-        if (becameEnabled && screenResumed) {
-            viewModelScope.launch { refreshOffers() }
-        }
+    fun noteVisibleRequests(
+        ids: List<String>,
+        listSettled: Boolean,
+        canMaximise: Boolean,
+        suppressedIds: Set<String>,
+        deferMaximise: Boolean,
+    ): String? {
+        val step = stepIncomingRequest(incomingGate, ids, listSettled, canMaximise, suppressedIds, deferMaximise)
+        // Home consumes the decision in the same main-thread call, not through a lossy event flow.
+        incomingGate = step.gate.copy(pendingMaximiseId = null)
+        return step.maximiseId
     }
 
     suspend fun resolveNotificationRequest(assignmentId: String): OfferResponse? {
-        val now = adjustedNowMillis(System.currentTimeMillis(), clockOffset)
-        val cached = state.value.offers.ifEmpty { availableRequests(emptyList(), openRequests) }
-        val result = openNotificationRequest(
-            scope = viewModelScope,
-            tappedId = assignmentId,
-            cached = cached,
-            settled = state.value.settledIds,
-            nowMillis = now,
-            loadRequests = {
-                when (val opened = bids.openRequests(reuseRecent = true)) {
-                    is ApiResult.Ok -> {
-                        openRequests = opened.value
-                        availableRequests(emptyList(), opened.value)
-                    }
-                    else -> null
-                }
-            },
-            loadOwnBids = { bids.refreshOwnBids(null) },
-            match = ::notificationBidRequest,
-        )
-        if (result.confirmed) {
-            applyListed(ListedOffers(emptyList(), fromNetwork = true, serverNowMillis = null))
-        }
-        state.update { it.copy(selected = null, offerGone = false, nowMillis = now, loading = false) }
-        return result.offer
+        // Same refresh and same filtered list as Home; never resurrect a settled/retired attempt.
+        refreshOffers(reuseRecent = true, forceBids = true)
+        val current = state.value
+        return cachedNotificationOffer(assignmentId, current.offers, current.settledIds, nowMillis(), ::notificationBidRequest)
     }
 
     fun refresh() {
-        viewModelScope.launch { refreshOffers() }
+        if (pollingEnabled) refreshSignals.trySend(Unit)
+        else viewModelScope.launch { refreshOffers() }
     }
 
     fun pullRefresh() {
         viewModelScope.launch {
             state.update { it.copy(refreshing = true) }
             try {
-                refreshOffers()
+                refreshOffers(forceBids = true)
             } finally {
                 state.update { it.copy(refreshing = false) }
             }
@@ -222,11 +277,11 @@ class OfferViewModel @Inject constructor(
     }
 
     fun expressInterest(offer: OfferResponse) {
-        submitBidAmount(offer.deliveryId, offer.offeredPrice, offer.currency, offer)
+        submitBidAmount(offer.deliveryId, offer.offeredPrice, offer.currency, offer, OfferSubmitTarget.Accept)
     }
 
     fun submitBid(deliveryId: String, amountText: String, currency: String, request: OfferResponse? = null) {
-        submitBidAmount(deliveryId, amountText, currency, request)
+        submitBidAmount(deliveryId, amountText, currency, request, OfferSubmitTarget.YourOffer)
     }
 
     fun acknowledgeAccepted(deliveryId: String) {
@@ -235,39 +290,53 @@ class OfferViewModel @Inject constructor(
         }
     }
 
-    fun decline(deliveryId: String) {
+    fun decline(request: OfferResponse) {
+        val deliveryId = request.deliveryId
         val current = state.value
-        val deadline = searchDeadline(current, deliveryId)
+        // Settle the exact search attempt that the rider saw.
+        val deadline = request.searchExpiresAt
+        if (current.offers.none { requestAttemptIdentity(it) == requestAttemptIdentity(request) } ||
+            requestCountdownExpired(request.searchExpiresAt, request.expiresAt, nowMillis())) return
         if (!requestActionAllowed(deliveryId, current.settledIds, current.accepting, current.submittingBid, current.declining, deadline)) {
             return
         }
         val settledKey = searchAttemptKey(deliveryId, deadline)
+        state.update { it.copy(declining = true, bidError = null) }
         viewModelScope.launch {
-            state.update { it.copy(declining = true, bidError = null) }
             when (val result = bids.decline(deliveryId)) {
                 is ApiResult.Ok -> {
-                    openRequests = openRequests.filter { it.id != deliveryId }
                     state.update { current ->
+                        val settled = current.settledIds + settledKey
+                        val selectedSettled = current.selected?.let {
+                            requestSettled(it.deliveryId, it.searchExpiresAt, settled)
+                        } == true
                         current.copy(
                             declining = false,
-                            offers = current.offers.filter { it.deliveryId != deliveryId },
-                            selected = if (current.selected?.deliveryId == deliveryId) null else current.selected,
-                            placingBid = if (current.selected?.deliveryId == deliveryId) false else current.placingBid,
+                            offers = withoutSettledRequests(current.offers, settled),
+                            selected = if (selectedSettled) null else current.selected,
+                            placingBid = if (selectedSettled) false else current.placingBid,
                             bidError = null,
-                            settledIds = current.settledIds + settledKey,
+                            settledIds = settled,
                         )
                     }
-                    mapEvents.tryEmit(RequestMapEvent(deliveryId, RequestMapSuccess.Declined))
-                    refreshOffers()
+                    mapEvents.tryEmit(RequestMapEvent(deliveryId, RequestMapSuccess.Declined, deadline))
+                    refresh()
                 }
                 is ApiResult.Err -> state.update { it.copy(declining = false, bidError = result.error.text()) }
             }
         }
     }
 
-    private fun submitBidAmount(deliveryId: String, amountText: String, currency: String, request: OfferResponse? = null) {
+    private fun submitBidAmount(
+        deliveryId: String,
+        amountText: String,
+        currency: String,
+        request: OfferResponse? = null,
+        target: OfferSubmitTarget = OfferSubmitTarget.Accept,
+    ) {
+        if (!sessions.isCurrent(sessionIdentity)) return
         val cents = bidAmountCents(amountText)
-        val now = adjustedNowMillis(System.currentTimeMillis(), clockOffset)
+        val now = nowMillis()
         if (cents == null) {
             state.update { it.copy(bidError = BID_AMOUNT_INVALID, nowMillis = now) }
             return
@@ -277,28 +346,46 @@ class OfferViewModel @Inject constructor(
         if (!requestActionAllowed(deliveryId, current.settledIds, current.accepting, current.submittingBid, current.declining, deadline)) {
             return
         }
-        // The Home map and New requests page can have different refresh snapshots.
-        // Use the explicitly displayed request when it matches the submitted delivery.
-        val offer = current.offers.find { it.deliveryId == deliveryId }
-            ?: request?.takeIf { it.deliveryId == deliveryId }
+        // The selected card must still refer to the current search attempt.
+        val offer = current.offers.find { it.deliveryId == deliveryId &&
+            (request == null || requestAttemptIdentity(it) == requestAttemptIdentity(request)) }
         if (offer == null || (current.offerGone && current.selected?.deliveryId == deliveryId) ||
-            !notificationRequestCanOpen(true, offer.expiresAt, now)) {
+            !notificationRequestCanOpen(true, offer.expiresAt, now) ||
+            requestCountdownExpired(offer.searchExpiresAt, offer.expiresAt, now)) {
             state.update { it.copy(bidError = REQUEST_UNAVAILABLE, nowMillis = now) }
             refresh()
             return
         }
-        if (!marketplaceBidButtonsVisible(offer.serviceClass, current.ownBidsKnown, current.bidError ?: current.bidListError)) {
+        if (bids.ownBidPageFlow.value.bids.any { it.deliveryId == deliveryId && it.status == "OPEN" } ||
+            !marketplaceBidButtonsVisible(offer.serviceClass, bids.ownBidsKnownFlow.value, current.bidError ?: bids.bidListProblemFlow.value)) {
             return
         }
-        state.update { it.copy(submittingBid = true, error = null, bidError = null, nowMillis = now) }
+        state.update {
+            it.copy(
+                submittingBid = true,
+                submitProgress = OfferActionProgress(deliveryId, target),
+                error = null,
+                bidError = null,
+                nowMillis = now,
+            )
+        }
         viewModelScope.launch {
             try {
+                val identity = sessionIdentity
+                val previousAttempt = bidAttempts.pending(deliveryId)
                 val attempt = bidAttempts.attempt(deliveryId, cents)
-                when (val result = bids.submit(attempt.deliveryId, attempt.amountCents, attempt.key, currency)) {
+                val retryProblem = bidRetryAmountProblem(attempt, cents)
+                if (retryProblem != null) {
+                    state.update { it.copy(bidError = retryProblem) }
+                    return@launch
+                }
+                if (!sessions.isCurrent(identity)) return@launch
+                val result = bids.submit(attempt.deliveryId, attempt.amountCents, attempt.key, currency)
+                if (!sessions.isCurrent(identity)) return@launch
+                when (result) {
                     is ApiResult.Ok -> {
                         bidAttempts.clear(deliveryId)
-                        val outcome = bidSubmissionAfterResult(amountText, null)
-                        val sentAmount = outcome.amount ?: amountText
+                        val sentAmount = formatBidDollars(attempt.amountCents)
                         state.update {
                             it.copy(
                                 placingBid = false,
@@ -306,21 +393,32 @@ class OfferViewModel @Inject constructor(
                                 error = null,
                                 bidError = null,
                                 submittingBid = false,
+                                submitProgress = null,
                                 sentAmounts = it.sentAmounts + (deliveryId to sentAmount),
                                 sentLabels = it.sentLabels + (deliveryId to offerSentConfirmation(currency, sentAmount)),
                                 settledIds = it.settledIds + searchAttemptKey(deliveryId, deadline),
+                                offers = withoutSettledRequests(it.offers, it.settledIds + searchAttemptKey(deliveryId, deadline)),
                             )
                         }
-                        mapEvents.tryEmit(RequestMapEvent(deliveryId, RequestMapSuccess.OfferSent))
+                        mapEvents.tryEmit(RequestMapEvent(deliveryId, RequestMapSuccess.OfferSent, deadline))
                         bids.refreshOwnBids(null)
                     }
                     is ApiResult.Err -> {
+                        // A definitive first rejection permits a corrected amount. An ambiguous
+                        // earlier submission retains its original idempotency key and amount.
+                        if (previousAttempt == null && !keepsBidAttempt(result.error)) bidAttempts.clear(deliveryId)
                         val outcome = bidSubmissionAfterResult(amountText, result.error.text())
-                        state.update { it.copy(bidError = outcome.error, submittingBid = false) }
+                        state.update { it.copy(bidError = outcome.error, submittingBid = false, submitProgress = null) }
                     }
                 }
+            } catch (_: java.io.IOException) {
+                state.update { it.copy(bidError = "Your offer could not be saved securely. Try again.") }
             } finally {
-                state.update { it.copy(submittingBid = false) }
+                state.update { current ->
+                    val progress = current.submitProgress
+                    val ours = progress?.deliveryId == deliveryId && progress.target == target
+                    if (ours) current.copy(submittingBid = false, submitProgress = null) else current
+                }
             }
         }
     }
@@ -330,8 +428,10 @@ class OfferViewModel @Inject constructor(
     }
 
     fun accept(offer: OfferResponse) {
+        val identity = sessionIdentity
+        if (!sessions.isCurrent(identity)) return
         val current = state.value
-        val now = adjustedNowMillis(System.currentTimeMillis(), clockOffset)
+        val now = nowMillis()
         if (!requestActionAllowed(offer.deliveryId, current.settledIds, current.accepting, current.submittingBid, current.declining, offer.searchExpiresAt)) {
             return
         }
@@ -343,21 +443,31 @@ class OfferViewModel @Inject constructor(
             state.update { it.copy(error = "This offer has expired", nowMillis = now) }
             return
         }
-        state.update { it.copy(accepting = true, error = null, nowMillis = now) }
+        state.update {
+            it.copy(
+                accepting = true,
+                submitProgress = OfferActionProgress(offer.deliveryId, OfferSubmitTarget.Accept),
+                error = null,
+                nowMillis = now,
+            )
+        }
         viewModelScope.launch {
             try {
                 if (!freshness.canAccept(System.currentTimeMillis()) && !availability.refreshForAccept()) {
                     state.update { it.copy(error = "A fresh location is required") }
                     return@launch
                 }
-                when (val result = offers.accept(offer.assignmentId)) {
+                if (!sessions.isCurrent(identity)) return@launch
+                val result = offers.accept(offer.assignmentId)
+                if (!sessions.isCurrent(identity)) return@launch
+                when (result) {
                     null -> Unit
                     is ApiResult.Ok -> {
                         availability.applySharing()
                         assignments.refreshList()
                         viewModelScope.launch { wallets.summary() }
                         val saved = try {
-                            deliveries.write(offer.toActiveDelivery(result.value.deliveryId, result.value.assignmentId, result.value.status))
+                            deliveries.write(offer.toActiveDelivery(result.value.deliveryId, result.value.assignmentId, result.value.status), identity)
                             true
                         } catch (_: Exception) {
                             false
@@ -370,47 +480,30 @@ class OfferViewModel @Inject constructor(
                             it.copy(
                                 accepted = result.value,
                                 error = null,
+                                offers = it.offers.filter { listed -> listed.deliveryId != offer.deliveryId },
                                 settledIds = it.settledIds + searchAttemptKey(offer.deliveryId, offer.searchExpiresAt),
                             )
                         }
-                        mapEvents.tryEmit(RequestMapEvent(offer.deliveryId, RequestMapSuccess.Accepted))
+                        mapEvents.tryEmit(RequestMapEvent(offer.deliveryId, RequestMapSuccess.Accepted, offer.searchExpiresAt))
                     }
                     is ApiResult.Err -> state.update { it.copy(error = result.error.text()) }
                 }
+            } catch (_: java.io.IOException) {
+                state.update { it.copy(error = "Your delivery could not be saved securely. Try again.") }
             } finally {
-                state.update { it.copy(accepting = false) }
+                state.update { current ->
+                    val progress = current.submitProgress
+                    val ours = progress?.deliveryId == offer.deliveryId && progress.target == OfferSubmitTarget.Accept
+                    current.copy(accepting = false, submitProgress = if (ours) null else current.submitProgress)
+                }
             }
         }
     }
 
     private fun searchDeadline(current: OfferUi, deliveryId: String, request: OfferResponse? = null): String? {
-        return current.offers.firstOrNull { it.deliveryId == deliveryId }?.searchExpiresAt
-            ?: request?.takeIf { it.deliveryId == deliveryId }?.searchExpiresAt
+        return request?.takeIf { it.deliveryId == deliveryId }?.searchExpiresAt
+            ?: current.offers.firstOrNull { it.deliveryId == deliveryId }?.searchExpiresAt
             ?: current.selected?.takeIf { it.deliveryId == deliveryId }?.searchExpiresAt
-    }
-
-    fun retireExpiredAttempt(attempt: String, observedNow: Long) {
-        val id = attempt.trim()
-        if (id.isEmpty()) {
-            return
-        }
-        val now = maxOf(adjustedNowMillis(System.currentTimeMillis(), clockOffset), observedNow)
-        state.update { current ->
-            if (id in current.retiredAttempts) {
-                return@update current
-            }
-            val offer = current.offers.firstOrNull { requestAttemptIdentity(it) == id }
-            if (offer != null && !requestCountdownExpired(offer.searchExpiresAt, offer.expiresAt, now)) {
-                return@update current
-            }
-            current.copy(
-                offers = current.offers.filterNot { requestAttemptIdentity(it) == id },
-                expirySeenAt = current.expirySeenAt - id,
-                retiredAttempts = current.retiredAttempts + id,
-                expiryDismissals = current.expiryDismissals + id,
-                nowMillis = now,
-            )
-        }
     }
 
     fun clearExpiryDismissals(handled: List<String>) {
@@ -425,7 +518,8 @@ class OfferViewModel @Inject constructor(
     }
 
     private fun publishNow() {
-        val now = adjustedNowMillis(System.currentTimeMillis(), clockOffset)
+        if (state.value.offers.isEmpty() && state.value.selected == null) return
+        val now = nowMillis()
         state.update { current ->
             val board = retainActionableRequests(current.offers, current.expirySeenAt, current.retiredAttempts, now)
             val selectedExpired = current.selected?.let {
@@ -446,49 +540,35 @@ class OfferViewModel @Inject constructor(
         }
     }
 
-    private suspend fun refreshOffers() {
-        refreshGate.run {
-            try {
-                if (!presented) {
-                    state.update { it.copy(loading = true) }
-                }
-                val opened = bids.openRequests()
-                if (opened is ApiResult.Ok) {
-                    openRequests = opened.value
-                }
-                bids.refreshOwnBids(null)
-                when (val result = offers.list()) {
-                    is ApiResult.Ok -> applyListed(result.value)
-                    is ApiResult.Err -> {
-                        val blocked = marketplaceOffersError(opened is ApiResult.Ok, result.error.text())
-                        if (blocked == null) {
-                            applyListed(ListedOffers(emptyList(), fromNetwork = true, serverNowMillis = null))
-                        } else {
-                            keepOffers((opened as? ApiResult.Err)?.error?.text() ?: blocked)
+    private suspend fun refreshOffers(reuseRecent: Boolean = false, forceBids: Boolean = false) {
+        try {
+            refreshLock.withLock {
+                coroutineScope {
+                    val due = bidStatusDue(forceBids)
+                    val own = if (due) async { refreshBidStatus(force = true) } else null
+                    val opened = bids.openRequests(reuseRecent = reuseRecent)
+                    own?.await()
+                    when (opened) {
+                        is ApiResult.Ok -> {
+                            if (!due && opened.value.isNotEmpty()) refreshBidStatus(force = true)
+                            // Check beyond the first page only when the search start requires it.
+                            if (opened.value.isNotEmpty()) bids.ensureRequestBidCoverage(opened.value)
+                            applyListed(availableRequests(emptyList(), opened.value))
                         }
+                        is ApiResult.Err -> keepOffers(opened.error.text())
                     }
                 }
-                presented = true
-            } finally {
-                state.update { current ->
-                    if (current.loading) current.copy(loading = false) else current
-                }
             }
+        } finally {
+            state.update { if (it.loading) it.copy(loading = false) else it }
         }
     }
 
-    private fun applyListed(listed: ListedOffers) {
-        if (!listed.fromNetwork) {
-            keepOffers(ApiError.Network.text())
-            return
-        }
-        if (listed.serverNowMillis != null) {
-            clockOffset = clockOffsetMillis(listed.serverNowMillis, System.currentTimeMillis())
-        }
-        val now = adjustedNowMillis(System.currentTimeMillis(), clockOffset)
+    private fun applyListed(listed: List<OfferResponse>) {
+        val now = nowMillis()
         state.update { current ->
             val board = retainActionableRequests(
-                availableRequests(listed.offers, openRequests),
+                withoutSettledRequests(listed, current.settledIds),
                 current.expirySeenAt,
                 current.retiredAttempts,
                 now,
@@ -513,6 +593,10 @@ class OfferViewModel @Inject constructor(
             )
             current.copy(
                 loading = false,
+                requestsConfirmed = true,
+                ownBids = bids.ownBidPageFlow.value.bids,
+                ownBidsKnown = bids.ownBidsKnownFlow.value,
+                bidListError = bids.bidListProblemFlow.value,
                 offers = visible,
                 expirySeenAt = board.seenAt,
                 retiredAttempts = board.retired,

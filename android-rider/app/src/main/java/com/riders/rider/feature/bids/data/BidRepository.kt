@@ -1,6 +1,13 @@
 package com.riders.rider.feature.bids.data
 
 import com.riders.rider.core.network.ApiResult
+import com.riders.rider.core.network.ApiError
+import com.riders.rider.core.network.InFlightRead
+import java.time.Instant
+import java.util.concurrent.atomic.AtomicLong
+import com.riders.rider.core.network.mapHttpFailure
+import com.riders.rider.feature.offers.domain.httpDateMillis
+import com.riders.rider.feature.offers.domain.clockOffsetMillis
 import com.riders.rider.core.network.BidSubmissionRequest
 import com.riders.rider.core.network.OwnBidsResponse
 import com.riders.rider.core.network.RiderService
@@ -15,6 +22,7 @@ import com.riders.rider.feature.delivery.domain.parseGeoPoint
 import android.os.SystemClock
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
@@ -33,14 +41,27 @@ data class OwnBidPage(
 class BidRepository @Inject constructor(
     private val riders: RiderService,
 ) {
-    private val ownBidsState = MutableStateFlow<List<OwnBid>>(emptyList())
+    private val ownBidsState = MutableStateFlow(OwnBidPage(emptyList(), null))
+    private val ownBidsLock = Mutex()
+    private val ownRevision = AtomicLong()
+    private val ownSession = AtomicLong()
+    private val ownRead = InFlightRead<Triple<Long, String?, Boolean>, ApiResult<OwnBidPage>>(Long.MAX_VALUE)
+    private var freshCoverage: OwnBidPage? = null
+    private var coverageRevision = -1L
+    fun invalidateOwnBids() {
+        ownRevision.incrementAndGet()
+        ownBidsKnownState.value = false
+    }
     private val ownBidsKnownState = MutableStateFlow(false)
     private val bidListProblemState = MutableStateFlow<String?>(null)
-    val ownBidsFlow: StateFlow<List<OwnBid>> = ownBidsState.asStateFlow()
+    val ownBidPageFlow: StateFlow<OwnBidPage> = ownBidsState.asStateFlow()
     val ownBidsKnownFlow: StateFlow<Boolean> = ownBidsKnownState.asStateFlow()
     val bidListProblemFlow: StateFlow<String?> = bidListProblemState.asStateFlow()
+    @Volatile var requestClockOffset: Long = 0L
+        private set
     private val openRequestsLock = Mutex()
     private var openRequestsFlight: Deferred<ApiResult<List<OpenBidRequest>>>? = null
+    @Volatile private var requestGeneration = 0L
     private var recentOpenRequests: Pair<Long, ApiResult.Ok<List<OpenBidRequest>>>? = null
 
     suspend fun requestRoad(deliveryId: String): List<GeoPoint> {
@@ -57,76 +78,89 @@ class BidRepository @Inject constructor(
         }
     }
 
-    suspend fun openRequests(reuseRecent: Boolean = false): ApiResult<List<OpenBidRequest>> {
-        val existing = openRequestsLock.withLock { openRequestsFlight?.takeIf { it.isActive } }
-        if (existing != null) {
-            return rememberOpenRequests(existing.await())
-        }
-        if (reuseRecent) {
-            val recent = openRequestsLock.withLock { recentOpenRequests }
-            if (recent != null && recentOpenRequestsReusable(recent.first, SystemClock.elapsedRealtime())) {
-                return recent.second
+    suspend fun openRequests(reuseRecent: Boolean = false): ApiResult<List<OpenBidRequest>> = coroutineScope {
+        val flight = openRequestsLock.withLock {
+            openRequestsFlight?.takeIf { it.isActive }?.let { return@withLock it }
+            val recent = recentOpenRequests
+            if (reuseRecent && recent != null && recentOpenRequestsReusable(recent.first, SystemClock.elapsedRealtime())) {
+                return@coroutineScope recent.second
             }
-        }
-        return coroutineScope {
-            val created = async { loadOpenRequests() }
-            val winner = openRequestsLock.withLock {
-                val current = openRequestsFlight?.takeIf { it.isActive }
-                if (current != null) {
-                    created.cancel()
-                    current
-                } else {
-                    openRequestsFlight = created
-                    created
-                }
-            }
-            try {
-                rememberOpenRequests(winner.await())
-            } finally {
+            val generation = requestGeneration
+            val created = async(start = CoroutineStart.LAZY) {
+                val result = loadOpenRequests()
                 openRequestsLock.withLock {
-                    if (openRequestsFlight == winner) {
-                        openRequestsFlight = null
+                    if (generation == requestGeneration && result is ApiResult.Ok) {
+                        recentOpenRequests = SystemClock.elapsedRealtime() to result
                     }
                 }
+                if (generation == requestGeneration) result else ApiResult.Err(ApiError.SessionEnded)
+            }
+            openRequestsFlight = created
+            created.start()
+            created
+        }
+        try {
+            flight.await()
+        } finally {
+            openRequestsLock.withLock {
+                if (openRequestsFlight == flight && flight.isCompleted) openRequestsFlight = null
             }
         }
     }
 
-    private suspend fun rememberOpenRequests(
-        result: ApiResult<List<OpenBidRequest>>,
-    ): ApiResult<List<OpenBidRequest>> {
-        if (result is ApiResult.Ok) {
-            openRequestsLock.withLock {
-                recentOpenRequests = SystemClock.elapsedRealtime() to result
-            }
+    /** The shared pages and prefetch must not survive sign-out. */
+    suspend fun clearSession() {
+        openRequestsLock.withLock {
+            requestGeneration += 1
+            openRequestsFlight?.cancel()
+            openRequestsFlight = null
+            recentOpenRequests = null
+            requestClockOffset = 0L
         }
-        return result
+        ownSession.incrementAndGet()
+        invalidateOwnBids()
+        ownBidsLock.withLock {
+            freshCoverage = null
+            ownBidsState.value = OwnBidPage(emptyList(), null)
+            ownBidsKnownState.value = false
+            bidListProblemState.value = null
+        }
     }
 
     private suspend fun loadOpenRequests(): ApiResult<List<OpenBidRequest>> {
         return when (val result = apiCall { riders.bidRequests() }) {
-            is ApiResult.Ok -> ApiResult.Ok(result.value.map { request ->
-                OpenBidRequest(
-                    id = request.id,
-                    serviceClass = request.serviceClass,
-                    deliverBy = request.deliverBy,
-                    searchStartedAt = request.searchStartedAt,
-                    offerResponseExpiresAt = request.offerResponseExpiresAt,
-                    suggestedPrice = request.suggestedPrice,
-                    offeredPrice = request.offeredPrice,
-                    pickupAddress = request.pickupAddress,
-                    dropoffAddress = request.dropoffAddress,
-                    pickupLatitude = request.pickupLatitude,
-                    pickupLongitude = request.pickupLongitude,
-                    dropoffLatitude = request.dropoffLatitude,
-                    dropoffLongitude = request.dropoffLongitude,
-                    parcelDescription = request.parcelDescription,
-                    parcelSize = request.parcelSize,
-                    distanceMeters = request.distanceMeters,
-                    currency = request.currency,
-                    paymentMethod = request.paymentMethod,
-                )
-            })
+            is ApiResult.Ok -> {
+                val response = result.value
+                if (!response.isSuccessful) {
+                    return ApiResult.Err(mapHttpFailure(response.code(), response.errorBody()?.string()))
+                }
+                val body = response.body() ?: return ApiResult.Err(ApiError.Unexpected("The request could not be completed."))
+                httpDateMillis(response.headers()["Date"])?.let { serverNow ->
+                    requestClockOffset = clockOffsetMillis(serverNow, System.currentTimeMillis())
+                }
+                ApiResult.Ok(body.map { request ->
+                    OpenBidRequest(
+                        id = request.id,
+                        serviceClass = request.serviceClass,
+                        deliverBy = request.deliverBy,
+                        searchStartedAt = request.searchStartedAt,
+                        offerResponseExpiresAt = request.offerResponseExpiresAt,
+                        suggestedPrice = request.suggestedPrice,
+                        offeredPrice = request.offeredPrice,
+                        pickupAddress = request.pickupAddress,
+                        dropoffAddress = request.dropoffAddress,
+                        pickupLatitude = request.pickupLatitude,
+                        pickupLongitude = request.pickupLongitude,
+                        dropoffLatitude = request.dropoffLatitude,
+                        dropoffLongitude = request.dropoffLongitude,
+                        parcelDescription = request.parcelDescription,
+                        parcelSize = request.parcelSize,
+                        distanceMeters = request.distanceMeters,
+                        currency = request.currency,
+                        paymentMethod = request.paymentMethod,
+                    )
+                })
+            }
             is ApiResult.Err -> result
         }
     }
@@ -138,30 +172,91 @@ class BidRepository @Inject constructor(
         }
     }
 
-    suspend fun refreshOwnBids(cursor: String?): ApiResult<OwnBidPage> {
-        val result = ownBids(cursor)
-        if (result is ApiResult.Ok) {
-            ownBidsState.value = if (cursor == null) {
-                result.value.bids
-            } else {
-                ownBidsState.value + result.value.bids
+    suspend fun refreshOwnBids(cursor: String?, refreshLoaded: Boolean = false): ApiResult<OwnBidPage> {
+        val revision = ownRevision.get()
+        val session = ownSession.get()
+        return ownRead.read(Triple(revision, cursor, refreshLoaded)) {
+            ownBidsLock.withLock {
+                if (session != ownSession.get()) return@withLock ApiResult.Err(ApiError.SessionEnded)
+                if (revision != ownRevision.get()) return@withLock ApiResult.Err(ApiError.Unexpected("Offers changed while refreshing. Try again."))
+                val current = ownBidsState.value
+                if (cursor != null && cursor != current.nextCursor) return@withLock ApiResult.Ok(current)
+                var result = ownBids(cursor)
+                if (cursor == null && result is ApiResult.Ok) {
+                    var page = result.value
+                    // Refresh already loaded history on explicit refresh; normal polling only
+                    // follows older pages when an outstanding OPEN bid needs a status update.
+                    val required = current.bids.filter { refreshLoaded || it.status == "OPEN" }.map { it.bidId }.toSet()
+                    while (page.nextCursor != null && required.any { id -> page.bids.none { it.bidId == id } }) {
+                        val next = page.nextCursor ?: break
+                        when (val more = ownBids(next)) {
+                            is ApiResult.Ok -> {
+                                page = mergeOwnBidPage(page, more.value, next)
+                                if (more.value.nextCursor == next) { result = ApiResult.Err(ApiError.Unexpected("Offer pagination did not advance.")); break }
+                            }
+                            is ApiResult.Err -> { result = more; break }
+                        }
+                    }
+                    if (result is ApiResult.Ok) result = ApiResult.Ok(page)
+                }
+                if (session != ownSession.get()) return@withLock ApiResult.Err(ApiError.SessionEnded)
+                if (revision != ownRevision.get()) return@withLock ApiResult.Err(ApiError.Unexpected("Offers changed while refreshing. Try again."))
+                when (result) {
+                    is ApiResult.Ok -> {
+                        if (cursor == null) { freshCoverage = result.value; coverageRevision = revision }
+                        val page = mergeOwnBidPage(current, result.value, cursor)
+                        ownBidsState.value = page
+                        if (cursor == null) {
+                            ownBidsKnownState.value = true
+                            bidListProblemState.value = null
+                        }
+                        ApiResult.Ok(page)
+                    }
+                    is ApiResult.Err -> {
+                        if (cursor == null) markOwnBidsUnknown(result.error)
+                        result
+                    }
+                }
             }
-            if (cursor == null) {
-                ownBidsKnownState.value = true
-                bidListProblemState.value = null
-            }
-        } else if (cursor == null && result is ApiResult.Err) {
-            ownBidsKnownState.value = false
-            bidListProblemState.value = bidListProblemMessage(result.error)
         }
-        return result
+    }
+
+    private fun markOwnBidsUnknown(error: ApiError) {
+        freshCoverage = null
+        ownBidsKnownState.value = false
+        bidListProblemState.value = bidListProblemMessage(error)
+    }
+
+    /** Follow the chronological cursor only as far back as active search attempts require. */
+    suspend fun ensureRequestBidCoverage(requests: List<OpenBidRequest>) = ownBidsLock.withLock {
+        var page = freshCoverage ?: return@withLock
+        val revision = ownRevision.get()
+        if (coverageRevision != revision) return@withLock
+        val session = ownSession.get()
+        while (page.nextCursor != null && requestBidCoverageNeeded(requests, page.bids)) {
+            val cursor = page.nextCursor ?: break
+            when (val result = ownBids(cursor)) {
+                is ApiResult.Ok -> {
+                    if (revision != ownRevision.get() || session != ownSession.get()) return@withLock
+                    if (result.value.nextCursor == cursor) {
+                        markOwnBidsUnknown(ApiError.Unexpected("Offer pagination did not advance.")); return@withLock
+                    }
+                    page = mergeOwnBidPage(page, result.value, cursor)
+                }
+                is ApiResult.Err -> { markOwnBidsUnknown(result.error); return@withLock }
+            }
+        }
+        if (revision == ownRevision.get() && session == ownSession.get()) {
+            freshCoverage = page
+            ownBidsState.value = mergeOwnBidPage(ownBidsState.value, page, null)
+        }
     }
 
     suspend fun submit(deliveryId: String, amountCents: Int, idempotencyKey: String, currency: String): ApiResult<Unit> {
         return when (val result = apiCall {
             riders.submitBid(idempotencyKey, BidSubmissionRequest(deliveryId, amountCents, currency))
         }) {
-            is ApiResult.Ok -> ApiResult.Ok(Unit)
+            is ApiResult.Ok -> { invalidateOwnBids(); ApiResult.Ok(Unit) }
             is ApiResult.Err -> result
         }
     }
@@ -175,9 +270,39 @@ class BidRepository @Inject constructor(
 
     suspend fun withdraw(bidId: String): ApiResult<Unit> {
         return when (val result = apiCall { riders.withdrawBid(bidId) }) {
-            is ApiResult.Ok -> ApiResult.Ok(Unit)
+            is ApiResult.Ok -> { invalidateOwnBids(); ApiResult.Ok(Unit) }
             is ApiResult.Err -> result
         }
+    }
+}
+
+internal fun mergeOwnBidPage(current: OwnBidPage, incoming: OwnBidPage, cursor: String?): OwnBidPage {
+    if (cursor == null) {
+        val head = incoming.bids.distinctBy { it.bidId }
+        if (incoming.nextCursor == null) return incoming.copy(bids = head)
+        val ids = head.map { it.bidId }.toSet()
+        // Only retain older rows beyond the freshly fetched boundary. New rows
+        // can shift page boundaries; use the old cursor only if its tail survives.
+        val boundary = head.lastOrNull()
+        val tail = current.bids.filter { it.bidId !in ids && boundary != null &&
+            (it.createdAt < boundary.createdAt || (it.createdAt == boundary.createdAt && it.bidId < boundary.bidId)) }
+        return OwnBidPage(head + tail, if (tail.isEmpty()) incoming.nextCursor else current.nextCursor)
+    }
+    if (cursor != current.nextCursor) return current
+    // A bid can straddle page boundaries. Keep the most recently fetched status.
+    val merged = (current.bids + incoming.bids).associateBy { it.bidId }.values.toList()
+    return incoming.copy(bids = merged)
+}
+
+internal fun requestBidCoverageNeeded(requests: List<OpenBidRequest>, bids: List<OwnBid>): Boolean {
+    val unresolved = requests.filter { request -> bids.none { it.deliveryId == request.id && it.status == "OPEN" } }
+    if (unresolved.isEmpty()) return false
+    val oldest = bids.lastOrNull()?.createdAt?.let { runCatching { Instant.parse(it) }.getOrNull() } ?: return true
+    // Older servers may omit searchStartedAt. In that case the existing API has
+    // no safe lower bound, so continue until the cursor is exhausted.
+    return unresolved.any { request ->
+        val start = request.searchStartedAt?.let { runCatching { Instant.parse(it) }.getOrNull() }
+        start == null || !oldest.isBefore(start)
     }
 }
 

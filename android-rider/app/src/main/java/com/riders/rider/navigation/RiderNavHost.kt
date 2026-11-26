@@ -28,6 +28,8 @@ import com.riders.rider.feature.auth.domain.DeviceReplacementNotice
 import com.riders.rider.feature.auth.domain.showsSignedOutDialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.riders.rider.feature.offers.notification.rememberOfferInbox
+import com.riders.rider.feature.offers.domain.acceptedDeliveryAlreadyOpen
+import kotlinx.coroutines.flow.first
 import com.riders.rider.feature.auth.presentation.AccountScreen
 import com.riders.rider.feature.auth.presentation.OtpScreen
 import com.riders.rider.feature.auth.presentation.RegisterScreen
@@ -77,21 +79,6 @@ private fun RiderGraph(
     var showSignedOut by remember(notice) { mutableStateOf(showsSignedOutDialog(notice)) }
     val motion = rememberRidersMotion()
     val deliveryMs = motion.millis(RiderTransition.DeliveryForward)
-    if (signedIn) {
-        val pending = rememberOfferInbox()
-        val acceptedDelivery by pending.acceptedTaps.collectAsStateWithLifecycle()
-        val cancelledDelivery by pending.customerCancelledTaps.collectAsStateWithLifecycle()
-        LaunchedEffect(acceptedDelivery) {
-            val deliveryId = acceptedDelivery ?: return@LaunchedEffect
-            controller.navigate(parcelRoute(deliveryId))
-            pending.clearAccepted()
-        }
-        LaunchedEffect(cancelledDelivery) {
-            val deliveryId = cancelledDelivery ?: return@LaunchedEffect
-            controller.navigate(parcelRoute(deliveryId))
-            pending.clearCustomerCancelled()
-        }
-    }
     NavHost(
         navController = controller,
         startDestination = if (signedIn) {
@@ -254,6 +241,41 @@ private fun RiderGraph(
         })
     }
     if (signedIn) {
+        val pending = rememberOfferInbox()
+        val acceptedDelivery by pending.acceptedTaps.collectAsStateWithLifecycle()
+        LaunchedEffect(controller, acceptedDelivery, sessionUncertain) {
+            val deliveryId = acceptedDelivery ?: return@LaunchedEffect
+            if (sessionUncertain) return@LaunchedEffect
+            // A cold-start tap can arrive before NavHost has installed its graph.
+            if (controller.currentBackStackEntry == null) {
+                controller.currentBackStackEntryFlow.first()
+            }
+            if (pending.acceptedTaps.value != deliveryId) return@LaunchedEffect
+            val current = controller.currentBackStackEntry
+            val alreadyOpen = acceptedDeliveryAlreadyOpen(
+                deliveryId = deliveryId,
+                currentDeliveryId = current?.arguments?.getString("deliveryId"),
+                completed = current?.arguments?.getBoolean("completed") == true,
+            )
+            if (!alreadyOpen) {
+                controller.navigate(parcelRoute(Uri.encode(deliveryId)))
+            }
+            // Acknowledge only after the correct destination is open or navigation succeeds.
+            pending.acknowledgeAcceptedTap(deliveryId)
+        }
+        val cancelledDelivery by pending.customerCancelledTaps.collectAsStateWithLifecycle()
+        LaunchedEffect(controller, cancelledDelivery, sessionUncertain) {
+            val id = cancelledDelivery ?: return@LaunchedEffect
+            if (sessionUncertain) return@LaunchedEffect
+            if (controller.currentBackStackEntry == null) controller.currentBackStackEntryFlow.first()
+            if (pending.customerCancelledTaps.value != id) return@LaunchedEffect
+            val current = controller.currentBackStackEntry
+            if (!acceptedDeliveryAlreadyOpen(id, current?.arguments?.getString("deliveryId"),
+                    current?.arguments?.getBoolean("completed") == true)) {
+                controller.navigate(parcelRoute(Uri.encode(id)))
+            }
+            pending.acknowledgeCustomerCancelledTap(id)
+        }
         SessionRecoveryDialog(visible = sessionUncertain, onSignInAgain = onSignInAgain)
     }
 }

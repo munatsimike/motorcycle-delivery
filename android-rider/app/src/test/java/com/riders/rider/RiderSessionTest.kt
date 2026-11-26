@@ -598,22 +598,13 @@ private fun MockWebServer.riders(store: SessionStore, timeoutSeconds: Long = 15)
         .create(AuthService::class.java)
     val client = httpClient {
         callTimeout(timeoutSeconds, TimeUnit.SECONDS)
-        addInterceptor(Interceptor { chain ->
-            val request = chain.request()
-            val path = request.url.encodedPath
-            val token = store.read()?.accessToken
-            val open = path.contains("/auth/rider/") || path.endsWith("/auth/session/refresh")
-            if (open || token.isNullOrEmpty()) {
-                chain.proceed(request)
-            } else {
-                chain.proceed(request.newBuilder().header("Authorization", "Bearer $token").build())
-            }
-        })
+        addInterceptor(com.riders.rider.core.network.SessionRequestInterceptor(store))
+        addNetworkInterceptor(com.riders.rider.core.network.SessionNetworkInterceptor(store))
         authenticator(RefreshAuthenticator(store) { refreshToken ->
             performRefresh { refreshApi.refresh(RefreshRequest(refreshToken)).toSession() }
         })
     }
-    return retrofit(url("/").toString(), client).create(RiderService::class.java)
+    return retrofit(url("/").toString(), com.riders.rider.core.network.sessionBoundCalls(client, store)).create(RiderService::class.java)
 }
 
 private fun MockWebServer.refreshCount(): Int {
@@ -627,6 +618,8 @@ private fun MockWebServer.refreshCount(): Int {
 }
 
 private class RejectingSessionStore : SessionStore {
+    override val identity = MutableStateFlow("rejecting-session").asStateFlow()
+    override fun replaceIfCurrent(expected: com.riders.rider.core.session.SessionSnapshot, session: AuthSession) = false
     private val state = MutableStateFlow<AuthSession?>(null)
     private val uncertain = MutableStateFlow(false)
     override val session: StateFlow<AuthSession?> = state.asStateFlow()

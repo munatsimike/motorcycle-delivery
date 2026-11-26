@@ -66,13 +66,16 @@ class OfferAcceptance(
     private val mutex = Mutex()
     private val inFlight = mutableSetOf<String>()
 
-    suspend fun accept(assignmentId: String): ApiResult<AcceptedDelivery>? {
+    suspend fun accept(assignmentId: String, isCurrent: () -> Boolean = { true }): ApiResult<AcceptedDelivery>? {
+        if (!isCurrent()) return ApiResult.Err(ApiError.SessionEnded)
         if (!mutex.withLock { inFlight.add(assignmentId) }) {
             return null
         }
         try {
             val key = keys.keyFor(assignmentId)
+            if (!isCurrent()) return ApiResult.Err(ApiError.SessionEnded)
             val result = send(assignmentId, key)
+            if (!isCurrent()) return ApiResult.Err(ApiError.SessionEnded)
             val resolved = when (result) {
                 is ApiResult.Ok -> true
                 is ApiResult.Err -> !result.error.leavesAcceptUnresolved()

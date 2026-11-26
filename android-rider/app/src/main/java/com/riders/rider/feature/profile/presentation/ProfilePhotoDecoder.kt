@@ -11,7 +11,7 @@ fun decodeProfilePhoto(bytes: ByteArray, maxEdge: Int = PROFILE_PHOTO_MAX_EDGE):
     }
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+    if (!com.riders.rider.feature.profile.domain.reasonablePhotoDimensions(bounds.outWidth, bounds.outHeight)) {
         return null
     }
     val options = BitmapFactory.Options().apply {

@@ -1,5 +1,7 @@
 package com.riders.rider
 
+import com.riders.rider.feature.offers.domain.acceptedBidTapDeliveryId
+import com.riders.rider.feature.offers.domain.acceptedDeliveryAlreadyOpen
 import com.riders.rider.feature.offers.domain.OFFER_NOTICE_BODY
 import com.riders.rider.feature.offers.domain.OFFER_NOTICE_TITLE
 import com.riders.rider.feature.offers.domain.REQUEST_UNAVAILABLE
@@ -16,6 +18,7 @@ import com.riders.rider.feature.offers.domain.rememberShownOffer
 import com.riders.rider.feature.offers.domain.shouldAskNotificationPermission
 import com.riders.rider.feature.offers.domain.shouldHoldOfferTap
 import com.riders.rider.feature.auth.domain.AppEntry
+import com.riders.rider.feature.offers.notification.PendingOffer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -23,6 +26,45 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RiderOfferNoticeTest {
+    @Test
+    fun acceptedNotificationTapRecognisesBothAppAndFirebaseExtras() {
+        assertEquals("delivery-1", acceptedBidTapDeliveryId(" delivery-1 ", null, null))
+        assertEquals("delivery-2", acceptedBidTapDeliveryId(null, "v2_bid_accepted", " delivery-2 "))
+        assertEquals("delivery-2", acceptedBidTapDeliveryId(" ", "v2_bid_accepted", "delivery-2"))
+        assertEquals("delivery-1", acceptedBidTapDeliveryId("delivery-1", "v2_bid_accepted", "delivery-2"))
+    }
+
+    @Test
+    fun acceptedTapRejectsMissingIdsAndUnrelatedNotifications() {
+        assertNull(acceptedBidTapDeliveryId(null, "v2_bid_accepted", null))
+        assertNull(acceptedBidTapDeliveryId(null, "v2_bid_accepted", " "))
+        assertNull(acceptedBidTapDeliveryId(null, "rider_offer", "delivery-1"))
+        assertNull(acceptedBidTapDeliveryId(null, "v2_customer_cancelled", "delivery-1"))
+        assertNull(acceptedBidTapDeliveryId(null, null, "delivery-1"))
+    }
+
+    @Test
+    fun acceptedTapDoesNotDuplicateTheSameActiveDeliveryPage() {
+        assertTrue(acceptedDeliveryAlreadyOpen("delivery-1", "delivery-1", false))
+        assertFalse(acceptedDeliveryAlreadyOpen("delivery-1", null, false))
+        assertFalse(acceptedDeliveryAlreadyOpen("delivery-1", "delivery-2", false))
+        assertFalse(acceptedDeliveryAlreadyOpen("delivery-1", "delivery-1", true))
+    }
+
+    @Test
+    fun acceptedTapIsRetainedUntilAcknowledgedAndCannotClearANewerTap() {
+        val pending = PendingOffer()
+        pending.acceptedBidArrived("delivery-0")
+        assertNull(pending.acceptedTaps.value)
+        pending.acceptedBidTapped("delivery-1")
+        assertEquals("delivery-1", pending.acceptedTaps.value)
+        pending.acceptedBidTapped("delivery-2")
+        pending.acknowledgeAcceptedTap("delivery-1")
+        assertEquals("delivery-2", pending.acceptedTaps.value)
+        pending.acknowledgeAcceptedTap("delivery-2")
+        assertNull(pending.acceptedTaps.value)
+    }
+
     @Test
     fun readsADataOnlyOfferAndIgnoresAnythingElse() {
         val offer = parseRiderOffer(mapOf(

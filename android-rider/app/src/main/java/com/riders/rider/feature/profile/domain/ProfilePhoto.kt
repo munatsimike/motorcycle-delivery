@@ -255,3 +255,22 @@ private fun isWebp(bytes: ByteArray): Boolean {
         && bytes[10] == 'B'.code.toByte()
         && bytes[11] == 'P'.code.toByte()
 }
+
+/** Only resize large JPEGs that the existing server would resize anyway. */
+internal fun profilePhotoUploadSize(width: Int, height: Int, byteCount: Int): Pair<Int, Int>? {
+    if (width !in 1..8_000 || height !in 1..8_000 || byteCount !in (256 * 1024)..PROFILE_PHOTO_MAX_BYTES) {
+        return null
+    }
+    val longest = maxOf(width, height)
+    if (longest <= PROFILE_PHOTO_MAX_EDGE) return null
+    return (width.toLong() * PROFILE_PHOTO_MAX_EDGE / longest).toInt().coerceAtLeast(1) to
+        (height.toLong() * PROFILE_PHOTO_MAX_EDGE / longest).toInt().coerceAtLeast(1)
+}
+
+/** Keep the original if the replacement is invalid or saves less than 10%. */
+internal fun smallerProfilePhotoJpeg(original: ByteArray, candidate: ByteArray?): ByteArray {
+    if (candidate == null || profilePhotoContentType(original) != "image/jpeg" ||
+        profilePhotoContentType(candidate) != "image/jpeg" || candidate.size.toLong() * 10 > original.size.toLong() * 9
+    ) return original
+    return candidate
+}

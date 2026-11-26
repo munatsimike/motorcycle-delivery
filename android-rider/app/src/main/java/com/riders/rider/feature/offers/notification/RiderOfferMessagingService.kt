@@ -11,45 +11,57 @@ import javax.inject.Inject
 
 @AndroidEntryPoint
 class RiderOfferMessagingService : FirebaseMessagingService() {
+    @Inject lateinit var sessions: com.riders.rider.core.session.SessionStore
     @Inject lateinit var coordinator: OfferPushCoordinator
     @Inject lateinit var poster: OfferNotificationPoster
     @Inject lateinit var pending: PendingOffer
     @Inject lateinit var shown: ShownOfferStore
+    @Inject lateinit var bids: com.riders.rider.feature.bids.data.BidRepository
+    @Inject lateinit var assignments: com.riders.rider.feature.delivery.data.AssignmentRepository
 
     override fun onMessageReceived(message: RemoteMessage) {
-        when (val action = riderNoticeAction(parseRiderNotice(message.data))) {
-            is RiderNoticeAction.ShowOffer -> {
-                if (!shown.markIfNew(offerAttemptKey(action.deliveryId, action.expiresAt))) {
-                    return
+        synchronized(sessions) {
+            if (!coordinator.canReceive(sessions.snapshot().identity)) return@synchronized
+            when (val action = riderNoticeAction(parseRiderNotice(message.data))) {
+                is RiderNoticeAction.ShowOffer -> {
+                    if (!shown.markIfNew(offerAttemptKey(action.deliveryId, action.expiresAt))) {
+                        return
+                    }
+                    bids.invalidateOwnBids()
+                    pending.offerArrived(action.deliveryId)
+                    poster.show(action.deliveryId)
                 }
-                pending.offerArrived(action.deliveryId)
-                poster.show(action.deliveryId)
-            }
-            is RiderNoticeAction.ShowAccepted -> {
-                if (!shown.markIfNew("accepted:${action.deliveryId}")) {
-                    return
+                is RiderNoticeAction.ShowAccepted -> {
+                    if (!shown.markIfNew("accepted:${action.deliveryId}")) {
+                        return
+                    }
+                    bids.invalidateOwnBids()
+                    assignments.invalidateAssignments()
+                    pending.acceptedBidArrived(action.deliveryId)
+                    poster.showAccepted(action.deliveryId)
                 }
-                pending.acceptedBidArrived(action.deliveryId)
-                poster.showAccepted(action.deliveryId)
-            }
-            is RiderNoticeAction.ShowBidExpired -> {
-                pending.bidExpiredArrived(action.deliveryId)
-                poster.showBidExpired(action.deliveryId)
-            }
-            is RiderNoticeAction.ShowCustomerCancelled -> {
-                if (!shown.markIfNew("cancelled:${action.deliveryId}")) {
-                    return
+                is RiderNoticeAction.ShowBidExpired -> {
+                    bids.invalidateOwnBids()
+                    pending.bidExpiredArrived(action.deliveryId)
+                    poster.showBidExpired(action.deliveryId)
                 }
-                pending.customerCancelledArrived(action.deliveryId)
-                poster.showCustomerCancelled(action.deliveryId)
-            }
-            is RiderNoticeAction.ShowApproved -> {
-                if (!shown.markIfNew("approved:${action.approvedAt}")) {
-                    return
+                is RiderNoticeAction.ShowCustomerCancelled -> {
+                    if (!shown.markIfNew("cancelled:${action.deliveryId}")) {
+                        return
+                    }
+                    bids.invalidateOwnBids()
+                    assignments.invalidateAssignments()
+                    pending.customerCancelledArrived(action.deliveryId)
+                    poster.showCustomerCancelled(action.deliveryId)
                 }
-                poster.showApproved()
+                is RiderNoticeAction.ShowApproved -> {
+                    if (!shown.markIfNew("approved:${action.approvedAt}")) {
+                        return
+                    }
+                    poster.showApproved()
+                }
+                RiderNoticeAction.Ignore -> return@synchronized
             }
-            RiderNoticeAction.Ignore -> return
         }
     }
 

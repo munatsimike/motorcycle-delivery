@@ -1,6 +1,6 @@
 package com.riders.rider.core.network
 
-import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
+import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -181,7 +181,7 @@ interface RiderService {
     ): CancellationResponse
 
     @GET("riders/me/bid-requests")
-    suspend fun bidRequests(): List<BidRequestBody>
+    suspend fun bidRequests(): Response<List<BidRequestBody>>
 
     @GET("riders/me/bid-requests/{deliveryId}/route")
     suspend fun requestRoad(@Path("deliveryId") deliveryId: String): PickupRouteResponse
@@ -256,10 +256,10 @@ fun looksLikeEmulator(
         || manufacturer.contains("Genymotion", ignoreCase = true)
 }
 
-fun retrofit(baseUrl: String, client: OkHttpClient): Retrofit {
+fun retrofit(baseUrl: String, client: okhttp3.Call.Factory): Retrofit {
     return Retrofit.Builder()
         .baseUrl(apiBaseUrl(baseUrl))
-        .client(client)
+        .callFactory(client)
         .addConverterFactory(ApiJson.asConverterFactory("application/json".toMediaType()))
         .build()
 }

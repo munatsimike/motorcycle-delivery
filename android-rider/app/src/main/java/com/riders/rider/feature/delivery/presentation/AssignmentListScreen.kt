@@ -12,7 +12,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ViewModel
@@ -40,7 +40,9 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 data class AssignmentListUi(
@@ -55,8 +57,10 @@ data class AssignmentListUi(
 class AssignmentListViewModel @Inject constructor(
     private val assignments: AssignmentRepository,
 ) : ViewModel() {
-    private val state = MutableStateFlow(initialAssignmentList(assignments.current(), assignments.hasConfirmedAssignments()))
-    val ui: StateFlow<AssignmentListUi> = state.asStateFlow()
+    private val state = MutableStateFlow(initialAssignmentList(assignments.current(), assignments.hasConfirmedAssignments()).copy(assignments = emptyList()))
+    val ui: StateFlow<AssignmentListUi> = combine(state, assignments.parcelsFlow) { chrome, parcels ->
+        chrome.copy(assignments = parcels)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, state.value.copy(assignments = assignments.current()))
     private var busy = false
     private var rerun = false
     private var rerunFromUser = false
@@ -73,27 +77,24 @@ class AssignmentListViewModel @Inject constructor(
         busy = true
         val ticket = ++refreshTicket
         val current = state.value
-        val blank = !current.loaded && current.assignments.isEmpty() && current.error == null
+        val blank = !current.loaded && assignments.current().isEmpty() && current.error == null
         val chrome = listedRefresh(fromUser, blank)
-        val known = if (assignments.hasConfirmedAssignments()) assignments.current() else current.assignments
         state.value = current.copy(
             refreshing = chrome.refreshing,
             loading = chrome.loading,
             error = null,
-            assignments = known,
         )
         viewModelScope.launch {
             try {
                 when (val result = assignments.refreshList()) {
                     is ApiResult.Ok -> if (ticket == refreshTicket) {
-                        state.value = AssignmentListUi(assignments = result.value, loaded = true)
+                        state.value = AssignmentListUi(loading = false, loaded = true)
                     }
                     is ApiResult.Err -> if (ticket == refreshTicket) {
                         state.value = state.value.copy(
                             loading = false,
                             refreshing = false,
                             loaded = current.loaded,
-                            assignments = assignments.current(),
                             error = result.error.text(),
                         )
                     }
@@ -140,8 +141,8 @@ fun AssignmentListPane(
     LaunchedEffect(acceptedBids) {
         acceptedBids.acceptedArrivals.collect { model.refresh() }
     }
-    LaunchedEffect(Unit) {
-        model.refresh()
+    LaunchedEffect(acceptedBids) {
+        acceptedBids.customerCancelledArrivals.collect { model.refresh() }
     }
     DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, event ->

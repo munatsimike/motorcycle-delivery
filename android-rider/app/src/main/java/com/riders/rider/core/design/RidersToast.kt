@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -110,13 +111,21 @@ fun RidersToast(message: String, detail: String = "", modifier: Modifier = Modif
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
     ) {
-        Icon(
-            painter = painterResource(R.drawable.ic_check),
-            contentDescription = null,
-            tint = RidersColors.textInverse,
-            modifier = Modifier.size(18.dp),
-        )
-        Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
+        Box(
+            Modifier
+                .size(24.dp)
+                .clip(CircleShape)
+                .background(RidersColors.textInverse),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                painter = painterResource(R.drawable.ic_check),
+                contentDescription = null,
+                tint = RidersColors.primary,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs)) {
             Text(message, style = RidersType.bodyStrong, color = RidersColors.textInverse)
             if (detail.isNotBlank()) {
                 Text(detail, style = RidersType.body, color = RidersColors.textInverse)

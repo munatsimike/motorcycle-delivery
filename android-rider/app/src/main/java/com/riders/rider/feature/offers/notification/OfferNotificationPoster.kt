@@ -34,9 +34,12 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
+const val NOTIFICATION_SESSION = "riders.internal.notification_session"
+
 @Singleton
 class OfferNotificationPoster @Inject constructor(
-    @ApplicationContext private val context: Context,
+    @param:ApplicationContext private val context: Context,
+    private val sessions: com.riders.rider.core.session.SessionStore,
 ) {
     fun notificationsEnabled(): Boolean {
         if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) {
@@ -54,6 +57,7 @@ class OfferNotificationPoster @Inject constructor(
             return
         }
         val open = Intent(context, MainActivity::class.java).apply {
+            putExtra(NOTIFICATION_SESSION, sessions.snapshot().identity)
             putExtra(OFFER_EXTRA_ASSIGNMENT_ID, assignmentId)
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
@@ -70,7 +74,9 @@ class OfferNotificationPoster @Inject constructor(
             .setContentText(OFFER_NOTICE_BODY)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setPublicVersion(NotificationCompat.Builder(context, OFFER_CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_notification).setContentTitle("Riders").setContentText("New notification").build())
             .setAutoCancel(true)
             .setContentIntent(pending)
             .build()
@@ -83,6 +89,7 @@ class OfferNotificationPoster @Inject constructor(
             return
         }
         val open = Intent(context, MainActivity::class.java).apply {
+            putExtra(NOTIFICATION_SESSION, sessions.snapshot().identity)
             putExtra(ACCEPTED_BID_EXTRA_DELIVERY_ID, deliveryId)
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
@@ -99,7 +106,9 @@ class OfferNotificationPoster @Inject constructor(
             .setContentText(ACCEPTED_BID_BODY)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setPublicVersion(NotificationCompat.Builder(context, OFFER_CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_notification).setContentTitle("Riders").setContentText("New notification").build())
             .setAutoCancel(true)
             .setContentIntent(pending)
             .build()
@@ -112,6 +121,7 @@ class OfferNotificationPoster @Inject constructor(
         val manager = context.getSystemService(NotificationManager::class.java)
         manager.cancel(offerNotificationId(deliveryId))
         val open = Intent(context, MainActivity::class.java).apply {
+            putExtra(NOTIFICATION_SESSION, sessions.snapshot().identity)
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         val pending = PendingIntent.getActivity(
@@ -125,6 +135,9 @@ class OfferNotificationPoster @Inject constructor(
             .setContentText("The customer did not accept an offer in time.")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setPublicVersion(NotificationCompat.Builder(context, OFFER_CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_notification).setContentTitle("Riders").setContentText("New notification").build())
             .setAutoCancel(true)
             .setContentIntent(pending)
             .build()
@@ -136,6 +149,7 @@ class OfferNotificationPoster @Inject constructor(
             return
         }
         val open = Intent(context, MainActivity::class.java).apply {
+            putExtra(NOTIFICATION_SESSION, sessions.snapshot().identity)
             putExtra(CUSTOMER_CANCELLED_EXTRA_DELIVERY_ID, deliveryId)
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
@@ -152,7 +166,9 @@ class OfferNotificationPoster @Inject constructor(
             .setContentText(CUSTOMER_CANCELLED_BODY)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setPublicVersion(NotificationCompat.Builder(context, OFFER_CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_notification).setContentTitle("Riders").setContentText("New notification").build())
             .setAutoCancel(true)
             .setContentIntent(pending)
             .build()
@@ -165,6 +181,7 @@ class OfferNotificationPoster @Inject constructor(
             return
         }
         val open = Intent(context, MainActivity::class.java).apply {
+            putExtra(NOTIFICATION_SESSION, sessions.snapshot().identity)
             putExtra(ACCOUNT_APPROVED_EXTRA, true)
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
@@ -181,7 +198,9 @@ class OfferNotificationPoster @Inject constructor(
             .setContentText(ACCOUNT_APPROVED_BODY)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_STATUS)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setPublicVersion(NotificationCompat.Builder(context, OFFER_CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_notification).setContentTitle("Riders").setContentText("New notification").build())
             .setAutoCancel(true)
             .setContentIntent(pending)
             .build()
@@ -190,7 +209,7 @@ class OfferNotificationPoster @Inject constructor(
     }
 
     private fun prepareChannel(): Boolean {
-        if (!notificationsEnabled()) {
+        if (sessions.read() == null || !notificationsEnabled()) {
             return false
         }
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
@@ -204,7 +223,7 @@ class OfferNotificationPoster @Inject constructor(
         ).apply {
             description = "Alerts when a delivery request is offered to you"
             enableVibration(true)
-            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            lockscreenVisibility = Notification.VISIBILITY_PRIVATE
             setSound(
                 sound,
                 AudioAttributes.Builder()

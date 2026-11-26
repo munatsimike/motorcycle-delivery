@@ -20,6 +20,7 @@ suspend fun <T> apiCall(establishedSession: Boolean = true, block: suspend () ->
  * The classified failure is the one the rider should see.
  */
 private fun ioFailure(error: IOException): ApiError {
+    error.findCause<SessionChangedException>()?.let { return ApiError.SessionEnded }
     error.findCause<SessionStorageException>()?.let {
         return ApiError.Unexpected(SessionStorageException.MESSAGE)
     }

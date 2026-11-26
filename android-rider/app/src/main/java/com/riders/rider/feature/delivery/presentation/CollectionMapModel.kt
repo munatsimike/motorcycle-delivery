@@ -14,6 +14,7 @@ import com.riders.rider.feature.delivery.domain.shouldRequestPickupRoute
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -39,13 +40,18 @@ class CollectionMapModel @Inject constructor(
     private var target: CollectionTarget? = null
     private var listening: Job? = null
     private var clock: Job? = null
+    private var routeJob: Job? = null
+    private var routedPickup: GeoPoint? = null
     private var lastOrigin: GeoPoint? = null
     private var lastRequestAtMillis: Long? = null
     private var routedAssignment: String? = null
 
     fun activate(next: CollectionTarget) {
-        if (routedAssignment != next.assignmentId || target?.pickup != next.pickup) {
+        if (routedAssignment != next.assignmentId || routedPickup != next.pickup) {
+            routeJob?.cancel()
+            routeJob = null
             routedAssignment = next.assignmentId
+            routedPickup = next.pickup
             lastOrigin = null
             lastRequestAtMillis = null
             routeState.value = PickupRoad(emptyList(), null, null)
@@ -80,6 +86,9 @@ class CollectionMapModel @Inject constructor(
         listening = null
         clock?.cancel()
         clock = null
+        if (routeJob?.isActive == true) lastRequestAtMillis = null
+        routeJob?.cancel()
+        routeJob = null
         watch.stop()
     }
 
@@ -94,19 +103,21 @@ class CollectionMapModel @Inject constructor(
         val pickup = target?.pickup
         if (!arrivedState.value && fix != null && pickup != null && riderReachedPickup(GeoPoint(fix.latitude, fix.longitude), pickup)) {
             arrivedState.value = true
+            routeJob?.cancel()
         }
     }
 
     private fun requestRoute(current: CollectionTarget, fix: GpsFix) {
+        if (arrivedState.value || routeJob?.isActive == true) return
         val origin = GeoPoint(fix.latitude, fix.longitude)
         val now = System.currentTimeMillis()
         if (!shouldRequestPickupRoute(lastOrigin, origin, lastRequestAtMillis, now)) {
             return
         }
         lastRequestAtMillis = now
-        viewModelScope.launch {
+        routeJob = viewModelScope.launch {
             val line = routes.road(current.assignmentId, fix)
-            if (target?.assignmentId != current.assignmentId) {
+            if (target != current || arrivedState.value || listening == null) {
                 return@launch
             }
             if (line == null || line.line.size < 2) {

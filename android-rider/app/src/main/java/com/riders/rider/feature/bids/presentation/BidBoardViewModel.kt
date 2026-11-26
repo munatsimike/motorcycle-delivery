@@ -13,9 +13,12 @@ import com.riders.rider.feature.bids.domain.OwnBid
 import com.riders.rider.feature.bids.domain.bidCanWithdraw
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 data class BidBoardUi(
@@ -35,7 +38,12 @@ class BidBoardViewModel @Inject constructor(
     private val pending: com.riders.rider.feature.offers.notification.PendingOffer,
 ) : ViewModel() {
     private val state = MutableStateFlow(BidBoardUi())
-    val ui: StateFlow<BidBoardUi> = state.asStateFlow()
+    val ui: StateFlow<BidBoardUi> = combine(state, bids.ownBidPageFlow) { chrome, page ->
+        chrome.copy(bids = page.bids, nextCursor = page.nextCursor)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, state.value.copy(
+        bids = bids.ownBidPageFlow.value.bids,
+        nextCursor = bids.ownBidPageFlow.value.nextCursor,
+    ))
     private val withdrawGate = BidSubmitGate()
     private var loadingList = false
     private var rerun = false
@@ -46,6 +54,8 @@ class BidBoardViewModel @Inject constructor(
         viewModelScope.launch {
             pending.bidExpired.collect { refresh() }
         }
+        viewModelScope.launch { pending.acceptedArrivals.collect { refresh() } }
+        viewModelScope.launch { pending.customerCancelledArrivals.collect { refresh() } }
     }
 
     fun refresh() {
@@ -67,7 +77,7 @@ class BidBoardViewModel @Inject constructor(
         loadingList = true
         val ticket = ++refreshTicket
         val current = state.value
-        val blank = current.bids.isEmpty() && current.error == null
+        val blank = bids.ownBidPageFlow.value.bids.isEmpty() && current.error == null
         val chrome = listedRefresh(fromUser, blank)
         state.value = current.copy(
             refreshing = chrome.refreshing,
@@ -76,7 +86,7 @@ class BidBoardViewModel @Inject constructor(
         )
         viewModelScope.launch {
             try {
-                reload(null, ticket)
+                reload(null, ticket, refreshLoaded = fromUser)
             } finally {
                 val queued = rerun
                 val queuedFromUser = rerunFromUser
@@ -95,7 +105,7 @@ class BidBoardViewModel @Inject constructor(
     }
 
     fun withdraw(bidId: String) {
-        val bid = state.value.bids.firstOrNull { it.bidId == bidId } ?: return
+        val bid = bids.ownBidPageFlow.value.bids.firstOrNull { it.bidId == bidId } ?: return
         if (!bidCanWithdraw(bid.status) || !withdrawGate.tryStart(bidId)) {
             return
         }
@@ -114,7 +124,7 @@ class BidBoardViewModel @Inject constructor(
     }
 
     fun loadMore() {
-        val cursor = state.value.nextCursor ?: return
+        val cursor = bids.ownBidPageFlow.value.nextCursor ?: return
         if (state.value.loadingMore || loadingList) {
             return
         }
@@ -123,12 +133,7 @@ class BidBoardViewModel @Inject constructor(
             try {
                 when (val result = bids.refreshOwnBids(cursor)) {
                     is ApiResult.Ok -> {
-                        val merged = bids.ownBidsFlow.value
-                        keys.retain(merged)
-                        state.value = state.value.copy(
-                            bids = merged,
-                            nextCursor = result.value.nextCursor,
-                        )
+                        keys.retain(result.value.bids)
                     }
                     is ApiResult.Err -> state.value = state.value.copy(error = result.error.text())
                 }
@@ -138,12 +143,11 @@ class BidBoardViewModel @Inject constructor(
         }
     }
 
-    private suspend fun reload(keepError: String?, ticket: Int? = null) {
-        val own = bids.refreshOwnBids(null)
+    private suspend fun reload(keepError: String?, ticket: Int? = null, refreshLoaded: Boolean = false) {
+        val own = bids.refreshOwnBids(null, refreshLoaded = refreshLoaded)
         val ownValue = (own as? ApiResult.Ok)?.value
-        val nextBids = ownValue?.bids ?: state.value.bids
         if (ownValue != null) {
-            keys.retain(nextBids)
+            keys.retain(ownValue.bids)
         }
         if (ticket != null && ticket != refreshTicket) {
             return
@@ -151,8 +155,6 @@ class BidBoardViewModel @Inject constructor(
         state.value = state.value.copy(
             loading = false,
             refreshing = false,
-            bids = nextBids,
-            nextCursor = if (ownValue != null) ownValue.nextCursor else state.value.nextCursor,
             error = keepError ?: (own as? ApiResult.Err)?.error?.text(),
         )
     }

@@ -6,6 +6,8 @@ import com.riders.rider.core.network.httpClient
 import com.riders.rider.core.network.retrofit
 import com.riders.rider.core.network.text
 import com.riders.rider.feature.onboarding.data.VerificationRepository
+import com.riders.rider.core.network.RiderReadRequests
+import com.riders.rider.core.session.MemorySessionStore
 import com.riders.rider.feature.onboarding.domain.LICENCE_IMAGE_MAX_BYTES
 import com.riders.rider.feature.onboarding.domain.MotorcycleDraft
 import com.riders.rider.feature.onboarding.domain.OnboardingStep
@@ -142,7 +144,7 @@ class RiderOnboardingTest {
         server.enqueue(json("[]"))
         server.start()
         try {
-            val repository = VerificationRepository(server.service())
+            val repository = server.service().let { service -> VerificationRepository(service, RiderReadRequests(service, MemorySessionStore())) }
             val profile = repository.profile() as ApiResult.Ok
             assertEquals("Tendai Moyo", profile.value.fullName)
             assertEquals("+263771234567", profile.value.phone)
@@ -167,7 +169,7 @@ class RiderOnboardingTest {
         server.enqueue(json("""{"id":"img-1","reviewStatus":"PENDING","contentType":"image/jpeg","byteSize":4,"uploadedAt":"2026-10-20T00:00:00.000Z"}""", 201))
         server.start()
         try {
-            val repository = VerificationRepository(server.service())
+            val repository = server.service().let { service -> VerificationRepository(service, RiderReadRequests(service, MemorySessionStore())) }
             val progress = mutableListOf<Int>()
             val result = repository.uploadLicence(jpeg()) { progress += it } as ApiResult.Ok
             assertEquals("PENDING", result.value.reviewStatus)
@@ -191,7 +193,7 @@ class RiderOnboardingTest {
         server.enqueue(json("""{"message":"A verified licence cannot be replaced yet","statusCode":409}""", 409))
         server.start()
         try {
-            val repository = VerificationRepository(server.service())
+            val repository = server.service().let { service -> VerificationRepository(service, RiderReadRequests(service, MemorySessionStore())) }
             assertEquals("Licence image is too large", (repository.uploadLicence(jpeg()) {}).errorText())
             assertEquals("Too many licence image uploads. Try again later.", (repository.uploadLicence(jpeg()) {}).errorText())
             assertEquals("A verified licence cannot be replaced yet", (repository.uploadLicence(jpeg()) {}).errorText())
@@ -208,7 +210,7 @@ class RiderOnboardingTest {
         server.enqueue(json("""{"message":"Rider access is required","statusCode":403}""", 403))
         server.start()
         try {
-            val repository = VerificationRepository(server.service())
+            val repository = server.service().let { service -> VerificationRepository(service, RiderReadRequests(service, MemorySessionStore())) }
             assertEquals("Your session has ended. Sign in again.", repository.profile().errorText())
             assertEquals("Rider access is required.", repository.profile().errorText())
         } finally {
@@ -223,7 +225,7 @@ class RiderOnboardingTest {
         server.enqueue(json("""{"id":"bike-1","registrationNumber":"AFS 1234","make":"Honda","model":"Ace","colour":"Red","verificationStatus":"PENDING","isActive":false,"createdAt":"2026-10-20T00:00:00.000Z","updatedAt":"2026-10-20T00:00:00.000Z"}""", 201))
         server.start()
         try {
-            val repository = VerificationRepository(server.service())
+            val repository = server.service().let { service -> VerificationRepository(service, RiderReadRequests(service, MemorySessionStore())) }
             val draft = MotorcycleDraft("AFS 1234", "Honda", "Ace", "Red")
             val failed = repository.saveMotorcycle(null, draft)
             assertTrue(failed is ApiResult.Err)
@@ -250,7 +252,7 @@ class RiderOnboardingTest {
         server.enqueue(json("""{"message":"This motorcycle is used by a delivery","statusCode":409}""", 409))
         server.start()
         try {
-            val repository = VerificationRepository(server.service())
+            val repository = server.service().let { service -> VerificationRepository(service, RiderReadRequests(service, MemorySessionStore())) }
             assertTrue(repository.removeMotorcycle("bike-1") is ApiResult.Ok)
             assertEquals("Only a pending motorcycle can be deleted", repository.removeMotorcycle("bike-2").errorText())
             assertEquals("This motorcycle is used by a delivery", repository.removeMotorcycle("bike-3").errorText())

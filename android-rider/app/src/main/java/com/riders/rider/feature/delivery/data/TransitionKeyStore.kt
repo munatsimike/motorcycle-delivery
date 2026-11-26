@@ -32,75 +32,84 @@ private data class TransitionFile(
 @Singleton
 class TransitionKeyStore @Inject constructor(
     @param:ApplicationContext private val context: Context,
+    sessions: com.riders.rider.core.session.SessionStore,
 ) {
     private val mutex = Mutex()
+    private val storage = com.riders.rider.core.session.PrivateRetryFile(context, "rider_transition_keys_private", sessions)
     private val newKey = { UUID.randomUUID().toString() }
 
     suspend fun progressKey(deliveryId: String, targetStatus: String): TransitionAttempt = mutex.withLock {
-        val file = read()
+        val owner = storage.owner()
+        val file = read(owner)
         val next = progressAttempt(file.progress[deliveryId], deliveryId, targetStatus, newKey())
         if (file.progress[deliveryId] != next) {
-            write(file.copy(progress = file.progress + (deliveryId to next)))
+            write(owner, file.copy(progress = file.progress + (deliveryId to next)))
         }
         next
     }
 
     suspend fun pendingProgress(deliveryId: String): TransitionAttempt? = mutex.withLock {
-        read().progress[deliveryId]
+        read(storage.owner()).progress[deliveryId]
     }
 
     suspend fun clearProgressIfCommitted(deliveryId: String, serverStatus: String?): TransitionAttempt? = mutex.withLock {
-        val file = read()
+        val owner = storage.owner()
+        val file = read(owner)
         val remaining = progressAttemptAfterRefresh(file.progress[deliveryId], serverStatus)
         if (remaining == null && file.progress.containsKey(deliveryId)) {
-            write(file.copy(progress = file.progress - deliveryId))
+            write(owner, file.copy(progress = file.progress - deliveryId))
         }
         remaining
     }
 
     suspend fun clearProgress(deliveryId: String) = mutex.withLock {
-        val file = read()
+        val owner = storage.owner()
+        val file = read(owner)
         if (file.progress.containsKey(deliveryId)) {
-            write(file.copy(progress = file.progress - deliveryId))
+            write(owner, file.copy(progress = file.progress - deliveryId))
         }
     }
 
     suspend fun cancellationKey(assignmentId: String, reason: String, note: String?): CancellationAttempt = mutex.withLock {
-        val file = read()
+        val owner = storage.owner()
+        val file = read(owner)
         val next = cancellationAttempt(file.cancellation[assignmentId], assignmentId, reason, note, newKey())
         if (file.cancellation[assignmentId] != next) {
-            write(file.copy(cancellation = file.cancellation + (assignmentId to next)))
+            write(owner, file.copy(cancellation = file.cancellation + (assignmentId to next)))
         }
         next
     }
 
     suspend fun pendingCancellation(assignmentId: String): CancellationAttempt? = mutex.withLock {
-        read().cancellation[assignmentId]
+        read(storage.owner()).cancellation[assignmentId]
     }
 
     suspend fun clearCancellation(assignmentId: String) = mutex.withLock {
-        val file = read()
+        val owner = storage.owner()
+        val file = read(owner)
         if (file.cancellation.containsKey(assignmentId)) {
-            write(file.copy(cancellation = file.cancellation - assignmentId))
+            write(owner, file.copy(cancellation = file.cancellation - assignmentId))
         }
     }
 
-    private suspend fun read(): TransitionFile {
-        val raw = context.transitionKeyStore.data.first()[FileKey]
-        if (raw.isNullOrBlank()) {
-            return TransitionFile()
+    suspend fun migrateLegacy() = mutex.withLock {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val legacy = context.transitionKeyStore.data.first()[FileKey]
+            storage.migrate(legacy)
+            if (legacy != null) context.transitionKeyStore.edit { it.remove(FileKey) }
         }
-        return try {
-            TransitionJson.decodeFromString(TransitionFile.serializer(), raw)
-        } catch (_: Exception) {
-            TransitionFile()
-        }
+        Unit
     }
 
-    private suspend fun write(file: TransitionFile) {
-        context.transitionKeyStore.edit { prefs ->
-            prefs[FileKey] = TransitionJson.encodeToString(TransitionFile.serializer(), file)
-        }
+    private suspend fun read(owner: com.riders.rider.core.session.PrivateRetryFile.Owner): TransitionFile = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val legacy = context.transitionKeyStore.data.first()[FileKey]
+        val raw = storage.read(owner, legacy)
+        if (legacy != null) context.transitionKeyStore.edit { it.remove(FileKey) }
+        if (raw.isNullOrBlank()) TransitionFile() else TransitionJson.decodeFromString(TransitionFile.serializer(), raw)
+    }
+
+    private suspend fun write(owner: com.riders.rider.core.session.PrivateRetryFile.Owner, file: TransitionFile) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        storage.write(owner, TransitionJson.encodeToString(TransitionFile.serializer(), file))
     }
 
     private companion object {

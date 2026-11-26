@@ -23,7 +23,10 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
-import okhttp3.Interceptor
+import com.riders.rider.core.network.SessionRequestInterceptor
+import com.riders.rider.core.network.SessionNetworkInterceptor
+import com.riders.rider.core.network.sessionBoundCalls
+import com.riders.rider.core.network.requireSafeApiUrl
 import javax.inject.Singleton
 
 class ApiGraph(
@@ -61,26 +64,18 @@ object AppModule {
         } else {
             BuildConfig.API_BASE_URL
         }
-        val refreshApi = retrofit(baseUrl, httpClient()).create(AuthService::class.java)
+        requireSafeApiUrl(baseUrl, BuildConfig.DEBUG)
+        val refreshApi = retrofit(baseUrl, httpClient { followRedirects(false); followSslRedirects(false); retryOnConnectionFailure(false) }).create(AuthService::class.java)
         val authed = httpClient {
-            addInterceptor(Interceptor { chain ->
-                val request = chain.request()
-                val path = request.url.encodedPath
-                val token = store.read()?.accessToken
-                val open = path.contains("/auth/rider/")
-                    || path.contains("/auth/places")
-                    || path.endsWith("/auth/session/refresh")
-                if (open || token.isNullOrEmpty()) {
-                    chain.proceed(request)
-                } else {
-                    chain.proceed(request.newBuilder().header("Authorization", "Bearer $token").build())
-                }
-            })
+            followRedirects(false)
+            followSslRedirects(false)
+            addInterceptor(SessionRequestInterceptor(store))
+            addNetworkInterceptor(SessionNetworkInterceptor(store))
             authenticator(RefreshAuthenticator(store) { refreshToken ->
                 performRefresh { refreshApi.refresh(RefreshRequest(refreshToken)).toSession() }
             })
         }
-        val retrofit = retrofit(baseUrl, authed)
+        val retrofit = retrofit(baseUrl, sessionBoundCalls(authed, store))
         return ApiGraph(
             auth = retrofit.create(AuthService::class.java),
             rider = retrofit.create(RiderService::class.java),

@@ -65,14 +65,16 @@ import com.riders.rider.feature.offers.domain.offerIsExpired
 import com.riders.rider.feature.offers.domain.AWAITING_CUSTOMER
 import com.riders.rider.feature.offers.domain.OFFER_YOUR_PRICE
 import com.riders.rider.feature.offers.domain.acceptOfferLabel
-import com.riders.rider.feature.offers.domain.CustomOfferPhase
+import com.riders.rider.feature.offers.domain.OfferActionProgress
+import com.riders.rider.feature.offers.domain.OfferSubmitTarget
 import com.riders.rider.feature.offers.domain.beginCustomOfferSubmit
 import com.riders.rider.feature.offers.domain.bidSubmissionAfterResult
 import com.riders.rider.feature.offers.domain.customOfferButtonLabel
 import com.riders.rider.feature.offers.domain.dismissCustomOfferDialog
 import com.riders.rider.feature.offers.domain.editCustomOfferAmount
-import com.riders.rider.feature.offers.domain.observeCustomOfferSubmit
+import com.riders.rider.feature.offers.domain.offerButtonLoading
 import com.riders.rider.feature.offers.domain.openCustomOfferDialog
+import com.riders.rider.feature.offers.domain.resumeCustomOfferDialog
 import com.riders.rider.feature.offers.domain.canStartBidSubmit
 import com.riders.rider.feature.offers.domain.deliveryCategoryTitle
 import com.riders.rider.feature.offers.domain.DECLINE_REQUEST
@@ -103,6 +105,7 @@ import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.SocketPolicy
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -290,47 +293,59 @@ class RiderDashboardTest {
     }
 
     @Test
-    fun aCustomOfferStaysOpenWhenTheSubmissionFails() {
+    fun aCustomOfferClosesImmediatelyAndKeepsTheAmountAfterFailure() {
         val opened = openCustomOfferDialog("2.99")
         val edited = editCustomOfferAmount(opened, "4.50")
         val started = beginCustomOfferSubmit(edited, currentError = null)
+        assertNotNull(started)
+        assertFalse(started!!.open)
+        assertEquals("4.50", started.amount)
+        assertNull(started.error)
         assertEquals("Sending...", customOfferButtonLabel(true))
-        val flying = observeCustomOfferSubmit(started!!, submitting = true, submissionError = null)
-        val failed = observeCustomOfferSubmit(flying, submitting = false, submissionError = "This delivery is not open for bids")
-        assertTrue(failed.open)
-        assertEquals("4.50", failed.amount)
+        assertNull(beginCustomOfferSubmit(started, null))
+        val failed = bidSubmissionAfterResult("4.50", "This delivery is not open for bids")
+        assertFalse(failed.submitting)
         assertEquals("This delivery is not open for bids", failed.error)
-        assertEquals(CustomOfferPhase.Idle, failed.phase)
+        val retried = resumeCustomOfferDialog(started, "2.99")
+        assertTrue(retried.open)
+        assertEquals("4.50", retried.amount)
+        assertNull(retried.error)
         assertEquals("Send offer", customOfferButtonLabel(false))
-        val retried = beginCustomOfferSubmit(failed, failed.error)
-        val retrying = observeCustomOfferSubmit(retried!!, submitting = true, submissionError = null)
-        val sent = observeCustomOfferSubmit(retrying, submitting = false, submissionError = null)
-        assertFalse(sent.open)
-        assertNull(sent.error)
-        assertNull(beginCustomOfferSubmit(retrying, null))
-        assertTrue(dismissCustomOfferDialog(retrying).open)
+        val dismissed = dismissCustomOfferDialog(retried)
+        assertFalse(dismissed.open)
+        assertEquals("4.50", dismissed.amount)
     }
 
     @Test
     fun reopeningACustomOfferDropsThePreviousError() {
-        val failed = observeCustomOfferSubmit(
-            observeCustomOfferSubmit(
-                beginCustomOfferSubmit(openCustomOfferDialog("2.99"), null)!!,
-                submitting = true,
-                submissionError = null,
-            ),
-            submitting = false,
-            submissionError = "Try another amount",
-        )
-        val dismissed = dismissCustomOfferDialog(failed)
+        val closed = beginCustomOfferSubmit(editCustomOfferAmount(openCustomOfferDialog("2.99"), "4.50"), null)!!
+        val dismissed = dismissCustomOfferDialog(closed)
         assertFalse(dismissed.open)
         assertNull(dismissed.error)
-        val reopened = openCustomOfferDialog("2.99")
-        assertEquals("2.99", reopened.amount)
+        assertEquals("4.50", dismissed.amount)
+        val reopened = resumeCustomOfferDialog(dismissed, "2.99")
+        assertTrue(reopened.open)
+        assertEquals("4.50", reopened.amount)
         assertNull(reopened.error)
-        val corrected = editCustomOfferAmount(failed, "5.00")
+        val corrected = editCustomOfferAmount(reopened, "5.00")
         assertEquals("5.00", corrected.amount)
         assertNull(corrected.error)
+    }
+
+    @Test
+    fun onlyThePressedOfferButtonShowsASpinner() {
+        val yourOffer = offerButtonLoading(OfferActionProgress("delivery-1", OfferSubmitTarget.YourOffer), "delivery-1")
+        assertTrue(yourOffer.yourOffer)
+        assertFalse(yourOffer.accept)
+        val accept = offerButtonLoading(OfferActionProgress("delivery-1", OfferSubmitTarget.Accept), "delivery-1")
+        assertTrue(accept.accept)
+        assertFalse(accept.yourOffer)
+        val other = offerButtonLoading(OfferActionProgress("delivery-1", OfferSubmitTarget.YourOffer), "delivery-2")
+        assertFalse(other.accept)
+        assertFalse(other.yourOffer)
+        assertFalse(offerButtonLoading(null, "delivery-1").accept)
+        assertFalse(canStartBidSubmit(submittingBid = true, accepting = false))
+        assertFalse(canStartBidSubmit(submittingBid = false, accepting = true))
     }
 
     @Test

@@ -8,6 +8,7 @@ import com.riders.rider.core.network.RiderAddressRequest
 import com.riders.rider.core.network.MotorcycleResponse
 import com.riders.rider.core.network.ProgressRequestBody
 import com.riders.rider.core.network.RiderService
+import com.riders.rider.core.network.RiderReadRequests
 import com.riders.rider.core.network.apiCall
 import com.riders.rider.core.network.text
 import com.riders.rider.feature.onboarding.domain.MotorcycleDetails
@@ -31,6 +32,7 @@ data class RiderIdentity(
 @Singleton
 class VerificationRepository @Inject constructor(
     private val riders: RiderService,
+    private val reads: RiderReadRequests,
 ) {
     private var approvedDocumentsConfirmed = false
 
@@ -45,8 +47,8 @@ class VerificationRepository @Inject constructor(
     fun invalidateDocuments() {
         approvedDocumentsConfirmed = false
     }
-    suspend fun profile(): ApiResult<RiderIdentity> {
-        return when (val result = apiCall { riders.profile() }) {
+    suspend fun profile(shareInFlight: Boolean = false): ApiResult<RiderIdentity> {
+        return when (val result = if (shareInFlight) reads.profile() else apiCall { riders.profile() }) {
             is ApiResult.Ok -> ApiResult.Ok(RiderIdentity(result.value.fullName, result.value.phone, result.value.address, result.value.hasProfilePhoto))
             is ApiResult.Err -> result
         }
@@ -62,8 +64,8 @@ class VerificationRepository @Inject constructor(
         }
     }
 
-    suspend fun onboarding(): ApiResult<RiderOnboarding> {
-        return when (val result = apiCall { riders.onboarding() }) {
+    suspend fun onboarding(shareInFlight: Boolean = false): ApiResult<RiderOnboarding> {
+        return when (val result = if (shareInFlight) reads.onboarding() else apiCall { riders.onboarding() }) {
             is ApiResult.Ok -> ApiResult.Ok(
                 RiderOnboarding(
                     licenceVerificationStatus = result.value.licenceVerificationStatus,

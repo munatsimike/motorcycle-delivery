@@ -52,6 +52,7 @@ class RiderLocationService : Service() {
     @Volatile private var updatesRequested = false
     @Volatile private var running = false
     @Volatile private var startTicket = 0
+    @Volatile private var sessionIdentity: String? = null
 
     private val callback = object : LocationCallback() {
         override fun onLocationResult(result: LocationResult) {
@@ -64,7 +65,8 @@ class RiderLocationService : Service() {
 
     override fun onStartCommand(intent: android.content.Intent?, flags: Int, startId: Int): Int {
         startTicket = intent?.getIntExtra(EXTRA_START_TICKET, startTicket) ?: startTicket
-        if (!fineLocationGranted()) {
+        val identity = sessions.snapshot().identity
+        if (!sessions.isCurrent(identity) || !fineLocationGranted()) {
             LocationServiceGate.fail(startTicket)
             availability.noteServiceStopped(startTicket, failed = true)
             stopSelf()
@@ -78,6 +80,7 @@ class RiderLocationService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
+        sessionIdentity = identity
         running = true
         LocationServiceGate.confirmRunning(startTicket)
         availability.noteServiceRunning()
@@ -108,7 +111,7 @@ class RiderLocationService : Service() {
     }
 
     private suspend fun authorized(): Boolean {
-        if (sessions.read() == null || !fineLocationGranted()) {
+        if (sessionIdentity?.let(sessions::isCurrent) != true || !fineLocationGranted()) {
             return false
         }
         return availability.sharingStillAllowed()
@@ -194,7 +197,7 @@ class RiderLocationService : Service() {
         if (!running) {
             return
         }
-        if (!fineLocationGranted() || sessions.read() == null) {
+        if (!fineLocationGranted() || sessionIdentity?.let(sessions::isCurrent) != true) {
             freshness.invalidate()
             stopSharing()
             return
@@ -212,7 +215,7 @@ class RiderLocationService : Service() {
             ageMillis = age,
             accuracyMeters = if (point.hasAccuracy()) point.accuracy else null,
         ) { fix ->
-            availability.upload(fix)
+            sessionIdentity?.let { availability.upload(fix, it) } ?: false
         }
     }
 
