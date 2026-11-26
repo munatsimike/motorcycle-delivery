@@ -1,16 +1,18 @@
 package com.riders.rider.feature.delivery.presentation
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
@@ -153,15 +155,20 @@ fun AssignmentListPane(
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
     }
-    val committed = committedAssignmentsForDisplay(ui.assignments, availability, receiving)
-    val visible = sortDeliveries(
-        committed.filter { deliveryContentMatches(it.parcelDescription, contentKind) },
-        sort,
-        { it.createdAt },
-        { it.distanceMeters },
-        { it.agreedPrice },
-        { it.deliveryId },
-    )
+    val committed = remember(ui.assignments, availability, receiving) {
+        committedAssignmentsForDisplay(ui.assignments, availability, receiving)
+    }
+    val visible = remember(committed, contentKind, sort) {
+        sortDeliveries(
+            committed.filter { deliveryContentMatches(it.parcelDescription, contentKind) },
+            sort,
+            { it.createdAt },
+            { it.distanceMeters },
+            { it.agreedPrice },
+            { it.deliveryId },
+        )
+    }
+    val listState = rememberLazyListState()
     val centered = (ui.loading && committed.isEmpty()) || (committed.isEmpty() && ui.error != null) || visible.isEmpty()
     RidersPullRefresh(refreshing = ui.refreshing, onRefresh = { model.refresh(fromUser = true) }, modifier = modifier) {
         if (centered) {
@@ -187,21 +194,25 @@ fun AssignmentListPane(
                 }
             }
         } else {
-        Column(
-            Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = RidersSpacing.lg)
-                .padding(bottom = RidersSpacing.lg),
-            verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
-        ) {
-            visible.forEach { parcel ->
-                AssignmentCard(parcel, onOpen)
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                state = listState,
+                contentPadding = PaddingValues(
+                    start = RidersSpacing.lg,
+                    end = RidersSpacing.lg,
+                    bottom = RidersSpacing.lg,
+                ),
+                verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
+            ) {
+                items(visible, key = { "assignment:${it.assignmentId}" }, contentType = { "delivery" }) { parcel ->
+                    AssignmentCard(parcel, onOpen)
+                }
+                if (ui.error != null) {
+                    item(key = "error", contentType = "notice") {
+                        RidersFailureNotice(message = ui.error.orEmpty(), onRetry = model::refresh)
+                    }
+                }
             }
-            if (ui.error != null) {
-                RidersFailureNotice(message = ui.error.orEmpty(), onRetry = model::refresh)
-            }
-        }
         }
     }
 }

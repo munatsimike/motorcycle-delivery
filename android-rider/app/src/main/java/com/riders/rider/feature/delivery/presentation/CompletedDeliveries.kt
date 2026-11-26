@@ -1,15 +1,17 @@
 package com.riders.rider.feature.delivery.presentation
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import com.riders.rider.core.design.LocalAppDark
@@ -98,14 +100,17 @@ fun CompletedDeliveriesPane(
     LaunchedEffect(revision) {
         model.ensureLoaded()
     }
-    val visible = sortDeliveries(
-        ui.deliveries.filter { deliveryContentMatches(it.parcelDescription, contentKind) },
-        sort,
-        { it.completedAt ?: it.createdAt },
-        { it.distanceMeters },
-        { it.agreedPrice },
-        { it.deliveryId },
-    )
+    val visible = remember(ui.deliveries, contentKind, sort) {
+        sortDeliveries(
+            ui.deliveries.filter { deliveryContentMatches(it.parcelDescription, contentKind) },
+            sort,
+            { it.completedAt ?: it.createdAt },
+            { it.distanceMeters },
+            { it.agreedPrice },
+            { it.deliveryId },
+        )
+    }
+    val listState = rememberLazyListState()
     val centered = (ui.loading && ui.deliveries.isEmpty()) || (ui.deliveries.isEmpty() && ui.error != null) || visible.isEmpty()
     RidersPullRefresh(refreshing = ui.refreshing, onRefresh = model::refresh, modifier = modifier) {
         if (centered) {
@@ -131,21 +136,25 @@ fun CompletedDeliveriesPane(
                 }
             }
         } else {
-        Column(
-            Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = RidersSpacing.lg)
-                .padding(bottom = RidersSpacing.lg),
-            verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
-        ) {
-            visible.forEach { parcel ->
-                CompletedDeliveryCard(parcel, onOpen)
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                state = listState,
+                contentPadding = PaddingValues(
+                    start = RidersSpacing.lg,
+                    end = RidersSpacing.lg,
+                    bottom = RidersSpacing.lg,
+                ),
+                verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
+            ) {
+                items(visible, key = { "assignment:${it.assignmentId}" }, contentType = { "delivery" }) { parcel ->
+                    CompletedDeliveryCard(parcel, onOpen)
+                }
+                if (ui.error != null) {
+                    item(key = "error", contentType = "notice") {
+                        RidersFailureNotice(message = ui.error.orEmpty(), onRetry = model::refresh)
+                    }
+                }
             }
-            if (ui.error != null) {
-                RidersFailureNotice(message = ui.error.orEmpty(), onRetry = model::refresh)
-            }
-        }
         }
     }
 }
