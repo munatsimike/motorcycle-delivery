@@ -1,3 +1,5 @@
+import { exactPageKeys, orderedPageRows } from '../common/exact-page.js';
+import { encodeListCursor, readKeysetCursor, type ListCursor } from '../common/list-cursor.js';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Currency, Prisma, WalletEntryType, WalletPaymentMethod } from '../generated/prisma/client.js';
 import { readWalletSummary, walletWhere } from './wallet-ledger.js';
@@ -35,7 +37,7 @@ export type WalletTransactionPage = {
 
 export type TransactionPageRequest = {
   limit: number;
-  cursor: { createdAt: Date; id: string } | null;
+  cursor: ListCursor | null;
 };
 
 type HistoryRow = {
@@ -88,18 +90,11 @@ export async function readWalletTransactions(
     }
     throw new NotFoundException('Rider wallet not found');
   }
+  const keys = await exactPageKeys(tx, 'wallet', wallet.id, page.limit, page.cursor ?? undefined);
+  const visibleKeys = keys.slice(0, page.limit);
   const rows = await tx.riderWalletEntry.findMany({
-    where: page.cursor
-      ? {
-          riderWalletId: wallet.id,
-          OR: [
-            { createdAt: { lt: page.cursor.createdAt } },
-            { AND: [{ createdAt: page.cursor.createdAt }, { id: { lt: page.cursor.id } }] },
-          ],
-        }
-      : { riderWalletId: wallet.id },
-    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    take: page.limit + 1,
+    where: { riderWalletId: wallet.id, id: { in: visibleKeys.map(key => key.id) } },
+    take: page.limit,
     select: {
       id: true,
       entryType: true,
@@ -117,11 +112,11 @@ export async function readWalletTransactions(
       },
     },
   });
-  const visible = rows.slice(0, page.limit);
-  const last = visible[visible.length - 1];
+  const visible = orderedPageRows(visibleKeys, rows);
+  const last = visibleKeys[visibleKeys.length - 1];
   return {
     transactions: visible.map((row) => toTransaction(row, currency)),
-    nextCursor: rows.length > page.limit && last ? encodeCursor(last.createdAt, last.id) : null,
+    nextCursor: keys.length > page.limit && last ? encodeListCursor(last.at, last.id) : null,
   };
 }
 
@@ -151,30 +146,8 @@ function readLimit(value: unknown): number {
 }
 
 function readCursor(value: unknown): TransactionPageRequest['cursor'] {
-  if (value === undefined || value === null || value === '') {
-    return null;
-  }
-  if (typeof value !== 'string') {
-    throw new BadRequestException('Enter a valid cursor');
-  }
-  const decoded = Buffer.from(value, 'base64url').toString('utf8');
-  const split = decoded.split('\n');
-  if (split.length !== 2) {
-    throw new BadRequestException('Enter a valid cursor');
-  }
-  const [iso, id] = split;
-  const createdAt = new Date(iso ?? '');
-  if (!iso || Number.isNaN(createdAt.getTime()) || createdAt.toISOString() !== iso) {
-    throw new BadRequestException('Enter a valid cursor');
-  }
-  if (!id || id.length > 64 || !/^[0-9a-zA-Z-]+$/.test(id)) {
-    throw new BadRequestException('Enter a valid cursor');
-  }
-  return { createdAt, id };
-}
-
-function encodeCursor(createdAt: Date, id: string): string {
-  return Buffer.from(`${createdAt.toISOString()}\n${id}`, 'utf8').toString('base64url');
+  if (value === undefined || value === null || value === '') return null;
+  return readKeysetCursor(value);
 }
 
 function toTransaction(row: HistoryRow, currency: Currency): WalletTransactionView {

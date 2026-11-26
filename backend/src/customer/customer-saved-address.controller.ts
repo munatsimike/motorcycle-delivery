@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, ForbiddenException, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, ForbiddenException, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiForbiddenResponse, ApiNoContentResponse, ApiOkResponse, ApiOperation, ApiTags, ApiUnauthorizedResponse } from '@nestjs/swagger';
 import { CustomerAccessGuard, type CustomerRequest } from '../auth/customer-access.guard.js';
 import { CustomerSavedAddressService } from './customer-saved-address.service.js';
@@ -17,6 +17,12 @@ export class CustomerSavedAddressController {
   @ApiOkResponse({ description: 'Saved addresses for this customer' })
   list(@Req() request: CustomerRequest) {
     return this.addresses.list(requiredCustomer(request));
+  }
+
+  @Get('page')
+  @ApiOperation({ summary: 'Read a cursor page of saved addresses' })
+  listPage(@Req() request: CustomerRequest, @Query('limit') limit?: string, @Query('cursor') cursor?: string) {
+    return this.addresses.listPage(requiredCustomer(request), limit, cursor);
   }
 
   @Post()

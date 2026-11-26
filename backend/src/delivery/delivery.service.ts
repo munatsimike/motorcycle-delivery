@@ -1,3 +1,5 @@
+import { exactPageKeys, orderedPageRows } from '../common/exact-page.js';
+import { encodeListCursor, readListCursor } from '../common/list-cursor.js';
 import { createHash } from 'node:crypto';
 import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
 import {
@@ -301,14 +303,9 @@ export class DeliveryService {
       customerId: customer.customerAccountId,
       ...(statuses ? { status: { in: statuses } } : {}),
     };
-    const [total, rows] = await this.prisma.$transaction([
-      this.prisma.delivery.count({ where }),
-      this.prisma.delivery.findMany({
-        where,
-        skip: (page - 1) * limit,
-        take: limit,
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        select: {
+    const cursorMode = query.pagination === 'cursor';
+    const cursorPage = cursorMode ? readListCursor(query.limit, query.cursor) : null;
+    const selection = {
           id: true,
           status: true,
           createdAt: true,
@@ -323,9 +320,20 @@ export class DeliveryService {
           distanceMeters: true,
           dropoffLatitude: true,
           dropoffLongitude: true,
-        },
-      }),
-    ]);
+        } as const;
+    const keys = cursorPage ? await exactPageKeys(this.prisma, 'deliveries', customer.customerAccountId, cursorPage.limit, cursorPage.cursor, statuses) : null;
+    const visibleKeys = keys?.slice(0, cursorPage!.limit);
+    const args = {
+      where: visibleKeys ? { ...where, id: { in: visibleKeys.map(key => key.id) } } : where,
+      orderBy: [{ createdAt: 'desc' as const }, { id: 'desc' as const }],
+      select: selection,
+    };
+    const [total, fetched] = cursorPage
+      ? [0, await this.prisma.delivery.findMany({ ...args, take: cursorPage.limit })] as const
+      : await this.prisma.$transaction([this.prisma.delivery.count({ where }),
+          this.prisma.delivery.findMany({ ...args, skip: (page - 1) * limit, take: limit })]);
+    const rows = visibleKeys ? orderedPageRows(visibleKeys, fetched) : fetched;
+    const lastKey = visibleKeys?.[visibleKeys.length - 1];
     const openBidCount = await countOpenBids(this.prisma, rows, new Date());
     const riderFixes = await this.listDropoffFixes(rows);
     return {
@@ -337,12 +345,7 @@ export class DeliveryService {
         if (!fix || dropoffLatitude === null || dropoffLongitude === null) return summary;
         return { ...summary, dropoffLatitude, dropoffLongitude, riderLocation: fix };
       }),
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
+      pagination: cursorPage ? { limit: cursorPage.limit, nextCursor: keys && keys.length > cursorPage.limit && lastKey ? encodeListCursor(lastKey.at, lastKey.id) : null } : { page, limit, total, totalPages: Math.ceil(total / limit) },
     };
   }
 

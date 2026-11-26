@@ -77,8 +77,11 @@ function store(seed: Row) {
       return 1;
     },
     delivery: {
-      async findMany() {
-        return deliveries.filter((delivery) => delivery.status === DeliveryStatus.CREATED && delivery.serviceClass != null && delivery.searchGeneration === 0);
+      async findMany({ where }: { where: { AND: Array<{ OR: [{ offerResponseExpiresAt: { lt: Date } }, { searchStartedAt: { lt: Date } }] }> } }) {
+        const [response, search] = where.AND[0]!.OR;
+        return deliveries.filter((delivery) => delivery.status === DeliveryStatus.CREATED && delivery.serviceClass != null && delivery.searchGeneration === 0
+          && ((delivery.offerResponseExpiresAt != null && delivery.offerResponseExpiresAt < response.offerResponseExpiresAt.lt)
+            || (delivery.searchStartedAt != null && delivery.searchStartedAt < search.searchStartedAt.lt)));
       },
       async findUnique({ where }: { where: { id: string } }) {
         return deliveries.find((delivery) => delivery.id === where.id) ?? null;

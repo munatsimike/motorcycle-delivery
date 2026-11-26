@@ -35,11 +35,19 @@ export class RiderAssignmentController {
     return this.dispatch.liveAssignments(requiredRider(request));
   }
 
+  // Legacy full history for the current Android client. Retire after that client
+  // reads GET completed/page. Do not add a limit that hides completed deliveries.
   @Get('completed')
   @ApiOperation({ summary: 'Read deliveries this rider has completed' })
-  @ApiOkResponse({ description: 'Delivered marketplace and V1 assignments for this rider, newest first.' })
+  @ApiOkResponse({ description: 'Delivered marketplace and V1 assignments for this rider, newest first. Unpaged legacy response.' })
   completed(@Req() request: RiderRequest) {
     return this.dispatch.completedAssignments(requiredRider(request));
+  }
+
+  @Get('completed/page')
+  @ApiOperation({ summary: 'Read a cursor page of completed assignments' })
+  completedPage(@Req() request: RiderRequest, @Query('limit') limit?: string, @Query('cursor') cursor?: string) {
+    return this.dispatch.completedAssignmentsPage(requiredRider(request), limit, cursor);
   }
 
   @Get('active')

@@ -1,6 +1,8 @@
+import { mockExactPage } from '../common/exact-page.test-support.js';
 import { ForbiddenException, RequestMethod } from '@nestjs/common';
 import { GUARDS_METADATA, METHOD_METADATA, PATH_METADATA, SELF_DECLARED_DEPS_METADATA } from '@nestjs/common/constants.js';
 import { describe, expect, it } from 'vitest';
+import { encodeListCursor } from '../common/list-cursor.js';
 import {
   AssignmentStatus,
   CoordinateSource,
@@ -207,6 +209,45 @@ describe('active rider assignment', () => {
     expect(encoded).not.toContain('Pending road');
     expect((await service.liveAssignments(rider('profile-1'), NOW)).assignments.map((assignment) => assignment.assignmentId)).toEqual(['active']);
   });
+
+  it('pages completed deliveries by completed time and id without sharing another rider cursor', async () => {
+    const sameTime = new Date('2026-10-19T08:00:00.000Z');
+    const newer = '018f5b4a-7c3a-7c3a-8c3a-0000000000b2';
+    const tied = '018f5b4a-7c3a-7c3a-8c3a-0000000000a1';
+    const older = '018f5b4a-7c3a-7c3a-8c3a-000000000018';
+    const other = '018f5b4a-7c3a-7c3a-8c3a-000000000099';
+    const missing = '018f5b4a-7c3a-7c3a-8c3a-000000000098';
+    const service = serviceFor([
+      row(newer, 'profile-1', AssignmentStatus.COMPLETED, DeliveryStatus.DELIVERED, 'B road', FRESH, { completedAt: sameTime }),
+      row(tied, 'profile-1', AssignmentStatus.COMPLETED, DeliveryStatus.DELIVERED, 'A road', FRESH, { completedAt: sameTime }),
+      row(older, 'profile-1', AssignmentStatus.COMPLETED, DeliveryStatus.DELIVERED, 'Older road', FRESH, {
+        completedAt: new Date('2026-10-18T08:00:00.000Z'),
+      }),
+      row(other, 'other-profile', AssignmentStatus.COMPLETED, DeliveryStatus.DELIVERED, 'Other road', FRESH, {
+        completedAt: new Date('2026-10-21T08:00:00.000Z'),
+      }),
+    ]);
+
+    const first = await service.completedAssignmentsPage(rider('profile-1'), '1', undefined, NOW);
+    expect(first.assignments.map((assignment) => assignment.assignmentId)).toEqual([newer]);
+    expect(first.assignments[0]?.completedAt).toBe(sameTime.toISOString());
+    expect(first.nextCursor).toBe(encodeListCursor(sameTime, newer));
+    const second = await service.completedAssignmentsPage(rider('profile-1'), '1', first.nextCursor, NOW);
+    expect(second.assignments.map((assignment) => assignment.assignmentId)).toEqual([tied]);
+    const deleted = encodeListCursor(sameTime, missing);
+    const afterDeleted = await service.completedAssignmentsPage(rider('profile-1'), '20', deleted, NOW);
+    expect(afterDeleted.assignments.map((assignment) => assignment.assignmentId)).toEqual([older]);
+    const last = await service.completedAssignmentsPage(rider('profile-1'), '20', second.nextCursor, NOW);
+    expect(last.assignments.map((assignment) => assignment.assignmentId)).toEqual([older]);
+    expect(last.nextCursor).toBeNull();
+    const empty = await service.completedAssignmentsPage(rider('nobody'), undefined, undefined, NOW);
+    expect(empty).toEqual({ assignments: [], nextCursor: null });
+    const otherCursor = encodeListCursor(new Date('2026-10-21T08:00:00.000Z'), other);
+    const isolated = await service.completedAssignmentsPage(rider('profile-1'), '20', otherCursor, NOW);
+    expect(isolated.assignments.map((assignment) => assignment.assignmentId)).toEqual([newer, tied, older]);
+    await expect(service.completedAssignmentsPage(rider('profile-1'), '1', other, NOW)).rejects.toThrow('Invalid cursor');
+    await expect(service.completedAssignmentsPage(rider('profile-1'), '0', undefined, NOW)).rejects.toThrow('Invalid page limit');
+  });
 });
 
 describe('pickup route', () => {
@@ -326,24 +367,62 @@ function rider(riderProfileId: string) {
   return { userId: 'user-1', riderProfileId };
 }
 
+type AssignmentQuery = {
+  id?: string | { in: string[] };
+  riderProfileId?: string;
+  status?: AssignmentStatus;
+  completedAt?: { not: null };
+  delivery?: { status?: DeliveryStatus | { in?: DeliveryStatus[] } };
+  AND?: Array<{ OR?: Array<{ completedAt?: Date | { lt?: Date }; id?: { lt?: string } }> }>;
+};
+
+function matchesAssignment(entry: ReturnType<typeof row>, where?: AssignmentQuery) {
+  if (!where) return true;
+  const statuses = where.delivery?.status;
+  const deliveryStatus = statuses && typeof statuses === 'object' && 'in' in statuses ? statuses.in : undefined;
+  const keyset = where.AND?.every((clause) => !clause.OR || clause.OR.some((branch) => {
+    const time = entry.completedAt?.getTime();
+    const timeOk = branch.completedAt instanceof Date
+      ? time === branch.completedAt.getTime()
+      : branch.completedAt?.lt !== undefined && time !== undefined && time < branch.completedAt.lt.getTime();
+    const idOk = branch.id?.lt === undefined || entry.id < branch.id.lt;
+    return timeOk && idOk;
+  })) ?? true;
+  return (where.id === undefined || (typeof where.id === 'string' ? entry.id === where.id : where.id.in.includes(entry.id)))
+    && (where.riderProfileId === undefined || entry.riderProfileId === where.riderProfileId)
+    && (where.status === undefined || entry.status === where.status)
+    && (where.completedAt?.not !== null || entry.completedAt != null)
+    && keyset
+    && (deliveryStatus ? deliveryStatus.includes(entry.delivery.status) : statuses === undefined || entry.delivery.status === statuses);
+}
+
 function serviceFor(rows: ReturnType<typeof row>[]) {
   const indexed = rows.map((entry, index) => ({
     ...entry,
     createdAt: entry.createdAt ?? new Date(index),
   }));
   const prisma = {
+    async $queryRaw(query: { values: unknown[] }) { return mockExactPage(query, indexed.filter(row => row.status === AssignmentStatus.COMPLETED && row.delivery.status === DeliveryStatus.DELIVERED), row => row.riderProfileId, row => row.completedAt); },
     deliveryAssignment: {
-      async findMany(args?: { orderBy?: unknown }) {
-        if (!args?.orderBy) {
-          return indexed;
+      async findFirst(args?: { where?: AssignmentQuery }) {
+        return indexed.find((entry) => matchesAssignment(entry, args?.where)) ?? null;
+      },
+      async findMany(args?: { where?: AssignmentQuery; orderBy?: unknown; take?: number }) {
+        let rows = indexed.filter((entry) => matchesAssignment(entry, args?.where));
+        if (args?.orderBy) {
+          const byCompletion = Array.isArray(args.orderBy)
+            && args.orderBy.some((item) => item && typeof item === 'object' && 'completedAt' in item);
+          rows = [...rows].sort((left, right) => {
+            const leftTime = (byCompletion ? left.completedAt ?? left.createdAt : left.createdAt).getTime();
+            const rightTime = (byCompletion ? right.completedAt ?? right.createdAt : right.createdAt).getTime();
+            const byTime = byCompletion ? rightTime - leftTime : leftTime - rightTime;
+            if (byTime !== 0) return byTime;
+            return byCompletion
+              ? (left.id < right.id ? 1 : left.id > right.id ? -1 : 0)
+              : (left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
+          });
         }
-        return [...indexed].sort((left, right) => {
-          const byTime = left.createdAt.getTime() - right.createdAt.getTime();
-          if (byTime !== 0) {
-            return byTime;
-          }
-          return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
-        });
+        return args?.take == null ? rows : rows.slice(0, args.take);
       },
     },
   };
@@ -370,6 +449,7 @@ function row(
     id,
     riderProfileId,
     status,
+    completedAt: read.completedAt ?? null,
     createdAt: assignmentCreatedAt,
     idempotencyKey: `key-${id}`,
     acceptedPlatformFee: '0.50',

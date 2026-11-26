@@ -100,6 +100,13 @@ export async function expireDueV2Searches(tx: Prisma.TransactionClient, now: Dat
       status: DeliveryStatus.CREATED,
       searchGeneration: 0,
       serviceClass: { not: null },
+      // Match the existing Date-based eligibility check conservatively. The
+      // exclusive next-millisecond boundary includes stored microseconds that
+      // JavaScript Date would truncate to the deadline millisecond.
+      AND: [{ OR: [
+        { offerResponseExpiresAt: { lt: new Date(now.getTime() + 1) } },
+        { searchStartedAt: { lt: new Date(now.getTime() - V2_SEARCH_WINDOW_MS + 1) } },
+      ] }],
     },
     orderBy: [{ searchStartedAt: 'asc' }, { id: 'asc' }],
     select: { id: true, searchStartedAt: true, offerResponseExpiresAt: true },

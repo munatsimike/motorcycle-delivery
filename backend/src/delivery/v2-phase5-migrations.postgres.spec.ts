@@ -47,7 +47,7 @@ beforeAll(async () => {
   }
   await observer.query(`CREATE DATABASE "${COLLISION_DATABASE}"`);
   await observer.end();
-}, 120_000);
+}, 180_000);
 
 afterAll(async () => {
   await exec('docker', ['rm', '-f', CONTAINER], { windowsHide: true }).catch(() => undefined);
@@ -249,8 +249,9 @@ function sqlStatements(sql: string): string[] {
 
 async function waitForPostgres(connectionString: string) {
   let lastError: unknown;
-  for (let attempt = 0; attempt < 120; attempt += 1) {
+  for (let attempt = 0; attempt < 180; attempt += 1) {
     const client = new pg.Client({ connectionString, connectionTimeoutMillis: 1000 });
+    client.on('error', () => undefined);
     try {
       await client.connect();
       await client.query('SELECT 1');

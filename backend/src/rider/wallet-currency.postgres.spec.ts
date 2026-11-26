@@ -13,13 +13,14 @@ import {
   captureV2CommissionReservation,
   refundAcceptanceCommission,
   releasePlatformFeeReservation,
+  postLedgerEntry,
 } from './wallet-ledger.js';
 
 const exec = promisify(execFile);
 const require = createRequire(import.meta.url);
 const PRISMA_CLI = require.resolve('prisma/build/index.js');
 const HOST = '127.0.0.1';
-const PORT = 54362;
+const PORT = 54480;
 const DATABASE = 'wallet_phase2';
 const CONTAINER = 'riders-wallet-phase2-pg';
 const DISPOSABLE_URL = `postgresql://postgres:postgres@${HOST}:${PORT}/${DATABASE}`;
@@ -165,12 +166,12 @@ it('reserves and captures a ZiG commission on the ZiG wallet', async () => {
   expect((await wallet(riderId, 'USD')).balance.toFixed(2)).toBe('0.00');
 });
 
-it('rejects a ZiG reservation that exceeds ZiG cash and promotional credit', async () => {
-  const riderId = await createRider({ usd: '0.00', zig: '0.50', limit: '0.00' });
+it('rejects a new paid ZiG reservation when both wallets have no capacity', async () => {
+  const riderId = await createRider({ usd: '0.00', zig: '0.00', limit: '0.00' });
   const opened = await openBid(riderId, 'ZWG', '10.00');
-  await expect(acceptance.accept(customer, opened.deliveryId, opened.bidId, `zig-short-${opened.deliveryId}`, NOW))
+  await expect(acceptance.accept(customer, opened.deliveryId, opened.bidId, `zig-empty-${opened.deliveryId}`, NOW))
     .rejects.toThrow('Wallet capacity is not enough for this bid');
-  expect((await wallet(riderId, 'ZWG')).balance.toFixed(2)).toBe('0.50');
+  expect((await wallet(riderId, 'ZWG')).balance.toFixed(2)).toBe('0.00');
   expect(await prisma.walletFeeReservation.count({ where: { deliveryId: opened.deliveryId } })).toBe(0);
 });
 
@@ -242,8 +243,96 @@ it('refunds a captured fee to the wallet that was charged', async () => {
   })).toBe(1);
 });
 
-it('stops a second concurrent acceptance from exceeding one dollar of capacity', async () => {
-  const riderId = await createRider({ usd: '0.00', zig: '1.00', limit: '1.00' });
+it('allows bidding on the final USD trip while cash capacity is positive', async () => {
+  const riderId = await createRider({ usd: '-4.90', zig: '0.00', limit: '5.00' });
+  const rider = { userId: 'unused', riderProfileId: riderId };
+  const deliveryId = await createDelivery('USD');
+  const submitted = await bids.submit(rider, { deliveryId, amountCents: 2_000, currency: 'USD' }, `last-usd-bid-${deliveryId}`, NOW);
+  expect(submitted.currency).toBe('USD');
+  expect(await prisma.walletFeeReservation.count({ where: { deliveryId } })).toBe(0);
+});
+
+it('reserves the entire last USD commission past the limit and blocks further paid trips', async () => {
+  const riderId = await createRider({ usd: '-4.90', zig: '0.00', limit: '5.00' });
+  const first = await openBid(riderId, 'USD', '20.00');
+  const second = await openBid(riderId, 'USD', '20.00');
+  const accepted = await acceptance.accept(customer, first.deliveryId, first.bidId, `last-usd-${first.deliveryId}`, NOW);
+  const hold = await prisma.walletFeeReservation.findFirstOrThrow({ where: { assignmentId: accepted.assignmentId } });
+  expect(hold.status).toBe('OPEN');
+  expect(centsFromDecimal(hold.amount)).toBe(200);
+  expect(centsFromDecimal(hold.walletAmount!)).toBe(200);
+  expect((await wallet(riderId, 'USD')).balance.toFixed(2)).toBe('-4.90');
+  await expect(acceptance.accept(customer, second.deliveryId, second.bidId, `last-usd-block-${second.deliveryId}`, NOW))
+    .rejects.toThrow('Wallet capacity is not enough for this bid');
+  const captured = await prisma.$transaction((tx) => captureV2CommissionReservation(tx, first.deliveryId, riderId, accepted.assignmentId, NOW));
+  expect(captured).toMatchObject({ captured: true, currency: 'USD', amount: '-2.00', balance: '-6.90' });
+  await expect(acceptance.accept(customer, second.deliveryId, second.bidId, `last-usd-block-after-${second.deliveryId}`, NOW))
+    .rejects.toThrow('Wallet capacity is not enough for this bid');
+  // An ordinary credit reduces the debt and reopens capacity.
+  await prisma.$transaction((tx) => postLedgerEntry(tx, {
+    riderProfileId: riderId, currency: 'USD', entryType: WalletEntryType.ADJUSTMENT,
+    amountCents: 200, idempotencyKey: `last-usd-credit-${riderId}`,
+    reason: 'Restore capacity in test', walletPaymentId: null, actorType: 'ADMIN', actorId: adminId, now: NOW,
+  }));
+  expect((await wallet(riderId, 'USD')).balance.toFixed(2)).toBe('-4.90');
+  const next = await acceptance.accept(customer, second.deliveryId, second.bidId, `last-usd-restored-${second.deliveryId}`, NOW);
+  expect(next.assignmentId).toBeTruthy();
+});
+
+it('serializes competing acceptances for the final USD trip', async () => {
+  const riderId = await createRider({ usd: '-4.90', zig: '0.00', limit: '5.00' });
+  const first = await openBid(riderId, 'USD', '20.00');
+  const second = await openBid(riderId, 'USD', '20.00');
+  const results = await Promise.allSettled([
+    acceptance.accept(customer, first.deliveryId, first.bidId, `last-usd-race-a-${first.deliveryId}`, NOW),
+    acceptance.accept(customer, second.deliveryId, second.bidId, `last-usd-race-b-${second.deliveryId}`, NOW),
+  ]);
+  expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+  const rejected = results.find((result) => result.status === 'rejected');
+  expect(rejected).toMatchObject({ status: 'rejected', reason: { message: 'Wallet capacity is not enough for this bid' } });
+  const holds = await prisma.walletFeeReservation.findMany({ where: { riderWalletId: (await wallet(riderId, 'USD')).id, status: 'OPEN' } });
+  expect(holds).toHaveLength(1);
+  expect(centsFromDecimal(holds[0]!.amount)).toBe(200);
+});
+
+it('allows an unrestricted ZiG final trip, captures it, and restores capacity after credit', async () => {
+  const riderId = await createRider({ usd: '0.00', zig: '0.10', limit: '0.00' });
+  const first = await openBid(riderId, 'ZWG', '200.00');
+  const second = await openBid(riderId, 'ZWG', '200.00');
+  const rider = { userId: 'unused', riderProfileId: riderId };
+  const listed = await createDelivery('ZWG');
+  const submitted = await bids.submit(rider, { deliveryId: listed, amountCents: 20_000, currency: 'ZWG' }, `last-zig-bid-${listed}`, NOW);
+  expect(submitted.currency).toBe('ZWG');
+  const accepted = await acceptance.accept(customer, first.deliveryId, first.bidId, `last-zig-${first.deliveryId}`, NOW);
+  const hold = await prisma.walletFeeReservation.findFirstOrThrow({ where: { assignmentId: accepted.assignmentId } });
+  expect(hold.currency).toBe('ZWG');
+  expect(centsFromDecimal(hold.walletAmount!)).toBe(2000);
+  await expect(acceptance.accept(customer, second.deliveryId, second.bidId, `last-zig-block-${second.deliveryId}`, NOW))
+    .rejects.toThrow('Wallet capacity is not enough for this bid');
+  const captured = await prisma.$transaction((tx) => captureV2CommissionReservation(tx, first.deliveryId, riderId, accepted.assignmentId, NOW));
+  expect(captured).toMatchObject({ captured: true, currency: 'ZWG', amount: '-20.00', balance: '-19.90' });
+  await expect(acceptance.accept(customer, second.deliveryId, second.bidId, `last-zig-block-after-${second.deliveryId}`, NOW))
+    .rejects.toThrow('Wallet capacity is not enough for this bid');
+  await prisma.$transaction((tx) => postLedgerEntry(tx, {
+    riderProfileId: riderId, currency: 'ZWG', entryType: WalletEntryType.ADJUSTMENT,
+    amountCents: 1_000, idempotencyKey: `last-zig-partial-credit-${riderId}`,
+    reason: 'Reduce debt in test', walletPaymentId: null, actorType: 'ADMIN', actorId: adminId, now: NOW,
+  }));
+  expect((await wallet(riderId, 'ZWG')).balance.toFixed(2)).toBe('-9.90');
+  await expect(acceptance.accept(customer, second.deliveryId, second.bidId, `last-zig-still-blocked-${second.deliveryId}`, NOW))
+    .rejects.toThrow('Wallet capacity is not enough for this bid');
+  await prisma.$transaction((tx) => postLedgerEntry(tx, {
+    riderProfileId: riderId, currency: 'ZWG', entryType: WalletEntryType.ADJUSTMENT,
+    amountCents: 1_000, idempotencyKey: `last-zig-restore-credit-${riderId}`,
+    reason: 'Restore capacity in test', walletPaymentId: null, actorType: 'ADMIN', actorId: adminId, now: NOW,
+  }));
+  expect((await wallet(riderId, 'ZWG')).balance.toFixed(2)).toBe('0.10');
+  const next = await acceptance.accept(customer, second.deliveryId, second.bidId, `last-zig-restored-${second.deliveryId}`, NOW);
+  expect(next.assignmentId).toBeTruthy();
+});
+
+it('stops a second concurrent acceptance when the sole USD wallet capacity is exhausted', async () => {
+  const riderId = await createRider({ usd: '0.00', zig: '0.00', limit: '1.00' });
   const first = await openBid(riderId, 'USD', '10.00');
   const second = await openBid(riderId, 'USD', '10.00');
   const results = await Promise.allSettled([
@@ -262,8 +351,8 @@ it('uses ZiG when USD borrowing is exhausted and keeps the USD wallet uncharged'
   const rider = { userId: 'unused', riderProfileId: riderId };
   const usdDelivery = await createDelivery('USD');
   const zigDelivery = await createDelivery('ZWG');
-  await expect(bids.submit(rider, { deliveryId: usdDelivery, amountCents: 1_000, currency: 'USD' }, `block-usd-${usdDelivery}`, NOW))
-    .rejects.toThrow('Wallet capacity is not enough for this bid');
+  const usdSaved = await bids.submit(rider, { deliveryId: usdDelivery, amountCents: 1_000, currency: 'USD' }, `fallback-usd-${usdDelivery}`, NOW);
+  expect(usdSaved.currency).toBe('USD');
   const saved = await bids.submit(rider, { deliveryId: zigDelivery, amountCents: 1_000, currency: 'ZWG' }, `fallback-zig-${zigDelivery}`, NOW);
   expect(saved.currency).toBe('ZWG');
   const listed = (await bids.listOpenRequests(rider, NOW)).map((row) => row.id);
@@ -272,10 +361,10 @@ it('uses ZiG when USD borrowing is exhausted and keeps the USD wallet uncharged'
   expect((await wallet(riderId, 'USD')).balance.toFixed(2)).toBe('-5.00');
 });
 
-it('stops a second concurrent ZiG acceptance from exceeding one dollar of ZiG capacity', async () => {
-  const riderId = await createRider({ usd: '-5.00', zig: '1.00', limit: '0.00' });
-  const first = await openBid(riderId, 'ZWG', '10.00');
-  const second = await openBid(riderId, 'ZWG', '10.00');
+it('stops a second concurrent ZiG acceptance from reusing the last ZiG cash capacity', async () => {
+  const riderId = await createRider({ usd: '-5.00', zig: '0.10', limit: '0.00' });
+  const first = await openBid(riderId, 'ZWG', '200.00');
+  const second = await openBid(riderId, 'ZWG', '200.00');
   const results = await Promise.allSettled([
     acceptance.accept(customer, first.deliveryId, first.bidId, `zig-cap-a-${first.deliveryId}`, NOW),
     acceptance.accept(customer, second.deliveryId, second.bidId, `zig-cap-b-${second.deliveryId}`, NOW),
@@ -284,7 +373,7 @@ it('stops a second concurrent ZiG acceptance from exceeding one dollar of ZiG ca
   expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
   const open = await prisma.walletFeeReservation.findMany({ where: { riderWalletId: (await wallet(riderId, 'ZWG')).id, status: 'OPEN' } });
   expect(open).toHaveLength(1);
-  expect(centsFromDecimal(open[0]!.amount)).toBe(100);
+  expect(centsFromDecimal(open[0]!.amount)).toBe(2000);
   expect((await wallet(riderId, 'USD')).balance.toFixed(2)).toBe('-5.00');
 });
 

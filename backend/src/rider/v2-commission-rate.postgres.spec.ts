@@ -10,7 +10,7 @@ import { V2CommissionRateService } from './v2-commission-rate.service.js';
 
 const exec = promisify(execFile);
 const HOST = '127.0.0.1';
-const PORT = 54341;
+const PORT = 54481;
 const DATABASE = 'commission_m1';
 const CONTAINER = 'riders-m1-commission-pg';
 const DISPOSABLE_URL = `postgresql://postgres:postgres@${HOST}:${PORT}/${DATABASE}`;
@@ -215,6 +215,7 @@ async function waitForPostgres() {
   let lastError: unknown;
   for (let attempt = 0; attempt < 60; attempt += 1) {
     const client = new pg.Client({ connectionString: DISPOSABLE_URL, application_name: 'v2-observer', connectionTimeoutMillis: 1000 });
+    client.on('error', () => undefined);
     try {
       await client.connect();
       await client.query('SELECT 1');

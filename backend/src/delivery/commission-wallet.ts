@@ -18,13 +18,24 @@ export type CommissionChoice =
   | { ok: true; payment: CommissionPayment }
   | { ok: false; reason: 'capacity' | 'rate' };
 
-// USD pays the whole commission when it can. ZiG is the fallback for the whole
-// commission. The two wallets are never combined, and no balance is moved.
+// A fully funded commission may use existing promotional credit. Only positive
+// unreserved CASH capacity can authorize a shortfall; promotional credit alone
+// must not open another overdraft. The full fee is still reserved.
+function canPay(cost: number, cover: number, cashRoom: number): boolean {
+  return Number.isSafeInteger(cost) && cost > 0 && (
+    cover >= cost || cashRoom > 0
+  );
+}
+
+// USD remains preferred, including its final trip. ZiG is the fallback for
+// the whole commission. The two wallets are never combined.
 export function chooseCommissionPayment(input: {
   sourceCurrency: Currency;
   sourceCents: number;
   usdCoverCents: number;
   zigCoverCents: number;
+  usdCashRoomCents: number;
+  zigCashRoomCents: number;
   rate: ActiveExchangeRate | null;
   zigOffersEnabled: boolean;
 }): CommissionChoice {
@@ -35,13 +46,13 @@ export function chooseCommissionPayment(input: {
     return { ok: true, payment: blank(input.sourceCurrency) };
   }
   const usdCost = costIn(Currency.USD, input.sourceCurrency, input.sourceCents, input.rate);
-  if (usdCost !== null && usdCost > 0 && input.usdCoverCents >= usdCost) {
+  if (usdCost !== null && canPay(usdCost, input.usdCoverCents, input.usdCashRoomCents)) {
     return { ok: true, payment: payment(input, Currency.USD, usdCost) };
   }
   const zigCost = input.zigOffersEnabled
     ? costIn(Currency.ZWG, input.sourceCurrency, input.sourceCents, input.rate)
     : null;
-  if (zigCost !== null && zigCost > 0 && input.zigCoverCents >= zigCost) {
+  if (zigCost !== null && canPay(zigCost, input.zigCoverCents, input.zigCashRoomCents)) {
     return { ok: true, payment: payment(input, Currency.ZWG, zigCost) };
   }
   const usdNeedsRate = input.sourceCurrency !== Currency.USD && input.rate === null && input.usdCoverCents > 0;

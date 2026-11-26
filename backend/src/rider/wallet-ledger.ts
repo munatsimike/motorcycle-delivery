@@ -44,8 +44,9 @@ export function usdBorrowingRoomCents(balanceCents: number, limitCents: number, 
   return balanceCents + limitCents - openCashHoldCents;
 }
 
-// USD may use its borrowing limit. ZiG is prepaid: only cash and promotional
-// credit remain after open reservations. The two amounts are never added together.
+// USD may use its borrowing limit. ZiG has no ordinary borrowing limit.
+// Capacity excludes open reservations; final-trip shortfalls are authorized
+// only by the commission quote, not counted as ordinary capacity.
 export function usableFeeCapacityCents(input: {
   balanceCents: number;
   borrowingLimitCents: number;
@@ -256,7 +257,7 @@ export async function postLedgerEntry(tx: Prisma.TransactionClient, command: Led
   const next = cached + input.amountCents;
   assertNextBalance(next);
   if (input.entryType === WalletEntryType.ADJUSTMENT && input.amountCents < 0) {
-    const limit = effectiveLimitCents(wallet, config.defaultBorrowingLimit);
+    const limit = walletCurrency(wallet) === Currency.ZWG ? 0 : effectiveLimitCents(wallet, config.defaultBorrowingLimit);
     if (next < -limit) {
       throw new ConflictException('This debit exceeds the borrowing limit');
     }
@@ -381,7 +382,9 @@ export async function openV2CommissionReservation(
   const split = splitCommission(
     quoted.payment.payingCents,
     quoted.promo,
-    quoted.cash,
+    // The locked quote already authorized the complete fee (including any
+    // final-trip shortfall). Reserve the full cash remainder, not just room.
+    Math.max(quoted.cash, quoted.payment.payingCents - Math.min(quoted.promo, quoted.payment.payingCents)),
     'Wallet capacity is not enough for this bid',
   );
   await tx.walletFeeReservation.create({
@@ -473,6 +476,8 @@ async function quoteCommissionPayment(
     sourceCents: amountCents,
     usdCoverCents: usdCover.cash + usdCover.promo,
     zigCoverCents: zigEnabled ? zigCover.cash + zigCover.promo : 0,
+    usdCashRoomCents: usdCover.cash,
+    zigCashRoomCents: zigEnabled ? zigCover.cash : 0,
     rate,
     zigOffersEnabled: zigEnabled,
   });
@@ -961,7 +966,9 @@ export async function captureV2CommissionReservation(
   } else if (portions.wallet > 0) {
     const next = cached + amountCents;
     const currency = walletCurrency(wallet);
-    assertPostedBalance(currency, next);
+    // The fee was authorized and fully reserved at acceptance. Do not
+    // reapply an eligibility limit when settling an existing delivery.
+    assertNextBalance(next);
     await tx.riderWalletEntry.create({
       data: {
         riderWalletId: wallet.id,
@@ -1227,7 +1234,8 @@ export async function refundAcceptanceCommission(
   if (portions.wallet > 0) {
     const nextBalance = currentBalance + portions.wallet;
     const currency = walletCurrency(wallet);
-    assertPostedBalance(currency, nextBalance);
+    // A refund must also work if it only partially clears existing debt.
+    assertNextBalance(nextBalance);
     const hash = walletPayloadHash({
       riderProfileId: assignment.riderProfileId,
       entryType: WalletEntryType.PLATFORM_FEE_REFUND,

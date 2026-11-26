@@ -1,3 +1,4 @@
+import { mockExactPage } from '../common/exact-page.test-support.js';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 import { WalletEntryType } from '../generated/prisma/client.js';
@@ -298,6 +299,7 @@ function context() {
     throw new Error('wallet read changed stored data');
   };
   const db = {
+    async $queryRaw(query: { values: unknown[] }) { return mockExactPage(query, entries, row => row.riderWalletId, row => row.createdAt); },
     walletConfig: {
       async findFirst() {
         return { id: 'config-1', defaultBorrowingLimit: '1.00', isActive: true };
@@ -326,6 +328,7 @@ function context() {
       async findMany(args: {
         where: {
           riderWalletId: string;
+          id?: { in: string[] };
           OR?: Array<{
             createdAt?: { lt: Date };
             AND?: Array<{ createdAt?: Date; id?: { lt: string } }>;
@@ -335,7 +338,7 @@ function context() {
         select: { payment?: { select: Record<string, boolean> } };
       }) {
         assertHistorySelect(args.select);
-        const matched = entries.filter((row) => row.riderWalletId === args.where.riderWalletId && matchesCursor(row, args.where.OR));
+        const matched = entries.filter((row) => row.riderWalletId === args.where.riderWalletId && (!args.where.id || args.where.id.in.includes(row.id)) && matchesCursor(row, args.where.OR));
         matched.sort((left, right) => {
           const time = right.createdAt.getTime() - left.createdAt.getTime();
           if (time !== 0) return time;

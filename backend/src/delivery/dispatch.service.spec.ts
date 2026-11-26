@@ -1,4 +1,8 @@
-﻿import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+﻿import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '../generated/prisma/client.js';
 import { describe, expect, it } from 'vitest';
 import type { PrismaService } from '../prisma/prisma.service.js';
@@ -8,7 +12,11 @@ import { DispatchService } from './dispatch.service.js';
 import { formatSignedCents } from '../rider/wallet-money.js';
 
 const NOW = new Date('2026-10-14T12:00:00.000Z');
-const CUSTOMER = { userId: 'user-customer', role: 'CUSTOMER' as const, customerAccountId: 'account-1' };
+const CUSTOMER = {
+  userId: 'user-customer',
+  role: 'CUSTOMER' as const,
+  customerAccountId: 'account-1',
+};
 
 describe('progressive dispatch', () => {
   it('does not search a delivery that is not Express or Flexible', async () => {
@@ -18,15 +26,23 @@ describe('progressive dispatch', () => {
     exhausted.status = 'NO_RIDER_FOUND';
     exhausted.searchGeneration = 6;
 
-    await expect(ctx.service.search(CUSTOMER, created.id, NOW)).rejects.toThrow('This delivery cannot be searched');
-    await expect(ctx.service.search(CUSTOMER, exhausted.id, NOW)).rejects.toThrow('This delivery cannot be searched');
+    await expect(ctx.service.search(CUSTOMER, created.id, NOW)).rejects.toThrow(
+      'This delivery cannot be searched',
+    );
+    await expect(
+      ctx.service.search(CUSTOMER, exhausted.id, NOW),
+    ).rejects.toThrow('This delivery cannot be searched');
 
-    expect(ctx.deliveries.find((row) => row.id === created.id)).toMatchObject({ status: 'CREATED', searchGeneration: 0 });
-    expect(ctx.deliveries.find((row) => row.id === exhausted.id)).toMatchObject({ status: 'NO_RIDER_FOUND', searchGeneration: 6 });
+    expect(ctx.deliveries.find((row) => row.id === created.id)).toMatchObject({
+      status: 'CREATED',
+      searchGeneration: 0,
+    });
+    expect(ctx.deliveries.find((row) => row.id === exhausted.id)).toMatchObject(
+      { status: 'NO_RIDER_FOUND', searchGeneration: 6 },
+    );
     expect(ctx.rounds).toHaveLength(0);
     expect(ctx.assignments).toHaveLength(0);
   });
-
 
   it('leaves a stored legacy assignment unchanged when progress or cancellation is requested', async () => {
     const ctx = context();
@@ -34,15 +50,32 @@ describe('progressive dispatch', () => {
     const delivery = addDelivery(ctx, 'stored-legacy');
     seedAccepted(ctx, delivery, courier.id);
 
-    await expect(ctx.service.progress(rider(courier.id), delivery.id, { status: 'ARRIVED_AT_PICKUP' }, NOW))
-      .rejects.toBeInstanceOf(ConflictException);
-    await expect(ctx.service.cancel(CUSTOMER, delivery.id, NOW))
-      .rejects.toBeInstanceOf(ConflictException);
+    await expect(
+      ctx.service.progress(
+        rider(courier.id),
+        delivery.id,
+        { status: 'ARRIVED_AT_PICKUP' },
+        NOW,
+      ),
+    ).rejects.toBeInstanceOf(ConflictException);
+    await expect(
+      ctx.service.cancel(CUSTOMER, delivery.id, NOW),
+    ).rejects.toBeInstanceOf(ConflictException);
 
-    expect(ctx.deliveries.find((row) => row.id === delivery.id)?.status).toBe('ASSIGNED');
-    expect(ctx.assignments.find((row) => row.deliveryId === delivery.id)?.status).toBe('ACCEPTED');
+    expect(ctx.deliveries.find((row) => row.id === delivery.id)?.status).toBe(
+      'ASSIGNED',
+    );
+    expect(
+      ctx.assignments.find((row) => row.deliveryId === delivery.id)?.status,
+    ).toBe('ACCEPTED');
     expect(ctx.reservations[0]?.status).toBe('OPEN');
-    expect(ctx.events.filter((event) => event.newStatus === 'ARRIVED_AT_PICKUP' || event.newStatus === 'CANCELLED')).toHaveLength(0);
+    expect(
+      ctx.events.filter(
+        (event) =>
+          event.newStatus === 'ARRIVED_AT_PICKUP' ||
+          event.newStatus === 'CANCELLED',
+      ),
+    ).toHaveLength(0);
   });
 
   it('cancels a delivery when no rider was found', async () => {
@@ -73,23 +106,58 @@ describe('progressive dispatch', () => {
 
     await ctx.service.cancel(CUSTOMER, openEnded.id, NOW);
 
-    expect(ctx.deliveries.find((row) => row.id === openEnded.id)?.status).toBe('CANCELLED');
-    expect(ctx.bids.filter((bid) => bid.deliveryId === openEnded.id && bid.status === 'OPEN')).toHaveLength(0);
+    expect(ctx.deliveries.find((row) => row.id === openEnded.id)?.status).toBe(
+      'CANCELLED',
+    );
+    expect(
+      ctx.bids.filter(
+        (bid) => bid.deliveryId === openEnded.id && bid.status === 'OPEN',
+      ),
+    ).toHaveLength(0);
     expect(ctx.bids.find((bid) => bid.id === 'open-1')?.status).toBe('EXPIRED');
     expect(ctx.bids.find((bid) => bid.id === 'open-2')?.status).toBe('EXPIRED');
-    expect(ctx.bids.find((bid) => bid.id === 'kept-accepted')?.status).toBe('ACCEPTED');
-    expect(ctx.bids.find((bid) => bid.id === 'kept-superseded')?.status).toBe('SUPERSEDED');
-    expect(ctx.bids.find((bid) => bid.id === 'other-open')?.status).toBe('OPEN');
-    expect(ctx.deliveries.find((row) => row.id === other.id)?.status).toBe('CREATED');
+    expect(ctx.bids.find((bid) => bid.id === 'kept-accepted')?.status).toBe(
+      'ACCEPTED',
+    );
+    expect(ctx.bids.find((bid) => bid.id === 'kept-superseded')?.status).toBe(
+      'SUPERSEDED',
+    );
+    expect(ctx.bids.find((bid) => bid.id === 'other-open')?.status).toBe(
+      'OPEN',
+    );
+    expect(ctx.deliveries.find((row) => row.id === other.id)?.status).toBe(
+      'CREATED',
+    );
   });
 
   it('updates only the customer offer while no rider was found', async () => {
     const ctx = context();
     const delivery = noRider(ctx);
     await withMarketplace(async () => {
-      await expect(ctx.service.adjustOffer(CUSTOMER, delivery.id, { offeredPrice: '0.01' }, NOW)).resolves.toEqual({ customerOffer: '0.01' });
-      await expect(ctx.service.adjustOffer(CUSTOMER, delivery.id, { offeredPrice: '1000.00' }, NOW)).resolves.toEqual({ customerOffer: '1000.00' });
-      await expect(ctx.service.adjustOffer(CUSTOMER, delivery.id, { offeredPrice: '6.50' }, NOW)).resolves.toEqual({ customerOffer: '6.50' });
+      await expect(
+        ctx.service.adjustOffer(
+          CUSTOMER,
+          delivery.id,
+          { offeredPrice: '0.01' },
+          NOW,
+        ),
+      ).resolves.toEqual({ customerOffer: '0.01' });
+      await expect(
+        ctx.service.adjustOffer(
+          CUSTOMER,
+          delivery.id,
+          { offeredPrice: '1000.00' },
+          NOW,
+        ),
+      ).resolves.toEqual({ customerOffer: '1000.00' });
+      await expect(
+        ctx.service.adjustOffer(
+          CUSTOMER,
+          delivery.id,
+          { offeredPrice: '6.50' },
+          NOW,
+        ),
+      ).resolves.toEqual({ customerOffer: '6.50' });
     });
     expect(ctx.deliveries.find((row) => row.id === delivery.id)).toMatchObject({
       status: 'NO_RIDER_FOUND',
@@ -105,24 +173,32 @@ describe('progressive dispatch', () => {
     const delivery = noRider(ctx);
     await withMarketplace(async () => {
       for (const offeredPrice of ['0.00', '1000.01', '6.5', '']) {
-        await expect(ctx.service.adjustOffer(CUSTOMER, delivery.id, { offeredPrice }, NOW)).rejects.toBeInstanceOf(BadRequestException);
+        await expect(
+          ctx.service.adjustOffer(CUSTOMER, delivery.id, { offeredPrice }, NOW),
+        ).rejects.toBeInstanceOf(BadRequestException);
       }
     });
-    expect(ctx.deliveries.find((row) => row.id === delivery.id)?.customerOffer).toBe('4.00');
+    expect(
+      ctx.deliveries.find((row) => row.id === delivery.id)?.customerOffer,
+    ).toBe('4.00');
   });
 
   it('rejects a price change from another customer', async () => {
     const ctx = context();
     const delivery = noRider(ctx);
     await withMarketplace(async () => {
-      await expect(ctx.service.adjustOffer(
-        { ...CUSTOMER, customerAccountId: 'other-account' },
-        delivery.id,
-        { offeredPrice: '6.00' },
-        NOW,
-      )).rejects.toBeInstanceOf(NotFoundException);
+      await expect(
+        ctx.service.adjustOffer(
+          { ...CUSTOMER, customerAccountId: 'other-account' },
+          delivery.id,
+          { offeredPrice: '6.00' },
+          NOW,
+        ),
+      ).rejects.toBeInstanceOf(NotFoundException);
     });
-    expect(ctx.deliveries.find((row) => row.id === delivery.id)?.customerOffer).toBe('4.00');
+    expect(
+      ctx.deliveries.find((row) => row.id === delivery.id)?.customerOffer,
+    ).toBe('4.00');
   });
 
   it('rejects a price change after assignment, cancellation, retry, or the deadline', async () => {
@@ -131,18 +207,47 @@ describe('progressive dispatch', () => {
         const ctx = context();
         const delivery = noRider(ctx);
         delivery.status = status;
-        await expect(ctx.service.adjustOffer(CUSTOMER, delivery.id, { offeredPrice: '6.00' }, NOW)).rejects.toBeInstanceOf(ConflictException);
-        expect(ctx.deliveries.find((row) => row.id === delivery.id)?.customerOffer).toBe('4.00');
+        await expect(
+          ctx.service.adjustOffer(
+            CUSTOMER,
+            delivery.id,
+            { offeredPrice: '6.00' },
+            NOW,
+          ),
+        ).rejects.toBeInstanceOf(ConflictException);
+        expect(
+          ctx.deliveries.find((row) => row.id === delivery.id)?.customerOffer,
+        ).toBe('4.00');
       }
       const expired = context();
       const closed = noRider(expired);
       closed.deliverBy = new Date(NOW.getTime() - 1_000);
-      await expect(expired.service.adjustOffer(CUSTOMER, closed.id, { offeredPrice: '6.00' }, NOW)).rejects.toBeInstanceOf(ConflictException);
+      await expect(
+        expired.service.adjustOffer(
+          CUSTOMER,
+          closed.id,
+          { offeredPrice: '6.00' },
+          NOW,
+        ),
+      ).rejects.toBeInstanceOf(ConflictException);
       const assigned = context();
       const taken = noRider(assigned);
-      assigned.assignments.push({ id: 'assignment-1', deliveryId: taken.id, status: 'ACCEPTED' });
-      await expect(assigned.service.adjustOffer(CUSTOMER, taken.id, { offeredPrice: '6.00' }, NOW)).rejects.toBeInstanceOf(ConflictException);
-      expect(assigned.deliveries.find((row) => row.id === taken.id)?.customerOffer).toBe('4.00');
+      assigned.assignments.push({
+        id: 'assignment-1',
+        deliveryId: taken.id,
+        status: 'ACCEPTED',
+      });
+      await expect(
+        assigned.service.adjustOffer(
+          CUSTOMER,
+          taken.id,
+          { offeredPrice: '6.00' },
+          NOW,
+        ),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(
+        assigned.deliveries.find((row) => row.id === taken.id)?.customerOffer,
+      ).toBe('4.00');
     });
   });
 
@@ -150,7 +255,12 @@ describe('progressive dispatch', () => {
     const ctx = context();
     const delivery = noRider(ctx);
     await withMarketplace(async () => {
-      await ctx.service.adjustOffer(CUSTOMER, delivery.id, { offeredPrice: '6.50' }, NOW);
+      await ctx.service.adjustOffer(
+        CUSTOMER,
+        delivery.id,
+        { offeredPrice: '6.50' },
+        NOW,
+      );
       await ctx.service.search(CUSTOMER, delivery.id, NOW);
     });
     expect(ctx.deliveries.find((row) => row.id === delivery.id)).toMatchObject({
@@ -164,13 +274,24 @@ describe('progressive dispatch', () => {
   it('keeps the offer consistent when search and a price change overlap', async () => {
     const ctx = context();
     const delivery = noRider(ctx);
-    const [adjusted, searched] = await withMarketplace(() => Promise.allSettled([
-      ctx.service.adjustOffer(CUSTOMER, delivery.id, { offeredPrice: '6.00' }, NOW),
-      ctx.service.search(CUSTOMER, delivery.id, NOW),
-    ]));
+    const [adjusted, searched] = await withMarketplace(() =>
+      Promise.allSettled([
+        ctx.service.adjustOffer(
+          CUSTOMER,
+          delivery.id,
+          { offeredPrice: '6.00' },
+          NOW,
+        ),
+        ctx.service.search(CUSTOMER, delivery.id, NOW),
+      ]),
+    );
     const row = ctx.deliveries.find((item) => item.id === delivery.id);
     expect(searched?.status).toBe('fulfilled');
-    expect(row).toMatchObject({ status: 'CREATED', suggestedPrice: '8.88', price: '4.50' });
+    expect(row).toMatchObject({
+      status: 'CREATED',
+      suggestedPrice: '8.88',
+      price: '4.50',
+    });
     if (adjusted?.status === 'fulfilled') {
       expect(adjusted.value).toEqual({ customerOffer: '6.00' });
       expect(row?.customerOffer).toBe('6.00');
@@ -197,7 +318,12 @@ function context() {
   let txSeq = 1;
 
   function commit(base: State, draft: State): void {
-    const changes: Array<{ rows: Row[]; id: string; row: Row; insert: boolean }> = [];
+    const changes: Array<{
+      rows: Row[];
+      id: string;
+      row: Row;
+      insert: boolean;
+    }> = [];
     for (const key of STATE_KEYS) {
       const idField = key === 'locations' ? 'riderProfileId' : 'id';
       for (const row of draft[key]) {
@@ -206,7 +332,9 @@ function context() {
         if (before && stable(before) === stable(row)) {
           continue;
         }
-        const current = committed[key].find((item) => item[idField] === row[idField]);
+        const current = committed[key].find(
+          (item) => item[idField] === row[idField],
+        );
         if (!before) {
           if (current) {
             throw new Error('commit conflict');
@@ -224,7 +352,9 @@ function context() {
       if (change.insert) {
         change.rows.push(structuredClone(change.row));
       } else {
-        const index = change.rows.findIndex((item) => String(item.id ?? item.riderProfileId) === change.id);
+        const index = change.rows.findIndex(
+          (item) => String(item.id ?? item.riderProfileId) === change.id,
+        );
         change.rows[index] = structuredClone(change.row);
       }
     }
@@ -251,25 +381,57 @@ function context() {
       const tx = {
         async $queryRaw(strings: TemplateStringsArray, ...values: unknown[]) {
           const sql = strings.join(' ');
-          if (sql.includes('SKIP LOCKED') && sql.includes("'CREATED'") && sql.includes('search_generation')) {
+          if (
+            sql.includes('SKIP LOCKED') &&
+            sql.includes("'CREATED'") &&
+            sql.includes('search_generation')
+          ) {
             const eligible = draft.deliveries
-              .filter((delivery) => delivery.status === 'CREATED' && delivery.searchGeneration === 0 && delivery.serviceClass == null)
-              .filter((delivery) => !draft.rounds.some((round) => round.deliveryId === delivery.id))
-              .filter((delivery) => !draft.assignments.some(
-                (offer) => offer.deliveryId === delivery.id && offer.status === 'OFFERED',
-              ))
+              .filter(
+                (delivery) =>
+                  delivery.status === 'CREATED' &&
+                  delivery.searchGeneration === 0 &&
+                  delivery.serviceClass == null,
+              )
+              .filter(
+                (delivery) =>
+                  !draft.rounds.some(
+                    (round) => round.deliveryId === delivery.id,
+                  ),
+              )
+              .filter(
+                (delivery) =>
+                  !draft.assignments.some(
+                    (offer) =>
+                      offer.deliveryId === delivery.id &&
+                      offer.status === 'OFFERED',
+                  ),
+              )
               .filter((delivery) => !heldDeliveries.has(String(delivery.id)))
-              .sort((left, right) => String(left.id).localeCompare(String(right.id)));
+              .sort((left, right) =>
+                String(left.id).localeCompare(String(right.id)),
+              );
             const picked = eligible[0];
             if (!picked) {
               return [];
             }
             heldDeliveries.add(String(picked.id));
             releases.push(() => heldDeliveries.delete(String(picked.id)));
-            await hold(mutexes, `delivery:${String(picked.id)}`, txId, releases);
+            await hold(
+              mutexes,
+              `delivery:${String(picked.id)}`,
+              txId,
+              releases,
+            );
             refresh();
-            const current = draft.deliveries.find((delivery) => delivery.id === picked.id);
-            if (!current || current.status !== 'CREATED' || current.searchGeneration !== 0) {
+            const current = draft.deliveries.find(
+              (delivery) => delivery.id === picked.id,
+            );
+            if (
+              !current ||
+              current.status !== 'CREATED' ||
+              current.searchGeneration !== 0
+            ) {
               return [];
             }
             if (draft.rounds.some((round) => round.deliveryId === current.id)) {
@@ -278,19 +440,39 @@ function context() {
             return [{ id: current.id }];
           }
 
-          if (sql.includes('SKIP LOCKED') && sql.includes('FROM "deliveries" d')) {
+          if (
+            sql.includes('SKIP LOCKED') &&
+            sql.includes('FROM "deliveries" d')
+          ) {
             const now = values[0] as Date;
             const eligible = draft.deliveries
-              .filter((delivery) => delivery.status === 'SEARCHING' && delivery.searchGeneration > 0 && delivery.serviceClass == null)
-              .filter((delivery) => !draft.rounds.some(
-                (round) => round.deliveryId === delivery.id && round.status === 'PENDING',
-              ))
-              .filter((delivery) => !draft.assignments.some(
-                (offer) => offer.deliveryId === delivery.id
-                  && offer.status === 'OFFERED'
-                  && offer.offerExpiresAt > now,
-              ))
-              .filter((delivery) => !delivery.nextRetryAt || delivery.nextRetryAt <= now)
+              .filter(
+                (delivery) =>
+                  delivery.status === 'SEARCHING' &&
+                  delivery.searchGeneration > 0 &&
+                  delivery.serviceClass == null,
+              )
+              .filter(
+                (delivery) =>
+                  !draft.rounds.some(
+                    (round) =>
+                      round.deliveryId === delivery.id &&
+                      round.status === 'PENDING',
+                  ),
+              )
+              .filter(
+                (delivery) =>
+                  !draft.assignments.some(
+                    (offer) =>
+                      offer.deliveryId === delivery.id &&
+                      offer.status === 'OFFERED' &&
+                      offer.offerExpiresAt > now,
+                  ),
+              )
+              .filter(
+                (delivery) =>
+                  !delivery.nextRetryAt || delivery.nextRetryAt <= now,
+              )
               .sort((a, b) => String(a.id).localeCompare(String(b.id)));
 
             return eligible.length ? [{ id: eligible[0].id }] : [];
@@ -299,8 +481,17 @@ function context() {
           if (sql.includes('SKIP LOCKED')) {
             const now = values[0] as Date;
             const due = draft.rounds
-              .filter((row) => row.status === 'PENDING' && row.dueAt <= now && !heldRounds.has(String(row.id)))
-              .sort((left, right) => left.dueAt.getTime() - right.dueAt.getTime() || String(left.id).localeCompare(String(right.id)));
+              .filter(
+                (row) =>
+                  row.status === 'PENDING' &&
+                  row.dueAt <= now &&
+                  !heldRounds.has(String(row.id)),
+              )
+              .sort(
+                (left, right) =>
+                  left.dueAt.getTime() - right.dueAt.getTime() ||
+                  String(left.id).localeCompare(String(right.id)),
+              );
             const picked = due[0];
             if (!picked) {
               return [];
@@ -316,17 +507,25 @@ function context() {
             const radius = Number(values[3]);
             return draft.locations
               .filter((location) => location.updatedAt > freshAfter)
-              .filter((location) => straightLineMetres(
-                latitude,
-                longitude,
-                Number(location.latitude),
-                Number(location.longitude),
-              ) <= radius)
+              .filter(
+                (location) =>
+                  straightLineMetres(
+                    latitude,
+                    longitude,
+                    Number(location.latitude),
+                    Number(location.longitude),
+                  ) <= radius,
+              )
               .map((location) => ({ riderProfileId: location.riderProfileId }));
           }
           if (sql.includes('FOR UPDATE') && sql.includes('"deliveries"')) {
             lockLog.push('delivery');
-            await hold(mutexes, `delivery:${String(values[0])}`, txId, releases);
+            await hold(
+              mutexes,
+              `delivery:${String(values[0])}`,
+              txId,
+              releases,
+            );
             refresh();
             return [];
           }
@@ -336,9 +535,17 @@ function context() {
             refresh();
             return [];
           }
-          if (sql.includes('FOR UPDATE') && sql.includes('"delivery_assignments"')) {
+          if (
+            sql.includes('FOR UPDATE') &&
+            sql.includes('"delivery_assignments"')
+          ) {
             lockLog.push('assignment');
-            await hold(mutexes, `assignment:${String(values[0])}`, txId, releases);
+            await hold(
+              mutexes,
+              `assignment:${String(values[0])}`,
+              txId,
+              releases,
+            );
             refresh();
             return [];
           }
@@ -350,17 +557,58 @@ function context() {
           }
           return [];
         },
-        delivery: table(() => draft.deliveries, mark, () => sequence++),
-        deliveryAssignment: assignmentTable(() => draft.assignments, mark, () => sequence++),
-        deliveryStatusEvent: table(() => draft.events, mark, () => sequence++),
+        delivery: table(
+          () => draft.deliveries,
+          mark,
+          () => sequence++,
+        ),
+        deliveryAssignment: assignmentTable(
+          () => draft.assignments,
+          mark,
+          () => sequence++,
+        ),
+        deliveryStatusEvent: table(
+          () => draft.events,
+          mark,
+          () => sequence++,
+        ),
         bid: bidTable(() => draft.bids, mark),
-        riderProfile: table(() => draft.profiles, mark, () => sequence++),
-        riderLocation: table(() => draft.locations, mark, () => sequence++),
-        user: table(() => draft.users, mark, () => sequence++),
-        motorcycle: table(() => draft.motorcycles, mark, () => sequence++),
-        riderWallet: table(() => draft.wallets, mark, () => sequence++),
+        riderRequestDecline: {
+          async deleteMany() {
+            return { count: 0 };
+          },
+        },
+        riderProfile: table(
+          () => draft.profiles,
+          mark,
+          () => sequence++,
+        ),
+        riderLocation: table(
+          () => draft.locations,
+          mark,
+          () => sequence++,
+        ),
+        user: table(
+          () => draft.users,
+          mark,
+          () => sequence++,
+        ),
+        motorcycle: table(
+          () => draft.motorcycles,
+          mark,
+          () => sequence++,
+        ),
+        riderWallet: table(
+          () => draft.wallets,
+          mark,
+          () => sequence++,
+        ),
         riderWalletEntry: {
-          ...table(() => draft.entries, mark, () => sequence++),
+          ...table(
+            () => draft.entries,
+            mark,
+            () => sequence++,
+          ),
           async aggregate({ where }: { where?: Row }) {
             const rows = draft.entries.filter((row) => matches(row, where));
             if (rows.length === 0) {
@@ -375,17 +623,31 @@ function context() {
             return {
               id: 'test-commission-policy',
               policyVersion: 1,
-              model: process.env.TEST_COMMISSION_MODEL === 'ON_ACCEPTANCE' ? 'ON_ACCEPTANCE' : 'ON_COMPLETION',
+              model:
+                process.env.TEST_COMMISSION_MODEL === 'ON_ACCEPTANCE'
+                  ? 'ON_ACCEPTANCE'
+                  : 'ON_COMPLETION',
               isActive: true,
             };
           },
         },
-        walletConfig: table(() => draft.configs, mark, () => sequence++),
-        walletFeeReservation: reservationTable(() => draft.reservations, mark, () => sequence++),
+        walletConfig: table(
+          () => draft.configs,
+          mark,
+          () => sequence++,
+        ),
+        walletFeeReservation: reservationTable(
+          () => draft.reservations,
+          mark,
+          () => sequence++,
+        ),
         customerAccount: {
           async findUnique({ where }: { where: { id?: string } }) {
             if (where.id === CUSTOMER.customerAccountId) {
-              return { id: CUSTOMER.customerAccountId, userId: CUSTOMER.userId };
+              return {
+                id: CUSTOMER.customerAccountId,
+                userId: CUSTOMER.userId,
+              };
             }
             return null;
           },
@@ -407,20 +669,48 @@ function context() {
     service: new DispatchService(prisma as unknown as PrismaService),
     prisma: prisma as unknown as PrismaService,
     lockLog,
-    get deliveries() { return committed.deliveries; },
-    get assignments() { return committed.assignments; },
-    get notifications() { return committed.notifications; },
-    get rounds() { return committed.rounds; },
-    get profiles() { return committed.profiles; },
-    get wallets() { return committed.wallets; },
-    get reservations() { return committed.reservations; },
-    get entries() { return committed.entries; },
-    get events() { return committed.events; },
-    get bids() { return committed.bids; },
-    get configs() { return committed.configs; },
-    get locations() { return committed.locations; },
-    get users() { return committed.users; },
-    get motorcycles() { return committed.motorcycles; },
+    get deliveries() {
+      return committed.deliveries;
+    },
+    get assignments() {
+      return committed.assignments;
+    },
+    get notifications() {
+      return committed.notifications;
+    },
+    get rounds() {
+      return committed.rounds;
+    },
+    get profiles() {
+      return committed.profiles;
+    },
+    get wallets() {
+      return committed.wallets;
+    },
+    get reservations() {
+      return committed.reservations;
+    },
+    get entries() {
+      return committed.entries;
+    },
+    get events() {
+      return committed.events;
+    },
+    get bids() {
+      return committed.bids;
+    },
+    get configs() {
+      return committed.configs;
+    },
+    get locations() {
+      return committed.locations;
+    },
+    get users() {
+      return committed.users;
+    },
+    get motorcycles() {
+      return committed.motorcycles;
+    },
   };
 }
 
@@ -550,14 +840,29 @@ function addRider(
       welcomeBonus: '1.00',
     });
   }
-  return { id, profile, wallet, location, latitude: location.latitude, updatedAt };
+  return {
+    id,
+    profile,
+    wallet,
+    location,
+    latitude: location.latitude,
+    updatedAt,
+  };
 }
 
 function rider(riderProfileId: string) {
-  return { userId: `user-${riderProfileId.replace('profile-', '')}`, riderProfileId };
+  return {
+    userId: `user-${riderProfileId.replace('profile-', '')}`,
+    riderProfileId,
+  };
 }
 
-function seedAccepted(ctx: ReturnType<typeof context>, delivery: Row, riderProfileId: string, assignmentId = `assignment-${delivery.id}`) {
+function seedAccepted(
+  ctx: ReturnType<typeof context>,
+  delivery: Row,
+  riderProfileId: string,
+  assignmentId = `assignment-${delivery.id}`,
+) {
   const config = ctx.configs.find((row) => row.isActive) ?? ctx.configs[0];
   const fee = String(config?.platformFee ?? '0.30');
   const configVersion = Number(config?.configVersion ?? 3);
@@ -579,7 +884,9 @@ function seedAccepted(ctx: ReturnType<typeof context>, delivery: Row, riderProfi
     releasedAt: null,
   });
   if (cents(fee) > 0) {
-    const wallet = ctx.wallets.find((row) => row.riderProfileId === riderProfileId);
+    const wallet = ctx.wallets.find(
+      (row) => row.riderProfileId === riderProfileId,
+    );
     ctx.reservations.push({
       id: `reservation-${assignmentId}`,
       riderWalletId: wallet?.id,
@@ -705,7 +1012,9 @@ function table(read: () => Row[], mark: () => void, nextId: () => number) {
       return clone(read().find((row) => matches(row, where)));
     },
     async findMany(args?: { where?: Row }) {
-      return read().filter((row) => matches(row, args?.where)).map((row) => structuredClone(row));
+      return read()
+        .filter((row) => matches(row, args?.where))
+        .map((row) => structuredClone(row));
     },
     async create({ data }: { data: Row }) {
       const row = { id: data.id ?? `id-${nextId()}`, ...data };
@@ -736,12 +1045,20 @@ function table(read: () => Row[], mark: () => void, nextId: () => number) {
   };
 }
 
-function assignmentTable(read: () => Row[], mark: () => void, nextId: () => number) {
+function assignmentTable(
+  read: () => Row[],
+  mark: () => void,
+  nextId: () => number,
+) {
   const rows = table(read, mark, nextId);
   return {
     ...rows,
     async create({ data }: { data: Row }) {
-      assertAssignment(read(), { id: data.id ?? `id-${nextId()}`, ...data }, null);
+      assertAssignment(
+        read(),
+        { id: data.id ?? `id-${nextId()}`, ...data },
+        null,
+      );
       return rows.create({ data });
     },
     async update({ where, data }: { where: Row; data: Row }) {
@@ -755,12 +1072,21 @@ function assignmentTable(read: () => Row[], mark: () => void, nextId: () => numb
   };
 }
 
-function reservationTable(read: () => Row[], mark: () => void, nextId: () => number) {
+function reservationTable(
+  read: () => Row[],
+  mark: () => void,
+  nextId: () => number,
+) {
   const rows = table(read, mark, nextId);
   return {
     ...rows,
     async create({ data }: { data: Row }) {
-      if (data.status === 'OPEN' && read().some((row) => row.deliveryId === data.deliveryId && row.status === 'OPEN')) {
+      if (
+        data.status === 'OPEN' &&
+        read().some(
+          (row) => row.deliveryId === data.deliveryId && row.status === 'OPEN',
+        )
+      ) {
         throw uniqueError();
       }
       return rows.create({ data });
@@ -770,16 +1096,33 @@ function reservationTable(read: () => Row[], mark: () => void, nextId: () => num
 
 function assertAssignment(rows: Row[], next: Row, current: Row | null): void {
   const others = rows.filter((row) => row !== current);
-  if (next.idempotencyKey && others.some((row) => row.idempotencyKey === next.idempotencyKey)) {
+  if (
+    next.idempotencyKey &&
+    others.some((row) => row.idempotencyKey === next.idempotencyKey)
+  ) {
     throw uniqueError();
   }
   if (next.status === 'OFFERED' || next.status === 'ACCEPTED') {
-    if (others.some((row) => row.deliveryId === next.deliveryId && row.riderProfileId === next.riderProfileId && (row.status === 'OFFERED' || row.status === 'ACCEPTED'))) {
+    if (
+      others.some(
+        (row) =>
+          row.deliveryId === next.deliveryId &&
+          row.riderProfileId === next.riderProfileId &&
+          (row.status === 'OFFERED' || row.status === 'ACCEPTED'),
+      )
+    ) {
       throw uniqueError();
     }
   }
   if (next.status === 'ACCEPTED') {
-    if (others.some((row) => row.status === 'ACCEPTED' && (row.deliveryId === next.deliveryId || row.riderProfileId === next.riderProfileId))) {
+    if (
+      others.some(
+        (row) =>
+          row.status === 'ACCEPTED' &&
+          (row.deliveryId === next.deliveryId ||
+            row.riderProfileId === next.riderProfileId),
+      )
+    ) {
       throw uniqueError();
     }
   }
@@ -815,9 +1158,18 @@ function cents(value: unknown): number {
   return negative ? -amount : amount;
 }
 
-type Mutex = { owner: number | null; depth: number; waiters: Array<() => void> };
+type Mutex = {
+  owner: number | null;
+  depth: number;
+  waiters: Array<() => void>;
+};
 
-async function hold(mutexes: Map<string, Mutex>, key: string, txId: number, releases: Array<() => void>): Promise<void> {
+async function hold(
+  mutexes: Map<string, Mutex>,
+  key: string,
+  txId: number,
+  releases: Array<() => void>,
+): Promise<void> {
   let mutex = mutexes.get(key);
   if (!mutex) {
     mutex = { owner: null, depth: 0, waiters: [] };
@@ -852,13 +1204,3 @@ async function hold(mutexes: Map<string, Mutex>, key: string, txId: number, rele
     }
   });
 }
-
-
-
-
-
-
-
-
-
-

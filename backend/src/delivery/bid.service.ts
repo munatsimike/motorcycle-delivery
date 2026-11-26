@@ -1,3 +1,5 @@
+import { exactPageKeys, orderedPageRows } from '../common/exact-page.js';
+import { encodeListCursor, readKeysetCursor, type ListCursor } from '../common/list-cursor.js';
 import { createHash } from 'node:crypto';
 import {
   BadRequestException,
@@ -137,20 +139,11 @@ export class BidService {
     const page = readBidPage(query);
     return this.prisma.$transaction(async (tx) => {
       await expireClosedBids(tx, now);
+      const keys = await exactPageKeys(tx, 'bids', rider.riderProfileId, page.limit, page.cursor ?? undefined);
+      const visibleKeys = keys.slice(0, page.limit);
       const rows = await tx.bid.findMany({
-        where: {
-          riderProfileId: rider.riderProfileId,
-          ...(page.cursor
-            ? {
-                OR: [
-                  { createdAt: { lt: page.cursor.createdAt } },
-                  { AND: [{ createdAt: page.cursor.createdAt }, { id: { lt: page.cursor.id } }] },
-                ],
-              }
-            : {}),
-        },
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        take: page.limit + 1,
+        where: { riderProfileId: rider.riderProfileId, id: { in: visibleKeys.map(key => key.id) } },
+        take: page.limit,
         include: {
           delivery: {
             select: {
@@ -165,8 +158,8 @@ export class BidService {
           },
         },
       });
-      const visible = rows.slice(0, page.limit);
-      const last = visible[visible.length - 1];
+      const visible = orderedPageRows(visibleKeys, rows);
+      const last = visibleKeys[visibleKeys.length - 1];
       return {
         bids: visible.map((row) => ({
           bidId: row.id,
@@ -184,7 +177,7 @@ export class BidService {
           suggestedPrice: formatCents(centsFromDecimal(row.delivery.suggestedPrice)),
           distanceMeters: finiteDistance(row.delivery.distanceMeters),
         })),
-        nextCursor: rows.length > page.limit && last ? encodeBidCursor(last.createdAt, last.id) : null,
+        nextCursor: keys.length > page.limit && last ? encodeListCursor(last.at, last.id) : null,
       };
     });
   }
@@ -210,6 +203,7 @@ export class BidService {
           searchGeneration: 0,
           ...currency,
           OR: [{ deliverBy: null }, { deliverBy: { gt: now } }],
+          requestDeclines: { none: { riderProfileId: rider.riderProfileId } },
         },
         orderBy: [{ deliverBy: { sort: 'asc', nulls: 'last' } }, { id: 'asc' }],
         select: {
@@ -233,14 +227,7 @@ export class BidService {
           paymentMethod: true,
         },
       });
-      const declined = rows.length === 0
-        ? []
-        : await tx.riderRequestDecline.findMany({
-          where: { riderProfileId: rider.riderProfileId, deliveryId: { in: rows.map((row) => row.id) } },
-          select: { deliveryId: true },
-        });
-      const hidden = new Set(declined.map((row) => row.deliveryId));
-      return rows.filter((row) => !hidden.has(row.id)).map((row) => ({
+      return rows.map((row) => ({
         id: row.id,
         serviceClass: row.serviceClass,
         deliverBy: row.deliverBy?.toISOString() ?? null,
@@ -788,7 +775,7 @@ function motorcycleLabel(make: string | null | undefined, model: string | null |
 const BID_PAGE_DEFAULT = 20;
 const BID_PAGE_MAX = 50;
 
-function readBidPage(query: unknown): { limit: number; cursor: { createdAt: Date; id: string } | null } {
+function readBidPage(query: unknown): { limit: number; cursor: ListCursor | null } {
   if (query !== undefined && (typeof query !== 'object' || query === null || Array.isArray(query))) {
     throw new BadRequestException('Enter a page size');
   }
@@ -810,33 +797,9 @@ function readBidLimit(value: unknown): number {
   return limit;
 }
 
-function readBidCursor(value: unknown): { createdAt: Date; id: string } | null {
-  if (value === undefined || value === null || value === '') {
-    return null;
-  }
-  if (typeof value !== 'string') {
-    throw new BadRequestException('Enter a valid cursor');
-  }
-  let decoded = '';
-  try {
-    decoded = Buffer.from(value, 'base64url').toString('utf8');
-  } catch {
-    throw new BadRequestException('Enter a valid cursor');
-  }
-  const split = decoded.indexOf('\n');
-  if (split <= 0) {
-    throw new BadRequestException('Enter a valid cursor');
-  }
-  const createdAt = new Date(decoded.slice(0, split));
-  const id = decoded.slice(split + 1);
-  if (Number.isNaN(createdAt.getTime()) || !UUID_TEXT.test(id)) {
-    throw new BadRequestException('Enter a valid cursor');
-  }
-  return { createdAt, id };
-}
-
-function encodeBidCursor(createdAt: Date, id: string): string {
-  return Buffer.from(`${createdAt.toISOString()}\n${id}`, 'utf8').toString('base64url');
+function readBidCursor(value: unknown): ListCursor | null {
+  if (value === undefined || value === null || value === '') return null;
+  return readKeysetCursor(value);
 }
 
 function readBidSubmission(body: unknown): { deliveryId: string; amountCents: number; currency?: Currency } {

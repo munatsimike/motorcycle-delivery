@@ -1,4 +1,6 @@
+import { mockExactPage } from '../common/exact-page.test-support.js';
 import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { encodeListCursor } from '../common/list-cursor.js';
 import { describe, expect, it } from 'vitest';
 import { Prisma, UserRole } from '../generated/prisma/client.js';
 import { CustomerSavedAddressController } from './customer-saved-address.controller.js';
@@ -26,6 +28,25 @@ describe('customer saved addresses', () => {
     await service.remove(OWNER, created.id);
     expect(await service.list(OWNER)).toEqual([]);
     expect(db.deliveries).toEqual([{ id: 'delivery-1', recipientName: 'Historical' }]);
+  });
+
+  it('pages saved addresses by creation time and keeps going when the cursor row is gone', async () => {
+    const db = memory();
+    const service = new CustomerSavedAddressService(db.prisma);
+    const first = await service.create(OWNER, addressBody({ customLabel: 'A' }), NOW);
+    const second = await service.create(OWNER, addressBody({ customLabel: 'B' }), NOW);
+    const third = await service.create(OWNER, addressBody({ customLabel: 'C' }), new Date(NOW.getTime() + 1000));
+    await service.create(OTHER, addressBody({ customLabel: 'Other' }), NOW);
+    const page = await service.listPage(OWNER, '1', undefined);
+    expect(page.data.map((row) => row.id)).toEqual([first.id]);
+    expect(page.nextCursor).toBe(encodeListCursor(NOW, first.id));
+    await service.remove(OWNER, second.id);
+    const rest = await service.listPage(OWNER, '20', encodeListCursor(NOW, second.id));
+    expect(rest.data.map((row) => row.id)).toEqual([third.id]);
+    expect(rest.nextCursor).toBeNull();
+    const empty = await service.listPage({ ...OWNER, customerAccountId: 'account-empty' }, undefined, undefined);
+    expect(empty).toEqual({ data: [], nextCursor: null });
+    await expect(service.listPage(OWNER, '20', 'not-a-cursor')).rejects.toThrow('Invalid cursor');
   });
 
   it('allows many Home and Work addresses and edits a duplicate label', async () => {
@@ -158,10 +179,16 @@ function memory(options?: { collideOnce?: boolean; opaqueDefault?: boolean }) {
   let defaultCollisions = 0;
   let skipClear = options?.collideOnce === true;
   const prisma = {
+    async $queryRaw(query: { values: unknown[] }) { return mockExactPage(query, rows, row => row.customerAccountId, row => row.createdAt, true); },
     customerSavedAddress: {
-      async findMany({ where }: { where: { customerAccountId: string } }) {
-        return rows.filter((row) => row.customerAccountId === where.customerAccountId)
-          .sort((left, right) => Number(right.isDefaultPickup) - Number(left.isDefaultPickup) || left.createdAt.getTime() - right.createdAt.getTime());
+      async findMany({ where, take }: { where: AddressQuery; take?: number }) {
+        const matched = rows.filter((row) => row.customerAccountId === where.customerAccountId && matchesAddressCursor(row, where));
+        if (take == null) {
+          return matched.sort((left, right) => Number(right.isDefaultPickup) - Number(left.isDefaultPickup) || left.createdAt.getTime() - right.createdAt.getTime());
+        }
+        return matched
+          .sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime() || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))
+          .slice(0, take);
       },
       async findFirst({ where }: { where: { id?: string; customerAccountId: string; label?: Row['label']; NOT?: { id: string } } }) {
         return rows.find((row) => matches(row, where)) ?? null;
@@ -232,6 +259,23 @@ function memory(options?: { collideOnce?: boolean; opaqueDefault?: boolean }) {
       throw new Error('customer_saved_addresses_one_default_pickup_idx');
     }
   }
+}
+
+type AddressQuery = {
+  customerAccountId: string;
+  id?: { in: string[] };
+  AND?: Array<{ OR?: Array<{ createdAt?: Date | { gt?: Date }; id?: { gt?: string } }> }>;
+};
+
+function matchesAddressCursor(row: Row, where: AddressQuery) {
+  if (where.id && !where.id.in.includes(row.id)) return false;
+  return where.AND?.every((clause) => !clause.OR || clause.OR.some((branch) => {
+    const timeOk = branch.createdAt instanceof Date
+      ? row.createdAt.getTime() === branch.createdAt.getTime()
+      : branch.createdAt?.gt !== undefined && row.createdAt.getTime() > branch.createdAt.gt.getTime();
+    const idOk = branch.id?.gt === undefined || row.id > branch.id.gt;
+    return timeOk && idOk;
+  })) ?? true;
 }
 
 function matches(row: Row, where: { id?: string; customerAccountId: string; label?: Row['label']; isDefaultPickup?: boolean; NOT?: { id: string } }): boolean {

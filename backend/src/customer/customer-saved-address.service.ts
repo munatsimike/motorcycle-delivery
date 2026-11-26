@@ -1,3 +1,5 @@
+import { exactPageKeys, orderedPageRows } from '../common/exact-page.js';
+import { encodeListCursor, readListCursor } from '../common/list-cursor.js';
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { CustomerSavedAddressLabel, Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -51,6 +53,21 @@ export class CustomerSavedAddressService {
       orderBy: [{ isDefaultPickup: 'desc' }, { createdAt: 'asc' }],
     });
     return rows.map(toResponse);
+  }
+
+  async listPage(customer: CustomerContext, limit: unknown, cursor: unknown) {
+    const page = readListCursor(limit, cursor);
+    // Immutable order prevents changing the default address from moving a page boundary.
+    const keys = await exactPageKeys(this.prisma, 'addresses', customer.customerAccountId, page.limit, page.cursor);
+    const visible = keys.slice(0, page.limit);
+    const rows = await this.prisma.customerSavedAddress.findMany({
+      where: { customerAccountId: customer.customerAccountId, id: { in: visible.map(key => key.id) } },
+    });
+    const last = visible[visible.length - 1];
+    return {
+      data: orderedPageRows(visible, rows).map(toResponse),
+      nextCursor: keys.length > page.limit && last ? encodeListCursor(last.at, last.id) : null,
+    };
   }
 
   async create(customer: CustomerContext, body: unknown, now = new Date()): Promise<SavedAddressResponse> {

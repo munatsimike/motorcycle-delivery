@@ -760,7 +760,7 @@ function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?:
       async findFirst({ where }: { where: { id: string; customerId: string } }) {
         return deliveries.find((delivery) => delivery.id === where.id && delivery.customerId === where.customerId) ?? null;
       },
-      async findMany({ where }: { where: { status: DeliveryStatus; currency?: Currency; deliverBy?: { gt?: Date; lte?: Date }; searchGeneration: number; OR?: Array<{ deliverBy: null | { gt?: Date } }> } }) {
+      async findMany({ where }: { where: { status: DeliveryStatus; currency?: Currency; deliverBy?: { gt?: Date; lte?: Date }; searchGeneration: number; OR?: Array<{ deliverBy: null | { gt?: Date } }>; requestDeclines?: { none: { riderProfileId: string } } } }) {
         return deliveries.filter((delivery) => (
           delivery.status === where.status
           && delivery.serviceClass != null
@@ -773,6 +773,9 @@ function store(options?: { basisPoints?: number; borrowingLimit?: string; rate?:
               ? delivery.deliverBy == null
               : delivery.deliverBy != null && clause.deliverBy.gt != null && delivery.deliverBy > clause.deliverBy.gt
           )) : true)
+          && (where.requestDeclines?.none
+            ? !declines.some((row) => row.deliveryId === delivery.id && row.riderProfileId === where.requestDeclines!.none.riderProfileId)
+            : true)
         ));
       },
     },

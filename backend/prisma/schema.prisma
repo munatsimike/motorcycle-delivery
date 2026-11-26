@@ -571,6 +571,7 @@ model Delivery {
 
   @@index([customerId, createdAt])
   @@index([status, createdAt])
+  @@index([customerId, createdAt, id], map: "customer_delivery_page_idx")
   @@map("deliveries")
 }
 
@@ -597,6 +598,9 @@ model DeliveryAssignment {
   status         AssignmentStatus         @default(OFFERED)
   // Null on a V2 assignment that has no customer deadline. V1 offers still store an expiry.
   offerExpiresAt DateTime?                @map("offer_expires_at") @db.Timestamptz(6)
+  // Null only before the completion trigger runs. The trigger fills it when an
+  // older application instance completes an assignment without this column.
+  completedAt    DateTime?                @map("completed_at") @db.Timestamptz(6)
   respondedAt    DateTime?                @map("responded_at") @db.Timestamptz(6)
   releaseReason    AssignmentReleaseReason? @map("release_reason")
   releasedAt       DateTime?                @map("released_at") @db.Timestamptz(6)
@@ -640,6 +644,7 @@ model DeliveryAssignment {
   @@index([riderProfileId, status])
   @@index([motorcycleId])
   @@index([offerExpiresAt])
+  @@index([riderProfileId, status, completedAt, id], map: "assignment_completion_page_idx")
   @@map("delivery_assignments")
 }
 
@@ -692,6 +697,7 @@ model DeliveryStatusEvent {
   actor    User?    @relation(fields: [actorId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@index([deliveryId, occurredAt])
+  @@index([deliveryId, newStatus, occurredAt], map: "delivery_event_status_time_idx")
   @@map("delivery_status_events")
 }
 
@@ -964,6 +970,7 @@ model CustomerSavedAddress {
   customerAccount CustomerAccount @relation(fields: [customerAccountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@index([customerAccountId, createdAt])
+  @@index([customerAccountId, createdAt, id], map: "saved_address_page_idx")
   @@map("customer_saved_addresses")
 }
 
@@ -1290,6 +1297,7 @@ model RiderWalletEntry {
 
   @@index([riderWalletId, createdAt])
   @@index([actorId])
+  @@index([riderWalletId, createdAt, id], map: "wallet_entry_page_idx")
   @@map("rider_wallet_entries")
 }
 

@@ -1,3 +1,4 @@
+import { mockExactPage } from '../common/exact-page.test-support.js';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { afterEach, describe, expect, it } from 'vitest';
 import { BidStatus, Currency, ServiceClass } from '../generated/prisma/client.js';
@@ -97,6 +98,7 @@ function prisma(seen: unknown[]) {
     stored(FOREIGN, OTHER, '2026-10-24T10:00:00.000Z'),
   ];
   const tx = {
+    async $queryRaw(query: { values: unknown[] }) { return mockExactPage(query, rows, row => row.riderProfileId, row => row.createdAt); },
     delivery: {
       async findMany() {
         return [];
@@ -109,6 +111,7 @@ function prisma(seen: unknown[]) {
       async findMany(args: {
         where: {
           riderProfileId: string;
+          id?: { in: string[] };
           OR?: [
             { createdAt: { lt: Date } },
             { AND: [{ createdAt: Date }, { id: { lt: string } }] },
@@ -119,6 +122,7 @@ function prisma(seen: unknown[]) {
         seen.push(args.where);
         const cursor = args.where.OR;
         const filtered = rows.filter((row) => {
+          if (args.where.id && !args.where.id.in.includes(row.id)) return false;
           if (row.riderProfileId !== args.where.riderProfileId) {
             return false;
           }

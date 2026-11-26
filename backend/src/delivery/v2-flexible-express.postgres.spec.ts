@@ -142,7 +142,7 @@ afterAll(async () => {
   else process.env.V2_MARKETPLACE_ENABLED = previousFlag;
   if (previousSsl === undefined) delete process.env.DATABASE_SSL_CA;
   else process.env.DATABASE_SSL_CA = previousSsl;
-}, 60_000);
+}, 120_000);
 
 it('allows many accepted assignments per rider and one accepted assignment per delivery', async () => {
   const rows = await prisma.$queryRaw<Array<{ indexname: string }>>`
@@ -645,6 +645,7 @@ async function waitForPostgres() {
   let lastError: unknown;
   for (let attempt = 0; attempt < 60; attempt += 1) {
     const client = new pg.Client({ connectionString: DISPOSABLE_URL, connectionTimeoutMillis: 1000 });
+    client.on('error', () => undefined);
     try {
       await client.connect();
       await client.query('SELECT 1');

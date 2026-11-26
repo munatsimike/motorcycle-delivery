@@ -136,8 +136,9 @@ beforeAll(async () => {
   await observer.query('INSERT INTO "deliveries" ("id") VALUES ($1), ($2), ($3), ($4), ($5)', [DELIVERY_A, DELIVERY_B, DELIVERY_C, DELIVERY_D, DELIVERY_E]);
   await observer.query('INSERT INTO "rider_wallets" ("id") VALUES ($1)', [WALLET]);
   other = new pg.Client({ connectionString: DISPOSABLE_URL });
+  other.on('error', () => undefined);
   await other.connect();
-}, 180_000);
+}, 240_000);
 
 afterAll(async () => {
   await observer?.end().catch(() => undefined);
@@ -300,8 +301,9 @@ function sqlStatements(sql: string): string[] {
 
 async function waitForPostgres() {
   let lastError: unknown;
-  for (let attempt = 0; attempt < 60; attempt += 1) {
+  for (let attempt = 0; attempt < 150; attempt += 1) {
     const client = new pg.Client({ connectionString: DISPOSABLE_URL, connectionTimeoutMillis: 1000 });
+    client.on('error', () => undefined);
     try {
       await client.connect();
       await client.query('SELECT 1');

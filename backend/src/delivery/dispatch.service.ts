@@ -1,3 +1,5 @@
+import { exactPageKeys, orderedPageRows } from '../common/exact-page.js';
+import { encodeListCursor, readListCursor } from '../common/list-cursor.js';
 import { createHash } from 'node:crypto';
 import {
   BadRequestException,
@@ -302,6 +304,27 @@ export class DispatchService {
     return { assignments };
   }
 
+  async completedAssignmentsPage(rider: RiderContext, limit: unknown, cursor: unknown, now = new Date()) {
+    const page = readListCursor(limit, cursor);
+    const keys = await exactPageKeys(this.prisma, 'completed', rider.riderProfileId, page.limit, page.cursor);
+    const visible = keys.slice(0, page.limit);
+    const rows = await this.prisma.deliveryAssignment.findMany({
+      where: {
+        id: { in: visible.map(key => key.id) },
+        riderProfileId: rider.riderProfileId,
+        status: AssignmentStatus.COMPLETED,
+        delivery: { status: DeliveryStatus.DELIVERED },
+        completedAt: { not: null },
+      },
+      include: { delivery: true },
+    });
+    const last = visible[visible.length - 1];
+    return { assignments: orderedPageRows(visible, rows).flatMap(row => {
+      const assignment = completedAssignmentFromRow(rider.riderProfileId, row, now, row.completedAt ?? undefined);
+      return assignment ? [assignment] : [];
+    }), nextCursor: keys.length > page.limit && last ? encodeListCursor(last.at, last.id) : null };
+  }
+
   async progress(
     rider: RiderContext,
     deliveryId: string,
@@ -493,7 +516,7 @@ async function progressDelivery(
     await recordSuccessfulDelivery(tx, profile);
     await tx.deliveryAssignment.update({
       where: { id: assignment.id },
-      data: { status: AssignmentStatus.COMPLETED },
+      data: { status: AssignmentStatus.COMPLETED, completedAt: now },
     });
   }
   if (v2) {
@@ -1025,6 +1048,7 @@ export function completedAssignmentFromRow(
     };
   },
   now: Date,
+  canonicalCompletedAt?: Date,
 ): CompletedAssignment | null {
   if (
     row.riderProfileId !== riderProfileId
@@ -1036,7 +1060,7 @@ export function completedAssignmentFromRow(
   const stops = riderStops(row.delivery, now);
   const serviceClass = marketplaceServiceClass(row.delivery.serviceClass, row.acceptedBidAmount);
   const delivered = row.delivery.statusEvents?.find((event) => event.newStatus === DeliveryStatus.DELIVERED);
-  const completedAt = delivered?.occurredAt ?? row.delivery.updatedAt ?? row.delivery.createdAt ?? now;
+  const completedAt = canonicalCompletedAt ?? delivered?.occurredAt ?? row.delivery.updatedAt ?? row.delivery.createdAt ?? now;
   return {
     assignmentId: row.id,
     deliveryId: row.delivery.id,

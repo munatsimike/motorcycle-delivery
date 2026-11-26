@@ -40,6 +40,7 @@ beforeAll(async () => {
   for (const name of names) {
     const sql = readFileSync(new URL(`${name}/migration.sql`, MIGRATIONS), 'utf8');
     const migration = new pg.Client({ connectionString: DISPOSABLE_URL });
+    migration.on('error', () => undefined);
     await migration.connect();
     try {
       await migration.query(sql);
@@ -225,8 +226,9 @@ async function activeSessions(userId: string): Promise<Array<{ id: string; app_r
 async function waitForPostgres(): Promise<pg.Client> {
   const started = Date.now();
   let lastError: unknown;
-  while (Date.now() - started < 60_000) {
+  while (Date.now() - started < 180_000) {
     const next = new pg.Client({ connectionString: DISPOSABLE_URL });
+    next.on('error', () => undefined);
     try {
       await next.connect();
       await next.query('SELECT 1');
