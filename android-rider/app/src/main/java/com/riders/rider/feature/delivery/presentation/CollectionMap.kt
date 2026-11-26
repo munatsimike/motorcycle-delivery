@@ -153,7 +153,8 @@ fun CollectionMap(
     }
     val riderReady = riderPoint != null
     val riderGate = riderReady || framedWithRider
-    val routeReady = route.line.size > 1
+    val routePoints = remember(route.line) { route.line.map { it.toLatLng() } }
+    val routeReady = routePoints.size > 1
     val routeGate = routeReady || framedRoute
     val statusTop = with(density) { WindowInsets.statusBars.getTop(this).toDp() }
     val approachLabel = pickupTagLabel(riderPoint, pickup, route.metres, route.seconds)
@@ -171,6 +172,8 @@ fun CollectionMap(
     val bottomPadding = if (mapHeightDp > 96.dp) (sheetOverlap + sideClearance).coerceAtMost(paddingBudget) else 0.dp
     val boundsPadding = collectionMarkerPaddingPx(boundsAir.value, density.density)
     val stroke = with(density) { 4.dp.toPx() }
+    val routeStartCap = remember { RoundCap() }
+    val routeEndCap = remember { RoundCap() }
 
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle, assignmentId, pickup) {
@@ -285,14 +288,14 @@ fun CollectionMap(
             ) {
                 val atStop = riderPoint != null && pickup != null &&
                     haversineMetres(riderPoint, pickup) <= ARRIVAL_METRES.toInt()
-                if (route.line.size > 1 && !atStop) {
+                if (routeReady && !atStop) {
                     Polyline(
-                        points = route.line.map { it.toLatLng() },
+                        points = routePoints,
                         color = routeBlue,
                         width = stroke,
                         jointType = JointType.ROUND,
-                        startCap = RoundCap(),
-                        endCap = RoundCap(),
+                        startCap = routeStartCap,
+                        endCap = routeEndCap,
                         zIndex = 0f,
                     )
                 }

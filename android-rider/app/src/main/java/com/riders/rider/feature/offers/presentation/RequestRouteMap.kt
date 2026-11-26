@@ -174,7 +174,8 @@ fun RequestRouteMap(
         heldRider = liveRider
     }
     val riderGate = rider != null || framedRider
-    val road = line.filter { it.latitude.isFinite() && it.longitude.isFinite() }
+    val road = remember(line) { line.filter { it.latitude.isFinite() && it.longitude.isFinite() } }
+    val routePoints = remember(road) { road.map { LatLng(it.latitude, it.longitude) } }
     val routeReady = road.size > 1
     val routeGate = routeReady || framedRoute
     val layoutWidth = if (mapWidth > 0) mapWidth else 10_000
@@ -188,6 +189,8 @@ fun RequestRouteMap(
         includeRider = rider != null,
     )
     val stroke = with(density) { routeWidth.toPx() }
+    val routeStartCap = remember { RoundCap() }
+    val routeEndCap = remember { RoundCap() }
     val motorcycleIcon = remember(mapLoaded) {
         if (mapLoaded) riderMotorcycleDescriptor(context) else null
     }
@@ -327,12 +330,12 @@ fun RequestRouteMap(
                 haversineMetres(rider, dropoff) <= ARRIVAL_METRES.toInt()
             if (road.size > 1 && !atDropoff) {
                 Polyline(
-                    points = road.map { LatLng(it.latitude, it.longitude) },
+                    points = routePoints,
                     color = dropoffPinColor,
                     width = stroke,
                     jointType = JointType.ROUND,
-                    startCap = RoundCap(),
-                    endCap = RoundCap(),
+                    startCap = routeStartCap,
+                    endCap = routeEndCap,
                     geodesic = true,
                     zIndex = 1f,
                 )
