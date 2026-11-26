@@ -9,8 +9,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -109,9 +110,10 @@ fun BidBoardScreen(
             model.refresh()
         }
     }
-    val pending = pendingBids(ui.bids)
+    val listState = rememberLazyListState()
+    val pending = remember(ui.bids) { pendingBids(ui.bids) }
     val phase = bidBoardPhase(ui.loading, requestCount = 0, bidCount = pending.size, error = ui.error)
-    val shown = sortDeliveries(
+    val shown = remember(pending, contentKind, sort) { sortDeliveries(
         pending.filter { deliveryContentMatches(it.parcelDescription, contentKind) },
         sort,
         { it.createdAt },
@@ -119,6 +121,7 @@ fun BidBoardScreen(
         { it.amount },
         { it.bidId },
     )
+    }
     val centered = phase != BidBoardPhase.Ready || shown.isEmpty()
     RidersPullRefresh(refreshing = ui.refreshing, onRefresh = model::pullRefresh, modifier = modifier) {
         if (centered) {
@@ -144,29 +147,28 @@ fun BidBoardScreen(
                 }
             }
         } else {
-        Column(
-            Modifier
+        LazyColumn(
+            modifier = Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
                 .padding(horizontal = RidersSpacing.lg)
                 .padding(bottom = RidersSpacing.lg),
-            verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
+            state = listState,
+            verticalArrangement = Arrangement.spacedBy(RidersSpacing.md),
         ) {
-            Text(
+            item(key = "heading") { Text(
                 AWAITING_CUSTOMER_RESPONSE,
                 style = RidersType.captionStrong,
                 color = Color(0xFFB45309),
-            )
-            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(RidersSpacing.md)) {
-                shown.forEach { bid ->
+            ) }
+            items(shown, key = { "bid:${it.bidId}" }, contentType = { "bid" }) { bid ->
                     OwnBidRow(
                         bid = bid,
                         withdrawing = ui.withdrawingBidId == bid.bidId,
                         onWithdraw = { confirmWithdraw = bid.bidId },
                     )
-                }
             }
             if (ui.nextCursor != null) {
+                item(key = "more") {
                 RidersSecondaryButton(
                     label = "More offers",
                     onClick = model::loadMore,
@@ -176,8 +178,9 @@ fun BidBoardScreen(
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
+            }
             if (ui.error != null && pending.isNotEmpty()) {
-                RidersFailureNotice(message = ui.error.orEmpty(), onRetry = model::refresh)
+                item(key = "error") { RidersFailureNotice(message = ui.error.orEmpty(), onRetry = model::refresh) }
             }
         }
         }

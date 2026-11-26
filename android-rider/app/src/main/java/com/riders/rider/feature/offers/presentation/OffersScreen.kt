@@ -37,6 +37,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.key
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.riders.rider.R
@@ -126,7 +127,14 @@ fun OffersScreen(
             .then(if (inShell) Modifier else Modifier.statusBarsPadding())
             .then(if (inShell) Modifier else Modifier.navigationBarsPadding()),
     ) {
-    val centeredList = offerListFillsPage(ui, contentKind, sort, unbidOnly)
+    val pool = remember(ui.offers, ui.ownBids, ui.sentAmounts, unbidOnly) {
+        if (unbidOnly) newMarketplaceOffers(ui.offers, ui.ownBids, ui.sentAmounts) else ui.offers
+    }
+    val shown = remember(pool, contentKind, sort) {
+        sortDeliveries(pool.filter { deliveryContentMatches(it.parcel.description, contentKind) }, sort,
+            { it.expiresAt }, { it.distanceMeters }, { it.offeredPrice }, { it.deliveryId })
+    }
+    val centeredList = shown.isEmpty()
     if (centeredList) {
         RidersCenteredContent(
             Modifier
@@ -136,6 +144,8 @@ fun OffersScreen(
         ) {
             OfferList(
                 ui,
+                pool = pool,
+                shown = shown,
                 onAccept = { confirmAccept = it },
                 onBid = model::openBid,
                 onSubmitBid = { offer, amount -> model.submitBid(offer.deliveryId, amount, offer.currency) },
@@ -160,6 +170,8 @@ fun OffersScreen(
     ) {
         OfferList(
             ui,
+            pool = pool,
+            shown = shown,
             onAccept = { confirmAccept = it },
             onBid = model::openBid,
             onSubmitBid = { offer, amount -> model.submitBid(offer.deliveryId, amount, offer.currency) },
@@ -229,33 +241,11 @@ fun OffersScreen(
     }
 }
 
-private fun offerListFillsPage(
-    ui: OfferUi,
-    contentKind: String?,
-    sort: DeliveryListSort,
-    unbidOnly: Boolean,
-): Boolean {
-    val pool = if (unbidOnly) newMarketplaceOffers(ui.offers, ui.ownBids, ui.sentAmounts) else ui.offers
-    if (ui.loading && pool.isEmpty()) {
-        return true
-    }
-    if (pool.isEmpty() && ui.error != null) {
-        return true
-    }
-    val shown = sortDeliveries(
-        pool.filter { deliveryContentMatches(it.parcel.description, contentKind) },
-        sort,
-        { it.expiresAt },
-        { it.distanceMeters },
-        { it.offeredPrice },
-        { it.deliveryId },
-    )
-    return shown.isEmpty()
-}
-
 @Composable
 private fun OfferList(
     ui: OfferUi,
+    pool: List<OfferResponse>,
+    shown: List<OfferResponse>,
     onAccept: (OfferResponse) -> Unit,
     onBid: (OfferResponse) -> Unit,
     onSubmitBid: (OfferResponse, String) -> Unit,
@@ -270,15 +260,6 @@ private fun OfferList(
     unbidOnly: Boolean = false,
     onOpen: ((OfferResponse) -> Unit)? = null,
 ) {
-    val pool = if (unbidOnly) newMarketplaceOffers(ui.offers, ui.ownBids, ui.sentAmounts) else ui.offers
-    val shown = sortDeliveries(
-        pool.filter { deliveryContentMatches(it.parcel.description, contentKind) },
-        sort,
-        { it.expiresAt },
-        { it.distanceMeters },
-        { it.offeredPrice },
-        { it.deliveryId },
-    )
     val emptyTitle = if (unbidOnly) "No new offers" else "No open requests"
     val emptyBody = if (unbidOnly) {
         "Available delivery requests will appear here."
@@ -298,6 +279,7 @@ private fun OfferList(
             image = R.drawable.parcel_box,
         )
         else -> shown.forEach { offer ->
+            key(offer.deliveryId) {
             val sentAmount = resolvedSubmittedAmount(ui.ownBids, offer.deliveryId, ui.sentAmounts[offer.deliveryId])
             val openRequest = onOpen?.let { open -> { open(offer) } }
             OfferRequestCard(
@@ -321,6 +303,7 @@ private fun OfferList(
                 onOpen = openRequest,
                 fresh = true,
             )
+            }
         }
     }
     val bidProblem = displayedBidProblem(
