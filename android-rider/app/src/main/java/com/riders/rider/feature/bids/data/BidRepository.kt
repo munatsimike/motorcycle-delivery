@@ -172,10 +172,10 @@ class BidRepository @Inject constructor(
         }
     }
 
-    suspend fun refreshOwnBids(cursor: String?, refreshLoaded: Boolean = false): ApiResult<OwnBidPage> {
+    suspend fun refreshOwnBids(cursor: String?, scanAll: Boolean = false): ApiResult<OwnBidPage> {
         val revision = ownRevision.get()
         val session = ownSession.get()
-        return ownRead.read(Triple(revision, cursor, refreshLoaded)) {
+        return ownRead.read(Triple(revision, cursor, scanAll)) {
             ownBidsLock.withLock {
                 if (session != ownSession.get()) return@withLock ApiResult.Err(ApiError.SessionEnded)
                 if (revision != ownRevision.get()) return@withLock ApiResult.Err(ApiError.Unexpected("Offers changed while refreshing. Try again."))
@@ -184,15 +184,28 @@ class BidRepository @Inject constructor(
                 var result = ownBids(cursor)
                 if (cursor == null && result is ApiResult.Ok) {
                     var page = result.value
-                    // Refresh already loaded history on explicit refresh; normal polling only
-                    // follows older pages when an outstanding OPEN bid needs a status update.
-                    val required = current.bids.filter { refreshLoaded || it.status == "OPEN" }.map { it.bidId }.toSet()
-                    while (page.nextCursor != null && required.any { id -> page.bids.none { it.bidId == id } }) {
+                    // Pending has no history pagination UI. On its initial/manual refresh,
+                    // discover every OPEN offer, even behind pages of terminal offers.
+                    // Normal shared refreshes only revisit known OPEN bids (and bridge any
+                    // gap since the previously fetched head), not the full history.
+                    val required = current.bids.filter { it.status == "OPEN" }.map { it.bidId }.toMutableSet()
+                    current.bids.firstOrNull()?.let { required.add(it.bidId) }
+                    val visited = mutableSetOf<String>()
+                    while (page.nextCursor != null && (scanAll || required.any { id -> page.bids.none { it.bidId == id } })) {
                         val next = page.nextCursor ?: break
+                        if (!visited.add(next)) {
+                            result = ApiResult.Err(ApiError.Unexpected("Offer pagination did not advance."))
+                            break
+                        }
+                        if (session != ownSession.get()) return@withLock ApiResult.Err(ApiError.SessionEnded)
+                        if (revision != ownRevision.get()) return@withLock ApiResult.Err(ApiError.Unexpected("Offers changed while refreshing. Try again."))
                         when (val more = ownBids(next)) {
                             is ApiResult.Ok -> {
+                                if (more.value.nextCursor?.let { it in visited } == true) {
+                                    result = ApiResult.Err(ApiError.Unexpected("Offer pagination did not advance."))
+                                    break
+                                }
                                 page = mergeOwnBidPage(page, more.value, next)
-                                if (more.value.nextCursor == next) { result = ApiResult.Err(ApiError.Unexpected("Offer pagination did not advance.")); break }
                             }
                             is ApiResult.Err -> { result = more; break }
                         }
@@ -295,7 +308,7 @@ internal fun mergeOwnBidPage(current: OwnBidPage, incoming: OwnBidPage, cursor: 
 }
 
 internal fun requestBidCoverageNeeded(requests: List<OpenBidRequest>, bids: List<OwnBid>): Boolean {
-    val unresolved = requests.filter { request -> bids.none { it.deliveryId == request.id && it.status == "OPEN" } }
+    val unresolved = requests.filter { request -> com.riders.rider.feature.bids.domain.openBidForRequest(bids, request.id, request.searchStartedAt) == null }
     if (unresolved.isEmpty()) return false
     val oldest = bids.lastOrNull()?.createdAt?.let { runCatching { Instant.parse(it) }.getOrNull() } ?: return true
     // Older servers may omit searchStartedAt. In that case the existing API has

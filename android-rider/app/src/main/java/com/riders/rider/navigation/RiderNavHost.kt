@@ -184,7 +184,7 @@ private fun RiderGraph(
             RiderShell(
                 entry = entry,
                 onDelivery = { deliveryId -> controller.navigate(parcelRoute(deliveryId)) },
-                onCompleted = { deliveryId -> controller.navigate(parcelRoute(deliveryId, completed = true)) },
+                onCompleted = { route -> controller.navigate(route) },
                 onAccepted = { deliveryId ->
                     controller.navigate("delivery/$deliveryId") {
                         popUpTo(RIDER_SHELL)
@@ -213,18 +213,23 @@ private fun RiderGraph(
             )
         }
         composable(
-            route = "delivery/{deliveryId}?completed={completed}",
+            route = "delivery/{deliveryId}?completed={completed}&assignment={assignment}",
             arguments = listOf(
                 navArgument("deliveryId") { type = NavType.StringType },
                 navArgument("completed") {
                     type = NavType.BoolType
                     defaultValue = false
                 },
+                navArgument("assignment") {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
             ),
         ) { entry ->
             DeliveryScreen(
                 deliveryId = entry.arguments?.getString("deliveryId").orEmpty(),
                 completed = entry.arguments?.getBoolean("completed") == true,
+                assignmentId = entry.arguments?.getString("assignment").orEmpty(),
                 onBack = { controller.popBackStack() },
                 onFinished = { controller.popBackStack(RIDER_SHELL, inclusive = false) },
                 onRiderCancelled = { eventId ->

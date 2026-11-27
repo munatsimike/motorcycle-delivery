@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -85,6 +86,7 @@ fun NotificationSnackbarHost(
                 enter = slideInVertically { it }, exit = slideOutVertically { it },
             ) {
                 Snackbar(
+                    shape = RoundedCornerShape(RidersRadius.md),
                     containerColor = Color(0xFF2C3330), contentColor = Color.White,
                     dismissAction = {
                         IconButton(onClick = { active = null }) {

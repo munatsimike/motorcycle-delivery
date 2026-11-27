@@ -38,9 +38,7 @@ import kotlinx.coroutines.flow.collect
 import com.riders.rider.R
 import com.riders.rider.core.design.RidersCard
 import com.riders.rider.core.design.RidersDialog
-import com.riders.rider.core.design.RidersDialogActions
 import com.riders.rider.core.design.RidersDialogBody
-import com.riders.rider.core.design.RidersDialogTextButton
 import com.riders.rider.core.design.RidersDialogTitle
 import com.riders.rider.core.design.RidersDialogTone
 import com.riders.rider.core.design.RidersInlineAction
@@ -51,7 +49,6 @@ import com.riders.rider.core.design.RidersFailureNotice
 import com.riders.rider.core.design.RidersTransientNotice
 import com.riders.rider.core.design.RidersLoadingState
 import com.riders.rider.core.design.RidersPullRefresh
-import com.riders.rider.core.design.RidersSecondaryButton
 import com.riders.rider.core.design.RidersSpacing
 import com.riders.rider.core.design.RidersType
 import com.riders.rider.feature.bids.domain.AWAITING_CUSTOMER_RESPONSE
@@ -67,11 +64,14 @@ import com.riders.rider.feature.delivery.presentation.cardLocationPinWidth
 import com.riders.rider.feature.delivery.presentation.ContentLabel
 import com.riders.rider.feature.delivery.presentation.ServiceClassLabel
 import com.riders.rider.feature.delivery.presentation.DeliveryRoute
+import com.riders.rider.feature.delivery.presentation.DeliveryListCardElevation
+import com.riders.rider.feature.delivery.presentation.DeliveryListCardShadowColor
 import com.riders.rider.feature.offers.domain.OFFER_REFRESH_INTERVAL_MS
 import com.riders.rider.feature.offers.domain.shouldPollMarketplace
 import com.riders.rider.feature.delivery.presentation.deliveryContentMatches
 import com.riders.rider.feature.delivery.presentation.filteredContentTitle
 import com.riders.rider.feature.offers.domain.offerPriceLabel
+import com.riders.rider.feature.offers.presentation.MapOfferDialogButtons
 
 @Composable
 fun BidBoardScreen(
@@ -175,18 +175,6 @@ fun BidBoardScreen(
                         onWithdraw = { confirmWithdraw = bid.bidId },
                     )
             }
-            if (ui.nextCursor != null) {
-                item(key = "more") {
-                RidersSecondaryButton(
-                    label = "More offers",
-                    onClick = model::loadMore,
-                    enabled = !ui.loadingMore,
-                    loading = ui.loadingMore,
-                    loadingLabel = "Loading offers",
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-            }
         }
         }
     }
@@ -194,22 +182,19 @@ fun BidBoardScreen(
     RidersDialog(visible = pendingWithdraw != null, onDismiss = { confirmWithdraw = null }) {
         RidersDialogTitle("Withdraw offer?")
         RidersDialogBody("The customer will no longer see this offer.")
-        RidersDialogActions {
-            RidersDialogTextButton(
-                label = "Keep offer",
-                tone = RidersDialogTone.Neutral,
-                onClick = { confirmWithdraw = null },
-            )
-            RidersDialogTextButton(
-                label = "Withdraw",
-                tone = RidersDialogTone.Danger,
-                onClick = {
-                    val bidId = pendingWithdraw ?: return@RidersDialogTextButton
-                    confirmWithdraw = null
-                    model.withdraw(bidId)
-                },
-            )
-        }
+        MapOfferDialogButtons(
+            confirmLabel = "Withdraw",
+            dismissLabel = "Keep offer",
+            confirmTone = RidersDialogTone.Danger,
+            onConfirm = {
+                val bidId = pendingWithdraw ?: return@MapOfferDialogButtons
+                confirmWithdraw = null
+                model.withdraw(bidId)
+            },
+            onDismiss = { confirmWithdraw = null },
+            confirmEnabled = pending.any { it.bidId == pendingWithdraw } && ui.withdrawingBidId == null,
+            dismissEnabled = true,
+        )
     }
 }
 
@@ -219,7 +204,14 @@ private fun OwnBidRow(
     withdrawing: Boolean,
     onWithdraw: () -> Unit,
 ) {
-    RidersCard(modifier = Modifier.fillMaxWidth(), bottomPadding = RidersSpacing.md) {
+    RidersCard(
+        modifier = Modifier.fillMaxWidth(),
+        topPadding = RidersSpacing.md,
+        bottomPadding = RidersSpacing.sm,
+        itemSpacing = RidersSpacing.xs,
+        elevation = DeliveryListCardElevation,
+        shadowColor = DeliveryListCardShadowColor,
+    ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),

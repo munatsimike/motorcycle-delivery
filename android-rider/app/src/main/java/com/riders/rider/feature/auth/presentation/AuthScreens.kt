@@ -8,6 +8,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.size
@@ -46,7 +48,6 @@ import androidx.compose.ui.autofill.ContentType
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -110,39 +111,28 @@ fun WelcomeScreen(onSignIn: () -> Unit, onRegister: () -> Unit) {
         ) {
             RidersBrandLogo()
         }
-        Box(
+        BoxWithConstraints(
             Modifier
                 .weight(1f)
                 .fillMaxWidth(),
-            contentAlignment = Alignment.BottomCenter,
         ) {
-            Image(
-                painter = painterResource(R.drawable.rider_cutout),
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Fit,
-                alignment = Alignment.BottomCenter,
-            )
+            // Shift the hero without changing its size.
             Box(
                 Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .fillMaxHeight(0.46f)
-                    .background(Brush.verticalGradient(listOf(Color.Transparent, WelcomeBackdrop))),
-            )
-            Box(
-                Modifier
-                    .align(Alignment.BottomStart)
-                    .fillMaxWidth(0.62f)
-                    .fillMaxHeight(0.58f)
-                    .background(
-                        Brush.linearGradient(
-                            colors = listOf(WelcomeBackdrop, Color.Transparent),
-                            start = Offset(0f, Offset.Infinite.y),
-                            end = Offset(Offset.Infinite.x, 0f),
-                        ),
-                    ),
-            )
+                    .fillMaxSize()
+                    .offset(y = maxHeight * -0.08f),
+                contentAlignment = Alignment.BottomCenter,
+            ) {
+                Image(
+                    painter = painterResource(R.drawable.rider_cutout),
+                    contentDescription = null,
+                    modifier = Modifier
+                        .fillMaxWidth(0.83f)
+                        .fillMaxHeight(0.85f),
+                    contentScale = ContentScale.Fit,
+                    alignment = Alignment.BottomCenter,
+                )
+            }
         }
         Column(
             Modifier

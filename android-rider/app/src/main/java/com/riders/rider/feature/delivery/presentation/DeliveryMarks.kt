@@ -181,6 +181,9 @@ private fun statusTone(status: String): StatusTone = when (status) {
     else -> StatusTone(RidersColors.primaryLight, RidersColors.primaryDark)
 }
 
+internal val DeliveryListCardElevation = 1.dp
+internal val DeliveryListCardShadowColor = Color(0xFF17211D)
+
 @Composable
 fun DeliverySummaryCard(
     description: String,
@@ -207,11 +210,11 @@ fun DeliverySummaryCard(
     Column(
         modifier
             .shadow(
-                elevation = if (filled) 2.dp else if (dark) 6.dp else 3.dp,
+                elevation = if (filled) DeliveryListCardElevation else if (dark) 3.dp else 1.5.dp,
                 shape = shape,
                 clip = false,
-                ambientColor = if (filled) Color(0xFF17211D) else Color.Black,
-                spotColor = if (filled) Color(0xFF17211D) else Color.Black,
+                ambientColor = if (filled) DeliveryListCardShadowColor else Color.Black,
+                spotColor = if (filled) DeliveryListCardShadowColor else Color.Black,
             )
             .clip(shape)
             .background(containerColor ?: if (filled) RidersColors.card else RidersColors.background)
@@ -354,47 +357,51 @@ fun DeliveryDetailsSummary(
         surface,
         verticalArrangement = Arrangement.spacedBy(if (parcelSheet) 20.dp else RidersSpacing.sm),
     ) {
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
-            verticalAlignment = Alignment.CenterVertically,
+        Column(
+            verticalArrangement = Arrangement.spacedBy(if (parcelSheet) 12.dp else RidersSpacing.sm),
         ) {
-            ContentIcon(description, size = 15.dp, muted = true)
-            ContentLabel(description, compact = true)
-            ServiceClassLabel(serviceClass)
-        }
-        if (framed || whenLabel.isNotEmpty()) {
             Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
+                horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (framed && !dateFirst) {
-                    DetailFact("Delivery", shortDeliveryReference(deliveryId), Modifier.weight(1f))
-                }
-                if (whenLabel.isNotEmpty()) {
-                    if (parcelSheet) {
-                        Row(
-                            Modifier.weight(1f),
-                            horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_calendar),
-                                contentDescription = dateCaption,
-                                modifier = Modifier.size(18.dp),
-                                tint = RidersColors.textSecondary,
-                            )
-                            Text(
-                                whenLabel,
-                                style = RidersType.bodyStrong,
-                                color = RidersColors.text,
-                            )
-                        }
-                    } else {
-                        DetailFact(dateCaption, whenLabel, Modifier.weight(1f))
+                ContentIcon(description, size = 15.dp, muted = true)
+                ContentLabel(description, compact = true)
+                ServiceClassLabel(serviceClass)
+            }
+            if (framed || whenLabel.isNotEmpty()) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
+                ) {
+                    if (framed && !dateFirst) {
+                        DetailFact("Delivery", shortDeliveryReference(deliveryId), Modifier.weight(1f))
                     }
-                }
-                if (framed && dateFirst) {
-                    DetailFact("Delivery", shortDeliveryReference(deliveryId), Modifier.weight(1f), alignEnd = true)
+                    if (whenLabel.isNotEmpty()) {
+                        if (parcelSheet) {
+                            Row(
+                                Modifier.weight(1f),
+                                horizontalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(
+                                    painter = painterResource(R.drawable.ic_calendar),
+                                    contentDescription = dateCaption,
+                                    modifier = Modifier.size(18.dp),
+                                    tint = RidersColors.textSecondary,
+                                )
+                                Text(
+                                    whenLabel,
+                                    style = RidersType.bodyStrong,
+                                    color = RidersColors.text,
+                                )
+                            }
+                        } else {
+                            DetailFact(dateCaption, whenLabel, Modifier.weight(1f))
+                        }
+                    }
+                    if (framed && dateFirst) {
+                        DetailFact("Delivery", shortDeliveryReference(deliveryId), Modifier.weight(1f), alignEnd = true)
+                    }
                 }
             }
         }
@@ -446,7 +453,6 @@ fun DeliveryDetailsSummary(
         }
         if (parcelSheet && !spacious) {
             Column(Modifier.fillMaxWidth()) {
-                Spacer(Modifier.height(RidersSpacing.md))
                 DistancePrice(distanceMeters, price, currency, paymentMethod)
             }
         } else {

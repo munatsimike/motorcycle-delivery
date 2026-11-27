@@ -47,7 +47,8 @@ class WalletViewModel @Inject constructor(
         request?.cancel()
         request = viewModelScope.launch {
                 val hasSummary = state.value.board.summary != null
-                state.update { it.copy(refreshing = hasSummary, loading = !hasSummary, paging = false) }
+                // Only user-initiated refreshes show the pull-to-refresh indicator.
+                state.update { it.copy(refreshing = fromUser && hasSummary, loading = !hasSummary, paging = false) }
                 try {
                     val summary = wallets.summary()
                     val serverWallet = (summary as? ApiResult.Ok)?.value?.activeWallet
@@ -132,7 +133,8 @@ class WalletViewModel @Inject constructor(
                 ),
             )
         }
-        refresh()
+        // Preserve the loading feedback for an explicit currency change.
+        refresh(fromUser = true)
     }
 
 }

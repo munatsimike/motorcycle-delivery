@@ -11,6 +11,7 @@ import com.riders.rider.core.design.RidersSpacing
 import com.riders.rider.core.design.ReportNetworkNotice
 import com.riders.rider.feature.delivery.data.OfflineSnapshot
 import com.riders.rider.feature.delivery.domain.DeliveryListSort
+import com.riders.rider.feature.delivery.domain.historySortTime
 import com.riders.rider.feature.delivery.domain.sortDeliveries
 
 @Composable
@@ -18,7 +19,7 @@ fun OfflineDeliveryList(snapshot: OfflineSnapshot?, contentKind: String?, sort: 
     ReportNetworkNotice(active = reportOffline)
     val visible = sortDeliveries(
         snapshot?.parcels.orEmpty().filter { deliveryContentMatches(it.parcelDescription, contentKind) },
-        sort, { if (completed) it.completedAt ?: it.createdAt else it.createdAt },
+        sort, { if (completed) historySortTime(it) else it.createdAt },
         { it.distanceMeters }, { it.agreedPrice }, { it.deliveryId },
     )
     LazyColumn(modifier.fillMaxSize(), contentPadding = PaddingValues(start = RidersSpacing.lg, end = RidersSpacing.lg, bottom = RidersSpacing.lg), verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg)) {
@@ -27,8 +28,8 @@ fun OfflineDeliveryList(snapshot: OfflineSnapshot?, contentKind: String?, sort: 
                 description = parcel.parcelDescription, status = parcel.status,
                 pickup = parcel.pickupAddress, dropoff = parcel.dropoffAddress,
                 onClick = {}, modifier = Modifier.fillMaxWidth(), listBadge = true,
-                serviceClass = parcel.serviceClass, filled = completed,
-                containerColor = if (completed && !LocalAppDark.current) Color.White else null,
+                serviceClass = parcel.serviceClass,
+                containerColor = if (LocalAppDark.current) null else Color.White,
                 interactionEnabled = false,
             )
         }

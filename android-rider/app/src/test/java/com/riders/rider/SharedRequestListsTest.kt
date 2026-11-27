@@ -38,6 +38,51 @@ class SharedRequestListsTest {
         assertEquals(listOf(renewed), withoutSettledRequests(listOf(renewed), settled))
     }
 
+    @Test fun renewedSearchIgnoresOldSentConfirmationAndCachedOpenBid() {
+        val first = request("2026-11-26T10:00:00Z")
+        val renewed = request("2026-11-26T10:12:00Z")
+        val sent = mapOf(searchAttemptKey(first.deliveryId, first.searchExpiresAt) to "5.00")
+        val previous = bid("a").copy(createdAt = "2026-11-26T10:01:00Z")
+        val current = previous.copy(bidId = "new", createdAt = "2026-11-26T10:13:00Z")
+        assertEquals("5.00", com.riders.rider.feature.bids.domain.submittedAmountForRequest(first, emptyList(), sent))
+        assertNull(com.riders.rider.feature.bids.domain.submittedAmountForRequest(renewed, listOf(previous), sent))
+        assertEquals(listOf(renewed), newMarketplaceOffers(listOf(renewed), listOf(previous), sent))
+        assertTrue(newMarketplaceOffers(listOf(renewed), listOf(current), sent).isEmpty())
+        assertEquals(listOf(renewed), com.riders.rider.feature.offers.domain.actionableRequestCards(
+            listOf(renewed), listOf(previous), sent, setOf(searchAttemptKey(first.deliveryId, first.searchExpiresAt)),
+            Instant.parse("2026-11-26T10:13:00Z").toEpochMilli(),
+        ))
+    }
+
+    @Test fun renewedSearchGetsNewRetryKeyButSameSearchKeepsIt() {
+        val start = "2026-11-26T10:00:00Z"
+        val next = "2026-11-26T10:12:00Z"
+        val first = com.riders.rider.feature.bids.domain.nextBidAttempt(null, "delivery-a", 500, "old", start)
+        assertEquals(first, com.riders.rider.feature.bids.domain.nextBidAttempt(first, "delivery-a", 600, "retry", start))
+        val renewed = com.riders.rider.feature.bids.domain.nextBidAttempt(first, "delivery-a", 600, "new", next)
+        assertEquals("new", renewed.key)
+        assertEquals(600, renewed.amountCents)
+        assertEquals(renewed, com.riders.rider.feature.bids.domain.bidAttemptAfterRefresh(renewed, listOf(bid("a").copy(amount = "6.00"))))
+    }
+
+    @Test fun renewedSearchReleasesOldOverlayAndIgnoresDelayedSuccess() {
+        val first = request("2026-11-26T10:00:00Z")
+        val renewed = request("2026-11-26T10:12:00Z")
+        val id = first.deliveryId
+        val overlay = com.riders.rider.feature.offers.domain.RequestOverlay(dismissed = setOf(id), minimised = setOf(id))
+        val seals = mapOf(id to first.searchExpiresAt!!)
+        val same = com.riders.rider.feature.offers.domain.overlayAfterSearchAttempt(overlay, seals, listOf(id to first.searchExpiresAt))
+        assertEquals(overlay, same.first)
+        val next = com.riders.rider.feature.offers.domain.overlayAfterSearchAttempt(overlay, seals, listOf(id to renewed.searchExpiresAt))
+        assertTrue(next.first.dismissed.isEmpty())
+        assertTrue(next.first.minimised.isEmpty())
+        val open = next.first.open(id)
+        val delayed = com.riders.rider.feature.offers.domain.RequestMapEvent(id, com.riders.rider.feature.offers.domain.RequestMapSuccess.OfferSent, first.searchExpiresAt)
+        val handling = com.riders.rider.feature.offers.domain.handleRequestMapSuccess(open, delayed, renewed.searchExpiresAt)
+        assertEquals(open, handling.overlay)
+        assertTrue(!handling.showOfferSent)
+    }
+
     @Test fun expiredAttemptCannotReturnFromStaleRefresh() {
         val first = request("2026-11-26T10:00:00Z")
         val renewed = request("2026-11-26T10:10:00Z")

@@ -11,6 +11,9 @@ import com.riders.rider.feature.delivery.domain.AssignmentLookup
 import com.riders.rider.feature.delivery.domain.CommittedParcel
 import com.riders.rider.feature.delivery.domain.toActiveDelivery
 import com.riders.rider.feature.delivery.domain.completedDeliveries
+import com.riders.rider.feature.delivery.domain.historyCache
+import com.riders.rider.feature.delivery.domain.historyDeliveries
+import com.riders.rider.feature.delivery.domain.historyRecord
 import com.riders.rider.feature.delivery.domain.toCommittedParcel
 import com.riders.rider.feature.delivery.domain.toContacts
 import javax.inject.Inject
@@ -114,7 +117,7 @@ class AssignmentRepository @Inject constructor(
                     val updated = parcels.associateBy { it.assignmentId }
                     merged.map { updated[it.assignmentId] ?: it }
                 }
-                if (cursor == null) offline.save(owner, "completed", parcels.take(5))
+                if (cursor == null) offline.save(owner, "completed", historyCache(parcels))
                 if (!sessions.isCurrent(owner)) return ApiResult.Err(ApiError.SessionEnded)
                 ApiResult.Ok(CompletedPage(parcels, next))
             }
@@ -122,17 +125,65 @@ class AssignmentRepository @Inject constructor(
         }
     }
 
+    suspend fun historyPage(cursor: String? = null, status: String = "all"): ApiResult<CompletedPage> {
+        val owner = sessions.snapshot().identity
+        val revision = completedRevision.value
+        return when (val result = apiCall { riders.historyAssignmentsPage(cursor = cursor, status = status) }) {
+            is ApiResult.Ok -> {
+                if (!sessions.isCurrent(owner)) return ApiResult.Err(ApiError.SessionEnded)
+                if (revision != completedRevision.value) return ApiResult.Err(ApiError.Unexpected("Completed deliveries changed. Refresh again."))
+                val parcels = historyDeliveries(result.value.assignments.map { it.toCommittedParcel() })
+                val next = result.value.nextCursor
+                if (next != null && (next.isBlank() || next == cursor)) return ApiResult.Err(ApiError.Unexpected("Invalid history page. Refresh again."))
+                completedParcels = (completedParcels + parcels).distinctBy { it.assignmentId }.let { merged ->
+                    val updated = parcels.associateBy { it.assignmentId }
+                    merged.map { updated[it.assignmentId] ?: it }
+                }
+                if (cursor == null && status == "all") offline.save(owner, "history", historyCache(parcels))
+                if (!sessions.isCurrent(owner)) return ApiResult.Err(ApiError.SessionEnded)
+                ApiResult.Ok(CompletedPage(parcels, next))
+            }
+            is ApiResult.Err -> result
+        }
+    }
+
+    suspend fun findHistory(assignmentId: String): ApiResult<CommittedParcel?> {
+        val owner = sessions.snapshot().identity
+        return when (val result = apiCall { riders.historyAssignment(assignmentId) }) {
+            is ApiResult.Ok -> {
+                if (!sessions.isCurrent(owner)) return ApiResult.Err(ApiError.SessionEnded)
+                val parcel = result.value.assignment?.toCommittedParcel()?.takeIf { it.assignmentId == assignmentId && (it.status == "DELIVERED" || it.status == "CANCELLED") }
+                if (parcel != null) {
+                    completedParcels = (completedParcels + parcel).distinctBy { it.assignmentId }.let { merged ->
+                        val updated = merged.associateBy { it.assignmentId }
+                        merged.map { updated[it.assignmentId] ?: it }
+                    }
+                }
+                ApiResult.Ok(parcel)
+            }
+            is ApiResult.Err -> if (result.error is ApiError.Unexpected && result.error.message == "Delivery not found") {
+                ApiResult.Ok(null)
+            } else {
+                result
+            }
+        }
+    }
+
     // Historical deep links and explicit detail refresh: traverse bounded pages.
     suspend fun findCompleted(deliveryId: String): ApiResult<CommittedParcel?> {
+        return findHistoryMatch { it.deliveryId == deliveryId }
+    }
+
+    private suspend fun findHistoryMatch(matches: (CommittedParcel) -> Boolean): ApiResult<CommittedParcel?> {
         val revision = completedRevision.value
         var cursor: String? = null
         val seen = mutableSetOf<String>()
         do {
-            when (val result = completedPage(cursor)) {
+            when (val result = historyPage(cursor)) {
                 is ApiResult.Err -> return result
                 is ApiResult.Ok -> {
                     if (revision != completedRevision.value) return ApiResult.Err(ApiError.Unexpected("Completed deliveries changed. Refresh again."))
-                    result.value.deliveries.firstOrNull { it.deliveryId == deliveryId }?.let { return ApiResult.Ok(it) }
+                    result.value.deliveries.firstOrNull(matches)?.let { return ApiResult.Ok(it) }
                     cursor = result.value.nextCursor
                     if (cursor != null && !seen.add(cursor)) return ApiResult.Err(ApiError.Unexpected("Invalid history page. Refresh again."))
                 }
@@ -155,7 +206,11 @@ class AssignmentRepository @Inject constructor(
     }
 
     fun completedParcel(deliveryId: String): CommittedParcel? {
-        return completedParcels.firstOrNull { it.deliveryId == deliveryId }
+        return historyRecord(completedParcels, assignmentId = null, deliveryId = deliveryId)
+    }
+
+    fun historyParcel(assignmentId: String): CommittedParcel? {
+        return historyRecord(completedParcels, assignmentId = assignmentId, deliveryId = "")
     }
 
     fun clearSession() {

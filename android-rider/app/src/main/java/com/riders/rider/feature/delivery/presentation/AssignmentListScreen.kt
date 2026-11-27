@@ -15,6 +15,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import com.riders.rider.core.design.LocalAppDark
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -241,6 +243,6 @@ private fun AssignmentCard(parcel: CommittedParcel, onOpen: (String) -> Unit) {
         modifier = Modifier.fillMaxWidth(),
         listBadge = true,
         serviceClass = parcel.serviceClass,
-        filled = false,
+        containerColor = if (LocalAppDark.current) null else Color.White,
     )
 }

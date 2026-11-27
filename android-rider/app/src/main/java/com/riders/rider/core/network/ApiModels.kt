@@ -257,6 +257,10 @@ data class ActiveAssignmentBody(
     val distanceMeters: Int? = null,
     val createdAt: String? = null,
     val completedAt: String? = null,
+    val cancelledAt: String? = null,
+    val cancelledBy: String? = null,
+    val cancellationReason: String? = null,
+    val cancellationNote: String? = null,
 )
 
 @Serializable
@@ -283,6 +287,7 @@ data class OfferResponse(
     val dropoff: StopResponse,
     val serviceClass: String? = null,
     val distanceMeters: Int = 0,
+    val searchStartedAt: String? = null,
 )
 
 @Serializable

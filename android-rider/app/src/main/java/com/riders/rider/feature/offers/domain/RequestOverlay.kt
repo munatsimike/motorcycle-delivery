@@ -1,6 +1,8 @@
 package com.riders.rider.feature.offers.domain
 
 import com.riders.rider.core.network.OfferResponse
+import com.riders.rider.feature.bids.domain.OwnBid
+import com.riders.rider.feature.bids.domain.requestStillNeedsOffer
 import java.time.Instant
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -37,6 +39,9 @@ data class RequestOverlay(
         return copy(openId = id)
     }
 
+    /** Automatic arrivals and notification resolution must never replace a selected map. */
+    fun openIfIdle(deliveryId: String): RequestOverlay = if (openId == null) open(deliveryId) else this
+
     fun dismiss(): RequestOverlay {
         val id = openId ?: return this
         return copy(openId = null, dismissed = dismissed + id)
@@ -66,6 +71,8 @@ data class IncomingRequestGate(
     val pendingMaximiseId: String? = null,
     /** A request that should open maximised once Home is ready. Not emitted yet. */
     val heldMaximiseId: String? = null,
+    /** One automatic opening per non-empty batch of actionable requests. */
+    val batchConsumed: Boolean = false,
 )
 
 data class IncomingRequestStep(
@@ -74,9 +81,11 @@ data class IncomingRequestStep(
 )
 
 /**
- * A transient startup/resume block must not consume a new request. Deliberate blocks (another
- * map, a dialog, or browsing) remember it without opening. Returning from another screen catches
- * up silently. The caller acknowledges the chosen id synchronously when it updates the overlay.
+ * Only the first request in a non-empty batch may auto-open. Later arrivals stay on Home until
+ * the rider chooses them. Reset the batch only after a settled empty list, not during loading.
+ * Startup/resume may defer the first opening. On returning to Home, open only a single
+ * actionable, unsuppressed request; multiple requests remain for manual selection.
+ * Deliberate blocks consume the batch silently. The caller acknowledges the choice synchronously.
  */
 fun stepIncomingRequest(
     gate: IncomingRequestGate,
@@ -91,13 +100,32 @@ fun stepIncomingRequest(
     val eligible = visible.filterNot { it in suppressed }
     val known = gate.knownIds + visible
     if (gate.catchUp) {
+        // Decide once on Home entry, using the full actionable list (not the three-card preview).
+        // Wait for a confirmed list and a resumed Home unless another UI deliberately blocks it.
+        if (!listSettled || (!canMaximise && deferMaximise)) {
+            return IncomingRequestStep(gate.copy(heldMaximiseId = null, pendingMaximiseId = null))
+        }
+        val maximise = if (canMaximise && visible.size == 1) eligible.singleOrNull() else null
+        return IncomingRequestStep(
+            gate.copy(
+                primed = true,
+                catchUp = false,
+                knownIds = known,
+                heldMaximiseId = null,
+                pendingMaximiseId = maximise,
+                batchConsumed = visible.isNotEmpty(),
+            ),
+            maximise,
+        )
+    }
+    if (gate.batchConsumed) {
         return IncomingRequestStep(
             gate.copy(
                 primed = gate.primed || listSettled,
-                catchUp = !listSettled,
                 knownIds = known,
                 heldMaximiseId = null,
                 pendingMaximiseId = null,
+                batchConsumed = visible.isNotEmpty() || !listSettled,
             ),
         )
     }
@@ -116,6 +144,7 @@ fun stepIncomingRequest(
             knownIds = known,
             heldMaximiseId = null,
             pendingMaximiseId = if (canMaximise) maximise ?: pending else null,
+            batchConsumed = visible.isNotEmpty(),
         ),
         maximise,
     )
@@ -151,6 +180,48 @@ fun autoOpenRequestIds(offers: List<OfferResponse>, nowMillis: Long): List<Strin
     }.distinct()
 }
 
+/** One actionable list for the dashboard, navigation badge and available-requests page. */
+fun actionableRequestCards(
+    offers: List<OfferResponse>,
+    ownBids: List<OwnBid>,
+    sentAmounts: Map<String, String>,
+    settled: Set<String>,
+    nowMillis: Long,
+): List<OfferResponse> = offers.filter {
+    it.deliveryId.isNotBlank() &&
+        requestStillNeedsOffer(it, ownBids, sentAmounts) &&
+        !requestSettled(it.deliveryId, it.searchExpiresAt, settled) &&
+        !requestCountdownExpired(it.searchExpiresAt, it.expiresAt, nowMillis)
+}.distinctBy { it.deliveryId }
+
+const val HOME_REQUEST_PREVIEW_LIMIT = 3
+
+data class HomeRequestPreview(val cards: List<OfferResponse>, val total: Int) {
+    val showViewAll: Boolean get() = total > HOME_REQUEST_PREVIEW_LIMIT
+}
+
+fun homeRequestPreview(
+    offers: List<OfferResponse>,
+    ownBids: List<OwnBid>,
+    sentAmounts: Map<String, String>,
+    settled: Set<String>,
+    nowMillis: Long,
+): HomeRequestPreview {
+    val available = actionableRequestCards(offers, ownBids, sentAmounts, settled, nowMillis)
+    return HomeRequestPreview(available.take(HOME_REQUEST_PREVIEW_LIMIT), available.size)
+}
+
+/** A short timer for compact cards, using the same two-stage expiry as the open map. */
+fun compactRequestTimerLabel(searchExpiresAt: String?, expiresAt: String, nowMillis: Long): String? {
+    if (expiresAt.isBlank() && searchExpiresAt.isNullOrBlank()) return null
+    val display = riderExpiryDisplay(searchExpiresAt, expiresAt, nowMillis)
+    return when {
+        display.startsWith("Expires in ") -> display.removePrefix("Expires in ")
+        display.startsWith("Extra time ") -> "Extra " + display.removePrefix("Extra time ")
+        else -> display
+    }
+}
+
 enum class RequestMapSuccess {
     Accepted,
     OfferSent,
@@ -176,7 +247,7 @@ fun handleRequestMapSuccess(
 ): RequestMapHandling {
     val id = event.deliveryId.trim()
     // A delayed completion must not close a renewed search for the same delivery.
-    if (event.success == RequestMapSuccess.Declined && !currentSearchDeadline.isNullOrBlank() &&
+    if (!currentSearchDeadline.isNullOrBlank() &&
         !requestSettled(id, currentSearchDeadline, setOf(searchAttemptKey(id, event.searchDeadline)))) {
         return RequestMapHandling(overlay, openDeliveries = false, showOfferSent = false)
     }
@@ -446,10 +517,11 @@ fun overlayAfterSearchAttempt(
     val released = sealedAttempts.keys.filter { id ->
         val now = current[id] ?: return@filter false
         val sealed = sealedAttempts[id].orEmpty()
-        id in overlay.dismissed && now.isNotEmpty() && now != sealed
+        (id in overlay.dismissed || id in overlay.minimised) && now.isNotEmpty() &&
+            !requestSettled(id, now, setOf(searchAttemptKey(id, sealed)))
     }.toSet()
     if (released.isEmpty()) {
         return overlay to sealedAttempts
     }
-    return overlay.copy(dismissed = overlay.dismissed - released) to (sealedAttempts - released)
+    return overlay.copy(dismissed = overlay.dismissed - released, minimised = overlay.minimised - released) to (sealedAttempts - released)
 }

@@ -1,6 +1,8 @@
 package com.riders.rider.feature.offers.presentation
 
 import android.os.SystemClock
+import com.riders.rider.core.design.NetworkLink
+import com.riders.rider.core.design.RiderNetwork
 import com.riders.rider.core.design.RidersToastEvent
 import com.riders.rider.core.design.ridersSuccessToast
 import androidx.lifecycle.ViewModel
@@ -20,6 +22,7 @@ import com.riders.rider.feature.bids.data.BidAttemptStore
 import com.riders.rider.feature.bids.data.BidRepository
 import com.riders.rider.feature.bids.domain.BID_AMOUNT_INVALID
 import com.riders.rider.feature.bids.domain.OwnBid
+import com.riders.rider.feature.bids.domain.openBidForRequest
 import com.riders.rider.feature.bids.domain.availableRequests
 import com.riders.rider.feature.bids.domain.notificationBidRequest
 import com.riders.rider.feature.bids.domain.bidAmountCents
@@ -148,10 +151,10 @@ class OfferViewModel @Inject constructor(
                         // A renewed search can reuse the delivery ID. Do not keep a
                         // confirmation from an earlier, now expired/closed bid.
                         sentAmounts = if (it.ownBidsKnown) it.sentAmounts.filterKeys { id ->
-                            loaded.any { bid -> bid.deliveryId == id && bid.status == "OPEN" }
+                            loaded.any { bid -> bid.deliveryId == id.substringBefore('|') && bid.status == "OPEN" }
                         } else it.sentAmounts,
                         sentLabels = if (it.ownBidsKnown) it.sentLabels.filterKeys { id ->
-                            loaded.any { bid -> bid.deliveryId == id && bid.status == "OPEN" }
+                            loaded.any { bid -> bid.deliveryId == id.substringBefore('|') && bid.status == "OPEN" }
                         } else it.sentLabels,
                     )
                 }
@@ -168,20 +171,21 @@ class OfferViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
-            pending.bidExpired.collect { invalidateBidStatus() }
+            pending.bidExpired.collect { scheduleBidRefresh() }
         }
         viewModelScope.launch {
-            pending.arrived.collect { invalidateBidStatus() }
+            // New opportunities schedule a read but keep the last confirmed bid state.
+            pending.arrived.collect { scheduleBidRefresh() }
         }
         viewModelScope.launch {
-            pending.acceptedArrivals.collect { invalidateBidStatus() }
+            pending.acceptedArrivals.collect { scheduleBidRefresh() }
         }
         viewModelScope.launch {
-            pending.customerCancelledArrivals.collect { invalidateBidStatus() }
+            pending.customerCancelledArrivals.collect { scheduleBidRefresh() }
         }
     }
 
-    private fun invalidateBidStatus() {
+    private fun scheduleBidRefresh() {
         bidRefreshVersion += 1
         refreshSignals.trySend(Unit)
     }
@@ -295,6 +299,7 @@ class OfferViewModel @Inject constructor(
     }
 
     fun decline(request: OfferResponse) {
+        if (!sessions.isCurrent(sessionIdentity) || RiderNetwork.link.value == NetworkLink.Disconnected) return
         val deliveryId = request.deliveryId
         val current = state.value
         // Settle the exact search attempt that the rider saw.
@@ -323,7 +328,6 @@ class OfferViewModel @Inject constructor(
                             settledIds = settled,
                         )
                     }
-                    if (sessions.isCurrent(sessionIdentity)) toasts.tryEmit(ridersSuccessToast("Request declined"))
                     mapEvents.tryEmit(RequestMapEvent(deliveryId, RequestMapSuccess.Declined, deadline))
                     refresh()
                 }
@@ -339,7 +343,7 @@ class OfferViewModel @Inject constructor(
         request: OfferResponse? = null,
         target: OfferSubmitTarget = OfferSubmitTarget.Accept,
     ) {
-        if (!sessions.isCurrent(sessionIdentity)) return
+        if (!sessions.isCurrent(sessionIdentity) || RiderNetwork.link.value == NetworkLink.Disconnected) return
         val cents = bidAmountCents(amountText)
         val now = nowMillis()
         if (cents == null) {
@@ -361,7 +365,7 @@ class OfferViewModel @Inject constructor(
             refresh()
             return
         }
-        if (bids.ownBidPageFlow.value.bids.any { it.deliveryId == deliveryId && it.status == "OPEN" } ||
+        if (openBidForRequest(bids.ownBidPageFlow.value.bids, deliveryId, offer.searchStartedAt) != null ||
             !marketplaceBidButtonsVisible(offer.serviceClass, bids.ownBidsKnownFlow.value, current.bidError ?: bids.bidListProblemFlow.value)) {
             return
         }
@@ -378,7 +382,7 @@ class OfferViewModel @Inject constructor(
             try {
                 val identity = sessionIdentity
                 val previousAttempt = bidAttempts.pending(deliveryId)
-                val attempt = bidAttempts.attempt(deliveryId, cents)
+                val attempt = bidAttempts.attempt(deliveryId, cents, offer.searchStartedAt)
                 val retryProblem = bidRetryAmountProblem(attempt, cents)
                 if (retryProblem != null) {
                     state.update { it.copy(bidError = retryProblem) }
@@ -399,8 +403,8 @@ class OfferViewModel @Inject constructor(
                                 bidError = null,
                                 submittingBid = false,
                                 submitProgress = null,
-                                sentAmounts = it.sentAmounts + (deliveryId to sentAmount),
-                                sentLabels = it.sentLabels + (deliveryId to offerSentConfirmation(currency, sentAmount)),
+                                sentAmounts = it.sentAmounts + (searchAttemptKey(deliveryId, deadline) to sentAmount),
+                                sentLabels = it.sentLabels + (searchAttemptKey(deliveryId, deadline) to offerSentConfirmation(currency, sentAmount)),
                                 settledIds = it.settledIds + searchAttemptKey(deliveryId, deadline),
                                 offers = withoutSettledRequests(it.offers, it.settledIds + searchAttemptKey(deliveryId, deadline)),
                             )
@@ -411,7 +415,7 @@ class OfferViewModel @Inject constructor(
                     is ApiResult.Err -> {
                         // A definitive first rejection permits a corrected amount. An ambiguous
                         // earlier submission retains its original idempotency key and amount.
-                        if (previousAttempt == null && !keepsBidAttempt(result.error)) bidAttempts.clear(deliveryId)
+                        if ((previousAttempt == null || previousAttempt.key != attempt.key) && !keepsBidAttempt(result.error)) bidAttempts.clear(deliveryId)
                         val outcome = bidSubmissionAfterResult(amountText, result.error.text())
                         state.update { it.copy(bidError = outcome.error, submittingBid = false, submitProgress = null) }
                     }
@@ -434,7 +438,7 @@ class OfferViewModel @Inject constructor(
 
     fun accept(offer: OfferResponse) {
         val identity = sessionIdentity
-        if (!sessions.isCurrent(identity)) return
+        if (!sessions.isCurrent(identity) || RiderNetwork.link.value == NetworkLink.Disconnected) return
         val current = state.value
         val now = nowMillis()
         if (!requestActionAllowed(offer.deliveryId, current.settledIds, current.accepting, current.submittingBid, current.declining, offer.searchExpiresAt)) {

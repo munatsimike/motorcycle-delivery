@@ -90,12 +90,11 @@ fun RidersBrandLogo(modifier: Modifier = Modifier) {
         modifier = modifier.semantics { contentDescription = "Riders Delivery" },
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            "R",
-            color = RidersColors.primary,
-            fontSize = 66.sp,
-            fontWeight = FontWeight.Black,
-            lineHeight = 66.sp,
+        Image(
+            painter = painterResource(R.drawable.riders_brand_r),
+            contentDescription = null,
+            modifier = Modifier.size(width = 60.dp, height = 48.dp),
+            contentScale = ContentScale.Fit,
         )
         Column {
             Text(
@@ -339,6 +338,10 @@ fun RidersCard(
     borderColor: Color = RidersColors.border,
     bordered: Boolean = true,
     bottomPadding: androidx.compose.ui.unit.Dp = RidersSpacing.lg,
+    elevation: Dp = 4.dp,
+    shadowColor: Color = RidersColors.shadow,
+    topPadding: Dp = RidersSpacing.lg,
+    itemSpacing: Dp = RidersSpacing.sm,
     content: @Composable () -> Unit,
 ) {
     val shape = RoundedCornerShape(if (prominent) RidersRadius.xl else RidersRadius.lg)
@@ -366,13 +369,13 @@ fun RidersCard(
                 scaleX = scale
                 scaleY = scale
             }
-            .shadow(elevation = 4.dp, shape = shape, ambientColor = RidersColors.shadow, spotColor = RidersColors.shadow)
+            .shadow(elevation = elevation, shape = shape, ambientColor = shadowColor, spotColor = shadowColor)
             .clip(shape)
             .background(containerColor)
             .then(if (bordered) Modifier.border(1.dp, borderColor, shape) else Modifier)
             .then(clickable)
-            .padding(start = RidersSpacing.lg, end = RidersSpacing.lg, top = RidersSpacing.lg, bottom = bottomPadding),
-        verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
+            .padding(start = RidersSpacing.lg, end = RidersSpacing.lg, top = topPadding, bottom = bottomPadding),
+        verticalArrangement = Arrangement.spacedBy(itemSpacing),
     ) {
         content()
     }

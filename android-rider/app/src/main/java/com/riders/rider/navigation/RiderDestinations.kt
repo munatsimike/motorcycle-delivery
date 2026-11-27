@@ -38,7 +38,7 @@ fun deliveryBoardTabLabel(tab: DeliveryBoardTab): String = when (tab) {
     DeliveryBoardTab.Active -> "Active"
     DeliveryBoardTab.New -> "New"
     DeliveryBoardTab.Pending -> "Pending"
-    DeliveryBoardTab.Completed -> "Completed"
+    DeliveryBoardTab.Completed -> "History"
 }
 
 fun deliveryBoardTabs(@Suppress("UNUSED_PARAMETER") showsOffers: Boolean = true): List<DeliveryBoardTab> {

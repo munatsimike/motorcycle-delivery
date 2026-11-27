@@ -84,6 +84,16 @@ fun senderChoosesRider(serviceClass: String?): Boolean {
     return serviceClass == "EXPRESS" || serviceClass == "FLEXIBLE"
 }
 
+/** Keep the open map's action panel measured even while shared bid status is being refreshed.
+ * Visibility is separate from permission to act; callers must still use the live action gate.
+ */
+fun requestActionControlsVisible(
+    settled: Boolean,
+    bidsOpen: Boolean,
+    serviceClass: String?,
+    onMap: Boolean,
+): Boolean = !settled && (onMap || bidsOpen || !senderChoosesRider(serviceClass))
+
 fun opensDeliveriesAfterListedOffer(serviceClass: String?): Boolean {
     return !senderChoosesRider(serviceClass)
 }

@@ -163,7 +163,7 @@ fun deliveryListBadge(status: String): DeliveryListBadge? = when (status) {
     "COLLECTING" -> DeliveryListBadge("Collecting", 0xFFE7F1FF, 0xFF2563EB)
     "COLLECTED", "OUT_FOR_DELIVERY", "IN_TRANSIT" -> DeliveryListBadge("Delivering", 0xFFE7F1FF, 0xFF2563EB)
     "DELIVERED" -> DeliveryListBadge("Delivered", 0xFFDDF5E6, 0xFF137333)
-    "CANCELLED" -> DeliveryListBadge("Cancelled", 0xFFF1F3F5, 0xFF606B75)
+    "CANCELLED" -> DeliveryListBadge("Cancelled", 0xFFFDECEC, 0xFFB42318)
     else -> null
 }
 

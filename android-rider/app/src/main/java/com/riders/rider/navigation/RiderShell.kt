@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -26,6 +28,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -49,7 +54,6 @@ import com.riders.rider.core.design.rememberRidersMotion
 import com.riders.rider.feature.home.DeliveriesScreen
 import com.riders.rider.feature.home.HomeScreen
 import com.riders.rider.feature.offers.presentation.OfferViewModel
-import com.riders.rider.feature.offers.presentation.CompactRequestCard
 import com.riders.rider.feature.offers.presentation.compactAvailableRequests
 import com.riders.rider.feature.offers.domain.shouldPollMarketplace
 import com.riders.rider.feature.offers.notification.rememberOfferInbox
@@ -112,8 +116,6 @@ fun RiderShell(
     }
     val homeUi by home.ui.collectAsStateWithLifecycle()
     val requestUi by requests.ui.collectAsStateWithLifecycle()
-    var externalRequestId by rememberSaveable { mutableStateOf<String?>(null) }
-    var externalBrowseRequests by rememberSaveable { mutableStateOf(false) }
     val profile: ProfileViewModel = hiltViewModel()
     LaunchedEffect(profile) {
         profile.successToasts.collect { event -> showToast(event) }
@@ -141,7 +143,9 @@ fun RiderShell(
         requests.setScreenResumed(resumed, pollRequests)
         onDispose { requests.setScreenResumed(false) }
     }
-    val compactRequests = if (homeUi.shift.showOffers && requestUi.requestsConfirmed && resumed) compactAvailableRequests(requestUi) else emptyList()
+    val requestCount = if (homeUi.shift.showOffers && requestUi.requestsConfirmed && resumed) {
+        compactAvailableRequests(requestUi).size
+    } else 0
     DisposableEffect(lifecycle, entry) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
@@ -162,23 +166,12 @@ fun RiderShell(
     var requestOverlayVisible by remember { mutableStateOf(false) }
     com.riders.rider.core.design.NotificationSnackbarClearance(
         if (requestOverlayVisible && tab == RiderDestination.Home) 0.dp
-        else if (tab != RiderDestination.Home && compactRequests.isNotEmpty()) 180.dp else 80.dp,
+        else 80.dp,
     )
     Scaffold(
         containerColor = RidersColors.background,
         bottomBar = {
             if (!requestOverlayVisible || tab != RiderDestination.Home) Column(Modifier.background(RidersColors.background)) {
-            if (tab != RiderDestination.Home && compactRequests.isNotEmpty()) {
-                CompactRequestCard(
-                    offer = compactRequests.first(),
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                    onOpen = {
-                        externalBrowseRequests = false
-                        externalRequestId = compactRequests.first().deliveryId
-                        tabName = RiderDestination.Home.name
-                    },
-                )
-            }
             Box(Modifier.fillMaxWidth().height(1.dp).background(RidersColors.border))
             NavigationBar(containerColor = RidersColors.background) {
                 RiderDestination.entries.forEach { destination ->
@@ -192,11 +185,30 @@ fun RiderShell(
                             tabName = destination.name
                         },
                         icon = {
-                            Icon(
-                                painter = painterResource(destination.navIcon),
-                                contentDescription = null,
-                                modifier = Modifier.size(24.dp),
-                            )
+                            BadgedBox(
+                                badge = {
+                                    if (destination == RiderDestination.Home && requestCount > 0) {
+                                        Badge(
+                                            modifier = Modifier.clearAndSetSemantics {
+                                                contentDescription = "$requestCount available delivery requests"
+                                            },
+                                            containerColor = Color(0xFFD92D20),
+                                            contentColor = RidersColors.textInverse,
+                                        ) {
+                                            Text(
+                                                requestCount.toString(),
+                                                style = RidersType.small.copy(fontWeight = FontWeight.Bold),
+                                            )
+                                        }
+                                    }
+                                },
+                            ) {
+                                Icon(
+                                    painter = painterResource(destination.navIcon),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(24.dp),
+                                )
+                            }
                         },
                         label = {
                             Text(
@@ -244,9 +256,6 @@ fun RiderShell(
                         onSetup = onSetup,
                         inShell = true,
                         homeSelected = tab == RiderDestination.Home,
-                        externalRequestId = externalRequestId,
-                        externalBrowseRequests = externalBrowseRequests,
-                        onExternalRequestConsumed = { externalRequestId = null; externalBrowseRequests = false },
                         onRequestOverlayVisible = { requestOverlayVisible = it },
                         profilePhoto = profilePhoto,
                         model = home,

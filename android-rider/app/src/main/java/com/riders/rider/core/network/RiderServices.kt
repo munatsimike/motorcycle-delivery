@@ -148,6 +148,18 @@ interface RiderService {
         @Query("cursor") cursor: String? = null,
     ): CompletedAssignmentsPageResponse
 
+    @GET("riders/me/assignments/history/{assignmentId}")
+    suspend fun historyAssignment(
+        @Path("assignmentId") assignmentId: String,
+    ): ActiveAssignmentResponse
+
+    @GET("riders/me/assignments/history/page")
+    suspend fun historyAssignmentsPage(
+        @Query("limit") limit: Int = 20,
+        @Query("cursor") cursor: String? = null,
+        @Query("status") status: String = "all",
+    ): CompletedAssignmentsPageResponse
+
     @GET("riders/me/assignments/active")
     suspend fun activeAssignment(): ActiveAssignmentResponse
 

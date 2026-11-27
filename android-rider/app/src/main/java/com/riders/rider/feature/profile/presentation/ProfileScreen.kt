@@ -206,7 +206,7 @@ fun ProfileScreen(
         )
     } else RidersPullRefresh(
         refreshing = ui.refreshing,
-        onRefresh = { model.refresh(force = true) },
+        onRefresh = { model.refresh(force = true, fromUser = true) },
         modifier = Modifier
             .fillMaxSize()
             .background(RidersColors.canvas),

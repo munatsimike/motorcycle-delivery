@@ -13,6 +13,9 @@ import com.riders.rider.feature.offers.domain.requestAttemptIdentity
 import com.riders.rider.feature.offers.domain.requestCountdownExpired
 import com.riders.rider.feature.offers.domain.IncomingRequestGate
 import com.riders.rider.feature.offers.domain.autoOpenRequestIds
+import com.riders.rider.feature.offers.domain.actionableRequestCards
+import com.riders.rider.feature.offers.domain.homeRequestPreview
+import com.riders.rider.feature.offers.domain.compactRequestTimerLabel
 import com.riders.rider.feature.offers.domain.retainOpenRequest
 import com.riders.rider.feature.offers.domain.retainActionableRequests
 import com.riders.rider.feature.offers.domain.stepIncomingRequest
@@ -56,6 +59,40 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class RequestOverlayTest {
+    @Test
+    fun dashboardShowsAtMostThreeAndOnlyLinksToMoreWhenNeeded() {
+        val now = Instant.parse("2026-11-27T12:00:00Z").toEpochMilli()
+        val live = (1..5).map { requestOffer("delivery-$it", "4.00").copy(
+            expiresAt = "2026-11-27T12:06:00Z", searchExpiresAt = null,
+        ) }
+        val expired = live[0].copy(deliveryId = "expired", expiresAt = "2026-11-27T11:59:59Z")
+        val settled = live[0].copy(deliveryId = "settled")
+        val alreadyBid = live[0].copy(deliveryId = "bid")
+        val pool = live + listOf(live[0], expired, settled, alreadyBid)
+        val eligible = actionableRequestCards(pool, emptyList(), mapOf("bid" to "4.00"), setOf("settled"), now)
+        assertEquals(live, eligible)
+        for (count in 0..5) {
+            val preview = homeRequestPreview(live.take(count), emptyList(), emptyMap(), emptySet(), now)
+            assertEquals(count, preview.total)
+            assertEquals(live.take(minOf(count, 3)), preview.cards)
+            assertEquals(count > 3, preview.showViewAll)
+        }
+        val preview = homeRequestPreview(pool, emptyList(), mapOf("bid" to "4.00"), setOf("settled"), now)
+        assertEquals(eligible.size, preview.total)
+        assertEquals(eligible.take(3), preview.cards)
+    }
+
+    @Test
+    fun compactTimerUsesSameSearchAndExtraTimeAsTheMap() {
+        val search = "2026-11-27T12:06:00Z"
+        val expires = "2026-11-27T12:07:00Z"
+        val now = Instant.parse("2026-11-27T12:05:30Z").toEpochMilli()
+        assertEquals("0:30", compactRequestTimerLabel(search, expires, now))
+        assertEquals("Extra 0:59", compactRequestTimerLabel(search, expires, now + 31_000L))
+        assertEquals("Expired", compactRequestTimerLabel(search, expires, now + 90_000L))
+        assertNull(compactRequestTimerLabel(null, "", now))
+    }
+
     @Test
     fun opensTheFirstEligibleRequestAndKeepsItWhenAnotherArrives() {
         val first = RequestOverlay().sync(listOf("a"), blocked = false)
@@ -433,19 +470,22 @@ class RequestOverlayTest {
         assertTrue(initial.gate.primed)
         val acknowledged = initial.gate.copy(pendingMaximiseId = null)
         val arrived = stepIncomingRequest(acknowledged, listOf("delivery-1", "delivery-2"), listSettled = true, canMaximise = true, suppressedIds = emptySet())
-        assertEquals("delivery-2", arrived.maximiseId)
+        assertNull(arrived.maximiseId)
         val whileOpen = stepIncomingRequest(arrived.gate, listOf("delivery-1", "delivery-2", "delivery-3"), listSettled = true, canMaximise = false, suppressedIds = emptySet())
         assertNull(whileOpen.maximiseId)
         assertTrue("delivery-3" in whileOpen.gate.knownIds)
         val away = whileOpen.gate.copy(catchUp = true, pendingMaximiseId = null, heldMaximiseId = null)
         val returned = stepIncomingRequest(away, listOf("delivery-1", "delivery-2", "delivery-4"), listSettled = true, canMaximise = true, suppressedIds = emptySet())
         assertNull(returned.maximiseId)
-        val later = stepIncomingRequest(returned.gate, listOf("delivery-1", "delivery-5"), listSettled = true, canMaximise = true, suppressedIds = emptySet())
-        assertEquals("delivery-5", later.maximiseId)
-        val minimised = RequestOverlay(openId = "delivery-5").minimise()
+        val laterWhileWaiting = stepIncomingRequest(returned.gate, listOf("delivery-1", "delivery-5"), listSettled = true, canMaximise = true, suppressedIds = emptySet())
+        assertNull(laterWhileWaiting.maximiseId)
+        val drained = stepIncomingRequest(laterWhileWaiting.gate, emptyList(), true, true, emptySet())
+        val later = stepIncomingRequest(drained.gate, listOf("delivery-6"), true, true, emptySet())
+        assertEquals("delivery-6", later.maximiseId)
+        val minimised = RequestOverlay(openId = "delivery-6").minimise()
         assertNull(minimised.openId)
-        assertTrue("delivery-5" in minimised.minimised)
-        val again = stepIncomingRequest(later.gate, listOf("delivery-5"), listSettled = true, canMaximise = true, suppressedIds = minimised.minimised)
+        assertTrue("delivery-6" in minimised.minimised)
+        val again = stepIncomingRequest(later.gate, listOf("delivery-6"), listSettled = true, canMaximise = true, suppressedIds = minimised.minimised)
         assertNull(again.maximiseId)
         val closed = RequestOverlay(openId = "delivery-5").dismiss()
         val kept = retainOpenRequest(RequestOverlay(openId = "delivery-2"), listOf("delivery-2", "delivery-3"))
@@ -472,6 +512,52 @@ class RequestOverlayTest {
     }
 
     @Test
+    fun returningHomeOpensExactlyOneWaitingRequestOnce() {
+        val away = IncomingRequestGate(primed = true, catchUp = true, batchConsumed = true)
+        val returned = stepIncomingRequest(away, listOf("a"), true, true, emptySet())
+        assertEquals("a", returned.maximiseId)
+        assertFalse(returned.gate.catchUp)
+        val consumed = returned.gate.copy(pendingMaximiseId = null)
+        assertNull(stepIncomingRequest(consumed, listOf("a"), true, true, emptySet()).maximiseId)
+        assertNull(stepIncomingRequest(consumed, listOf("a", "b"), true, true, emptySet()).maximiseId)
+    }
+
+    @Test
+    fun returningHomeWithMultipleRequestsNeverAutoSelectsOne() {
+        val away = IncomingRequestGate(primed = true, catchUp = true)
+        val returned = stepIncomingRequest(away, listOf("a", "b"), true, true, emptySet())
+        assertNull(returned.maximiseId)
+        assertFalse(returned.gate.catchUp)
+        assertNull(stepIncomingRequest(returned.gate, listOf("b"), true, true, emptySet()).maximiseId)
+        assertNull(stepIncomingRequest(away, listOf("a", "b"), true, true, setOf("a")).maximiseId)
+    }
+
+    @Test
+    fun homeReturnWaitsForConfirmedListAndResumedScreen() {
+        val away = IncomingRequestGate(primed = true, catchUp = true)
+        val loading = stepIncomingRequest(away, listOf("a"), false, false, emptySet())
+        assertTrue(loading.gate.catchUp)
+        assertNull(loading.maximiseId)
+        val paused = stepIncomingRequest(loading.gate, listOf("a"), true, false, emptySet(), deferMaximise = true)
+        assertTrue(paused.gate.catchUp)
+        assertEquals("a", stepIncomingRequest(paused.gate, listOf("a"), true, true, emptySet()).maximiseId)
+        assertNull(stepIncomingRequest(paused.gate, listOf("a", "b"), true, true, emptySet()).maximiseId)
+    }
+
+    @Test
+    fun homeReturnDoesNotOpenSuppressedBlockedOrMissingRequests() {
+        val away = IncomingRequestGate(primed = true, catchUp = true)
+        assertNull(stepIncomingRequest(away, listOf("a"), true, true, setOf("a")).maximiseId)
+        val blocked = stepIncomingRequest(away, listOf("a"), true, false, emptySet(), deferMaximise = false)
+        assertFalse(blocked.gate.catchUp)
+        assertNull(blocked.maximiseId)
+        assertNull(stepIncomingRequest(blocked.gate, listOf("a"), true, true, emptySet()).maximiseId)
+        val empty = stepIncomingRequest(away, emptyList(), true, true, emptySet())
+        assertFalse(empty.gate.catchUp)
+        assertEquals("new", stepIncomingRequest(empty.gate, listOf("new"), true, true, emptySet()).maximiseId)
+    }
+
+    @Test
     fun aSettledListDoesNotConsumeARequestBeforeHomeIsReady() {
         val loading = stepIncomingRequest(IncomingRequestGate(), listOf("a"), false, false, emptySet())
         val waiting = stepIncomingRequest(loading.gate, listOf("a"), true, false, emptySet(), deferMaximise = true)
@@ -487,7 +573,8 @@ class RequestOverlayTest {
     fun aNewRequestDuringResumeWaitsForHomeAndDoesNotReopenKnownRequests() {
         val initial = stepIncomingRequest(IncomingRequestGate(), listOf("old"), true, true, emptySet())
         val gate = initial.gate.copy(pendingMaximiseId = null)
-        val waiting = stepIncomingRequest(gate, listOf("old", "new"), true, false, emptySet(), deferMaximise = true)
+        val empty = stepIncomingRequest(gate, emptyList(), true, true, emptySet())
+        val waiting = stepIncomingRequest(empty.gate, listOf("new"), true, false, emptySet(), deferMaximise = true)
         assertEquals("new", waiting.gate.heldMaximiseId)
         val ready = stepIncomingRequest(waiting.gate, listOf("old", "new"), true, true, emptySet())
         assertEquals("new", ready.maximiseId)
@@ -510,7 +597,37 @@ class RequestOverlayTest {
         assertNull(blocked.maximiseId)
         assertNull(blocked.gate.heldMaximiseId)
         assertNull(stepIncomingRequest(blocked.gate, listOf("a"), true, true, emptySet()).maximiseId)
-        assertEquals("b", stepIncomingRequest(blocked.gate, listOf("a", "b"), true, true, emptySet()).maximiseId)
+        val later = stepIncomingRequest(blocked.gate, listOf("a", "b"), true, true, emptySet())
+        assertNull(later.maximiseId)
+        val drained = stepIncomingRequest(later.gate, emptyList(), true, true, emptySet())
+        assertEquals("c", stepIncomingRequest(drained.gate, listOf("c"), true, true, emptySet()).maximiseId)
+    }
+
+    @Test
+    fun automaticOrNotificationOpenNeverReplacesTheSelectedRequest() {
+        val opened = RequestOverlay().openIfIdle("a")
+        assertEquals("a", opened.openId)
+        assertEquals(opened, opened.openIfIdle("b"))
+        assertEquals(opened, opened.openIfIdle("c"))
+        assertEquals("b", opened.minimise().openIfIdle("b").openId)
+        assertEquals("b", opened.open("b").openId) // explicit card selection
+    }
+
+    @Test
+    fun successiveArrivalsStayMinimisedUntilTheBatchIsDrained() {
+        val first = stepIncomingRequest(IncomingRequestGate(), listOf("a"), true, true, emptySet())
+        assertEquals("a", first.maximiseId)
+        val whileOpen = stepIncomingRequest(first.gate, listOf("a", "b", "c"), true, false, emptySet(), false)
+        assertNull(whileOpen.maximiseId)
+        val afterProcessing = stepIncomingRequest(whileOpen.gate, listOf("b", "c", "d"), true, true, emptySet())
+        assertNull(afterProcessing.maximiseId)
+        val temporaryEmpty = stepIncomingRequest(afterProcessing.gate, emptyList(), false, false, emptySet())
+        assertTrue(temporaryEmpty.gate.batchConsumed)
+        val later = stepIncomingRequest(temporaryEmpty.gate, listOf("e"), true, true, emptySet())
+        assertNull(later.maximiseId)
+        val drained = stepIncomingRequest(later.gate, emptyList(), true, true, emptySet())
+        assertFalse(drained.gate.batchConsumed)
+        assertEquals("f", stepIncomingRequest(drained.gate, listOf("f", "g"), true, true, emptySet()).maximiseId)
     }
 
     @Test

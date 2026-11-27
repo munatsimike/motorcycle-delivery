@@ -90,6 +90,18 @@ fun riderNoticeAction(notice: RiderNotice?): RiderNoticeAction {
     }
 }
 
+/** An opportunity changes the request board, not the rider's submitted bids.
+ * Actual bid lifecycle events must still invalidate the shared bid snapshot.
+ */
+internal fun RiderNoticeAction.requiresOwnBidInvalidation(): Boolean = when (this) {
+    is RiderNoticeAction.ShowAccepted,
+    is RiderNoticeAction.ShowBidExpired,
+    is RiderNoticeAction.ShowCustomerCancelled -> true
+    is RiderNoticeAction.ShowOffer,
+    is RiderNoticeAction.ShowApproved,
+    RiderNoticeAction.Ignore -> false
+}
+
 enum class RiderSignOutStep { AVAILABILITY, PUSH_DEVICE, SESSION, LOCAL }
 
 fun riderSignOutOrder(): List<RiderSignOutStep> = listOf(

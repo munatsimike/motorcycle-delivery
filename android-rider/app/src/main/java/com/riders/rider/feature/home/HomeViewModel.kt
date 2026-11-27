@@ -18,6 +18,8 @@ import com.riders.rider.feature.availability.domain.LOCATION_PERMISSION_REQUIRED
 import com.riders.rider.feature.availability.domain.LocationNotice
 import com.riders.rider.feature.delivery.data.ActiveDeliveryStore
 import com.riders.rider.feature.delivery.data.AssignmentRepository
+import com.riders.rider.feature.delivery.domain.HISTORY_CUSTOMER_CANCELLATION
+import com.riders.rider.feature.delivery.domain.invalidatesHistory
 import com.riders.rider.feature.delivery.domain.ASSIGNMENT_RECOVERY_ATTEMPTS
 import com.riders.rider.feature.delivery.domain.ASSIGNMENT_RECOVERY_DELAY_MS
 import com.riders.rider.feature.delivery.domain.ASSIGNMENT_RECOVERY_MESSAGE
@@ -130,6 +132,7 @@ class HomeViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             pendingOffers.customerCancelledArrivals.collect {
+                if (invalidatesHistory(HISTORY_CUSTOMER_CANCELLATION)) assignments.invalidateCompleted()
                 refreshForDeliveryEvent()
                 wallets.summary()
             }

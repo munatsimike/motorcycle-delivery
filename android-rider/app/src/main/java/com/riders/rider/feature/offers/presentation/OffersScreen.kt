@@ -89,9 +89,11 @@ import com.riders.rider.feature.offers.domain.dismissCustomOfferDialog
 import com.riders.rider.feature.offers.domain.editCustomOfferAmount
 import com.riders.rider.feature.offers.domain.offerButtonLoading
 import com.riders.rider.feature.offers.domain.resumeCustomOfferDialog
-import com.riders.rider.feature.bids.domain.resolvedSubmittedAmount
+import com.riders.rider.feature.bids.domain.submittedAmountForRequest
+import com.riders.rider.feature.offers.domain.searchAttemptKey
 import com.riders.rider.feature.offers.domain.offerSentConfirmation
 import com.riders.rider.feature.offers.domain.senderChoosesRider
+import com.riders.rider.feature.offers.domain.requestActionControlsVisible
 import com.riders.rider.feature.offers.domain.requestAmountLabel
 import com.riders.rider.feature.offers.domain.requestCurrencyLabel
 import com.riders.rider.feature.delivery.domain.DeliveryListSort
@@ -279,15 +281,15 @@ private fun OfferList(
         )
         else -> shown.forEach { offer ->
             key(offer.deliveryId) {
-            val sentAmount = resolvedSubmittedAmount(ui.ownBids, offer.deliveryId, ui.sentAmounts[offer.deliveryId])
+            val sentAmount = submittedAmountForRequest(offer, ui.ownBids, ui.sentAmounts)
             val openRequest = onOpen?.let { open -> { open(offer) } }
             if (unbidOnly && openRequest != null) {
-                CompactRequestCard(offer, onOpen = openRequest)
+                CompactRequestCard(offer, nowMillis = ui.nowMillis, onOpen = openRequest)
             } else OfferRequestCard(
                 offer,
                 ui.nowMillis,
                 accepting = ui.accepting,
-                statusLabel = if (sentAmount == null) ui.sentLabels[offer.deliveryId] else null,
+                statusLabel = if (sentAmount == null) ui.sentLabels[searchAttemptKey(offer.deliveryId, offer.searchExpiresAt)] else null,
                 sentAmount = sentAmount,
                 submittingBid = ui.submittingBid,
                 submitProgress = ui.submitProgress,
@@ -509,7 +511,7 @@ private fun YourOfferDialogButtons(
 }
 
 @Composable
-private fun MapOfferDialogButtons(
+internal fun MapOfferDialogButtons(
     confirmLabel: String,
     dismissLabel: String,
     onConfirm: () -> Unit,
@@ -659,7 +661,9 @@ fun OfferRequestCard(
     ) && !accepting && !submittingBid
     RidersCard(modifier = Modifier.fillMaxWidth(), onClick = if (settled) null else onOpen, bordered = false, bottomPadding = RidersSpacing.xs) {
         OfferSummary(offer, tickingNow, detailed = false, statusLabel = statusLabel, fresh = fresh)
-        if (!settled && (bidsOpen || !senderChoosesRider(offer.serviceClass))) {
+        // Keep the map controls and dialogs composed during genuine bid-state
+        // invalidation or connectivity loss; canAct still uses the live bidsOpen gate.
+        if (requestActionControlsVisible(settled, bidsOpen, offer.serviceClass, onMap = mapDecline)) {
             if (offer.serviceClass == "EXPRESS" && statusLabel != null) {
                 Text(statusLabel, style = RidersType.body, color = RidersColors.textSecondary)
             } else if (statusLabel == null) {

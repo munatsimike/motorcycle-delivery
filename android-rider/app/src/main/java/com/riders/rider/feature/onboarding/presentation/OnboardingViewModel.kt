@@ -52,6 +52,7 @@ data class OnboardingUi(
     val savingMotorcycle: Boolean = false,
     val error: String? = null,
     val notice: String? = null,
+    val syncing: Boolean = false,
 )
 
 @HiltViewModel
@@ -64,12 +65,14 @@ class OnboardingViewModel @Inject constructor(
     private val toasts = MutableSharedFlow<RidersToastEvent>(extraBufferCapacity = 4)
     val successToasts: SharedFlow<RidersToastEvent> = toasts.asSharedFlow()
 
-    fun refresh() {
+    fun refresh(fromUser: Boolean = false) {
         viewModelScope.launch {
             val previous = state.value
+            val chrome = com.riders.rider.core.refresh.listedRefresh(fromUser, previous.onboarding == null)
             state.value = previous.copy(
-                loading = previous.onboarding == null,
-                refreshing = previous.onboarding != null,
+                loading = chrome.loading,
+                refreshing = chrome.refreshing,
+                syncing = true,
                 error = null,
             )
             val profile = verification.profile()
@@ -81,6 +84,7 @@ class OnboardingViewModel @Inject constructor(
             state.value = previous.copy(
                 loading = false,
                 refreshing = false,
+                syncing = false,
                 fullName = (profile as? ApiResult.Ok)?.value?.fullName ?: previous.fullName,
                 phone = (profile as? ApiResult.Ok)?.value?.phone ?: previous.phone,
                 onboarding = loadedOnboarding,

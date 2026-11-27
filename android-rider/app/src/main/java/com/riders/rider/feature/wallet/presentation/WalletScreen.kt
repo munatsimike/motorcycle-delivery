@@ -96,10 +96,9 @@ fun WalletScreen(
                 model.refresh()
             }
         }
+        // Lifecycle observers are caught up to the current state on registration.
+        // ON_RESUME handles initial entry and later returns without a second refresh.
         lifecycle.addObserver(observer)
-        if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
-            model.refresh()
-        }
         onDispose { lifecycle.removeObserver(observer) }
     }
     var showTopUp by rememberSaveable { mutableStateOf(false) }

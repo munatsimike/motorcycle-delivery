@@ -37,10 +37,10 @@ class BidAttemptStore @Inject constructor(
     private val fileKey = stringPreferencesKey("attempts")
     private val newKey = { UUID.randomUUID().toString() }
 
-    suspend fun attempt(deliveryId: String, amountCents: Int): BidAttempt = mutex.withLock {
+    suspend fun attempt(deliveryId: String, amountCents: Int, searchStartedAt: String? = null): BidAttempt = mutex.withLock {
         val owner = storage.owner()
         val file = read(owner)
-        val next = nextBidAttempt(file.attempts[deliveryId], deliveryId, amountCents, newKey())
+        val next = nextBidAttempt(file.attempts[deliveryId], deliveryId, amountCents, newKey(), searchStartedAt)
         if (file.attempts[deliveryId] != next) {
             write(owner, file.copy(attempts = file.attempts + (deliveryId to next)))
         }

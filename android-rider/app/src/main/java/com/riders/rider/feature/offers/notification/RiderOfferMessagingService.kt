@@ -6,6 +6,7 @@ import com.riders.rider.feature.offers.domain.RiderNoticeAction
 import com.riders.rider.feature.offers.domain.offerAttemptKey
 import com.riders.rider.feature.offers.domain.parseRiderNotice
 import com.riders.rider.feature.offers.domain.riderNoticeAction
+import com.riders.rider.feature.offers.domain.requiresOwnBidInvalidation
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
@@ -22,45 +23,39 @@ class RiderOfferMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
         synchronized(sessions) {
             if (!coordinator.canReceive(sessions.snapshot().identity)) return@synchronized
-            when (val action = riderNoticeAction(parseRiderNotice(message.data))) {
+            val action = riderNoticeAction(parseRiderNotice(message.data))
+            val fresh = when (action) {
+                is RiderNoticeAction.ShowOffer -> shown.markIfNew(offerAttemptKey(action.deliveryId, action.expiresAt))
+                is RiderNoticeAction.ShowAccepted -> shown.markIfNew("accepted:${action.deliveryId}")
+                is RiderNoticeAction.ShowCustomerCancelled -> shown.markIfNew("cancelled:${action.deliveryId}")
+                is RiderNoticeAction.ShowBidExpired, is RiderNoticeAction.ShowApproved -> true
+                RiderNoticeAction.Ignore -> false
+            }
+            if (!fresh) return@synchronized
+            // A new opportunity only schedules the existing background board refresh.
+            // Do not temporarily revoke known bid status for the request already open.
+            if (action.requiresOwnBidInvalidation()) bids.invalidateOwnBids()
+            when (action) {
                 is RiderNoticeAction.ShowOffer -> {
-                    if (!shown.markIfNew(offerAttemptKey(action.deliveryId, action.expiresAt))) {
-                        return
-                    }
-                    bids.invalidateOwnBids()
                     pending.offerArrived(action.deliveryId)
                     poster.show(action.deliveryId)
                 }
                 is RiderNoticeAction.ShowAccepted -> {
-                    if (!shown.markIfNew("accepted:${action.deliveryId}")) {
-                        return
-                    }
-                    bids.invalidateOwnBids()
                     assignments.invalidateAssignments()
                     pending.acceptedBidArrived(action.deliveryId)
                     poster.showAccepted(action.deliveryId)
                 }
                 is RiderNoticeAction.ShowBidExpired -> {
-                    bids.invalidateOwnBids()
                     pending.bidExpiredArrived(action.deliveryId)
                     poster.showBidExpired(action.deliveryId)
                 }
                 is RiderNoticeAction.ShowCustomerCancelled -> {
-                    if (!shown.markIfNew("cancelled:${action.deliveryId}")) {
-                        return
-                    }
-                    bids.invalidateOwnBids()
                     assignments.invalidateAssignments()
                     pending.customerCancelledArrived(action.deliveryId)
                     poster.showCustomerCancelled(action.deliveryId)
                 }
-                is RiderNoticeAction.ShowApproved -> {
-                    if (!shown.markIfNew("approved:${action.approvedAt}")) {
-                        return
-                    }
-                    poster.showApproved()
-                }
-                RiderNoticeAction.Ignore -> return@synchronized
+                is RiderNoticeAction.ShowApproved -> poster.showApproved()
+                RiderNoticeAction.Ignore -> Unit
             }
         }
     }

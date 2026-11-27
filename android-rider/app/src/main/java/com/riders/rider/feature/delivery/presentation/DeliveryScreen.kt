@@ -109,6 +109,10 @@ import com.riders.rider.feature.delivery.domain.riderDetailsHeading
 import com.riders.rider.feature.delivery.domain.parseGeoPoint
 import com.riders.rider.feature.delivery.domain.deliveryActionLoadingLabel
 import com.riders.rider.feature.delivery.domain.deliveryCardAddress
+import com.riders.rider.feature.delivery.domain.deliveryWhenLabel
+import com.riders.rider.feature.delivery.domain.historyCancellationCopy
+import com.riders.rider.feature.delivery.domain.historyStopLines
+import com.riders.rider.feature.delivery.domain.showsDeliveredConfirmation
 import com.riders.rider.feature.offers.presentation.DeliveredDestinationMap
 import com.riders.rider.feature.offers.presentation.RequestRouteMap
 import com.riders.rider.feature.delivery.domain.riderDetailsSupport
@@ -120,6 +124,7 @@ fun DeliveryScreen(
     onRiderCancelled: (String) -> Unit = { onFinished() },
     onBack: () -> Unit = onFinished,
     completed: Boolean = false,
+    assignmentId: String = "",
     model: DeliveryViewModel = hiltViewModel(),
     mapModel: CollectionMapModel = hiltViewModel(),
     routeModel: CollectedRouteModel = hiltViewModel(),
@@ -155,7 +160,7 @@ fun DeliveryScreen(
     DisposableEffect(lifecycle, deliveryId) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                model.load(deliveryId, completed = completed)
+                model.load(deliveryId, completed = completed, assignmentId = assignmentId)
             }
         }
         lifecycle.addObserver(observer)
@@ -311,8 +316,14 @@ fun DeliveryScreen(
             onNavigate = startGuidance,
             destinationNote = destinationNote,
         )
-    } else if (ui.status == "DELIVERED") {
+    } else if (showsDeliveredConfirmation(ui.status)) {
         DeliveredPage(
+            ui = ui,
+            onBack = onBack,
+            navigationBottom = navigationBottom,
+        )
+    } else if (ui.status == "CANCELLED") {
+        CancelledHistoryPage(
             ui = ui,
             onBack = onBack,
             navigationBottom = navigationBottom,
@@ -320,7 +331,7 @@ fun DeliveryScreen(
     } else if (collected) {
     RidersPullRefresh(
         refreshing = ui.refreshing,
-        onRefresh = { model.load(deliveryId, fromUser = true, completed = completed) },
+        onRefresh = { model.load(deliveryId, fromUser = true, completed = completed, assignmentId = assignmentId) },
         modifier = Modifier.fillMaxSize(),
     ) {
             CollectedPage(
@@ -347,7 +358,7 @@ fun DeliveryScreen(
     } else {
     RidersPullRefresh(
         refreshing = ui.refreshing,
-        onRefresh = { model.load(deliveryId, fromUser = true, completed = completed) },
+        onRefresh = { model.load(deliveryId, fromUser = true, completed = completed, assignmentId = assignmentId) },
         modifier = Modifier.fillMaxSize(),
     ) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -456,7 +467,7 @@ fun DeliveryScreen(
             ui.pickupAddress.isBlank() && ui.parcelDescription.isBlank() && ui.error != null -> RidersFailureNotice(
                 message = ui.error.orEmpty(),
                 title = "Delivery unavailable",
-                onRetry = { model.load(deliveryId, fromUser = true, completed = completed) },
+                onRetry = { model.load(deliveryId, fromUser = true, completed = completed, assignmentId = assignmentId) },
                 modifier = Modifier.padding(RidersSpacing.lg),
             )
             else -> {
@@ -601,7 +612,7 @@ private fun CollectionMapPage(
                 .clip(cardShape)
                 .padding(
                     start = RidersSpacing.lg,
-                    top = RidersSpacing.sm,
+                    top = RidersSpacing.md,
                     end = RidersSpacing.lg,
                     bottom = RidersSpacing.lg + navigationBottom,
                 ),
@@ -1383,7 +1394,7 @@ private fun CollectedPage(
                 .shadow(12.dp, sheetShape, clip = false, ambientColor = RidersColors.shadow, spotColor = RidersColors.shadow)
                 .background(RidersColors.background, sheetShape)
                 .clip(sheetShape)
-                .padding(top = RidersSpacing.md, bottom = RidersSpacing.lg + navigationBottom),
+                .padding(top = RidersSpacing.lg, bottom = RidersSpacing.lg + navigationBottom),
         ) {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 when {
@@ -1582,7 +1593,7 @@ private fun DeliveredPage(
                 Modifier
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = RidersSpacing.lg)
-                    .padding(top = RidersSpacing.md, bottom = navigationBottom),
+                    .padding(top = RidersSpacing.xs, bottom = navigationBottom),
             ) {
                 DeliveryDetailsSummary(
                     description = ui.parcelDescription,
@@ -1603,6 +1614,95 @@ private fun DeliveredPage(
                     senderName = ui.contacts?.pickupName.orEmpty(),
                     customerSender = true,
     )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CancelledHistoryPage(
+    ui: DeliveryUi,
+    onBack: () -> Unit,
+    navigationBottom: Dp,
+) {
+    val (pickup, dropoff) = historyStopLines(ui.status, ui.pickupAddress, ui.dropoffAddress)
+    val sheetShape = RoundedCornerShape(topStart = RidersRadius.xl, topEnd = RidersRadius.xl)
+    Box(Modifier.fillMaxSize()) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(RidersColors.canvas),
+        )
+        Box(
+            Modifier
+                .statusBarsPadding()
+                .padding(start = RidersSpacing.lg, top = RidersSpacing.md)
+                .shadow(8.dp, CircleShape, ambientColor = RidersColors.shadow, spotColor = RidersColors.shadow)
+                .size(44.dp)
+                .clip(CircleShape)
+                .background(RidersColors.sheet)
+                .clickable(role = Role.Button, onClick = onBack),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                painter = painterResource(R.drawable.ic_chevron_left),
+                contentDescription = "Back",
+                tint = RidersColors.text,
+                modifier = Modifier.size(22.dp),
+            )
+        }
+        Column(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .heightIn(max = 420.dp)
+                .shadow(12.dp, sheetShape, ambientColor = RidersColors.shadow, spotColor = RidersColors.shadow)
+                .clip(sheetShape)
+                .background(RidersColors.background),
+        ) {
+            Column(
+                Modifier
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = RidersSpacing.lg)
+                    .padding(top = RidersSpacing.xs, bottom = navigationBottom),
+            ) {
+                DeliveryDetailsSummary(
+                    description = ui.parcelDescription,
+                    deliveryId = ui.deliveryId,
+                    createdAt = ui.createdAt,
+                    dateCaption = "Requested",
+                    dateFirst = true,
+                    flat = true,
+                    spacious = true,
+                    pickup = pickup,
+                    dropoff = dropoff,
+                    distanceMeters = ui.distanceMeters,
+                    price = ui.agreedPrice,
+                    currency = ui.currency,
+                    paymentMethod = ui.paymentMethod,
+                    serviceClass = ui.serviceClass,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Column(
+                    Modifier.padding(top = RidersSpacing.md),
+                    verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs),
+                ) {
+                    Text(
+                        "Cancelled by ${ui.cancelledBy ?: "Unknown"}",
+                        style = RidersType.body,
+                        color = RidersColors.text,
+                    )
+                    ui.cancelledAt?.let { cancelledAt ->
+                        Text(
+                            "Cancelled ${deliveryWhenLabel(cancelledAt)}",
+                            style = RidersType.body,
+                            color = RidersColors.textSecondary,
+                        )
+                    }
+                    historyCancellationCopy(ui.cancellationReason, ui.cancellationNote).forEach { line ->
+                        Text(line, style = RidersType.body, color = RidersColors.textSecondary)
+                    }
+                }
             }
         }
     }

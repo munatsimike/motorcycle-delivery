@@ -128,7 +128,6 @@ import com.riders.rider.feature.delivery.domain.ActiveDelivery
 import com.riders.rider.core.network.OfferResponse
 import com.riders.rider.feature.offers.domain.OfferActionProgress
 import com.riders.rider.feature.offers.domain.RequestOverlay
-import com.riders.rider.feature.offers.domain.autoOpenRequestIds
 import com.riders.rider.feature.offers.domain.dismissedForSettledAttempts
 import com.riders.rider.feature.offers.domain.handleRequestMapSuccess
 import com.riders.rider.feature.offers.domain.cachedNotificationOffer
@@ -144,6 +143,8 @@ import com.riders.rider.feature.offers.domain.requestMapAutoOpenBlocked
 import com.riders.rider.feature.offers.domain.requestSettled
 import com.riders.rider.feature.offers.domain.sealDismissedAttempt
 import com.riders.rider.feature.offers.presentation.CompactRequestCard
+import com.riders.rider.feature.offers.presentation.compactAvailableRequests
+import com.riders.rider.feature.offers.domain.homeRequestPreview
 import com.riders.rider.feature.offers.presentation.OfferViewModel
 import com.riders.rider.feature.offers.notification.rememberOfferInbox
 import com.riders.rider.feature.offers.presentation.RequestMapOverlay
@@ -152,8 +153,8 @@ import com.riders.rider.feature.bids.domain.OwnBid
 import com.riders.rider.feature.bids.domain.displayedBidProblem
 import com.riders.rider.feature.bids.domain.marketplaceBidButtonsVisible
 import com.riders.rider.feature.bids.domain.notificationBidRequest
-import com.riders.rider.feature.bids.domain.requestStillNeedsOffer
-import com.riders.rider.feature.bids.domain.resolvedSubmittedAmount
+import com.riders.rider.feature.bids.domain.submittedAmountForRequest
+import com.riders.rider.feature.offers.domain.searchAttemptKey
 import com.riders.rider.feature.offers.domain.shouldAskNotificationPermission
 import com.riders.rider.feature.offers.domain.shouldPollMarketplace
 import com.riders.rider.feature.offers.notification.markNotificationPermissionAsked
@@ -177,9 +178,6 @@ fun HomeScreen(
     onSetup: () -> Unit = {},
     inShell: Boolean = false,
     homeSelected: Boolean = true,
-    externalRequestId: String? = null,
-    externalBrowseRequests: Boolean = false,
-    onExternalRequestConsumed: () -> Unit = {},
     onRequestOverlayVisible: (Boolean) -> Unit = {},
     profilePhoto: Bitmap? = null,
     model: HomeViewModel = hiltViewModel(),
@@ -278,28 +276,6 @@ fun HomeScreen(
     val catalog = offersUi.offers
     val pendingTap = requestTap?.trim()?.takeIf { it.isNotEmpty() && it != ignoredTap }
     val requestClock = offersUi.nowMillis
-    val previewRequest = pendingTap?.let { id ->
-        cachedNotificationOffer(id, catalog, offersUi.settledIds, requestClock, ::notificationBidRequest)
-    }
-    LaunchedEffect(homeSelected, externalRequestId, externalBrowseRequests) {
-        if (!homeSelected || (!externalBrowseRequests && externalRequestId == null)) return@LaunchedEffect
-        if (externalBrowseRequests) {
-            overlay = overlay.minimise()
-            requestsOpen = true
-        } else {
-            val target = catalog.firstOrNull { it.deliveryId == externalRequestId }
-            if (target != null && target.deliveryId in autoOpenRequestIds(listOf(target), offersModel.nowMillis()) &&
-                !requestSettled(target.deliveryId, target.searchExpiresAt, offersUi.settledIds)) {
-                overlay = overlay.open(target.deliveryId)
-            } else {
-                requestsOpen = true
-            }
-        }
-        onExternalRequestConsumed()
-    }
-    val listedIds = if (ui.shift.showOffers) catalog.map { it.deliveryId } else emptyList()
-    val pinnedId = overlay.openId?.trim()?.takeIf { id -> id.isNotEmpty() && catalog.any { it.deliveryId == id } }
-    val eligibleIds = (listedIds + listOfNotNull(pinnedId)).distinct()
     LaunchedEffect(offersUi.settledIds, catalog) {
         val extra = dismissedForSettledAttempts(
             catalog.map { it.deliveryId to it.searchExpiresAt },
@@ -327,14 +303,11 @@ fun HomeScreen(
         pendingTap != null || overlay.openId != null
     val homeReady = appResumed && listSettled && ui.shift.showOffers
     val autoOpenIds = if (ui.shift.showOffers) {
-        autoOpenRequestIds(
-            catalog.filter { requestStillNeedsOffer(it.deliveryId, offersUi.ownBids, offersUi.sentAmounts) &&
-                !requestSettled(it.deliveryId, it.searchExpiresAt, offersUi.settledIds) },
-            requestClock,
-        )
+        compactAvailableRequests(offersUi).map { requestAttemptIdentity(it) }
     } else emptyList()
-    LaunchedEffect(eligibleIds, overlay.openId) {
-        val next = retainOpenRequest(overlay, eligibleIds)
+    LaunchedEffect(catalog, overlay.openId) {
+        // Read the latest catalog so an older composition cannot clear a newly opened map.
+        val next = retainOpenRequest(overlay, offersModel.ui.value.offers.map { it.deliveryId })
         if (next != overlay) {
             overlay = next
         }
@@ -348,53 +321,63 @@ fun HomeScreen(
     LaunchedEffect(autoOpenIds, listSettled, homeReady, deliberateBlock, homeSelected, overlay.minimised, overlay.dismissed) {
         if (!homeSelected) return@LaunchedEffect
         // Recheck the deadline at consumption time, not just at the last recomposition.
-        val liveIds = autoOpenRequestIds(catalog, offersModel.nowMillis()).toSet()
-        val id = offersModel.noteVisibleRequests(
-            autoOpenIds.filter { it in liveIds },
-            listSettled = listSettled,
-            canMaximise = homeReady && !deliberateBlock,
-            suppressedIds = overlay.dismissed + overlay.minimised,
-            deferMaximise = !deliberateBlock && (!listSettled || !appResumed),
+        val latest = offersModel.ui.value
+        val live = latest.offers.filterNot { requestCountdownExpired(it.searchExpiresAt, it.expiresAt, offersModel.nowMillis()) }
+        val liveIds = live.map { requestAttemptIdentity(it) }.toSet()
+        val latestAutoOpenIds = if (ui.shift.showOffers) compactAvailableRequests(latest).map { requestAttemptIdentity(it) } else emptyList()
+        val settledNow = listSettled && !latest.loading && latest.requestsConfirmed && latest.ownBidsKnown
+        // Release old-attempt dismissal/minimise state before the incoming gate consumes the new key.
+        val (current, remainingSeals) = overlayAfterSearchAttempt(
+            overlay, sealedAttempts, latest.offers.map { it.deliveryId to it.searchExpiresAt },
         )
-        if (id != null && overlay.openId == null && id !in overlay.dismissed && id !in overlay.minimised) {
-            overlay = overlay.open(id)
+        if (current != overlay) overlay = current
+        if (remainingSeals != sealedAttempts) sealedAttempts = remainingSeals
+        // The composition's block may be stale if a manual or notification open just ran.
+        val blockedNow = deliberateBlock || overlay.openId != null ||
+            pendingRequests.taps.value != null || requestMapAutoOpenBlocked(confirmOffline, requestsOpen)
+        val attempt = offersModel.noteVisibleRequests(
+            latestAutoOpenIds.filter { it in liveIds },
+            listSettled = settledNow,
+            canMaximise = homeReady && settledNow && !blockedNow,
+            suppressedIds = live.filter { it.deliveryId in current.dismissed || it.deliveryId in current.minimised }
+                .map { requestAttemptIdentity(it) }.toSet(),
+            deferMaximise = !blockedNow && (!settledNow || !appResumed),
+        )
+        val id = live.firstOrNull { requestAttemptIdentity(it) == attempt }?.deliveryId
+        if (id != null && !blockedNow && id !in overlay.dismissed && id !in overlay.minimised) {
+            overlay = overlay.openIfIdle(id)
         }
     }
-    val shownRequest = catalog.firstOrNull { it.deliveryId == overlay.openId }
-    val shownMatchesTap = shownRequest != null && pendingTap != null &&
-        notificationBidRequest(listOf(shownRequest), pendingTap) != null
-    val displayRequest = when {
-        !homeSelected -> null
-        pendingTap == null -> shownRequest
-        shownMatchesTap -> shownRequest
-        previewRequest != null -> previewRequest
-        else -> null
-    }
-    val openingRequest = homeSelected && pendingTap != null && displayRequest == null
+    // Every visible map has an explicitly selected id. An incoming tap cannot substitute a
+    // different preview while another request is being considered.
+    val displayRequest = if (homeSelected) catalog.firstOrNull { it.deliveryId == overlay.openId } else null
+    val openingRequest = homeSelected && pendingTap != null && overlay.openId == null
     SideEffect { onRequestOverlayVisible(displayRequest != null || openingRequest) }
-    val currentOverlay = rememberUpdatedState(overlay)
-    val currentCatalog = rememberUpdatedState(catalog)
-    val currentDisplayRequest = rememberUpdatedState(displayRequest)
-    val currentSealedAttempts = rememberUpdatedState(sealedAttempts)
     LaunchedEffect(offersUi.expiryDismissals) {
         val pending = offersUi.expiryDismissals
         if (pending.isEmpty()) {
             return@LaunchedEffect
         }
-        val openAttempt = currentDisplayRequest.value?.let { requestAttemptIdentity(it) }
-        var next = currentOverlay.value
-        var sealed = currentSealedAttempts.value
+        val latestOffers = offersModel.ui.value.offers
+        val openAttempt = latestOffers.firstOrNull { it.deliveryId == overlay.openId }?.let { requestAttemptIdentity(it) }
+        var next = overlay
+        var sealed = sealedAttempts
         for (attempt in pending) {
+            val retiredId = attempt.substringBefore('|')
+            val current = latestOffers.firstOrNull { it.deliveryId == retiredId }
+            // A late expiry event must never suppress a renewed request.
+            if (current != null && requestAttemptIdentity(current) != attempt &&
+                !requestSettled(retiredId, current.searchExpiresAt, setOf(attempt))) continue
             val closed = closeExpiredRequest(next, openAttempt, attempt)
             if (closed.dismissed != next.dismissed) {
                 sealed = sealDismissedAttempt(sealed, attempt.substringBefore('|'), attempt.substringAfter('|', "").ifEmpty { null })
             }
             next = closed
         }
-        if (next != currentOverlay.value) {
+        if (next != overlay) {
             overlay = next
         }
-        if (sealed != currentSealedAttempts.value) {
+        if (sealed != sealedAttempts) {
             sealedAttempts = sealed
         }
         offersModel.clearExpiryDismissals(pending)
@@ -405,28 +388,34 @@ fun HomeScreen(
         if (requestId.isEmpty()) {
             return@LaunchedEffect
         }
-        val offer = offersModel.resolveNotificationRequest(requestId)
-        if (ignoredTap == requestId) {
-            if (pendingRequests.taps.value?.trim() == requestId) {
-                pendingRequests.clear()
-            }
+        // A notification arriving/tapped while a map is open must leave that map untouched.
+        // The other request is still in the shared list and contributes to the Home badge.
+        if (overlay.openId != null || ignoredTap == requestId) {
+            if (pendingRequests.taps.value?.trim() == requestId) pendingRequests.clear()
             return@LaunchedEffect
         }
-        if (pendingRequests.taps.value?.trim() == requestId) {
-            pendingRequests.clear()
-        }
+        val snapshot = offersModel.ui.value
+        val cached = cachedNotificationOffer(requestId, snapshot.offers, snapshot.settledIds,
+            offersModel.nowMillis(), ::notificationBidRequest)
+        if (cached != null) overlay = overlay.openIfIdle(cached.deliveryId)
+        val offer = offersModel.resolveNotificationRequest(requestId)
+        if (pendingRequests.taps.value?.trim() != requestId) return@LaunchedEffect
+        pendingRequests.clear()
+        if (ignoredTap == requestId) return@LaunchedEffect
         val settled = offersModel.ui.value.settledIds
         if (offer != null && !requestSettled(offer.deliveryId, offer.searchExpiresAt, settled) &&
             !requestCountdownExpired(offer.searchExpiresAt, offer.expiresAt, offersModel.nowMillis())) {
-            overlay = currentOverlay.value.open(offer.deliveryId)
-        } else {
+            // A cached request was already opened. Do not reopen it if it has since closed,
+            // or override a selection that changed during the network lookup.
+            if (cached == null) overlay = overlay.openIfIdle(offer.deliveryId)
+        } else if (overlay.openId == null || overlay.openId == cached?.deliveryId) {
             showNotification(com.riders.rider.core.design.NotificationMessage("unavailable:$requestId", "This request has expired or is no longer available."))
         }
     }
     LaunchedEffect(offersModel) {
         offersModel.requestMapEvents.collect { event ->
-            val open = currentOverlay.value
-            val currentDeadline = currentCatalog.value.firstOrNull { it.deliveryId == event.deliveryId }?.searchExpiresAt
+            val open = overlay
+            val currentDeadline = offersModel.ui.value.offers.firstOrNull { it.deliveryId == event.deliveryId }?.searchExpiresAt
             val handling = handleRequestMapSuccess(open, event, currentDeadline)
             if (handling.overlay != open) {
                 overlay = handling.overlay
@@ -474,15 +463,16 @@ fun HomeScreen(
                         pendingRequests.clear()
                     }
                     overlay = overlay.open(displayRequest.deliveryId).minimise()
+                    sealedAttempts = sealDismissedAttempt(sealedAttempts, displayRequest.deliveryId, displayRequest.searchExpiresAt)
                 }
-                val sentAmount = resolvedSubmittedAmount(offersUi.ownBids, displayRequest.deliveryId, offersUi.sentAmounts[displayRequest.deliveryId])
+                val sentAmount = submittedAmountForRequest(displayRequest, offersUi.ownBids, offersUi.sentAmounts)
                 RequestMapOverlay(
                     offer = displayRequest,
                     nowMillis = requestClock,
                     accepting = offersUi.accepting,
                     submittingBid = offersUi.submittingBid,
                     submitProgress = offersUi.submitProgress,
-                    statusLabel = if (sentAmount == null) offersUi.sentLabels[displayRequest.deliveryId] else null,
+                    statusLabel = if (sentAmount == null) offersUi.sentLabels[searchAttemptKey(displayRequest.deliveryId, displayRequest.searchExpiresAt)] else null,
                     sentAmount = sentAmount,
                     bidsOpen = marketplaceBidButtonsVisible(displayRequest.serviceClass, offersUi.ownBidsKnown, offersUi.bidError ?: offersUi.bidListError),
                     error = requestMapNotice(offersUi.bidError, offersUi.error),
@@ -499,21 +489,13 @@ fun HomeScreen(
                     onDecline = { offersModel.decline(displayRequest) },
                     declining = offersUi.declining,
                     onInterest = { offersModel.expressInterest(displayRequest) },
-                    additionalRequestCount = autoOpenIds.count { it != displayRequest.deliveryId },
-                    onBrowseRequests = {
-                        if (pendingTap != null) {
-                            ignoredTap = pendingTap
-                            pendingRequests.clear()
-                        }
-                        requestsOpen = true
-                        overlay = overlay.open(displayRequest.deliveryId).minimise()
-                    },
                     onClose = {
                         if (pendingTap != null) {
                             ignoredTap = pendingTap
                             pendingRequests.clear()
                         }
                         overlay = overlay.open(displayRequest.deliveryId).dismiss()
+                        sealedAttempts = sealDismissedAttempt(sealedAttempts, displayRequest.deliveryId, displayRequest.searchExpiresAt)
                     },
                 )
             }
@@ -1508,14 +1490,13 @@ private fun RequestsSection(
     horizontal: Dp,
     contentBottom: Float,
 ) {
-    val shown = requestOffers
-        .filter { requestStillNeedsOffer(it.deliveryId, offerBids, offerAmounts) &&
-            !requestSettled(it.deliveryId, it.searchExpiresAt, settledRequests) &&
-            it.deliveryId in autoOpenRequestIds(listOf(it), requestNowMillis) }
-        .distinctBy { it.deliveryId }
-        .take(2)
-    val hasRequests = ui.shift.showOffers && shown.isNotEmpty()
     val nowMillis = requestNowMillis.takeIf { it > 0L } ?: System.currentTimeMillis()
+    val preview = homeRequestPreview(
+        if (ui.shift.showOffers) requestOffers else emptyList(),
+        offerBids, offerAmounts, settledRequests, nowMillis,
+    )
+    val shown = preview.cards
+    val hasRequests = shown.isNotEmpty()
     Column(verticalArrangement = Arrangement.spacedBy(RidersSpacing.md)) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = horizontal),
@@ -1530,12 +1511,14 @@ private fun RequestsSection(
                 ),
                 color = RidersColors.text,
             )
-            Text(
-                "View all",
-                style = RidersType.button,
-                color = RidersColors.primary,
-                modifier = Modifier.clickable(role = Role.Button, onClick = onOffers),
-            )
+            if (preview.showViewAll) {
+                Text(
+                    "View all",
+                    style = RidersType.button,
+                    color = RidersColors.primary,
+                    modifier = Modifier.clickable(role = Role.Button, onClick = onOffers),
+                )
+            }
         }
         if (hasRequests) {
             Column(
@@ -1544,7 +1527,7 @@ private fun RequestsSection(
                 verticalArrangement = Arrangement.spacedBy(RidersSpacing.md),
             ) {
             shown.forEach { offer ->
-                CompactRequestCard(offer, onOpen = { onOpenRequest(offer) })
+                CompactRequestCard(offer, nowMillis = nowMillis, onOpen = { onOpenRequest(offer) })
             }
             val bidProblem = displayedBidProblem(
                 hasMarketplaceRequest = shown.any { it.serviceClass == "EXPRESS" || it.serviceClass == "FLEXIBLE" },

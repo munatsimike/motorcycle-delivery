@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.RectF
 import android.graphics.Typeface
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -29,9 +30,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -53,6 +57,7 @@ import com.google.android.gms.maps.model.LatLng
 import com.google.android.gms.maps.model.LatLngBounds
 import com.google.android.gms.maps.model.RoundCap
 import com.google.maps.android.compose.GoogleMap
+import com.google.maps.android.compose.CameraPositionState
 import com.google.maps.android.compose.MapProperties
 import com.google.maps.android.compose.MapUiSettings
 import com.google.maps.android.compose.Marker
@@ -311,9 +316,11 @@ fun CollectionMap(
                     identity = assignmentId,
                     position = heldRider,
                     motorcycle = motorcycleIcon,
-                    tag = tagIcon,
                     zIndex = 2f,
                 )
+            }
+            if (motorcycleIcon != null) {
+                MapBubbleOverlay(camera, heldRider, tagIcon)
             }
         }
         if (pickup != null && rider == null) {
@@ -372,11 +379,47 @@ private fun loosenedBounds(points: List<GeoPoint>): LatLngBounds {
     )
 }
 
-/** Distance label. The bitmap is anchored on the motorcycle center, 8dp above the artwork. */
-internal data class RiderMarkerIcon(val icon: BitmapDescriptor, val anchor: Offset)
+/** A shadow-free bitmap whose anchor is expressed as a fraction of its dimensions. */
+internal data class MapBubbleImage(val bitmap: Bitmap, val anchor: Offset)
 
 /**
- * Motorcycle and distance tag stay mounted for the life of [identity].
+ * Draw labels in the Compose layer, not as Google Maps billboard markers. This keeps
+ * the exact bitmap shape (including the pointer) and does not add marker effects.
+ * The camera state is read in the draw phase so gestures and camera animations
+ * invalidate the drawing without recomposing the map or the delivery sheet.
+ * Projection coordinates are pixels relative to the map, which fills the same Box.
+ */
+@Composable
+internal fun MapBubbleOverlay(
+    camera: CameraPositionState,
+    position: LatLng?,
+    bubble: MapBubbleImage?,
+) {
+    if (position == null || bubble == null) return
+    val paint = remember { Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG) }
+    androidx.compose.foundation.Canvas(Modifier.fillMaxSize().clipToBounds()) {
+        // Observe both camera movement and the final idle transition.
+        camera.position
+        camera.isMoving
+        val screen = camera.projection?.toScreenLocation(position) ?: return@Canvas
+        val bitmap = bubble.bitmap
+        val left = screen.x - bitmap.width * bubble.anchor.x
+        val top = screen.y - bitmap.height * bubble.anchor.y
+        if (left >= size.width || top >= size.height ||
+            left + bitmap.width <= 0f || top + bitmap.height <= 0f
+        ) return@Canvas
+        drawIntoCanvas { canvas ->
+            canvas.nativeCanvas.drawBitmap(
+                bitmap, null,
+                RectF(left, top, left + bitmap.width, top + bitmap.height),
+                paint,
+            )
+        }
+    }
+}
+
+/**
+ * Motorcycle stays mounted for the life of [identity]. The label is drawn separately.
  * A later fix only moves the existing marker states. Camera work does not remove them.
  */
 @Composable
@@ -384,18 +427,15 @@ internal fun StableRiderMarkers(
     identity: String,
     position: LatLng?,
     motorcycle: BitmapDescriptor?,
-    tag: RiderMarkerIcon?,
     zIndex: Float,
 ) {
     if (position == null || motorcycle == null) {
         return
     }
     val bikeState = remember(identity) { MarkerState(position) }
-    val tagState = remember(identity) { MarkerState(position) }
     LaunchedEffect(position.latitude, position.longitude) {
         val next = LatLng(position.latitude, position.longitude)
         bikeState.position = next
-        tagState.position = next
     }
     Marker(
         state = bikeState,
@@ -405,16 +445,6 @@ internal fun StableRiderMarkers(
         flat = false,
         zIndex = zIndex,
     )
-    if (tag != null) {
-        Marker(
-            state = tagState,
-            icon = tag.icon,
-            anchor = tag.anchor,
-            rotation = 0f,
-            flat = false,
-            zIndex = zIndex + 1f,
-        )
-    }
 }
 
 internal fun riderMotorcycleDescriptor(context: android.content.Context): BitmapDescriptor {
@@ -433,7 +463,7 @@ internal fun tagSpaceBelowTipDp(markerDp: Float, topInsetFraction: Float): Float
 }
 
 /** Distance pill. Arrived uses solid primary green and white text. The tip sits 6dp above the visible motorcycle. */
-internal fun approachTagIcon(context: android.content.Context, label: String): RiderMarkerIcon {
+internal fun approachTagIcon(context: android.content.Context, label: String): MapBubbleImage {
     val arrived = label == PICKUP_ARRIVED_TAG
     val density = context.resources.displayMetrics.density
     val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -450,28 +480,15 @@ internal fun approachTagIcon(context: android.content.Context, label: String): R
     val tipWidth = TAG_TIP_WIDTH_DP * density
     val tipHeight = TAG_TIP_HEIGHT_DP * density
     val belowTip = tagSpaceBelowTipDp(RIDER_MOTORCYCLE_MARKER_DP, motorcycleTopInsetFraction(context)) * density
-    val shadow = 3f * density
-    val width = (badgeWidth + shadow * 2f).toInt().coerceAtLeast(1)
-    val height = (badgeHeight + tipHeight + belowTip).toInt().coerceAtLeast(1)
+    val width = kotlin.math.ceil(badgeWidth).toInt().coerceAtLeast(1)
+    val height = kotlin.math.ceil(badgeHeight + tipHeight + belowTip).toInt().coerceAtLeast(1)
     val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
     val badgeLeft = (width - badgeWidth) / 2f
     val radius = badgeHeight / 2f
     val fill = if (arrived) 0xFF169B62.toInt() else android.graphics.Color.WHITE
-    val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x3317211D }
     val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = fill }
     val tip = tagTip(width / 2f, badgeHeight, tipWidth, tipHeight)
-    val shadowTip = tagTip(width / 2f, badgeHeight + shadow, tipWidth, tipHeight)
-    canvas.drawRoundRect(
-        badgeLeft,
-        shadow,
-        badgeLeft + badgeWidth,
-        shadow + badgeHeight,
-        radius,
-        radius,
-        shadowPaint,
-    )
-    canvas.drawPath(shadowTip, shadowPaint)
     canvas.drawRoundRect(
         badgeLeft,
         0f,
@@ -488,7 +505,7 @@ internal fun approachTagIcon(context: android.content.Context, label: String): R
         padV - textPaint.fontMetrics.ascent,
         textPaint,
     )
-    return RiderMarkerIcon(BitmapDescriptorFactory.fromBitmap(bitmap), Offset(0.5f, 1f))
+    return MapBubbleImage(bitmap, Offset(0.5f, 1f))
 }
 
 private fun tagTip(centerX: Float, badgeBottom: Float, tipWidth: Float, tipHeight: Float): Path {

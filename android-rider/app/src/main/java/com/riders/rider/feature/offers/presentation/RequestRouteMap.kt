@@ -5,6 +5,7 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.Typeface
+import androidx.core.content.ContextCompat
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
@@ -46,7 +47,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -97,6 +97,8 @@ import com.riders.rider.feature.delivery.presentation.RiderMapStyles
 import com.riders.rider.core.design.LocalAppDark
 import com.riders.rider.feature.delivery.presentation.RiderMapThemeStore
 import com.riders.rider.feature.delivery.presentation.StableRiderMarkers
+import com.riders.rider.feature.delivery.presentation.MapBubbleImage
+import com.riders.rider.feature.delivery.presentation.MapBubbleOverlay
 import com.riders.rider.feature.delivery.presentation.approachTagIcon
 import com.riders.rider.feature.delivery.presentation.riderMotorcycleDescriptor
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -104,6 +106,7 @@ import javax.inject.Inject
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import androidx.core.graphics.createBitmap
 
 // Reusable Google Maps route view for bids and other rider screens.
 // Pin shapes use the same drawable assets as the delivery cards.
@@ -360,9 +363,11 @@ fun RequestRouteMap(
                 identity = deliveryId,
                 position = heldRider,
                 motorcycle = motorcycleIcon,
-                tag = tagIcon,
                 zIndex = 3f,
             )
+        }
+        if (motorcycleIcon != null) {
+            MapBubbleOverlay(camera, heldRider, tagIcon)
         }
         if (waitingForLocation) {
             Text(
@@ -420,9 +425,8 @@ fun DeliveredDestinationMap(
     var mapHeightPx by remember { mutableIntStateOf(0) }
     var userMoved by remember { mutableStateOf(false) }
     var seenRecenter by remember { mutableIntStateOf(recenter) }
-    var icon by remember(recipient, address, completedAt) { mutableStateOf<BitmapDescriptor?>(null) }
-    var anchorY by remember(recipient, address, completedAt) { mutableStateOf(1f) }
-    var markerHeightPx by remember(recipient, address, completedAt) { mutableIntStateOf(0) }
+    var bubble by remember(recipient, address, completedAt) { mutableStateOf<MapBubbleImage?>(null) }
+    val markerHeightPx = bubble?.bitmap?.height ?: 0
     val statusTop = with(density) { WindowInsets.statusBars.getTop(this).toDp() }
     val boundsPadding = collectionMarkerPaddingPx(12f, density.density)
     val bottomPad = sheetOverlap + 24.dp
@@ -446,10 +450,7 @@ fun DeliveredDestinationMap(
         val bottomPx = with(density) { bottomPad.roundToPx() }
         val minViewportPx = with(density) { 96.dp.roundToPx() }
         val limit = (mapHeightPx - bottomPx - minViewportPx).coerceAtLeast(with(density) { 120.dp.roundToPx() })
-        val marker = deliveredConfirmationIcon(context, recipient, address, completedAt, limit)
-        icon = marker?.icon
-        anchorY = marker?.anchorY ?: 1f
-        markerHeightPx = marker?.heightPx ?: 0
+        bubble = deliveredConfirmationIcon(context, recipient, address, completedAt, limit)
     }
     LaunchedEffect(mapLoaded, sheetOverlap, markerHeightPx, target, userMoved, recenter) {
         val centering = recenter != seenRecenter
@@ -492,16 +493,8 @@ fun DeliveredDestinationMap(
                 tiltGesturesEnabled = false,
             ),
             onMapLoaded = { mapLoaded = true },
-        ) {
-            if (icon != null) {
-                Marker(
-                    state = remember(target) { MarkerState(target) },
-                    icon = icon,
-                    anchor = androidx.compose.ui.geometry.Offset(0.5f, anchorY),
-                    zIndex = 2f,
-                )
-            }
-        }
+        )
+        MapBubbleOverlay(camera, target, bubble)
     }
     LaunchedEffect(camera.isMoving, camera.cameraMoveStartedReason) {
         if (camera.isMoving && camera.cameraMoveStartedReason == CameraMoveStartedReason.GESTURE) {
@@ -510,15 +503,13 @@ fun DeliveredDestinationMap(
     }
 }
 
-private data class DeliveredMarker(val icon: BitmapDescriptor, val anchorY: Float, val heightPx: Int)
-
 private fun deliveredConfirmationIcon(
     context: android.content.Context,
     recipient: String,
     address: String,
     completedAt: String?,
     maxHeightPx: Int,
-): DeliveredMarker? {
+): MapBubbleImage {
     val density = context.resources.displayMetrics.density
     val maxText = (268f * density).toInt().coerceAtLeast(1)
     val titlePaint = markerTextPaint(17f * density, Typeface.create(Typeface.DEFAULT, Typeface.BOLD))
@@ -550,25 +541,20 @@ private fun deliveredConfirmationIcon(
     if (placeLayout != null) textHeight += gap + placeLayout.height
     if (time.isNotEmpty()) textHeight += gap + timeRow
     val boxHeight = (padV * 2 + textHeight).toInt().coerceAtLeast(1)
+    val pointerWidth = 24f * density
+    val pointerHeight = 14f * density
+    // Keep the original blue destination pin, with the pointer directed at it.
     val pin = ContextCompat.getDrawable(context, R.drawable.ic_solid_dropoff_location)?.mutate()
-    val pinWidth = (32f * density).toInt().coerceAtLeast(1)
-    val pinHeight = (39f * density).toInt().coerceAtLeast(1)
-    val pinGap = 5f * density
+    val pinWidth = kotlin.math.ceil(32f * density).toInt().coerceAtLeast(1)
+    val pinHeight = kotlin.math.ceil(39f * density).toInt().coerceAtLeast(1)
+    val pinTop = kotlin.math.ceil(boxHeight + pointerHeight + 3f * density).toInt()
     val width = maxOf(boxWidth, pinWidth)
-    val height = (boxHeight + pinGap + pinHeight).toInt().coerceAtLeast(1)
+    val height = pinTop + pinHeight + 1
     val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
     val boxLeft = (width - boxWidth) / 2f
-    val shadow = 3f * density
-    canvas.drawRoundRect(
-        boxLeft,
-        shadow,
-        boxLeft + boxWidth,
-        shadow + boxHeight,
-        18f * density,
-        18f * density,
-        Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x3317211D },
-    )
+    val primaryGreen = RidersColors.primary.toArgb()
+    val bubblePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = primaryGreen }
     canvas.drawRoundRect(
         boxLeft,
         0f,
@@ -576,7 +562,17 @@ private fun deliveredConfirmationIcon(
         boxHeight.toFloat(),
         18f * density,
         18f * density,
-        Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF16845B.toInt() },
+        bubblePaint,
+    )
+    canvas.drawPath(
+        Path().apply {
+            // Overlap the rectangle by one dp so antialiasing cannot leave a seam.
+            moveTo(width / 2f - pointerWidth / 2f, boxHeight - density)
+            lineTo(width / 2f + pointerWidth / 2f, boxHeight - density)
+            lineTo(width / 2f, boxHeight + pointerHeight)
+            close()
+        },
+        bubblePaint,
     )
     val contentLeft = boxLeft + padH
     val circleTop = padV + (rowHeight - circle) / 2f
@@ -595,7 +591,7 @@ private fun deliveredConfirmationIcon(
             lineTo(checkLeft + check * 0.86f, checkTop + check * 0.24f)
         },
         Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = 0xFF16845B.toInt()
+            color = primaryGreen
             style = Paint.Style.STROKE
             strokeWidth = 2f * density
             strokeCap = Paint.Cap.ROUND
@@ -634,14 +630,15 @@ private fun deliveredConfirmationIcon(
             timePaint,
         )
     }
-    pin?.setBounds(
-        ((width - pinWidth) / 2f).toInt(),
-        (boxHeight + pinGap).toInt(),
-        ((width + pinWidth) / 2f).toInt(),
-        (boxHeight + pinGap + pinHeight).toInt(),
-    )
+    val pinLeft = (width - pinWidth) / 2
+    pin?.setBounds(pinLeft, pinTop, pinLeft + pinWidth, pinTop + pinHeight)
     pin?.draw(canvas)
-    val tip = (boxHeight + pinGap + pinHeight * 55f / 58f) / height.toFloat()
+    // The destination is at the tip of the original pin (or the bubble if unavailable).
+    val tip = if (pin != null) {
+        (pinTop + pinHeight * 55f / 58f) / height.toFloat()
+    } else {
+        (boxHeight + pointerHeight) / height.toFloat()
+    }
     val longest = maxOf(bitmap.width, bitmap.height)
     val heightLimit = if (maxHeightPx > 0) minOf(bitmap.height, maxHeightPx) else bitmap.height
     val scale = minOf(1f, heightLimit.toFloat() / bitmap.height, if (longest > 1024) 1024f / longest else 1f)
@@ -655,8 +652,7 @@ private fun deliveredConfirmationIcon(
     } else {
         bitmap
     }
-    val descriptor = runCatching { BitmapDescriptorFactory.fromBitmap(rendered) }.getOrNull() ?: return null
-    return DeliveredMarker(descriptor, tip.coerceIn(0f, 1f), rendered.height)
+    return MapBubbleImage(rendered, androidx.compose.ui.geometry.Offset(0.5f, tip.coerceIn(0f, 1f)))
 }
 
 private fun markerTextPaint(textSize: Float, typeface: Typeface): TextPaint {
@@ -690,7 +686,7 @@ internal fun locationDrawableMarker(context: android.content.Context, drawableId
     val density = context.resources.displayMetrics.density
     val width = (32f * density).toInt().coerceAtLeast(1)
     val height = (39f * density).toInt().coerceAtLeast(1)
-    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    val bitmap = createBitmap(width, height)
     drawable.setBounds(0, 0, width, height)
     drawable.draw(Canvas(bitmap))
     return runCatching { BitmapDescriptorFactory.fromBitmap(bitmap) }.getOrNull()

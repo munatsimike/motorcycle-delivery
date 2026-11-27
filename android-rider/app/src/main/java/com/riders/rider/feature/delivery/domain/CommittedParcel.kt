@@ -26,6 +26,10 @@ data class CommittedParcel(
     val distanceMeters: Int? = null,
     val createdAt: String? = null,
     val completedAt: String? = null,
+    val cancelledAt: String? = null,
+    val cancelledBy: String? = null,
+    val cancellationReason: String? = null,
+    val cancellationNote: String? = null,
 )
 
 fun ActiveAssignmentBody.toCommittedParcel(): CommittedParcel {
@@ -51,6 +55,10 @@ fun ActiveAssignmentBody.toCommittedParcel(): CommittedParcel {
         distanceMeters = distanceMeters,
         createdAt = createdAt,
         completedAt = completedAt,
+        cancelledAt = cancelledAt,
+        cancelledBy = cancelledBy,
+        cancellationReason = cancellationReason,
+        cancellationNote = cancellationNote,
     )
 }
 
@@ -58,6 +66,51 @@ fun completedDeliveries(parcels: List<CommittedParcel>): List<CommittedParcel> {
     return parcels
         .filter { it.status == "DELIVERED" }
         .sortedWith(compareByDescending<CommittedParcel> { it.completedAt ?: "" }.thenByDescending { it.assignmentId })
+}
+
+enum class HistoryStatus(val label: String, val query: String) {
+    All("All", "all"),
+    Delivered("Delivered", "delivered"),
+    Cancelled("Cancelled", "cancelled"),
+}
+
+const val HISTORY_CACHE_LIMIT = 5
+
+fun historyDeliveries(parcels: List<CommittedParcel>): List<CommittedParcel> {
+    return parcels.filter { it.status == "DELIVERED" || it.status == "CANCELLED" }
+}
+
+fun historyCache(parcels: List<CommittedParcel>): List<CommittedParcel> = parcels.take(HISTORY_CACHE_LIMIT)
+
+fun historySortTime(parcel: CommittedParcel): String? {
+    return if (parcel.status == "CANCELLED") parcel.cancelledAt ?: parcel.createdAt else parcel.completedAt ?: parcel.createdAt
+}
+
+fun showsDeliveredConfirmation(status: String): Boolean = status == "DELIVERED"
+
+fun historyStopLines(status: String, pickup: String, dropoff: String): Pair<String, String> {
+    return if (status == "CANCELLED") pickup to dropoff else pickup to ""
+}
+
+fun historyRecord(parcels: List<CommittedParcel>, assignmentId: String?, deliveryId: String): CommittedParcel? {
+    val assignment = assignmentId?.trim().orEmpty()
+    if (assignment.isNotEmpty()) {
+        return parcels.firstOrNull { it.assignmentId == assignment }
+    }
+    return parcels.firstOrNull { it.deliveryId == deliveryId }
+}
+
+fun historyFetchApplies(ticket: Int, generation: Int): Boolean = ticket == generation
+
+const val HISTORY_RIDER_CANCELLATION = "RIDER_CANCELLED"
+const val HISTORY_CUSTOMER_CANCELLATION = "CUSTOMER_CANCELLED"
+
+fun invalidatesHistory(event: String): Boolean {
+    return event == HISTORY_RIDER_CANCELLATION || event == HISTORY_CUSTOMER_CANCELLATION
+}
+
+fun historyCancellationCopy(reason: String?, note: String?): List<String> {
+    return listOf(reason?.trim().orEmpty(), note?.trim().orEmpty()).filter { it.isNotEmpty() }
 }
 
 data class CompletedBoard(
@@ -69,28 +122,42 @@ data class CompletedBoard(
     val pageError: String? = null,
     val deliveries: List<CommittedParcel> = emptyList(),
     val error: String? = null,
+    val syncing: Boolean = false,
+    val historyStatus: HistoryStatus = HistoryStatus.All,
 )
 
-fun requestCompletedBoard(current: CompletedBoard, force: Boolean): CompletedBoard? {
+fun requestCompletedBoard(current: CompletedBoard, force: Boolean, fromUser: Boolean = false): CompletedBoard? {
     if (!force && current.loaded && current.error == null) {
         return null
     }
+    val blank = !current.loaded && current.deliveries.isEmpty() && current.error == null
+    val chrome = com.riders.rider.core.refresh.listedRefresh(fromUser, blank)
     return current.copy(
-        loading = current.deliveries.isEmpty(),
-        refreshing = force && (current.deliveries.isNotEmpty() || current.error != null),
+        loading = chrome.loading,
+        refreshing = chrome.refreshing,
+        syncing = true,
         error = null,
     )
 }
 
 fun applyCompletedBoard(current: CompletedBoard, incoming: List<CommittedParcel>?, error: String?): CompletedBoard {
     if (incoming != null) {
-        return CompletedBoard(loaded = true, deliveries = completedDeliveries(incoming))
+        return current.copy(
+            loading = false,
+            refreshing = false,
+            syncing = false,
+            loaded = true,
+            deliveries = historyDeliveries(incoming),
+            error = null,
+            pageError = null,
+            paging = false,
+        )
     }
-    return current.copy(loading = false, refreshing = false, error = error)
+    return current.copy(loading = false, refreshing = false, syncing = false, error = error)
 }
 
 fun appendCompletedPage(current: CompletedBoard, incoming: List<CommittedParcel>, nextCursor: String?): CompletedBoard =
-    current.copy(deliveries = (current.deliveries + completedDeliveries(incoming)).distinctBy { it.assignmentId },
+    current.copy(deliveries = (current.deliveries + historyDeliveries(incoming)).distinctBy { it.assignmentId },
         nextCursor = nextCursor, paging = false, pageError = null)
 
 fun serviceClassLabel(serviceClass: String?): String? = when (serviceClass) {
@@ -129,8 +196,16 @@ fun selectedParcel(assignments: List<CommittedParcel>, deliveryId: String): Comm
     return assignments.firstOrNull { it.deliveryId == deliveryId }
 }
 
-fun parcelRoute(deliveryId: String, completed: Boolean = false): String {
-    return if (completed) "delivery/$deliveryId?completed=true" else "delivery/$deliveryId"
+fun parcelRoute(deliveryId: String, completed: Boolean = false, assignmentId: String? = null): String {
+    if (!completed) {
+        return "delivery/$deliveryId"
+    }
+    val assignment = assignmentId?.trim().orEmpty()
+    return if (assignment.isEmpty()) {
+        "delivery/$deliveryId?completed=true"
+    } else {
+        "delivery/$deliveryId?completed=true&assignment=$assignment"
+    }
 }
 
 fun applyAssignmentRefresh(

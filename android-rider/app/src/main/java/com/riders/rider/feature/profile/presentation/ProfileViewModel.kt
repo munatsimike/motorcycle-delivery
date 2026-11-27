@@ -103,13 +103,14 @@ class ProfileViewModel @Inject constructor(
         }
     }
 
-    fun refresh(force: Boolean = false) {
+    fun refresh(force: Boolean = false, fromUser: Boolean = false) {
         if (!shouldLoadProfile(state.value.board.loaded, force, busy)) {
             return
         }
         busy = true
         val cold = state.value.board.onboarding == null && state.value.board.fullName.isBlank() && !state.value.board.loaded
-        state.update { it.copy(loading = cold, refreshing = !cold) }
+        val chrome = com.riders.rider.core.refresh.listedRefresh(fromUser, cold)
+        state.update { it.copy(loading = chrome.loading, refreshing = chrome.refreshing) }
         viewModelScope.launch {
             try {
                 val profile = verification.profile(shareInFlight = !force)

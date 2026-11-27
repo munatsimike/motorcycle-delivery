@@ -50,7 +50,6 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -125,8 +124,8 @@ fun OnboardingScreen(
         model.successToasts.collect { event -> showToast(event) }
     }
     LaunchedEffect(Unit) { model.refresh() }
-    LaunchedEffect(ui.step, ui.loading, ui.refreshing, ui.addingMotorcycle, ui.editingId, ui.motorcycles) {
-        if (focused || ui.loading || ui.refreshing || ui.onboarding == null) {
+    LaunchedEffect(ui.step, ui.loading, ui.syncing, ui.addingMotorcycle, ui.editingId, ui.motorcycles) {
+        if (focused || ui.loading || ui.syncing || ui.onboarding == null) {
             return@LaunchedEffect
         }
         if (ui.step != OnboardingStep.Motorcycle || ui.addingMotorcycle || ui.editingId != null) {
@@ -143,6 +142,10 @@ fun OnboardingScreen(
         !focused || ui.editingId != null || ui.addingMotorcycle
         )
     val showBackHeader = ui.onboarding != null && !(motorcycleForm && focused)
+    val contentScroll = rememberScrollState()
+    LaunchedEffect(focused, motorcycleForm) {
+        if (focused && motorcycleForm) contentScroll.scrollTo(0)
+    }
     RiderTheme {
         Column(
             Modifier
@@ -161,7 +164,7 @@ fun OnboardingScreen(
         }
         RidersPullRefresh(
             refreshing = ui.refreshing,
-            onRefresh = model::refresh,
+            onRefresh = { model.refresh(fromUser = true) },
             modifier = Modifier
                 .weight(1f)
                 .navigationBarsPadding()
@@ -184,7 +187,7 @@ fun OnboardingScreen(
                         RidersFailureNotice(
                             message = ui.error ?: "Your account could not be loaded. Check your connection and try again.",
                             title = "Account unavailable",
-                            onRetry = model::refresh,
+                            onRetry = { model.refresh() },
                         )
                     }
                 }
@@ -192,7 +195,7 @@ fun OnboardingScreen(
         } else Column(
             Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(contentScroll)
                 .padding(horizontal = RidersSpacing.lg, vertical = RidersSpacing.lg),
             verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
         ) {
@@ -228,7 +231,7 @@ fun OnboardingScreen(
                             "A verified licence cannot be replaced yet",
                             "Upload your driving licence to continue.", "Add your motorbike to continue.",
                         )) {
-                            RidersFailureNotice(message = ui.error.orEmpty(), onRetry = model::refresh)
+                            RidersFailureNotice(message = ui.error.orEmpty(), onRetry = { model.refresh() })
                         } else {
                             RidersTransientNotice(ui.error, passive = true)
                         }
@@ -568,20 +571,34 @@ private fun MotorcycleStep(
     onRemove: (String) -> Unit,
 ) {
     var pendingRemoval by remember { mutableStateOf<MotorcycleDetails?>(null) }
+    var pendingSwitchId by remember { mutableStateOf<String?>(null) }
     val needsChoice = !registration &&
         ui.motorcycles.count { it.verificationStatus == "VERIFIED" } >= 2 &&
         ui.motorcycles.none { it.isActive }
     val choiceKey = ui.motorcycles.joinToString { "${it.id}:${it.isActive}:${it.verificationStatus}" }
     var showChoice by remember(choiceKey) { mutableStateOf(needsChoice) }
+    val editing = ui.editingId != null
+    val showForm = registration || editing || ui.addingMotorcycle
+    val switchTarget = ui.motorcycles.firstOrNull { it.id == pendingSwitchId }
+        ?.takeIf { canSelectMotorcycle(it.verificationStatus, it.isActive) }
+    LaunchedEffect(pendingSwitchId, switchTarget, showForm) {
+        if (pendingSwitchId != null && (switchTarget == null || showForm)) {
+            pendingSwitchId = null
+        }
+    }
     StepHeading(
-        title = "Motorbike",
-        subtitle = if (registration) {
-            "Add the motorcycle you want to use, then continue."
+        title = when {
+            editing -> "Edit motorbike"
+            showForm -> "Add motorbike"
+            else -> "Motorbikes"
+        },
+        subtitle = if (showForm) {
+            "Enter the details from your registration book."
         } else {
-            "Add the motorbike you want to use and save."
+            "Manage your registered motorbikes."
         },
     )
-    if (!registration) {
+    if (!showForm) {
         ui.motorcycles.forEach { motorcycle ->
             val selected = motorcycle.isActive
             val selectable = canSelectMotorcycle(motorcycle.verificationStatus, motorcycle.isActive)
@@ -592,7 +609,7 @@ private fun MotorcycleStep(
                 enabled = !ui.savingMotorcycle && (selectable || editable),
                 onClick = {
                     when {
-                        selectable -> onSelect(motorcycle.id)
+                        selectable -> pendingSwitchId = motorcycle.id
                         editable -> onEdit(motorcycle)
                     }
                 },
@@ -627,7 +644,8 @@ private fun MotorcycleStep(
                 containerColor = Color(0xFFF1F3F4),
                 contentColor = Color(0xFF374151),
                 regular = true,
-                modifier = Modifier.weight(1f),
+                compact = true,
+                modifier = Modifier.weight(1f).height(44.dp),
             )
             RidersSecondaryButton(
                 label = "Remove",
@@ -642,12 +660,53 @@ private fun MotorcycleStep(
                 containerColor = Color(0xFFB42318),
                 contentColor = RidersColors.textInverse,
                 regular = true,
-                modifier = Modifier.weight(1f),
+                compact = true,
+                modifier = Modifier.weight(1f).height(44.dp),
             )
         }
     }
     RidersDialog(
-        visible = pendingRemoval == null && showChoice && needsChoice,
+        visible = switchTarget != null && !showForm && pendingRemoval == null,
+        onDismiss = { if (!ui.savingMotorcycle) pendingSwitchId = null },
+    ) {
+        RidersDialogTitle("Switch motorbike?")
+        RidersDialogBody("Do you want to make ${switchTarget?.registrationNumber.orEmpty()} your active motorbike?")
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            RidersSecondaryButton(
+                label = "Cancel",
+                onClick = { pendingSwitchId = null },
+                enabled = !ui.savingMotorcycle,
+                bordered = false,
+                containerColor = Color(0xFFF1F3F4),
+                contentColor = Color(0xFF374151),
+                regular = true,
+                compact = true,
+                modifier = Modifier.weight(1f).height(44.dp),
+            )
+            RidersSecondaryButton(
+                label = "Switch",
+                onClick = {
+                    val target = switchTarget ?: return@RidersSecondaryButton
+                    if (ui.savingMotorcycle || pendingSwitchId != target.id) return@RidersSecondaryButton
+                    pendingSwitchId = null
+                    onSelect(target.id)
+                },
+                enabled = !ui.savingMotorcycle && switchTarget != null,
+                bordered = false,
+                containerColor = RidersColors.primary,
+                contentColor = RidersColors.textInverse,
+                regular = true,
+                compact = true,
+                modifier = Modifier.weight(1f).height(44.dp),
+            )
+        }
+    }
+    RidersDialog(
+        visible = pendingRemoval == null && pendingSwitchId == null && showChoice && needsChoice,
         onDismiss = { showChoice = false },
     ) {
         RidersDialogTitle("Choose an active motorbike")
@@ -660,8 +719,6 @@ private fun MotorcycleStep(
             )
         }
     }
-    val editing = ui.editingId != null
-    val showForm = registration || editing || ui.addingMotorcycle
     val motion = rememberRidersMotion()
     val appearMs = motion.duration(RidersMotion.DELIVERY_MS)
     val hideMs = motion.duration(RidersMotion.CONFIRM_MS)
@@ -709,12 +766,6 @@ private fun MotorcycleStep(
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg)) {
         RidersCard(modifier = Modifier.fillMaxWidth(), prominent = true) {
-            Text(if (editing) "Update motorcycle" else "Add a motorcycle", style = RidersType.heading, color = RidersColors.text)
-            Text(
-                "Use the registration book. The number plate, make, model, and colour are all required.",
-                style = RidersType.caption,
-                color = RidersColors.textSecondary,
-            )
             RidersTextField(
                 label = "Registration number",
                 value = ui.draft.registrationNumber,
@@ -794,7 +845,7 @@ private fun MotorcycleChoice(
     val cardFill = when {
         pending -> Color(0xFFFFF4E5)
         approved && selected -> ActiveFill
-        approved -> InactiveFill
+        approved -> RidersColors.background
         selected -> RidersColors.primaryLight
         else -> RidersColors.surface
     }
@@ -817,8 +868,8 @@ private fun MotorcycleChoice(
             .clip(shape)
             .background(cardFill)
             .border(1.dp, cardBorder, shape)
-            .padding(RidersSpacing.lg),
-        verticalAlignment = Alignment.Top,
+            .padding(horizontal = RidersSpacing.lg, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(RidersSpacing.md),
     ) {
         Row(
@@ -857,55 +908,57 @@ private fun MotorcycleChoice(
                 },
             )
         }
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(motorcycle.registrationNumber, style = RidersType.heading, color = RidersColors.text)
-            Text(
-                listOf(motorcycle.make, motorcycle.model).filter { it.isNotBlank() }.joinToString(" "),
-                style = RidersType.body,
-                color = RidersColors.textSecondary,
-            )
-            if (!selected && !canSelectMotorcycle(motorcycle.verificationStatus, motorcycle.isActive)) {
-                Text(
-                    motorcycleStatusTitle(motorcycle.verificationStatus),
-                    style = RidersType.caption,
-                    color = if (pending) Color(0xFFB86E00) else RidersColors.textSecondary,
-                )
-            }
-        }
-        }
-        Column(
-            horizontalAlignment = Alignment.End,
-            verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
-        ) {
-            Text(
-                "Active",
-                style = RidersType.captionStrong,
-                color = if (selected) {
-                    if (approved) ActiveGreen else RidersColors.primaryDark
-                } else {
-                    Color.Transparent
-                },
-                modifier = Modifier
-                    .clip(RoundedCornerShape(RidersRadius.pill))
-                    .background(if (selected) RidersColors.background else Color.Transparent)
-                    .padding(horizontal = RidersSpacing.sm, vertical = 2.dp)
-                    .then(if (selected) Modifier else Modifier.clearAndSetSemantics {}),
-            )
-            if (onRemove != null) {
-                Box(
-                    Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .clickable(enabled = removeEnabled, role = Role.Button, onClick = onRemove),
-                    contentAlignment = Alignment.Center,
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(RidersSpacing.xs),
                 ) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_trash_can_outline),
-                        contentDescription = "Remove motorbike",
-                        modifier = Modifier.size(20.dp),
-                        tint = RidersColors.destructive,
+                    Text(
+                        motorcycle.registrationNumber,
+                        style = RidersType.heading,
+                        color = RidersColors.text,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    if (selected) {
+                        Text(
+                            "Active",
+                            style = RidersType.captionStrong,
+                            color = if (approved) ActiveGreen else RidersColors.primaryDark,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(RidersRadius.pill))
+                                .background(RidersColors.background)
+                                .padding(horizontal = RidersSpacing.sm, vertical = 2.dp),
+                        )
+                    }
+                }
+                Text(
+                    listOf(motorcycle.make, motorcycle.model).filter { it.isNotBlank() }.joinToString(" "),
+                    style = RidersType.body,
+                    color = RidersColors.textSecondary,
+                )
+                if (!selected && !canSelectMotorcycle(motorcycle.verificationStatus, motorcycle.isActive)) {
+                    Text(
+                        motorcycleStatusTitle(motorcycle.verificationStatus),
+                        style = RidersType.caption,
+                        color = if (pending) Color(0xFFB86E00) else RidersColors.textSecondary,
                     )
                 }
+            }
+        }
+        if (onRemove != null) {
+            Box(
+                Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .clickable(enabled = removeEnabled, role = Role.Button, onClick = onRemove),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_trash_can_outline),
+                    contentDescription = "Remove motorbike",
+                    modifier = Modifier.size(20.dp),
+                    tint = RidersColors.destructive,
+                )
             }
         }
     }
@@ -914,7 +967,6 @@ private fun MotorcycleChoice(
 private val ActiveFill = Color(0xFFD4EFE0)
 private val ActiveBorder = Color(0xFFB7DCC8)
 private val ActiveGreen = RidersColors.primary
-private val InactiveFill = Color(0xFFF3F4F6)
 private val InactiveBorder = Color(0xFFD8DDE3)
 private val InactiveGrey = Color(0xFF9AA3AB)
 

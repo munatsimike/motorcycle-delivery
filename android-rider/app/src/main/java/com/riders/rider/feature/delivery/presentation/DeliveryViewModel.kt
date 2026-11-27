@@ -20,7 +20,10 @@ import com.riders.rider.feature.delivery.domain.DeliverySyncKind
 import com.riders.rider.feature.delivery.domain.DELIVERY_COMPLETED
 import com.riders.rider.feature.delivery.domain.DELIVERY_STATUS_UNAVAILABLE
 import com.riders.rider.feature.delivery.domain.blockedDeliveryConfirmationMessage
+import com.riders.rider.feature.delivery.domain.HISTORY_CUSTOMER_CANCELLATION
+import com.riders.rider.feature.delivery.domain.HISTORY_RIDER_CANCELLATION
 import com.riders.rider.feature.delivery.domain.agreedPriceLabel
+import com.riders.rider.feature.delivery.domain.invalidatesHistory
 import com.riders.rider.feature.delivery.domain.cancellationNoteError
 import com.riders.rider.feature.delivery.domain.cancellationResultMessage
 import com.riders.rider.feature.delivery.domain.isIdempotencyConflict
@@ -90,6 +93,10 @@ data class DeliveryUi(
     val distanceMeters: Int? = null,
     val createdAt: String? = null,
     val completedAt: String? = null,
+    val cancelledAt: String? = null,
+    val cancelledBy: String? = null,
+    val cancellationReason: String? = null,
+    val cancellationNote: String? = null,
     val agreedPriceLabel: String? = null,
     val readOnly: Boolean = false,
     val missing: Boolean = false,
@@ -122,6 +129,7 @@ class DeliveryViewModel @Inject constructor(
     private var eventReload: String? = null
     private var cancellationRefresh = false
     fun refreshForCancellation(deliveryId: String) {
+        if (invalidatesHistory(HISTORY_CUSTOMER_CANCELLATION)) assignments.invalidateCompleted()
         eventReload = deliveryId
         state.update { it.copy(readOnly = true) }
         drainEventReload()
@@ -137,10 +145,10 @@ class DeliveryViewModel @Inject constructor(
 
     private val sessionIdentity = sessions.snapshot().identity
 
-    fun load(deliveryId: String, fromUser: Boolean = false, completed: Boolean = false) {
+    fun load(deliveryId: String, fromUser: Boolean = false, completed: Boolean = false, assignmentId: String = "") {
         if (!sessions.isCurrent(sessionIdentity)) return
         if (completed) {
-            loadCompleted(deliveryId, fromUser)
+            loadCompleted(deliveryId, fromUser, assignmentId)
             return
         }
         if (state.value.riderCancelled || opening || state.value.busy != DeliveryBusy.None) {
@@ -148,6 +156,8 @@ class DeliveryViewModel @Inject constructor(
         }
         if (state.value.status.isBlank() && state.value.pickupAddress.isBlank() && state.value.parcelDescription.isBlank()) {
             state.value = DeliveryUi(deliveryId = deliveryId, syncing = true, refreshing = fromUser)
+        } else if (fromUser) {
+            state.update { it.copy(refreshing = true) }
         }
         opening = true
         viewModelScope.launch {
@@ -211,22 +221,23 @@ class DeliveryViewModel @Inject constructor(
         }
     }
 
-    private fun loadCompleted(deliveryId: String, fromUser: Boolean) {
+    private fun loadCompleted(deliveryId: String, fromUser: Boolean, assignmentId: String) {
         if (opening || state.value.busy != DeliveryBusy.None) {
             return
         }
-        val cached = assignments.completedParcel(deliveryId)
+        val assignment = assignmentId.trim()
+        val cached = if (assignment.isNotEmpty()) assignments.historyParcel(assignment) else assignments.completedParcel(deliveryId)
         if (cached != null && !fromUser) {
             state.value = presentCompleted(cached, null)
             return
         }
         opening = true
         if (cached == null) {
-            state.value = DeliveryUi(deliveryId = deliveryId, syncing = true, refreshing = fromUser, readOnly = true, title = "Delivery")
+            state.value = DeliveryUi(deliveryId = deliveryId, assignmentId = assignment, syncing = true, refreshing = fromUser, readOnly = true, title = "Delivery")
         }
         viewModelScope.launch {
             try {
-                when (val result = assignments.findCompleted(deliveryId)) {
+                when (val result = if (assignment.isNotEmpty()) assignments.findHistory(assignment) else assignments.findCompleted(deliveryId)) {
                     is ApiResult.Ok -> {
                         val selected = result.value
                         state.value = if (selected == null) {
@@ -275,6 +286,10 @@ class DeliveryViewModel @Inject constructor(
             distanceMeters = parcel.distanceMeters,
             createdAt = parcel.createdAt,
             completedAt = parcel.completedAt,
+            cancelledAt = parcel.cancelledAt,
+            cancelledBy = parcel.cancelledBy,
+            cancellationReason = parcel.cancellationReason,
+            cancellationNote = parcel.cancellationNote,
             agreedPriceLabel = agreedPriceLabel(parcel.agreedPrice, parcel.currency),
             readOnly = true,
             marketplaceParcel = parcel.serviceClass == "EXPRESS" || parcel.serviceClass == "FLEXIBLE",
@@ -389,6 +404,7 @@ class DeliveryViewModel @Inject constructor(
                         transitions.clearCancellation(current.assignmentId)
                         transitions.clearProgress(current.deliveryId)
                         assignments.dropAssignment(current.assignmentId)
+                        if (invalidatesHistory(HISTORY_RIDER_CANCELLATION)) assignments.invalidateCompleted()
                         val refreshed = assignments.refreshList()
                         if (refreshed is ApiResult.Ok && refreshed.value.any { it.assignmentId == current.assignmentId }) {
                             assignments.dropAssignment(current.assignmentId)

@@ -29,8 +29,6 @@ data class BidBoardUi(
     val loading: Boolean = true,
     val refreshing: Boolean = false,
     val bids: List<OwnBid> = emptyList(),
-    val nextCursor: String? = null,
-    val loadingMore: Boolean = false,
     val withdrawingBidId: String? = null,
     val error: String? = null,
 )
@@ -45,12 +43,12 @@ class BidBoardViewModel @Inject constructor(
     private val toasts = MutableSharedFlow<RidersToastEvent>(extraBufferCapacity = 4)
     val successToasts = toasts.asSharedFlow()
     val ui: StateFlow<BidBoardUi> = combine(state, bids.ownBidPageFlow) { chrome, page ->
-        chrome.copy(bids = page.bids, nextCursor = page.nextCursor)
+        chrome.copy(bids = page.bids)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, state.value.copy(
         bids = bids.ownBidPageFlow.value.bids,
-        nextCursor = bids.ownBidPageFlow.value.nextCursor,
     ))
     private val withdrawGate = BidSubmitGate()
+    private var loadedList = false
     private var loadingList = false
     private var rerun = false
     private var rerunFromUser = false
@@ -83,7 +81,7 @@ class BidBoardViewModel @Inject constructor(
         loadingList = true
         val ticket = ++refreshTicket
         val current = state.value
-        val blank = bids.ownBidPageFlow.value.bids.isEmpty() && current.error == null
+        val blank = !loadedList && bids.ownBidPageFlow.value.bids.isEmpty() && current.error == null
         val chrome = listedRefresh(fromUser, blank)
         state.value = current.copy(
             refreshing = chrome.refreshing,
@@ -92,7 +90,7 @@ class BidBoardViewModel @Inject constructor(
         )
         viewModelScope.launch {
             try {
-                reload(null, ticket, refreshLoaded = fromUser)
+                reload(null, ticket, scanAll = fromUser || !loadedList)
             } finally {
                 val queued = rerun
                 val queuedFromUser = rerunFromUser
@@ -132,28 +130,8 @@ class BidBoardViewModel @Inject constructor(
         }
     }
 
-    fun loadMore() {
-        val cursor = bids.ownBidPageFlow.value.nextCursor ?: return
-        if (state.value.loadingMore || loadingList) {
-            return
-        }
-        state.value = state.value.copy(loadingMore = true)
-        viewModelScope.launch {
-            try {
-                when (val result = bids.refreshOwnBids(cursor)) {
-                    is ApiResult.Ok -> {
-                        keys.retain(result.value.bids)
-                    }
-                    is ApiResult.Err -> state.value = state.value.copy(error = result.error.text())
-                }
-            } finally {
-                state.value = state.value.copy(loadingMore = false)
-            }
-        }
-    }
-
-    private suspend fun reload(keepError: String?, ticket: Int? = null, refreshLoaded: Boolean = false) {
-        val own = bids.refreshOwnBids(null, refreshLoaded = refreshLoaded)
+    private suspend fun reload(keepError: String?, ticket: Int? = null, scanAll: Boolean = false) {
+        val own = bids.refreshOwnBids(null, scanAll = scanAll)
         val ownValue = (own as? ApiResult.Ok)?.value
         if (ownValue != null) {
             keys.retain(ownValue.bids)
@@ -161,6 +139,7 @@ class BidBoardViewModel @Inject constructor(
         if (ticket != null && ticket != refreshTicket) {
             return
         }
+        if (ownValue != null && scanAll) loadedList = true
         state.value = state.value.copy(
             loading = false,
             refreshing = false,

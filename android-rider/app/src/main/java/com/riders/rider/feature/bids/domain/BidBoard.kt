@@ -8,6 +8,7 @@ import com.riders.rider.core.network.StopResponse
 import com.riders.rider.feature.offers.domain.AWAITING_CUSTOMER
 import com.riders.rider.feature.offers.domain.leavesAcceptUnresolved
 import com.riders.rider.feature.offers.domain.offerSentConfirmation
+import com.riders.rider.feature.offers.domain.searchAttemptKey
 import kotlinx.serialization.Serializable
 
 const val EXPRESS_BIDS_UNAVAILABLE = "New offers are unavailable while an Urgent delivery is active."
@@ -23,6 +24,7 @@ data class BidAttempt(
     val deliveryId: String,
     val amountCents: Int,
     val key: String,
+    val searchStartedAt: String? = null,
 )
 
 data class OpenBidRequest(
@@ -109,11 +111,19 @@ fun formatBidDollars(amountCents: Int): String {
     return "$whole.$fraction"
 }
 
-fun nextBidAttempt(existing: BidAttempt?, deliveryId: String, amountCents: Int, freshKey: String): BidAttempt {
+fun nextBidAttempt(
+    existing: BidAttempt?, deliveryId: String, amountCents: Int, freshKey: String,
+    searchStartedAt: String? = null,
+): BidAttempt {
     if (existing != null && existing.deliveryId == deliveryId) {
-        return existing
+        // Preserve unresolved retries within a search. A confirmed later search has its own key.
+        val previous = existing.searchStartedAt?.let { runCatching { Instant.parse(it) }.getOrNull() }
+        val current = searchStartedAt?.let { runCatching { Instant.parse(it) }.getOrNull() }
+        if (previous == null || current == null || !current.isAfter(previous)) {
+            return if (previous == null && current != null) existing.copy(searchStartedAt = searchStartedAt) else existing
+        }
     }
-    return BidAttempt(deliveryId, amountCents, freshKey)
+    return BidAttempt(deliveryId, amountCents, freshKey, searchStartedAt)
 }
 
 fun bidRetryAmountProblem(attempt: BidAttempt, requestedCents: Int): String? =
@@ -125,7 +135,7 @@ fun bidAttemptAfterRefresh(existing: BidAttempt?, bids: List<OwnBid>): BidAttemp
         return null
     }
     val amount = formatBidDollars(existing.amountCents)
-    val recorded = bids.any { bid -> bid.deliveryId == existing.deliveryId && bid.amount == amount }
+    val recorded = bids.any { bid -> bid.deliveryId == existing.deliveryId && bid.amount == amount && bidBelongsToSearch(bid, existing.searchStartedAt) }
     return if (recorded) null else existing
 }
 
@@ -187,6 +197,23 @@ fun resolvedSubmittedAmount(serverBids: List<OwnBid>, deliveryId: String, optimi
     return openBidFor(serverBids, deliveryId)?.amount ?: optimistic?.takeIf { it.isNotBlank() }
 }
 
+/** A reopened delivery retains its id, but an offer from before this search is not current. */
+fun bidBelongsToSearch(bid: OwnBid, searchStartedAt: String?): Boolean {
+    val start = searchStartedAt?.let { runCatching { Instant.parse(it) }.getOrNull() } ?: return true
+    val created = runCatching { Instant.parse(bid.createdAt) }.getOrNull() ?: return true
+    return !created.isBefore(start)
+}
+
+fun openBidForRequest(bids: List<OwnBid>, deliveryId: String, searchStartedAt: String?): OwnBid? =
+    bids.firstOrNull { it.deliveryId == deliveryId && it.status == "OPEN" && bidBelongsToSearch(it, searchStartedAt) }
+
+fun submittedAmountForRequest(offer: OfferResponse, serverBids: List<OwnBid>, optimistic: Map<String, String>): String? =
+    openBidForRequest(serverBids, offer.deliveryId, offer.searchStartedAt)?.amount
+        ?: optimistic[searchAttemptKey(offer.deliveryId, offer.searchExpiresAt)]?.takeIf { it.isNotBlank() }
+
+fun requestStillNeedsOffer(offer: OfferResponse, serverBids: List<OwnBid>, optimistic: Map<String, String> = emptyMap()): Boolean =
+    submittedAmountForRequest(offer, serverBids, optimistic) == null
+
 fun requestStillNeedsOffer(deliveryId: String, serverBids: List<OwnBid>, optimistic: Map<String, String> = emptyMap()): Boolean {
     return resolvedSubmittedAmount(serverBids, deliveryId, optimistic[deliveryId]) == null
 }
@@ -242,6 +269,7 @@ fun bidRequestOffer(request: OpenBidRequest): OfferResponse? {
         deliveryId = request.id,
         expiresAt = deadline.orEmpty(), // Backend customer deadline takes priority once the first bid arrives.
         searchExpiresAt = searchDeadline,
+        searchStartedAt = request.searchStartedAt,
         offeredPrice = price,
         currency = currency,
         payer = "",
@@ -329,7 +357,7 @@ fun newMarketplaceOffers(
     offers: List<OfferResponse>,
     bids: List<OwnBid>,
     optimistic: Map<String, String> = emptyMap(),
-): List<OfferResponse> = offers.filter { requestStillNeedsOffer(it.deliveryId, bids, optimistic) }
+): List<OfferResponse> = offers.filter { requestStillNeedsOffer(it, bids, optimistic) }
 
 fun homeNewRequestCount(requests: List<OpenBidRequest>, bids: List<OwnBid>): Int {
     return newMarketplaceOffers(availableRequests(emptyList(), requests), bids).size

@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Text
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -40,6 +39,9 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.riders.rider.core.design.NetworkLink
+import com.riders.rider.core.design.RiderNetwork
 import androidx.lifecycle.viewModelScope
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.model.BitmapDescriptor
@@ -138,9 +140,8 @@ fun RequestMapOverlay(
     onInterest: () -> Unit,
     onClose: () -> Unit,
     routes: RequestRouteModel = hiltViewModel(),
-    additionalRequestCount: Int = 0,
-    onBrowseRequests: () -> Unit = {},
 ) {
+    val link by RiderNetwork.link.collectAsStateWithLifecycle()
     val pickup = remember(offer.deliveryId, offer.pickup.latitude, offer.pickup.longitude) {
         parseGeoPoint(offer.pickup.latitude, offer.pickup.longitude)
     }
@@ -188,25 +189,6 @@ fun RequestMapOverlay(
                 modifier = Modifier.size(20.dp),
             )
         }
-        if (additionalRequestCount > 0) {
-            Box(
-                Modifier.align(Alignment.TopStart)
-                    .padding(
-                        top = with(density) { WindowInsets.statusBars.getTop(this).toDp() } + RidersSpacing.md,
-                        start = RidersSpacing.lg,
-                    )
-                    .shadow(8.dp, RoundedCornerShape(24.dp))
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(RidersColors.sheet)
-                    .clickable(role = Role.Button, onClick = onBrowseRequests)
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-            ) {
-                Text(
-                    text = if (additionalRequestCount == 1) "1 more request" else "$additionalRequestCount more requests",
-                    color = RidersColors.text,
-                )
-            }
-        }
         Column(
             Modifier
                 .align(Alignment.BottomCenter)
@@ -225,7 +207,7 @@ fun RequestMapOverlay(
                 submitProgress = submitProgress,
                 statusLabel = statusLabel,
                 sentAmount = sentAmount,
-                bidsOpen = bidsOpen,
+                bidsOpen = bidsOpen && link != NetworkLink.Disconnected,
                 onAccept = onAccept,
                 onBid = onBid,
                 onSubmitBid = onSubmitBid,

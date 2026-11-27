@@ -84,6 +84,63 @@ import org.junit.Test
 
 class RiderBidBoardTest {
     @Test
+    fun pendingRefreshFindsOpenOffersBehindHistoricalPages() = runTest {
+        val server = MockWebServer()
+        server.start()
+        try {
+            server.enqueue(json(ownBidPageJson("recent-expired", "EXPIRED", "page-2")))
+            server.enqueue(json(ownBidPageJson("old-withdrawn", "WITHDRAWN", "page-3")))
+            server.enqueue(json(ownBidPageJson("older-open", "OPEN", null)))
+            val repository = BidRepository(server.service())
+            val result = repository.refreshOwnBids(null, scanAll = true)
+            assertTrue(result is com.riders.rider.core.network.ApiResult.Ok)
+            assertEquals(listOf("older-open"), pendingBids(repository.ownBidPageFlow.value.bids).map { it.bidId })
+            assertNull(repository.ownBidPageFlow.value.nextCursor)
+            assertNull(server.takeRequest().requestUrl?.queryParameter("cursor"))
+            assertEquals("page-2", server.takeRequest().requestUrl?.queryParameter("cursor"))
+            assertEquals("page-3", server.takeRequest().requestUrl?.queryParameter("cursor"))
+
+            // A normal refresh revisits the known OPEN offer and sees its expiry.
+            server.enqueue(json(ownBidPageJson("recent-expired", "EXPIRED", "page-2")))
+            server.enqueue(json(ownBidPageJson("old-withdrawn", "WITHDRAWN", "page-3")))
+            server.enqueue(json(ownBidPageJson("older-open", "EXPIRED", null)))
+            assertTrue(repository.refreshOwnBids(null) is com.riders.rider.core.network.ApiResult.Ok)
+            assertTrue(pendingBids(repository.ownBidPageFlow.value.bids).isEmpty())
+            assertEquals(6, server.requestCount)
+
+            // No OPEN offers remain: the next normal poll need not walk history.
+            server.enqueue(json(ownBidPageJson("recent-expired", "EXPIRED", "page-2")))
+            assertTrue(repository.refreshOwnBids(null) is com.riders.rider.core.network.ApiResult.Ok)
+            assertEquals(7, server.requestCount)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun pendingRefreshRejectsRepeatedCursorWithoutPublishingPartialList() = runTest {
+        val server = MockWebServer()
+        server.start()
+        try {
+            server.enqueue(json(ownBidPageJson("first", "OPEN", "repeat")))
+            server.enqueue(json(ownBidPageJson("second", "OPEN", "repeat")))
+            val repository = BidRepository(server.service())
+            val result = repository.refreshOwnBids(null, scanAll = true)
+            assertTrue(result is com.riders.rider.core.network.ApiResult.Err)
+            assertTrue(repository.ownBidPageFlow.value.bids.isEmpty())
+            assertFalse(repository.ownBidsKnownFlow.value)
+            assertEquals(2, server.requestCount)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    private fun ownBidPageJson(id: String, status: String, cursor: String?): String {
+        val next = cursor?.let { "\"$it\"" } ?: "null"
+        return """{"bids":[{"bidId":"$id","deliveryId":"delivery-$id","amount":"5.00","currency":"USD","status":"$status","createdAt":"2026-11-27T10:00:00Z"}],"nextCursor":$next}"""
+    }
+
+    @Test
     fun aBidAmountMustBeAPositiveUsdValue() {
         assertEquals(1250, bidAmountCents("12.50"))
         assertEquals(1250, bidAmountCents("12.5"))
