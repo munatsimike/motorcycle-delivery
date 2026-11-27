@@ -93,6 +93,40 @@ afterAll(async () => {
   else process.env.DATABASE_SSL_CA = previousSsl;
 }, 60_000);
 
+it('completes delivery when the progress transaction stays open longer than five seconds', async () => {
+  const world = await readyDelivery();
+  const real = prisma.$transaction.bind(prisma);
+  const timeouts: number[] = [];
+  prisma.$transaction = (async (work: (tx: unknown) => Promise<unknown>, options?: { timeout?: number }) => {
+    timeouts.push(options?.timeout ?? 0);
+    return real(async (tx) => {
+      const result = await work(tx);
+      await delay(5_500);
+      return result;
+    }, options);
+  }) as typeof prisma.$transaction;
+  try {
+    const completed = await progress.progress(world.rider, world.deliveryId, { status: 'DELIVERED' }, NOW, nextProgressKey(world.deliveryId));
+    expect(completed).toMatchObject({ status: 'DELIVERED', availability: 'BUSY' });
+    expect(timeouts).toEqual([15_000]);
+  } finally {
+    prisma.$transaction = real;
+  }
+  const delivery = await prisma.delivery.findUniqueOrThrow({ where: { id: world.deliveryId } });
+  const assignment = await prisma.deliveryAssignment.findUniqueOrThrow({ where: { id: world.assignmentId } });
+  const reservation = await prisma.walletFeeReservation.findFirstOrThrow({ where: { assignmentId: world.assignmentId } });
+  const entries = await prisma.riderWalletEntry.findMany({ where: { riderWalletId: world.walletId } });
+  const wallet = await prisma.riderWallet.findUniqueOrThrow({ where: { id: world.walletId } });
+  const commands = await prisma.deliveryProgressCommand.count({ where: { deliveryId: world.deliveryId } });
+  expect(delivery.status).toBe('DELIVERED');
+  expect(assignment.status).toBe('COMPLETED');
+  expect(reservation.status).toBe('CAPTURED');
+  expect(entries).toHaveLength(1);
+  expect(entries[0]?.entryType).toBe(WalletEntryType.PLATFORM_FEE);
+  expect(signedCentsFromDecimal(wallet.balance)).toBe(signedCentsFromDecimal(entries[0]!.balanceAfter));
+  expect(commands).toBe(1);
+});
+
 it('deducts the snapshotted commission once when the delivery is completed', async () => {
   const world = await readyDelivery();
   await prisma.v2CommissionRate.update({ where: { rateVersion: 1 }, data: { isActive: false } });

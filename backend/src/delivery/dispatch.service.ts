@@ -96,6 +96,7 @@ const LIVE_ASSIGNMENT_STATUSES = [
 const LIVE_ASSIGNMENT_STATUS_SET = new Set<DeliveryStatus>(LIVE_ASSIGNMENT_STATUSES);
 
 const LIVE_ASSIGNMENT_ORDER = [{ createdAt: 'asc' as const }, { id: 'asc' as const }];
+const PROGRESS_TRANSACTION = { timeout: 15_000 } as const;
 
 type AssignmentRow = {
   id: string;
@@ -384,13 +385,19 @@ export class DispatchService {
     const key = normalizeProgressKey(idempotencyKey);
     const hash = key ? progressPayloadHash(deliveryId, rider.riderProfileId, requested) : null;
     try {
-      return await this.prisma.$transaction((tx) => progressDelivery(tx, rider, deliveryId, requested, now, key, hash));
+      return await this.prisma.$transaction(
+        (tx) => progressDelivery(tx, rider, deliveryId, requested, now, key, hash),
+        PROGRESS_TRANSACTION,
+      );
     } catch (error) {
       if (!key || !hash || !isUniqueViolation(error)) {
         throw error;
       }
       try {
-        return await this.prisma.$transaction((tx) => replayProgressCommand(tx, rider.riderProfileId, key, hash));
+        return await this.prisma.$transaction(
+          (tx) => replayProgressCommand(tx, rider.riderProfileId, key, hash),
+          PROGRESS_TRANSACTION,
+        );
       } catch (replayError) {
         if (replayError instanceof ConflictException && replayError.message === 'This delivery status cannot be changed') {
           throw error;
