@@ -4,6 +4,7 @@ import { GUARDS_METADATA, METHOD_METADATA, PATH_METADATA, SELF_DECLARED_DEPS_MET
 import { describe, expect, it } from 'vitest';
 import { encodeListCursor } from '../common/list-cursor.js';
 import {
+  AssignmentReleaseReason,
   AssignmentStatus,
   CoordinateSource,
   Currency,
@@ -248,6 +249,111 @@ describe('active rider assignment', () => {
     await expect(service.completedAssignmentsPage(rider('profile-1'), '1', other, NOW)).rejects.toThrow('Invalid cursor');
     await expect(service.completedAssignmentsPage(rider('profile-1'), '0', undefined, NOW)).rejects.toThrow('Invalid page limit');
   });
+
+  it('keeps this rider cancelled assignment after another rider delivers it', async () => {
+    expect(Reflect.getMetadata(PATH_METADATA, RiderAssignmentController.prototype.historyPage)).toBe('history/page');
+    const delivered = '018f5b4a-7c3a-7c3a-8c3a-0000000000d1';
+    const riderCancelled = '018f5b4a-7c3a-7c3a-8c3a-0000000000c2';
+    const customerCancelled = '018f5b4a-7c3a-7c3a-8c3a-0000000000c1';
+    const reassigned = '018f5b4a-7c3a-7c3a-8c3a-0000000000c3';
+    const offered = '018f5b4a-7c3a-7c3a-8c3a-0000000000c4';
+    const other = '018f5b4a-7c3a-7c3a-8c3a-000000000099';
+    const service = serviceFor([
+      row(delivered, 'profile-1', AssignmentStatus.COMPLETED, DeliveryStatus.DELIVERED, 'Finished road', FRESH, {
+        completedAt: new Date('2026-10-18T08:00:00.000Z'),
+        serviceClass: 'EXPRESS',
+        assignmentServiceClass: 'FLEXIBLE',
+        acceptedBidAmount: '10.00',
+      }),
+      row(riderCancelled, 'profile-1', AssignmentStatus.RELEASED, DeliveryStatus.CANCELLED, 'Rider cancelled road', FRESH, {
+        releasedAt: new Date('2026-10-20T08:00:00.000Z'),
+        releaseReason: AssignmentReleaseReason.RIDER_CANCELLED,
+        cancellationNote: 'Bike would not start',
+      }),
+      row(customerCancelled, 'profile-1', AssignmentStatus.RELEASED, DeliveryStatus.CANCELLED, 'Customer cancelled road', FRESH, {
+        releasedAt: new Date('2026-10-19T08:00:00.000Z'),
+        releaseReason: AssignmentReleaseReason.CUSTOMER_CANCELLED,
+      }),
+      row(reassigned, 'profile-1', AssignmentStatus.RELEASED, DeliveryStatus.DELIVERED, 'Later completed by someone else', FRESH, {
+        releasedAt: new Date('2026-10-21T08:00:00.000Z'),
+        releaseReason: AssignmentReleaseReason.VEHICLE_PROBLEM,
+      }),
+      row(offered, 'profile-1', AssignmentStatus.CANCELLED, DeliveryStatus.SEARCHING, 'Offer that was never accepted'),
+      row(other, 'other-profile', AssignmentStatus.COMPLETED, DeliveryStatus.DELIVERED, 'Other rider road', FRESH, {
+        completedAt: new Date('2026-10-22T08:00:00.000Z'),
+      }),
+    ]);
+
+    const page = await service.historyAssignmentsPage(rider('profile-1'), '2', undefined, 'all', NOW);
+    expect(page.assignments.map((assignment) => assignment.assignmentId)).toEqual([reassigned, riderCancelled]);
+    expect(page.assignments[0]).toMatchObject({
+      status: 'CANCELLED',
+      cancelledBy: 'Rider',
+      cancellationReason: 'Vehicle problem',
+      completedAt: null,
+      pickup: { address: 'Later completed by someone else' },
+    });
+    expect(page.assignments[1]).toMatchObject({
+      status: 'CANCELLED',
+      cancelledBy: 'Rider',
+      cancellationReason: 'Rider cancelled',
+      cancellationNote: 'Bike would not start',
+      pickup: { contactPhone: '', instructions: null, address: 'Rider cancelled road', contactName: 'Pickup Person' },
+      dropoff: { contactPhone: '', instructions: null },
+      parcel: { instructions: null, description: 'Documents' },
+    });
+    expect(JSON.stringify(page.assignments[1])).not.toContain('+26377');
+    expect(page.nextCursor).toBeTruthy();
+    const rest = await service.historyAssignmentsPage(rider('profile-1'), '20', page.nextCursor, undefined, NOW);
+    expect(rest.assignments.map((assignment) => assignment.assignmentId)).toEqual([customerCancelled, delivered]);
+    expect(rest.assignments[0]).toMatchObject({ status: 'CANCELLED', cancelledBy: 'Customer', cancellationReason: 'Customer cancelled', cancellationNote: null });
+    expect(rest.assignments[1]).toMatchObject({
+      status: 'DELIVERED',
+      cancelledBy: null,
+      cancellationNote: null,
+      completedAt: '2026-10-18T08:00:00.000Z',
+      serviceClass: 'FLEXIBLE',
+      pickup: { contactPhone: '+263771111111', instructions: 'Call on arrival' },
+      parcel: { instructions: 'Keep dry' },
+    });
+    expect(rest.nextCursor).toBeNull();
+
+    const deliveredOnly = await service.historyAssignmentsPage(rider('profile-1'), '1', undefined, 'delivered', NOW);
+    expect(deliveredOnly.assignments.map((assignment) => assignment.assignmentId)).toEqual([delivered]);
+    expect(deliveredOnly.nextCursor).toBeNull();
+    const cancelledOnly = await service.historyAssignmentsPage(rider('profile-1'), '1', undefined, 'cancelled', NOW);
+    expect(cancelledOnly.assignments.map((assignment) => assignment.assignmentId)).toEqual([reassigned]);
+    const afterNewestCancel = await service.historyAssignmentsPage(rider('profile-1'), '20', cancelledOnly.nextCursor, 'cancelled', NOW);
+    expect(afterNewestCancel.assignments.map((assignment) => assignment.assignmentId)).toEqual([riderCancelled, customerCancelled]);
+
+    const isolated = await service.historyAssignmentsPage(rider('profile-1'), '20', encodeListCursor(new Date('2026-10-22T08:00:00.000Z'), other), 'all', NOW);
+    expect(isolated.assignments.map((assignment) => assignment.assignmentId)).toEqual([reassigned, riderCancelled, customerCancelled, delivered]);
+    expect(JSON.stringify(isolated)).not.toContain('Other rider road');
+    expect(JSON.stringify(page)).not.toContain('Offer that was never accepted');
+    await expect(service.historyAssignmentsPage(rider('profile-1'), '20', undefined, 'open', NOW)).rejects.toThrow('Invalid history status');
+    const completed = await service.completedAssignmentsPage(rider('profile-1'), '20', undefined, NOW);
+    expect(completed.assignments.map((assignment) => assignment.assignmentId)).toEqual([delivered]);
+    expect(completed.assignments[0]).toMatchObject({
+      serviceClass: 'EXPRESS',
+      pickup: { contactPhone: '+263771111111' },
+      parcel: { instructions: 'Keep dry' },
+    });
+    expect(Reflect.getMetadata(PATH_METADATA, RiderAssignmentController.prototype.historyAssignment)).toBe('history/:assignmentId');
+    const detail = await service.historyAssignment(rider('profile-1'), riderCancelled, NOW);
+    expect(detail.assignment).toMatchObject({
+      assignmentId: riderCancelled,
+      status: 'CANCELLED',
+      cancellationReason: 'Rider cancelled',
+      cancellationNote: 'Bike would not start',
+      pickup: { contactPhone: '' },
+    });
+    const kept = await service.historyAssignment(rider('profile-1'), reassigned, NOW);
+    expect(kept.assignment.status).toBe('CANCELLED');
+    expect(kept.assignment.deliveryId).toBe(`delivery-${reassigned}`);
+    await expect(service.historyAssignment(rider('other-profile'), riderCancelled, NOW)).rejects.toThrow('Delivery not found');
+    await expect(service.historyAssignment(rider('profile-1'), offered, NOW)).rejects.toThrow('Delivery not found');
+    await expect(service.historyAssignment(rider('profile-1'), 'not-an-assignment', NOW)).rejects.toThrow('Delivery not found');
+  });
 });
 
 describe('pickup route', () => {
@@ -370,7 +476,7 @@ function rider(riderProfileId: string) {
 type AssignmentQuery = {
   id?: string | { in: string[] };
   riderProfileId?: string;
-  status?: AssignmentStatus;
+  status?: AssignmentStatus | { in: AssignmentStatus[] };
   completedAt?: { not: null };
   delivery?: { status?: DeliveryStatus | { in?: DeliveryStatus[] } };
   AND?: Array<{ OR?: Array<{ completedAt?: Date | { lt?: Date }; id?: { lt?: string } }> }>;
@@ -390,7 +496,7 @@ function matchesAssignment(entry: ReturnType<typeof row>, where?: AssignmentQuer
   })) ?? true;
   return (where.id === undefined || (typeof where.id === 'string' ? entry.id === where.id : where.id.in.includes(entry.id)))
     && (where.riderProfileId === undefined || entry.riderProfileId === where.riderProfileId)
-    && (where.status === undefined || entry.status === where.status)
+    && (where.status === undefined || (typeof where.status === 'string' ? entry.status === where.status : where.status.in.includes(entry.status)))
     && (where.completedAt?.not !== null || entry.completedAt != null)
     && keyset
     && (deliveryStatus ? deliveryStatus.includes(entry.delivery.status) : statuses === undefined || entry.delivery.status === statuses);
@@ -402,7 +508,24 @@ function serviceFor(rows: ReturnType<typeof row>[]) {
     createdAt: entry.createdAt ?? new Date(index),
   }));
   const prisma = {
-    async $queryRaw(query: { values: unknown[] }) { return mockExactPage(query, indexed.filter(row => row.status === AssignmentStatus.COMPLETED && row.delivery.status === DeliveryStatus.DELIVERED), row => row.riderProfileId, row => row.completedAt); },
+    async $queryRaw(query: { strings?: string[]; values: unknown[] }) {
+      const text = (query.strings ?? []).join(' ');
+      if (text.includes('history_at')) {
+        const owner = String(query.values[0]);
+        const outcome = String(query.values[1]);
+        const take = Number(query.values[query.values.length - 1]);
+        const withCursor = query.values.length === 7;
+        const cursor = withCursor ? String(query.values[4]) : null;
+        const cursorId = withCursor ? String(query.values[5]) : null;
+        const timeOf = (entry: ReturnType<typeof row>) => {
+          if (entry.status === AssignmentStatus.COMPLETED && entry.completedAt && (outcome === 'ALL' || outcome === 'DELIVERED')) return entry.completedAt;
+          if (entry.status === AssignmentStatus.RELEASED && entry.releasedAt && (outcome === 'ALL' || outcome === 'CANCELLED')) return entry.releasedAt;
+          return null;
+        };
+        return mockExactPage({ values: [owner, ...(cursor && cursorId ? [cursor, cursorId] : []), take] }, indexed, entry => entry.riderProfileId, timeOf);
+      }
+      return mockExactPage(query, indexed.filter(row => row.status === AssignmentStatus.COMPLETED && row.delivery.status === DeliveryStatus.DELIVERED), row => row.riderProfileId, row => row.completedAt);
+    },
     deliveryAssignment: {
       async findFirst(args?: { where?: AssignmentQuery }) {
         return indexed.find((entry) => matchesAssignment(entry, args?.where)) ?? null;
@@ -442,6 +565,10 @@ function row(
     acceptedBidAmount?: string | { toFixed(digits: number): string } | null;
     price?: string;
     completedAt?: Date;
+    releasedAt?: Date;
+    releaseReason?: AssignmentReleaseReason;
+    cancellationNote?: string;
+    assignmentServiceClass?: 'FLEXIBLE' | 'EXPRESS' | null;
   } = {},
   assignmentCreatedAt?: Date,
 ) {
@@ -450,6 +577,10 @@ function row(
     riderProfileId,
     status,
     completedAt: read.completedAt ?? null,
+    releasedAt: read.releasedAt ?? null,
+    releaseReason: read.releaseReason ?? null,
+    cancellationNote: read.cancellationNote ?? null,
+    serviceClass: read.assignmentServiceClass ?? null,
     createdAt: assignmentCreatedAt,
     idempotencyKey: `key-${id}`,
     acceptedPlatformFee: '0.50',

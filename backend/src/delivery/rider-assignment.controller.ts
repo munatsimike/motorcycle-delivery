@@ -50,6 +50,26 @@ export class RiderAssignmentController {
     return this.dispatch.completedAssignmentsPage(requiredRider(request), limit, cursor);
   }
 
+  @Get('history/page')
+  @ApiOperation({ summary: 'Read a cursor page of this rider delivered and cancelled assignments' })
+  @ApiOkResponse({ description: 'Assignment status decides the row. A delivery later completed by another rider stays cancelled for the original rider.' })
+  historyPage(
+    @Req() request: RiderRequest,
+    @Query('limit') limit?: string,
+    @Query('cursor') cursor?: string,
+    @Query('status') status?: string,
+  ) {
+    return this.dispatch.historyAssignmentsPage(requiredRider(request), limit, cursor, status);
+  }
+
+  @Get('history/:assignmentId')
+  @ApiOperation({ summary: 'Read one delivered or cancelled assignment owned by this rider' })
+  @ApiParam({ name: 'assignmentId', format: 'uuid' })
+  @ApiOkResponse({ description: 'The assignment status is returned. Another rider completing the delivery does not change this row.' })
+  historyAssignment(@Req() request: RiderRequest, @Param('assignmentId') assignmentId: string) {
+    return this.dispatch.historyAssignment(requiredRider(request), assignmentId);
+  }
+
   @Get('active')
   @ApiOperation({ summary: 'Read the rider active assignment' })
   @ApiOkResponse({ description: 'The accepted delivery, or assignment null when the rider has none.' })

@@ -3,6 +3,7 @@ import type { ListCursor } from './list-cursor.js';
 
 export type ExactPageKey = { id: string; at: string };
 export type PageSource = 'completed' | 'deliveries' | 'addresses' | 'wallet' | 'bids';
+export type HistoryStatus = 'ALL' | 'DELIVERED' | 'CANCELLED';
 
 // Only fixed, application-owned SQL fragments are interpolated as identifiers.
 // PostgreSQL compares the original timestamp, not a JavaScript Date.
@@ -31,6 +32,41 @@ export async function exactPageKeys(
     FROM ${table}
     WHERE ${ownerColumn} = ${owner}::uuid ${extra} ${boundary}
     ORDER BY ${time} ${direction}, t.id ${direction}
+    LIMIT ${limit + 1}
+  `);
+}
+
+// Status is applied inside each indexed branch, before the shared cursor and limit.
+// A later rider completing the same delivery does not remove the released row.
+export async function historyPageKeys(
+  db: Pick<Prisma.TransactionClient, '$queryRaw'>,
+  owner: string,
+  limit: number,
+  cursor: ListCursor | undefined,
+  outcome: HistoryStatus,
+): Promise<ExactPageKey[]> {
+  const boundary = cursor
+    ? Prisma.sql`WHERE (history.history_at, history.id) < (${cursor.exact ?? cursor.at.toISOString()}::timestamptz, ${cursor.id}::uuid)`
+    : Prisma.empty;
+  return db.$queryRaw<ExactPageKey[]>(Prisma.sql`
+    SELECT history.id::text AS id, to_char(history.history_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS at
+    FROM (
+      SELECT t.id, t.completed_at AS history_at
+      FROM delivery_assignments t
+      WHERE t.rider_profile_id = ${owner}::uuid
+        AND t.status = 'COMPLETED'
+        AND t.completed_at IS NOT NULL
+        AND ${outcome}::text IN ('ALL', 'DELIVERED')
+      UNION ALL
+      SELECT t.id, t.released_at AS history_at
+      FROM delivery_assignments t
+      WHERE t.rider_profile_id = ${owner}::uuid
+        AND t.status = 'RELEASED'
+        AND t.released_at IS NOT NULL
+        AND ${outcome}::text IN ('ALL', 'CANCELLED')
+    ) history
+    ${boundary}
+    ORDER BY history.history_at DESC, history.id DESC
     LIMIT ${limit + 1}
   `);
 }

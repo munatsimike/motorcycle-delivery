@@ -1,4 +1,4 @@
-import { exactPageKeys, orderedPageRows } from '../common/exact-page.js';
+import { exactPageKeys, historyPageKeys, orderedPageRows, type HistoryStatus } from '../common/exact-page.js';
 import { encodeListCursor, readListCursor } from '../common/list-cursor.js';
 import { createHash } from 'node:crypto';
 import {
@@ -188,6 +188,15 @@ export type CompletedAssignment = Omit<ActiveAssignment, 'status'> & {
   completedAt: string;
 };
 
+export type HistoryAssignment = Omit<ActiveAssignment, 'status'> & {
+  status: 'DELIVERED' | 'CANCELLED';
+  completedAt: string | null;
+  cancelledAt: string | null;
+  cancelledBy: 'Rider' | 'Customer' | 'Admin' | null;
+  cancellationReason: string | null;
+  cancellationNote: string | null;
+};
+
 type ActiveAssignmentRow = {
   id: string;
   riderProfileId: string;
@@ -323,6 +332,45 @@ export class DispatchService {
       const assignment = completedAssignmentFromRow(rider.riderProfileId, row, now, row.completedAt ?? undefined);
       return assignment ? [assignment] : [];
     }), nextCursor: keys.length > page.limit && last ? encodeListCursor(last.at, last.id) : null };
+  }
+
+  async historyAssignmentsPage(rider: RiderContext, limit: unknown, cursor: unknown, status: unknown, now = new Date()) {
+    const outcome = readHistoryStatus(status);
+    const page = readListCursor(limit, cursor);
+    const keys = await historyPageKeys(this.prisma, rider.riderProfileId, page.limit, page.cursor, outcome);
+    const visible = keys.slice(0, page.limit);
+    const rows = visible.length === 0 ? [] : await this.prisma.deliveryAssignment.findMany({
+      where: {
+        id: { in: visible.map(key => key.id) },
+        riderProfileId: rider.riderProfileId,
+        status: { in: [AssignmentStatus.COMPLETED, AssignmentStatus.RELEASED] },
+      },
+      include: { delivery: true },
+    });
+    const times = new Map(visible.map(key => [key.id, key.at]));
+    const last = visible[visible.length - 1];
+    return { assignments: orderedPageRows(visible, rows).flatMap(row => {
+      const assignment = historyAssignmentFromRow(rider.riderProfileId, row, now, times.get(row.id));
+      return assignment ? [assignment] : [];
+    }), nextCursor: keys.length > page.limit && last ? encodeListCursor(last.at, last.id) : null };
+  }
+
+  async historyAssignment(rider: RiderContext, assignmentId: string, now = new Date()) {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(assignmentId)) {
+      throw new NotFoundException('Delivery not found');
+    }
+    const row = await this.prisma.deliveryAssignment.findFirst({
+      where: {
+        id: assignmentId,
+        riderProfileId: rider.riderProfileId,
+        status: { in: [AssignmentStatus.COMPLETED, AssignmentStatus.RELEASED] },
+      },
+      include: { delivery: true },
+    });
+    const at = row?.status === AssignmentStatus.COMPLETED ? row.completedAt?.toISOString() : row?.releasedAt?.toISOString();
+    const assignment = row ? historyAssignmentFromRow(rider.riderProfileId, row, now, at) : null;
+    if (!assignment) throw new NotFoundException('Delivery not found');
+    return { assignment };
   }
 
   async progress(
@@ -1077,6 +1125,94 @@ export function completedAssignmentFromRow(
     createdAt: row.delivery.createdAt instanceof Date ? row.delivery.createdAt.toISOString() : null,
     completedAt: completedAt.toISOString(),
   };
+}
+
+const HISTORY_REASON: Record<AssignmentReleaseReason, string> = {
+  [AssignmentReleaseReason.RIDER_CANCELLED]: 'Rider cancelled',
+  [AssignmentReleaseReason.VEHICLE_PROBLEM]: 'Vehicle problem',
+  [AssignmentReleaseReason.RIDER_UNRESPONSIVE]: 'Rider unresponsive',
+  [AssignmentReleaseReason.ADMIN_REASSIGNED]: 'Reassigned',
+  [AssignmentReleaseReason.CUSTOMER_CANCELLED]: 'Customer cancelled',
+  [AssignmentReleaseReason.ADMIN_CANCELLED]: 'Admin cancelled',
+  [AssignmentReleaseReason.PAYMENT_NOT_AGREED]: 'Payment not agreed',
+  [AssignmentReleaseReason.PARCEL_NOT_AS_DESCRIBED]: 'Parcel not as described',
+  [AssignmentReleaseReason.PARCEL_TOO_LARGE]: 'Parcel too large',
+  [AssignmentReleaseReason.SENDER_UNAVAILABLE]: 'Sender unavailable',
+  [AssignmentReleaseReason.WRONG_ADDRESS]: 'Wrong address',
+  [AssignmentReleaseReason.BREAKDOWN]: 'Breakdown',
+  [AssignmentReleaseReason.OTHER]: 'Other',
+};
+
+export function historyAssignmentFromRow(
+  riderProfileId: string,
+  row: ActiveAssignmentRow & {
+    releasedAt?: Date | null;
+    releaseReason?: AssignmentReleaseReason | null;
+    cancellationNote?: string | null;
+    serviceClass?: 'EXPRESS' | 'FLEXIBLE' | null;
+    completedAt?: Date | null;
+    delivery: DeliveryRow;
+  },
+  now: Date,
+  canonicalAt?: string,
+): HistoryAssignment | null {
+  if (row.riderProfileId !== riderProfileId) return null;
+  const cancelled = row.status === AssignmentStatus.RELEASED;
+  const stops = cancelled ? redactCancelledHistory(riderStops(row.delivery, now)) : riderStops(row.delivery, now);
+  const serviceClass = row.serviceClass === 'EXPRESS' || row.serviceClass === 'FLEXIBLE'
+    ? row.serviceClass
+    : marketplaceServiceClass(row.delivery.serviceClass, row.acceptedBidAmount);
+  const shared = {
+    assignmentId: row.id,
+    deliveryId: row.delivery.id,
+    parcel: stops.parcel,
+    pickup: stops.pickup,
+    dropoff: stops.dropoff,
+    serviceClass,
+    deliverBy: row.delivery.deliverBy instanceof Date ? row.delivery.deliverBy.toISOString() : null,
+    agreedPrice: row.acceptedBidAmount == null ? null : moneyText(row.acceptedBidAmount),
+    currency: row.delivery.currency,
+    paymentMethod: row.delivery.paymentMethod,
+    distanceMeters: typeof row.delivery.distanceMeters === 'number' ? row.delivery.distanceMeters : null,
+    createdAt: row.delivery.createdAt instanceof Date ? row.delivery.createdAt.toISOString() : null,
+  };
+  if (row.status === AssignmentStatus.COMPLETED) {
+    const completedAt = canonicalAt ?? row.completedAt?.toISOString() ?? now.toISOString();
+    return { ...shared, status: 'DELIVERED', completedAt, cancelledAt: null, cancelledBy: null, cancellationReason: null, cancellationNote: null };
+  }
+  if (!cancelled) return null;
+  const cancelledAt = canonicalAt ?? row.releasedAt?.toISOString() ?? null;
+  if (!cancelledAt) return null;
+  return {
+    ...shared,
+    status: 'CANCELLED',
+    completedAt: null,
+    cancelledAt,
+    cancelledBy: historyCancelledBy(row.releaseReason),
+    cancellationReason: row.releaseReason ? HISTORY_REASON[row.releaseReason] : null,
+    cancellationNote: row.cancellationNote?.trim() || null,
+  };
+}
+
+function redactCancelledHistory(stops: ReturnType<typeof riderStops>): ReturnType<typeof riderStops> {
+  return {
+    parcel: { ...stops.parcel, instructions: null },
+    pickup: { ...stops.pickup, instructions: null, contactPhone: '' },
+    dropoff: { ...stops.dropoff, instructions: null, contactPhone: '' },
+  };
+}
+
+function historyCancelledBy(reason: AssignmentReleaseReason | null | undefined): HistoryAssignment['cancelledBy'] {
+  if (reason === AssignmentReleaseReason.CUSTOMER_CANCELLED) return 'Customer';
+  if (reason === AssignmentReleaseReason.ADMIN_CANCELLED || reason === AssignmentReleaseReason.ADMIN_REASSIGNED) return 'Admin';
+  return reason == null ? null : 'Rider';
+}
+
+function readHistoryStatus(value: unknown): HistoryStatus {
+  if (value == null || value === '' || value === 'all') return 'ALL';
+  if (value === 'delivered') return 'DELIVERED';
+  if (value === 'cancelled') return 'CANCELLED';
+  throw new BadRequestException('Invalid history status');
 }
 
 function riderStops(delivery: DeliveryRow, now: Date) {

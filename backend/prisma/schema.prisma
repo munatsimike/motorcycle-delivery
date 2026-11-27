@@ -645,6 +645,7 @@ model DeliveryAssignment {
   @@index([motorcycleId])
   @@index([offerExpiresAt])
   @@index([riderProfileId, status, completedAt, id], map: "assignment_completion_page_idx")
+  @@index([riderProfileId, status, releasedAt, id], map: "assignment_release_page_idx")
   @@map("delivery_assignments")
 }
 

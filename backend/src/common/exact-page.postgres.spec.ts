@@ -3,7 +3,7 @@ import { promisify } from 'node:util';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Prisma } from '../generated/prisma/client.js';
-import { exactPageKeys, type PageSource } from './exact-page.js';
+import { exactPageKeys, historyPageKeys, type PageSource } from './exact-page.js';
 import { encodeListCursor, readKeysetCursor } from './list-cursor.js';
 
 const exec = promisify(execFile);
@@ -32,14 +32,14 @@ beforeAll(async () => {
   if (!client) throw new Error('Disposable PostgreSQL did not start');
   await client.query(`CREATE TYPE delivery_status AS ENUM ('DELIVERED', 'CREATED');
     CREATE TEMP TABLE deliveries (id uuid PRIMARY KEY, customer_id uuid, created_at timestamptz(6), status delivery_status);
-    CREATE TEMP TABLE delivery_assignments (id uuid PRIMARY KEY, rider_profile_id uuid, completed_at timestamptz(6), status text, delivery_id uuid);
+    CREATE TEMP TABLE delivery_assignments (id uuid PRIMARY KEY, rider_profile_id uuid, completed_at timestamptz(6), status text, delivery_id uuid, released_at timestamptz(6));
     CREATE TEMP TABLE customer_saved_addresses (id uuid PRIMARY KEY, customer_account_id uuid, created_at timestamptz(6));
     CREATE TEMP TABLE rider_wallet_entries (id uuid PRIMARY KEY, rider_wallet_id uuid, created_at timestamptz(6));
     CREATE TEMP TABLE bids (id uuid PRIMARY KEY, rider_profile_id uuid, created_at timestamptz(6));`);
   for (let i = 0; i < ids.length; i++) {
     const values = [ids[i], i === 4 ? foreign : owner, times[i]];
     await client.query("INSERT INTO deliveries VALUES ($1,$2,$3,'DELIVERED')", values);
-    await client.query("INSERT INTO delivery_assignments VALUES ($1,$2,$3,'COMPLETED',$1)", values);
+    await client.query("INSERT INTO delivery_assignments (id, rider_profile_id, completed_at, status, delivery_id) VALUES ($1,$2,$3,'COMPLETED',$1)", values);
     for (const table of ['customer_saved_addresses', 'rider_wallet_entries', 'bids']) {
       await client.query(`INSERT INTO ${table} VALUES ($1,$2,$3)`, values);
     }
@@ -74,6 +74,22 @@ describe('exact PostgreSQL keyset ordering', () => {
       } finally { await client.query('ROLLBACK'); }
     });
   }
+  it('filters rider history before the cursor page and keeps a released row', async () => {
+    const released = '00000000-0000-7000-8000-000000000091';
+    const releasedEarlier = '00000000-0000-7000-8000-000000000090';
+    await client.query("INSERT INTO delivery_assignments (id, rider_profile_id, status, delivery_id, released_at) VALUES ($1,$2,'RELEASED',$1,$3)", [released, owner, '2026-11-26T20:00:00.000001Z']);
+    await client.query("INSERT INTO delivery_assignments (id, rider_profile_id, status, delivery_id, released_at) VALUES ($1,$2,'RELEASED',$1,$3)", [releasedEarlier, foreign, '2026-11-26T21:00:00.000001Z']);
+    const newest = await historyPageKeys(db, owner, 1, undefined, 'ALL');
+    expect(newest[0]?.id).toBe(released);
+    expect(newest.map(key => key.id)).not.toContain(releasedEarlier);
+    const delivered = await historyPageKeys(db, owner, 1, undefined, 'DELIVERED');
+    expect(delivered[0]?.id).toBe(ids[3]);
+    expect(delivered.map(key => key.id)).not.toContain(released);
+    const cancelled = await historyPageKeys(db, owner, 10, undefined, 'CANCELLED');
+    expect(cancelled.map(key => key.id)).toEqual([released]);
+    expect(await historyPageKeys(db, foreign, 10, undefined, 'CANCELLED')).toEqual([{ id: releasedEarlier, at: '2026-11-26T21:00:00.000001Z' }]);
+    await client.query('DELETE FROM delivery_assignments WHERE id = ANY($1::uuid[])', [[released, releasedEarlier]]);
+  });
   it('preserves customer status filters', async () => {
     expect(await exactPageKeys(db, 'deliveries', owner, 10, undefined, ['CREATED'])).toEqual([]);
     expect(await exactPageKeys(db, 'deliveries', owner, 10, undefined, ['DELIVERED'])).toHaveLength(4);
