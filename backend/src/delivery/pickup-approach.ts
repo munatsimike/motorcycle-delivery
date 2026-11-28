@@ -1,4 +1,13 @@
+import { Logger } from '@nestjs/common';
 import { createGeoapifyClient, sampleRoadLine, type RoadRoute, type RouteManeuver } from './geoapify.js';
+
+const logger = new Logger('PickupApproach');
+const METRES_PER_DEGREE = 111_320;
+export const OFF_ROUTE_PRECISE_METRES = 25;
+export const OFF_ROUTE_METRES = 45;
+export const OFF_ROUTE_LOOSE_METRES = 80;
+export const OFF_ROUTE_PRECISE_ACCURACY_METRES = 15;
+export const OFF_ROUTE_ACCURACY_METRES = 40;
 
 export const PICKUP_APPROACH = Symbol('PICKUP_APPROACH');
 export const PICKUP_APPROACH_CELL = 0.0015;
@@ -21,6 +30,7 @@ export type PickupApproachQuery = {
   riderLongitude: number;
   pickupLatitude: number;
   pickupLongitude: number;
+  accuracyMetres?: number | null;
 };
 
 export type PickupApproachLookup = {
@@ -64,11 +74,11 @@ export function createPickupApproachCache(
       }
       const key = pickupApproachKey(query);
       const cached = cachedApproach(cache, key, now());
-      if (cached !== undefined) {
+      if (cached !== undefined && !outsideCachedCorridor(query, cached)) {
         return cached;
       }
       const pending = inflight.get(key);
-      if (pending) {
+      if (pending && cached === undefined) {
         return pending;
       }
       const work = loadApproach(route, cache, query, now);
@@ -130,6 +140,75 @@ export function createGeoapifyPickupApproach(): PickupApproachLookup {
   return createPickupApproachCache((fromLatitude, fromLongitude, toLatitude, toLongitude) => (
     client.route(fromLatitude, fromLongitude, toLatitude, toLongitude)
   ));
+}
+
+export function offRouteCorridorMetres(accuracyMetres: number | null | undefined): number {
+  if (typeof accuracyMetres === 'number' && Number.isFinite(accuracyMetres) &&
+    accuracyMetres > 0 && accuracyMetres <= OFF_ROUTE_PRECISE_ACCURACY_METRES) {
+    return OFF_ROUTE_PRECISE_METRES;
+  }
+  if (accuracyMetres == null || !Number.isFinite(accuracyMetres) || accuracyMetres > OFF_ROUTE_ACCURACY_METRES) {
+    return OFF_ROUTE_LOOSE_METRES;
+  }
+  return OFF_ROUTE_METRES;
+}
+
+function outsideCachedCorridor(query: PickupApproachQuery, approach: PickupApproachView | null): boolean {
+  if (!approach) {
+    return false;
+  }
+  const line = approach.path && approach.path.length > 1 ? approach.path : approach.line;
+  if (line.length < 2) {
+    return false;
+  }
+  const distance = distanceToPathMetres(query.riderLatitude, query.riderLongitude, line);
+  const corridor = offRouteCorridorMetres(query.accuracyMetres);
+  if (distance <= corridor) {
+    return false;
+  }
+  logger.debug(
+    `pickup route cache bypassed distanceM=${Math.round(distance)} corridorM=${corridor} accuracyM=${
+      query.accuracyMetres ?? '-'
+    }`,
+  );
+  return true;
+}
+
+function distanceToPathMetres(
+  latitude: number,
+  longitude: number,
+  path: Array<{ latitude: number; longitude: number }>,
+): number {
+  let best = Number.POSITIVE_INFINITY;
+  for (let index = 0; index < path.length - 1; index += 1) {
+    const distance = distanceToSegmentMetres(latitude, longitude, path[index], path[index + 1]);
+    if (distance < best) {
+      best = distance;
+    }
+  }
+  return best;
+}
+
+function distanceToSegmentMetres(
+  latitude: number,
+  longitude: number,
+  start: { latitude: number; longitude: number },
+  end: { latitude: number; longitude: number },
+): number {
+  const endLocal = localMetres(end.latitude, end.longitude, start.latitude, start.longitude);
+  const point = localMetres(latitude, longitude, start.latitude, start.longitude);
+  const lengthSquared = endLocal.north * endLocal.north + endLocal.east * endLocal.east;
+  const fraction = lengthSquared < 0.25
+    ? 0
+    : Math.min(1, Math.max(0, (point.north * endLocal.north + point.east * endLocal.east) / lengthSquared));
+  return Math.hypot(point.north - endLocal.north * fraction, point.east - endLocal.east * fraction);
+}
+
+function localMetres(latitude: number, longitude: number, originLatitude: number, originLongitude: number) {
+  return {
+    north: (latitude - originLatitude) * METRES_PER_DEGREE,
+    east: (longitude - originLongitude) * METRES_PER_DEGREE * Math.cos((originLatitude * Math.PI) / 180),
+  };
 }
 
 function usableQuery(query: PickupApproachQuery): boolean {

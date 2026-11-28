@@ -15,6 +15,10 @@ const query = {
   pickupLongitude: 31.0522,
 };
 
+function eastDegrees(metres: number): number {
+  return metres / (111_320 * Math.cos((query.riderLatitude * Math.PI) / 180));
+}
+
 function road(seconds: number | null = 420): RoadRoute {
   return {
     metres: 2400,
@@ -75,6 +79,42 @@ describe('pickup approach cache', () => {
     release();
     expect(await first).toEqual(await second);
     expect(calls).toBe(1);
+  });
+
+  it('bypasses a cached route when the rider is outside its corridor', async () => {
+    let calls = 0;
+    const cache = createPickupApproachCache(async () => {
+      calls += 1;
+      return road();
+    }, () => 1_000);
+    await cache.lookup({ ...query, accuracyMetres: 10 });
+    const drift = await cache.lookup({
+      ...query,
+      riderLongitude: query.riderLongitude + eastDegrees(10),
+      accuracyMetres: 12,
+    });
+    expect(drift?.metres).toBe(2400);
+    expect(calls).toBe(1);
+
+    await cache.lookup({
+      ...query,
+      riderLongitude: query.riderLongitude + eastDegrees(30),
+      accuracyMetres: 10,
+    });
+    expect(calls).toBe(2);
+
+    await cache.lookup({
+      ...query,
+      riderLongitude: query.riderLongitude + eastDegrees(50),
+      accuracyMetres: 20,
+    });
+    expect(calls).toBe(3);
+    await cache.lookup({
+      ...query,
+      riderLongitude: query.riderLongitude + eastDegrees(50),
+      accuracyMetres: 50,
+    });
+    expect(calls).toBe(3);
   });
 
   it('does not invent a route when travel time is missing or routing fails', async () => {

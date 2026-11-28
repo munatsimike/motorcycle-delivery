@@ -86,6 +86,7 @@ export class RiderAssignmentController {
     @Param('assignmentId') assignmentId: string,
     @Query('latitude') latitude: string,
     @Query('longitude') longitude: string,
+    @Query('accuracy') accuracy?: string,
   ) {
     const rider = requiredRider(request);
     const riderLatitude = finiteCoordinate(latitude, 90);
@@ -112,6 +113,7 @@ export class RiderAssignmentController {
       riderLongitude,
       pickupLatitude,
       pickupLongitude,
+      accuracyMetres: finiteAccuracy(accuracy),
     }).catch(() => null);
     const line = approach?.line ?? [];
     const drawn = line.length > 1;
@@ -201,6 +203,17 @@ function readIdempotencyKey(request: AssignmentRequest): string {
     throw new BadRequestException('Enter an idempotency key');
   }
   return value.trim();
+}
+
+function finiteAccuracy(value: string | undefined): number | null {
+  if (value == null || !value.trim()) {
+    return null;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 1_000) {
+    return null;
+  }
+  return parsed;
 }
 
 function finiteCoordinate(value: string | null | undefined, limit: number): number | null {
