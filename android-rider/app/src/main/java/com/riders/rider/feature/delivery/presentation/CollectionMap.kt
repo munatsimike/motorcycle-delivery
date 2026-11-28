@@ -70,13 +70,9 @@ import com.riders.rider.core.design.RidersColors
 import com.riders.rider.core.design.RidersSpacing
 import com.riders.rider.core.design.RidersType
 import com.riders.rider.feature.delivery.domain.GeoPoint
-import com.riders.rider.feature.delivery.domain.ARRIVAL_METRES
-import com.riders.rider.feature.delivery.domain.haversineMetres
 import com.riders.rider.feature.delivery.domain.pickupTagLabel
 import com.riders.rider.feature.delivery.domain.PICKUP_ARRIVED_TAG
 import com.riders.rider.feature.delivery.domain.cameraHeading
-import com.riders.rider.feature.delivery.domain.reliableBearing
-import com.riders.rider.feature.delivery.domain.retainedHeading
 import com.riders.rider.feature.delivery.domain.collectionCameraFrame
 import com.riders.rider.feature.delivery.domain.collectionMarkerPaddingPx
 import com.riders.rider.feature.delivery.domain.MarkerCameraGate
@@ -129,20 +125,14 @@ fun CollectionMap(
     var framedWithRider by remember(assignmentId, pickup) { mutableStateOf(false) }
     var framedRoute by remember(assignmentId, pickup) { mutableStateOf(false) }
     var recenter by remember { mutableStateOf(0) }
-    var travelHeading by remember(assignmentId) { mutableStateOf<Float?>(null) }
-    val bearingReading = reliableBearing(
-        rider?.speedMetresPerSecond,
-        rider?.bearingDegrees,
-        rider?.bearingAccuracyDegrees,
-    )
-    val travel = retainedHeading(travelHeading, bearingReading)
-    if (travel != travelHeading) {
-        travelHeading = travel
-    }
+    val travelHeading by model.travelHeading.collectAsStateWithLifecycle()
+    val displayPoint by model.displayPoint.collectAsStateWithLifecycle()
+    val arrived by model.arrived.collectAsStateWithLifecycle()
+    val riderPoint = displayPoint.takeIf { rider != null || arrived }
     val heading = cameraHeading(
-        travel,
+        travelHeading,
         if (route.line.size > 1) route.line else emptyList(),
-        rider?.let { GeoPoint(it.latitude, it.longitude) },
+        riderPoint,
         pickup,
     )
     val headingNow = rememberUpdatedState(heading)
@@ -151,18 +141,18 @@ fun CollectionMap(
     var markerPhase by remember(assignmentId) { mutableStateOf(MarkerCameraPhase()) }
     var pickupAttached by remember(assignmentId) { mutableStateOf(false) }
     var heldRider by remember(assignmentId) { mutableStateOf<LatLng?>(null) }
-    val riderPoint = rider?.let { GeoPoint(it.latitude, it.longitude) }
     val liveRider = riderPoint?.toLatLng()
     if (liveRider != null && liveRider != heldRider) {
         heldRider = liveRider
     }
     val riderReady = riderPoint != null
     val riderGate = riderReady || framedWithRider
-    val routePoints = remember(route.line) { route.line.map { it.toLatLng() } }
+    val frameRoad = if (arrived) emptyList() else route.line
+    val routePoints = remember(frameRoad) { frameRoad.map { it.toLatLng() } }
     val routeReady = routePoints.size > 1
     val routeGate = routeReady || framedRoute
     val statusTop = with(density) { WindowInsets.statusBars.getTop(this).toDp() }
-    val approachLabel = pickupTagLabel(riderPoint, pickup, route.metres, route.seconds)
+    val approachLabel = if (arrived) PICKUP_ARRIVED_TAG else pickupTagLabel(riderPoint, pickup, route.metres, route.seconds)
     val motorcycleIcon = remember(mapLoaded) {
         if (mapLoaded) riderMotorcycleDescriptor(context) else null
     }
@@ -198,7 +188,7 @@ fun CollectionMap(
         }
     }
 
-    LaunchedEffect(assignmentId, pickup, riderGate, routeGate, mapLoaded, mapWidth, mapHeight, recenter, sheetOverlap) {
+    LaunchedEffect(assignmentId, pickup, riderGate, routeGate, frameRoad, arrived, mapLoaded, mapWidth, mapHeight, recenter, sheetOverlap) {
         if (!mapLoaded || mapWidth <= 0 || mapHeight <= 0) {
             return@LaunchedEffect
         }
@@ -215,7 +205,7 @@ fun CollectionMap(
         val frame = collectionCameraFrame(
             riderPoint,
             pickup,
-            if (routeReady) route.line else emptyList(),
+            if (routeReady) frameRoad else emptyList(),
         )
         markerPhase = markerGate.begin()
         try {
@@ -291,8 +281,7 @@ fun CollectionMap(
                     }
                 },
             ) {
-                val atStop = riderPoint != null && pickup != null &&
-                    haversineMetres(riderPoint, pickup) <= ARRIVAL_METRES.toInt()
+                val atStop = arrived
                 if (routeReady && !atStop) {
                     Polyline(
                         points = routePoints,

@@ -1,8 +1,10 @@
 package com.riders.rider.feature.delivery.domain
 
 const val NAVIGATION_ZOOM = 17.5f
+const val OFF_ROUTE_PRECISE_METRES = 25.0
 const val OFF_ROUTE_METRES = 45.0
 const val OFF_ROUTE_LOOSE_METRES = 80.0
+const val OFF_ROUTE_PRECISE_ACCURACY_METRES = 15f
 const val OFF_ROUTE_ACCURACY_METRES = 40f
 const val RELIABLE_BEARING_MIN_SPEED_MPS = 1.5f
 const val RELIABLE_BEARING_MAX_ACCURACY = 45f
@@ -139,17 +141,28 @@ fun projectOntoPath(point: GeoPoint, path: List<GeoPoint>): PathProjection? {
 }
 
 /**
+ * A tight fix can leave the corridor at 25 metres. A fix that is only moderately
+ * accurate keeps the 45-metre corridor, and a poor or missing accuracy keeps 80.
+ */
+fun offRouteLimitMetres(accuracyMetres: Float?): Double {
+    if (accuracyMetres != null && accuracyMetres.isFinite() && accuracyMetres > 0f &&
+        accuracyMetres <= OFF_ROUTE_PRECISE_ACCURACY_METRES
+    ) {
+        return OFF_ROUTE_PRECISE_METRES
+    }
+    if (accuracyMetres == null || accuracyMetres > OFF_ROUTE_ACCURACY_METRES) {
+        return OFF_ROUTE_LOOSE_METRES
+    }
+    return OFF_ROUTE_METRES
+}
+
+/**
  * A rider who is still on the road is not off route, however far they have
  * travelled along it. A poor fix must be much farther away before it counts.
  */
 fun isOffRoute(rider: GeoPoint, path: List<GeoPoint>, accuracyMetres: Float?): Boolean {
     val projection = projectOntoPath(rider, path) ?: return false
-    val limit = if (accuracyMetres == null || accuracyMetres > OFF_ROUTE_ACCURACY_METRES) {
-        OFF_ROUTE_LOOSE_METRES
-    } else {
-        OFF_ROUTE_METRES
-    }
-    return projection.distanceMetres > limit
+    return projection.distanceMetres > offRouteLimitMetres(accuracyMetres)
 }
 
 /**

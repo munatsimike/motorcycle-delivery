@@ -189,6 +189,7 @@ interface RiderService {
         @Path("assignmentId") assignmentId: String,
         @Query("latitude") latitude: Double,
         @Query("longitude") longitude: Double,
+        @Query("accuracy") accuracy: Float? = null,
     ): PickupRouteResponse
 
     @POST("riders/me/assignments/{assignmentId}/cancellation")

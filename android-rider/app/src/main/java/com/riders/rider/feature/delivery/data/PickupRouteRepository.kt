@@ -35,7 +35,9 @@ class PickupRouteRepository @Inject constructor(
     private val deliveryRoads = LinkedHashMap<String, List<GeoPoint>>(16, 0.75f, true)
 
     suspend fun road(assignmentId: String, origin: GpsFix): PickupRoad? {
-        return when (val result = apiCall { riders.pickupRoute(assignmentId, origin.latitude, origin.longitude) }) {
+        return when (val result = apiCall {
+            riders.pickupRoute(assignmentId, origin.latitude, origin.longitude, origin.accuracyMetres)
+        }) {
             is ApiResult.Ok -> {
                 val decoded = decodeEncodedPolyline(result.value.geometry)
                 val line = if (decoded.size > 1) {
@@ -92,7 +94,7 @@ class PickupRouteRepository @Inject constructor(
                 if (dropoff) {
                     riders.deliveryRoute(assignmentId, origin.latitude, origin.longitude, guidance = "1")
                 } else {
-                    riders.pickupRoute(assignmentId, origin.latitude, origin.longitude)
+                    riders.pickupRoute(assignmentId, origin.latitude, origin.longitude, origin.accuracyMetres)
                 }
             }
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
@@ -109,7 +111,7 @@ class PickupRouteRepository @Inject constructor(
     /** Road from a fresh rider fix to the drop-off. Callers reject a line that does not start at the rider. */
     suspend fun approachDropoff(assignmentId: String, origin: GpsFix): PickupRoad {
         val result = try {
-            apiCall { riders.deliveryRoute(assignmentId, origin.latitude, origin.longitude) }
+            apiCall { riders.deliveryRoute(assignmentId, origin.latitude, origin.longitude, guidance = "1") }
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
         } catch (_: Exception) {

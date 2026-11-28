@@ -14,21 +14,19 @@ import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
-import com.riders.rider.feature.availability.LocationServiceGate
 import com.riders.rider.feature.availability.RiderLocationHub
 import com.riders.rider.feature.availability.domain.gpsFix
 import com.riders.rider.feature.availability.domain.isDispatchUsable
-import com.riders.rider.feature.availability.domain.locationUpdatePolicy
+import com.riders.rider.feature.delivery.domain.MAP_LOCATION_INTERVAL_MS
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
-import javax.inject.Singleton
 
 /**
- * Screen-scoped fused updates used only while the foreground location service
- * is not already listening. Leaving the screen removes this callback and does
- * not stop [com.riders.rider.feature.availability.RiderLocationService].
+ * Screen-scoped display fixes while a delivery map is visible. The background
+ * service continues its own lower-frequency upload policy. This watcher only
+ * publishes to the local hub; it does not upload or start a service.
+ * Each map model owns its callback, so closing one cannot stop another's.
  */
-@Singleton
 class CollectionLocationWatch @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val hub: RiderLocationHub,
@@ -37,8 +35,9 @@ class CollectionLocationWatch @Inject constructor(
     private var callback: LocationCallback? = null
     private var promptToken: CancellationTokenSource? = null
 
+    @SuppressLint("MissingPermission")
     fun sync() {
-        if (LocationServiceGate.isRunning()) {
+        if (!fineLocationGranted()) {
             stop()
             return
         }
@@ -47,17 +46,12 @@ class CollectionLocationWatch @Inject constructor(
         }
         val updates = object : LocationCallback() {
             override fun onLocationResult(result: LocationResult) {
-                if (LocationServiceGate.isRunning()) {
-                    stop()
-                    return
-                }
                 if (callback === this) publish(result.lastLocation)
             }
         }
-        val policy = locationUpdatePolicy()
-        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, policy.intervalMillis)
-            .setMinUpdateIntervalMillis(policy.minIntervalMillis)
-            .setMaxUpdateDelayMillis(policy.maxUpdateDelayMillis)
+        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, MAP_LOCATION_INTERVAL_MS)
+            .setMinUpdateIntervalMillis(MAP_LOCATION_INTERVAL_MS)
+            .setMaxUpdateDelayMillis(MAP_LOCATION_INTERVAL_MS)
             .setGranularity(Granularity.GRANULARITY_FINE)
             .setWaitForAccurateLocation(false)
             .build()

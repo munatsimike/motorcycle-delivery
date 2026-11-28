@@ -11,7 +11,9 @@ import com.riders.rider.feature.delivery.data.NavigationVoiceStore
 import com.riders.rider.feature.delivery.data.PickupRouteRepository
 import com.riders.rider.feature.delivery.domain.GeoPoint
 import com.riders.rider.feature.delivery.domain.isOffRoute
+import com.riders.rider.feature.delivery.domain.projectOntoPath
 import com.riders.rider.feature.delivery.domain.reliableBearing
+import com.riders.rider.feature.delivery.domain.routeCalculationFix
 import com.riders.rider.feature.delivery.domain.shouldReplaceGuidance
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -115,25 +117,32 @@ class TurnByTurnModel @Inject constructor(
         if (requesting) {
             return
         }
-        val current = roadState.value
-        val hasRoute = current != null && current.path.size > 1
-        val offRoute = current != null && current.path.size > 1 && isOffRoute(
-            GeoPoint(fix.latitude, fix.longitude),
-            current.path,
-            fix.accuracyMetres,
-        )
-        val now = System.currentTimeMillis()
-        if (!shouldReplaceGuidance(hasRoute, offRoute, now, lastRequestAtMillis)) {
+        val routeFix = routeCalculationFix(fix, 0L) ?: run {
+            logRouteRefresh("accuracy", null, fix.accuracyMetres, null)
             return
         }
+        val origin = GeoPoint(routeFix.latitude, routeFix.longitude)
+        val current = roadState.value
+        val hasRoute = current != null && current.path.size > 1
+        val distance = if (current != null) projectOntoPath(origin, current.path)?.distanceMetres else null
+        val offRoute = current != null && current.path.size > 1 &&
+            isOffRoute(origin, current.path, routeFix.accuracyMetres)
+        val now = System.currentTimeMillis()
+        if (!shouldReplaceGuidance(hasRoute, offRoute, now, lastRequestAtMillis)) {
+            logRouteRefresh("wait", distance, routeFix.accuracyMetres, null)
+            return
+        }
+        logRouteRefresh("request", distance, routeFix.accuracyMetres, null)
         requesting = true
-        lastRequestAtMillis = now
         routeJob = viewModelScope.launch {
             try {
-                val next = routes.guidance(active.assignmentId, fix, active.dropoff)
+                val next = routes.guidance(active.assignmentId, routeFix, active.dropoff)
                 if (!isActive || target != active) {
                     return@launch
                 }
+                val accepted = next != null && next.path.size > 1
+                logRouteRefresh("response", distance, routeFix.accuracyMetres, accepted)
+                lastRequestAtMillis = System.currentTimeMillis()
                 if (next != null && next.path.size > 1) {
                     roadState.value = next
                     failedState.value = false

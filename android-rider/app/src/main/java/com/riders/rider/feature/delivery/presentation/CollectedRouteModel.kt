@@ -15,7 +15,13 @@ import com.riders.rider.feature.delivery.domain.deliveryRouteKey
 import com.riders.rider.feature.delivery.domain.pickupTagLabel
 import com.riders.rider.feature.delivery.domain.dropoffArrivalReading
 import com.riders.rider.feature.delivery.domain.isRiderDropoffRoad
-import com.riders.rider.feature.delivery.domain.shouldRequestPickupRoute
+import com.riders.rider.feature.delivery.domain.projectOntoPath
+import com.riders.rider.feature.delivery.domain.routeCalculationFix
+import com.riders.rider.feature.delivery.domain.shouldRefreshLiveMapRoute
+import com.riders.rider.feature.delivery.domain.LiveMapLegKey
+import com.riders.rider.feature.delivery.domain.LiveMapLegState
+import com.riders.rider.feature.delivery.data.LiveMapLegStore
+import com.riders.rider.feature.delivery.domain.PICKUP_ARRIVED_TAG
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Job
@@ -29,12 +35,19 @@ class CollectedRouteModel @Inject constructor(
     private val routes: PickupRouteRepository,
     private val hub: RiderLocationHub,
     private val watch: CollectionLocationWatch,
+    private val legStore: LiveMapLegStore,
 ) : ViewModel() {
     var line by mutableStateOf<List<GeoPoint>>(emptyList())
         private set
     var liveLine by mutableStateOf<List<GeoPoint>>(emptyList())
         private set
     var rider by mutableStateOf<GpsFix?>(null)
+        private set
+    private val owner = legStore.identity()
+    private var leg: LiveMapLegState? = null
+    var displayPoint by mutableStateOf<GeoPoint?>(null)
+        private set
+    var travelHeading by mutableStateOf<Float?>(null)
         private set
     var arrivedAtDropoff by mutableStateOf(false)
         private set
@@ -49,7 +62,7 @@ class CollectedRouteModel @Inject constructor(
     private var approachJob: Job? = null
     private var followingId: String? = null
     private var followingDropoff: GeoPoint? = null
-    private val confirmedDropoffs = mutableMapOf<String, GeoPoint>()
+    private var followingPickup: GeoPoint? = null
     private var lastOrigin: GeoPoint? = null
     private var lastRequestAtMillis: Long? = null
     private var roadMetres: Double? = null
@@ -85,14 +98,16 @@ class CollectedRouteModel @Inject constructor(
     }
 
     /** Follow the existing shared GPS fix and refresh the rider-to-drop-off road only after a meaningful move. */
-    fun follow(assignmentId: String, dropoff: GeoPoint) {
+    fun follow(assignmentId: String, dropoff: GeoPoint, pickup: GeoPoint? = null) {
         if (assignmentId.isBlank()) {
             return
         }
-        val changed = followingId != assignmentId || followingDropoff != dropoff
+        val retained = legStore.get(owner, LiveMapLegKey(assignmentId, true, dropoff)) ?: return
+        val changed = followingId != assignmentId || followingDropoff != dropoff || leg !== retained
         followingId = assignmentId
         followingDropoff = dropoff
-        arrivedAtDropoff = confirmedDropoffs[assignmentId] == dropoff
+        followingPickup = pickup
+        arrivedAtDropoff = retained.arrived
         locationGranted = watch.hasFineLocation()
         if (changed) {
             approachJob?.cancel()
@@ -102,7 +117,10 @@ class CollectedRouteModel @Inject constructor(
             roadMetres = null
             roadSeconds = null
             liveLine = emptyList()
-            approachLabel = null
+            approachLabel = if (retained.arrived) PICKUP_ARRIVED_TAG else null
+            leg = retained
+            displayPoint = retained.point
+            travelHeading = retained.heading
         }
         if (listening == null) {
             listening = viewModelScope.launch {
@@ -126,7 +144,6 @@ class CollectedRouteModel @Inject constructor(
         listening = null
         clock?.cancel()
         clock = null
-        if (approachJob?.isActive == true) lastRequestAtMillis = null
         approachJob?.cancel()
         approachJob = null
         if (started) {
@@ -138,12 +155,18 @@ class CollectedRouteModel @Inject constructor(
         pauseFollowing()
         followingId = null
         followingDropoff = null
+        followingPickup = null
         lastOrigin = null
         lastRequestAtMillis = null
         roadMetres = null
         roadSeconds = null
         rider = null
         liveLine = emptyList()
+        leg = null
+        arrivedAtDropoff = false
+        approachLabel = null
+        displayPoint = null
+        travelHeading = null
     }
 
     override fun onCleared() {
@@ -151,52 +174,71 @@ class CollectedRouteModel @Inject constructor(
     }
 
     private fun publishRider() {
+        if (!legStore.isCurrent(owner)) return
+        val tracking = leg ?: return
         val assignmentId = followingId ?: return
         val dropoff = followingDropoff ?: return
         locationGranted = watch.hasFineLocation()
         val shared = hub.fixes.value
         val age = shared?.let { System.currentTimeMillis() - it.atMillis }
-        val usable = shared != null && age != null && isDispatchUsable(age, null)
-        val fix = if (usable) shared?.fix else null
+        val usable = shared != null && age != null && isDispatchUsable(age, shared.fix.accuracyMetres)
+        val fix = if (usable && shared != null) shared.fix else null
         rider = fix
         val riderPoint = fix?.let { GeoPoint(it.latitude, it.longitude) }
-        approachLabel = pickupTagLabel(riderPoint, dropoff, roadMetres, roadSeconds)
         val reading = dropoffArrivalReading(
             rider = fix?.let { GeoPoint(it.latitude, it.longitude) },
             dropoff = dropoff,
             fixUsable = usable,
         )
-        if (reading) {
-            confirmedDropoffs[assignmentId] = dropoff
+        if (fix != null && shared != null && riderPoint != null) {
+            tracking.update(riderPoint, shared.atMillis, fix.accuracyMetres, fix.speedMetresPerSecond,
+                fix.bearingDegrees, fix.bearingAccuracyDegrees, reading, liveLine,
+                legOrigin = followingPickup)
         }
-        arrivedAtDropoff = confirmedDropoffs[assignmentId] == dropoff
-        if (fix == null) {
-            liveLine = emptyList()
-            return
-        }
+        travelHeading = tracking.heading
+        displayPoint = tracking.point
+        arrivedAtDropoff = tracking.arrived
+        approachLabel = if (arrivedAtDropoff) PICKUP_ARRIVED_TAG else pickupTagLabel(riderPoint, dropoff, roadMetres, roadSeconds)
         if (arrivedAtDropoff) {
             approachJob?.cancel()
             return
         }
-        if (approachJob?.isActive == true) return
-        val origin = GeoPoint(fix.latitude, fix.longitude)
-        val now = System.currentTimeMillis()
-        if (!shouldRequestPickupRoute(lastOrigin, origin, lastRequestAtMillis, now)) {
+        if (fix == null) {
+            liveLine = emptyList()
             return
         }
-        lastRequestAtMillis = now
+        if (approachJob?.isActive == true) return
+        val routeFix = routeCalculationFix(fix, age) ?: run {
+            logRouteRefresh("accuracy", null, fix.accuracyMetres, null)
+            return
+        }
+        val origin = GeoPoint(routeFix.latitude, routeFix.longitude)
+        val now = System.currentTimeMillis()
+        val distance = projectOntoPath(origin, liveLine)?.distanceMetres
+        if (!shouldRefreshLiveMapRoute(
+                lastOrigin, origin, lastRequestAtMillis, now, liveLine, routeFix.accuracyMetres,
+            )) {
+            logRouteRefresh("wait", distance, routeFix.accuracyMetres, null)
+            return
+        }
+        logRouteRefresh("request", distance, routeFix.accuracyMetres, null)
         approachJob = viewModelScope.launch {
-            val road = routes.approachDropoff(assignmentId, fix)
-            if (followingId != assignmentId || followingDropoff != dropoff || rider == null || arrivedAtDropoff) {
+            val road = routes.approachDropoff(assignmentId, routeFix)
+            if (!legStore.isCurrent(owner) || followingId != assignmentId || followingDropoff != dropoff || rider == null || arrivedAtDropoff) {
                 return@launch
             }
-            if (!isRiderDropoffRoad(road.line, origin, dropoff)) {
+            val accepted = isRiderDropoffRoad(road.line, origin, dropoff)
+            logRouteRefresh("response", distance, routeFix.accuracyMetres, accepted)
+            lastRequestAtMillis = System.currentTimeMillis()
+            if (!accepted) {
                 return@launch
             }
             lastOrigin = origin
             roadMetres = road.metres
             roadSeconds = road.seconds
             liveLine = road.line
+            tracking.chooseHeading(road.line)
+            travelHeading = tracking.heading
             approachLabel = pickupTagLabel(origin, dropoff, road.metres, road.seconds)
         }
     }

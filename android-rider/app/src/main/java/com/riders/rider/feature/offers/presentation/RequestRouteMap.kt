@@ -128,6 +128,8 @@ fun RequestRouteMap(
     riderSpeedMetresPerSecond: Float? = null,
     riderBearingDegrees: Float? = null,
     riderBearingAccuracyDegrees: Float? = null,
+    liveTravelHeading: Float? = null,
+    arrivedAtStop: Boolean = false,
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
@@ -155,7 +157,7 @@ fun RequestRouteMap(
         riderBearingDegrees,
         riderBearingAccuracyDegrees,
     )
-    val travel = retainedHeading(travelHeading, bearingReading)
+    val travel = retainedHeading(travelHeading, liveTravelHeading ?: bearingReading)
     if (travel != travelHeading) {
         travelHeading = travel
     }
@@ -177,7 +179,8 @@ fun RequestRouteMap(
         heldRider = liveRider
     }
     val riderGate = rider != null || framedRider
-    val road = remember(line) { line.filter { it.latitude.isFinite() && it.longitude.isFinite() } }
+    val frameRoad = if (arrivedAtStop) emptyList() else line
+    val road = remember(frameRoad) { frameRoad.filter { it.latitude.isFinite() && it.longitude.isFinite() } }
     val routePoints = remember(road) { road.map { LatLng(it.latitude, it.longitude) } }
     val routeReady = road.size > 1
     val routeGate = routeReady || framedRoute
@@ -203,7 +206,10 @@ fun RequestRouteMap(
     }
     val statusTop = with(density) { WindowInsets.statusBars.getTop(this).toDp() }
 
-    LaunchedEffect(deliveryId, pickup, dropoff, routeGate, riderGate, mapLoaded, mapWidth, mapHeight, recenter, sheetOverlap) {
+    // A replacement live road may extend outside the previous frame. Static request
+    // previews retain their existing framing; a manual map gesture still suspends follow.
+    val liveFrameRoad = frameRoad.takeIf { rider != null }
+    LaunchedEffect(deliveryId, pickup, dropoff, routeGate, riderGate, liveFrameRoad, arrivedAtStop, mapLoaded, mapWidth, mapHeight, recenter, sheetOverlap) {
         val centering = recenter != seenRecenter
         if (!mapLoaded || mapWidth <= 0 || mapHeight <= 0 || sheetOverlap <= 0.dp) {
             return@LaunchedEffect
@@ -329,8 +335,8 @@ fun RequestRouteMap(
                 }
             },
         ) {
-            val atDropoff = rider != null && dropoff != null &&
-                haversineMetres(rider, dropoff) <= ARRIVAL_METRES.toInt()
+            val atDropoff = arrivedAtStop || (rider != null && dropoff != null &&
+                haversineMetres(rider, dropoff) <= ARRIVAL_METRES.toInt())
             if (road.size > 1 && !atDropoff) {
                 Polyline(
                     points = routePoints,
@@ -682,12 +688,29 @@ private fun StaticLayout?.widestLine(): Float {
 }
 
 internal fun locationDrawableMarker(context: android.content.Context, drawableId: Int): BitmapDescriptor? {
-    val drawable = ContextCompat.getDrawable(context, drawableId)?.mutate() ?: return null
+    val (baseDrawableId, label) = when (drawableId) {
+        R.drawable.ic_solid_pickup_location -> R.drawable.ic_pickup_location_base to "1"
+        R.drawable.ic_solid_dropoff_location -> R.drawable.ic_dropoff_location_base to "2"
+        else -> drawableId to null
+    }
+    val drawable = ContextCompat.getDrawable(context, baseDrawableId)?.mutate() ?: return null
     val density = context.resources.displayMetrics.density
     val width = (32f * density).toInt().coerceAtLeast(1)
     val height = (39f * density).toInt().coerceAtLeast(1)
     val bitmap = createBitmap(width, height)
+    val canvas = Canvas(bitmap)
     drawable.setBounds(0, 0, width, height)
-    drawable.draw(Canvas(bitmap))
+    drawable.draw(canvas)
+    if (label != null) {
+        val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.WHITE
+            textAlign = Paint.Align.CENTER
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            textSize = width * 0.53f
+        }
+        val headHeight = width.toFloat()
+        val baseline = headHeight / 2f - (textPaint.fontMetrics.ascent + textPaint.fontMetrics.descent) / 2f
+        canvas.drawText(label, width / 2f, baseline, textPaint)
+    }
     return runCatching { BitmapDescriptorFactory.fromBitmap(bitmap) }.getOrNull()
 }

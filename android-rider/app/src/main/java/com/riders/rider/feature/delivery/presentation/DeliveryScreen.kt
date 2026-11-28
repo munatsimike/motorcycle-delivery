@@ -90,6 +90,7 @@ import com.riders.rider.core.design.RidersFailureNotice
 import com.riders.rider.core.design.LocalRidersToast
 import com.riders.rider.core.design.RidersTransientNotice
 import com.riders.rider.core.design.RidersLoadingState
+import com.riders.rider.core.design.RidersMintBackdrop
 import com.riders.rider.R
 import com.riders.rider.core.design.RidersPrimaryButton
 import com.riders.rider.core.design.RidersPullRefresh
@@ -110,7 +111,6 @@ import com.riders.rider.feature.delivery.domain.parseGeoPoint
 import com.riders.rider.feature.delivery.domain.deliveryActionLoadingLabel
 import com.riders.rider.feature.delivery.domain.deliveryCardAddress
 import com.riders.rider.feature.delivery.domain.deliveryWhenLabel
-import com.riders.rider.feature.delivery.domain.historyCancellationCopy
 import com.riders.rider.feature.delivery.domain.historyStopLines
 import com.riders.rider.feature.delivery.domain.showsDeliveredConfirmation
 import com.riders.rider.feature.offers.presentation.DeliveredDestinationMap
@@ -214,11 +214,11 @@ fun DeliveryScreen(
             routeModel.load(ui.assignmentId, pickupPoint, dropoffPoint)
         }
     }
-    androidx.compose.runtime.DisposableEffect(lifecycle, collected, ui.assignmentId, dropoffPoint, guidance) {
+    androidx.compose.runtime.DisposableEffect(lifecycle, drivingMap, ui.assignmentId, pickupPoint, dropoffPoint, guidance) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_START -> if (guidance == null && collected && dropoffPoint != null) {
-                    routeModel.follow(ui.assignmentId, dropoffPoint)
+                Lifecycle.Event.ON_START -> if (guidance == null && drivingMap && dropoffPoint != null) {
+                    routeModel.follow(ui.assignmentId, dropoffPoint, pickupPoint)
                 } else {
                     routeModel.stopFollowing()
                 }
@@ -243,8 +243,7 @@ fun DeliveryScreen(
     DisposableEffect(guidanceModel) {
         onDispose { guidanceModel.stop() }
     }
-    val riderFix = if (collected) routeModel.rider else null
-    val riderPoint = riderFix?.let { GeoPoint(it.latitude, it.longitude) }
+    val riderPoint = routeModel.displayPoint.takeIf { drivingMap && (routeModel.rider != null || routeModel.arrivedAtDropoff) }
     val mapHeight = if (collected) 480.dp else 360.dp
     val sheetTop = if (collected) 400.dp else 280.dp
     val headerHeight = statusTop + mapHeight
@@ -384,10 +383,9 @@ fun DeliveryScreen(
                             modifier = Modifier.fillMaxSize(),
                             sheetOverlap = mapHeight - sheetTop,
                             rider = riderPoint,
-                            waitingForLocation = collected && riderPoint == null,
-                            riderSpeedMetresPerSecond = routeModel.rider?.speedMetresPerSecond,
-                            riderBearingDegrees = routeModel.rider?.bearingDegrees,
-                            riderBearingAccuracyDegrees = routeModel.rider?.bearingAccuracyDegrees,
+                            waitingForLocation = drivingMap && riderPoint == null,
+                            liveTravelHeading = routeModel.travelHeading,
+                            arrivedAtStop = routeModel.arrivedAtDropoff,
                             routeWidth = 4.dp,
                         )
                     } else {
@@ -1315,7 +1313,7 @@ private fun CollectedPage(
     destinationNote: String?,
 ) {
     val density = LocalDensity.current
-    val riderPoint = routeModel.rider?.let { GeoPoint(it.latitude, it.longitude) }
+    val riderPoint = routeModel.displayPoint.takeIf { routeModel.rider != null || routeModel.arrivedAtDropoff }
     var sheetHeight by remember { mutableStateOf(0.dp) }
     var recenter by remember { mutableStateOf(0) }
     val sheetShape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
@@ -1333,9 +1331,8 @@ private fun CollectedPage(
                 rider = riderPoint,
                 waitingForLocation = riderPoint == null,
                 approachLabel = routeModel.approachLabel,
-                riderSpeedMetresPerSecond = routeModel.rider?.speedMetresPerSecond,
-                riderBearingDegrees = routeModel.rider?.bearingDegrees,
-                riderBearingAccuracyDegrees = routeModel.rider?.bearingAccuracyDegrees,
+                liveTravelHeading = routeModel.travelHeading,
+                arrivedAtStop = routeModel.arrivedAtDropoff,
                 routeWidth = 4.dp,
             )
         } else {
@@ -1626,85 +1623,136 @@ private fun CancelledHistoryPage(
     navigationBottom: Dp,
 ) {
     val (pickup, dropoff) = historyStopLines(ui.status, ui.pickupAddress, ui.dropoffAddress)
-    val sheetShape = RoundedCornerShape(topStart = RidersRadius.xl, topEnd = RidersRadius.xl)
-    Box(Modifier.fillMaxSize()) {
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(RidersColors.canvas),
-        )
-        Box(
-            Modifier
-                .statusBarsPadding()
-                .padding(start = RidersSpacing.lg, top = RidersSpacing.md)
-                .shadow(8.dp, CircleShape, ambientColor = RidersColors.shadow, spotColor = RidersColors.shadow)
-                .size(44.dp)
-                .clip(CircleShape)
-                .background(RidersColors.sheet)
-                .clickable(role = Role.Button, onClick = onBack),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                painter = painterResource(R.drawable.ic_chevron_left),
-                contentDescription = "Back",
-                tint = RidersColors.text,
-                modifier = Modifier.size(22.dp),
-            )
-        }
-        Column(
-            Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .heightIn(max = 420.dp)
-                .shadow(12.dp, sheetShape, ambientColor = RidersColors.shadow, spotColor = RidersColors.shadow)
-                .clip(sheetShape)
-                .background(RidersColors.background),
-        ) {
-            Column(
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(RidersColors.canvas),
+    ) {
+        Box(Modifier.fillMaxWidth().clipToBounds()) {
+            RidersMintBackdrop(Modifier.matchParentSize())
+            Row(
                 Modifier
-                    .verticalScroll(rememberScrollState())
+                    .fillMaxWidth()
+                    .statusBarsPadding()
                     .padding(horizontal = RidersSpacing.lg)
-                    .padding(top = RidersSpacing.xs, bottom = navigationBottom),
+                    .padding(top = RidersSpacing.md, bottom = RidersSpacing.xl),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                DeliveryDetailsSummary(
-                    description = ui.parcelDescription,
-                    deliveryId = ui.deliveryId,
-                    createdAt = ui.createdAt,
-                    dateCaption = "Requested",
-                    dateFirst = true,
-                    flat = true,
-                    spacious = true,
-                    pickup = pickup,
-                    dropoff = dropoff,
-                    distanceMeters = ui.distanceMeters,
-                    price = ui.agreedPrice,
-                    currency = ui.currency,
-                    paymentMethod = ui.paymentMethod,
-                    serviceClass = ui.serviceClass,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Column(
-                    Modifier.padding(top = RidersSpacing.md),
-                    verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs),
+                Box(
+                    Modifier
+                        .shadow(8.dp, CircleShape, ambientColor = RidersColors.shadow, spotColor = RidersColors.shadow)
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(RidersColors.sheet)
+                        .clickable(role = Role.Button, onClick = onBack),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    Text(
-                        "Cancelled by ${ui.cancelledBy ?: "Unknown"}",
-                        style = RidersType.body,
-                        color = RidersColors.text,
+                    Icon(
+                        painter = painterResource(R.drawable.ic_chevron_left),
+                        contentDescription = "Back",
+                        tint = RidersColors.text,
+                        modifier = Modifier.size(22.dp),
                     )
-                    ui.cancelledAt?.let { cancelledAt ->
-                        Text(
-                            "Cancelled ${deliveryWhenLabel(cancelledAt)}",
-                            style = RidersType.body,
-                            color = RidersColors.textSecondary,
-                        )
-                    }
-                    historyCancellationCopy(ui.cancellationReason, ui.cancellationNote).forEach { line ->
-                        Text(line, style = RidersType.body, color = RidersColors.textSecondary)
-                    }
                 }
             }
         }
+        Column(
+            Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(topStart = RidersRadius.xl, topEnd = RidersRadius.xl))
+                .background(RidersColors.background)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = RidersSpacing.lg)
+                .padding(top = RidersSpacing.xl, bottom = navigationBottom + RidersSpacing.xl),
+            verticalArrangement = Arrangement.spacedBy(RidersSpacing.lg),
+        ) {
+            Column(
+                Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(RidersSpacing.sm),
+            ) {
+                Box(
+                    Modifier
+                        .size(64.dp)
+                        .clip(CircleShape)
+                        .background(RidersColors.dangerSurface),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_close),
+                        contentDescription = null,
+                        tint = RidersColors.error,
+                        modifier = Modifier.size(32.dp),
+                    )
+                }
+                Text(
+                    "Cancelled",
+                    style = RidersType.title.copy(
+                        fontSize = 22.sp,
+                        lineHeight = 28.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    ),
+                    color = RidersColors.error,
+                    textAlign = TextAlign.Center,
+                )
+            }
+            DeliveryDetailsSummary(
+                description = ui.parcelDescription,
+                deliveryId = ui.deliveryId,
+                createdAt = ui.createdAt,
+                dateCaption = "Requested",
+                dateFirst = true,
+                flat = true,
+                spacious = true,
+                pickup = pickup,
+                dropoff = dropoff,
+                distanceMeters = ui.distanceMeters,
+                price = ui.agreedPrice,
+                currency = ui.currency,
+                paymentMethod = ui.paymentMethod,
+                serviceClass = ui.serviceClass,
+                priceCaption = "Agreed price",
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = RidersSpacing.md)
+                    .height(1.dp)
+                    .background(RidersColors.border),
+            )
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = RidersSpacing.md),
+                verticalArrangement = Arrangement.spacedBy(RidersSpacing.md),
+            ) {
+                Text(
+                    "Cancellation details",
+                    style = RidersType.bodyStrong,
+                    color = RidersColors.text,
+                )
+                CancellationDetailFact("Cancelled by", ui.cancelledBy?.trim()?.takeIf { it.isNotEmpty() } ?: "Unknown")
+                ui.cancelledAt?.let { cancelledAt ->
+                    CancellationDetailFact("Cancelled on", deliveryWhenLabel(cancelledAt))
+                }
+                ui.cancellationReason?.trim()?.takeIf { it.isNotEmpty() }?.let { reason ->
+                    CancellationDetailFact("Reason", reason)
+                }
+                ui.cancellationNote?.trim()?.takeIf { it.isNotEmpty() }?.let { note ->
+                    CancellationDetailFact("Additional notes", note)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CancellationDetailFact(label: String, value: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(RidersSpacing.xs)) {
+        Text(label, style = RidersType.caption, color = RidersColors.textSecondary)
+        Text(value, style = RidersType.body, color = RidersColors.text)
     }
 }
 

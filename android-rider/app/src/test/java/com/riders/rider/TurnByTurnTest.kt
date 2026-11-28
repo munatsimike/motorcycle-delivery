@@ -50,6 +50,12 @@ class TurnByTurnTest {
         assertFalse(isOffRoute(east, path, accuracyMetres = 60f))
         assertFalse(isOffRoute(east, path, accuracyMetres = null))
         assertTrue(isOffRoute(GeoPoint(0.0, 100.0 / 111_320.0), path, accuracyMetres = 60f))
+        assertTrue(isOffRoute(GeoPoint(0.0, 30.0 / 111_320.0), path, accuracyMetres = 10f))
+        assertFalse(isOffRoute(GeoPoint(0.0, 20.0 / 111_320.0), path, accuracyMetres = 10f))
+        assertFalse(isOffRoute(GeoPoint(0.0, 10.0 / 111_320.0), path, accuracyMetres = 8f))
+        assertFalse(isOffRoute(GeoPoint(0.0, 30.0 / 111_320.0), path, accuracyMetres = 20f))
+        assertTrue(isOffRoute(GeoPoint(0.0, 50.0 / 111_320.0), path, accuracyMetres = 20f))
+        assertFalse(isOffRoute(GeoPoint(0.0, 50.0 / 111_320.0), path, accuracyMetres = 50f))
         assertFalse(
             shouldReplaceGuidance(
                 hasRoute = true,
