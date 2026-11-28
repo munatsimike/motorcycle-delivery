@@ -239,7 +239,7 @@ input:focus-visible {
   gap: var(--space-md);
 }
 
-.brand-mark img {
+.brand-mark > img {
   width: 129px;
   height: 97px;
   object-fit: contain;
@@ -252,18 +252,20 @@ input:focus-visible {
   margin-bottom: 36px;
 }
 
+/* Android RidersBrandLogo: 60 × 48 mark, 36/40 wordmark, 12/16 caption. */
 .brand-logo {
-  display: flex;
-  align-items: flex-start;
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
   font-family: Roboto, Arial, "Helvetica Neue", sans-serif;
 }
 
-.brand-logo .letter {
-  color: var(--primary);
-  font-size: 66px;
-  font-weight: 900;
-  line-height: 0.8;
-  letter-spacing: -1px;
+.brand-logo .brand-r {
+  display: block;
+  flex: 0 0 60px;
+  width: 60px;
+  height: 48px;
+  object-fit: contain;
 }
 
 .brand-logo .name,
@@ -275,19 +277,15 @@ input:focus-visible {
   color: var(--text);
   font-size: 36px;
   font-weight: 800;
-  line-height: 0.9;
-  letter-spacing: -0.6px;
+  line-height: 40px;
 }
 
 .brand-logo .caption {
-  margin-top: 8px;
-  margin-left: 6px;
-  margin-right: -4px;
   color: var(--text-secondary);
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 3.6px;
-  line-height: 1;
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 4px;
+  line-height: 16px;
 }
 
 .auth-screen {
@@ -920,117 +918,101 @@ button.home-status:disabled {
   }
 }
 
+/* Match the native welcome screen: mint backdrop, flexible hero, white lower panel. */
 .welcome {
   --welcome-mint: #f1f7f3;
-  --welcome-fade: #ffffff;
-  height: 100dvh;
+  min-height: 100vh;
   min-height: 100dvh;
-  overflow-y: auto;
   display: flex;
   justify-content: center;
   background: var(--welcome-mint);
-  padding: calc(20px + env(safe-area-inset-top)) var(--space-lg) calc(var(--space-lg) + env(safe-area-inset-bottom));
+  padding-top: env(safe-area-inset-top, 0px);
 }
 
 [data-theme="dark"] .welcome {
-  --welcome-mint: #101614;
-  --welcome-fade: #24302b;
+  --welcome-mint: #14241e;
 }
 
-/* Fill the available viewport: logo at top, art in flexible middle, actions near bottom. */
 .welcome-stage {
   width: min(100%, var(--max-width));
-  min-height: 0;
-  flex: 1 1 auto;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0;
-  justify-content: flex-start;
+  min-height: calc(100dvh - env(safe-area-inset-top, 0px));
+  display: grid;
+  grid-template-rows: auto minmax(120px, 1fr) auto;
+  min-width: 0;
 }
 
 .welcome-logo {
   display: flex;
   justify-content: center;
-  flex: 0 0 auto;
-  margin-top: clamp(34px, 5dvh, 56px);
-  margin-bottom: clamp(22px, 4dvh, 44px);
+  padding-top: 32px;
 }
 
 .welcome-hero {
   position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: min(100%, 20rem);
-  flex: 0 1 auto;
-  height: clamp(180px, 31dvh, 340px);
-  margin-bottom: clamp(22px, 4dvh, 44px);
-  min-height: 0;
-  /* Keep the illustration compact; distribute remaining space between sections. */
+  min-width: 0;
 }
 
 .welcome-hero img {
   display: block;
-  width: 100%;
-  height: 100%;
-  max-height: 100%;
+  position: absolute;
+  left: 50%;
+  bottom: 8%;
+  transform: translateX(-50%);
+  width: 83%;
+  height: 85%;
   object-fit: contain;
-  object-position: center;
+  object-position: center bottom;
 }
 
 .welcome-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  width: min(100%, 420px);
-  flex: 0 0 auto;
-  /* Keep the headline near the illustration; the hero absorbs spare height. */
-  margin-top: 0;
+  width: 100%;
+  background: var(--background);
+  padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
 }
 
 .welcome-panel {
   width: 100%;
   text-align: center;
-  background: transparent;
-  padding: 0;
 }
 
-.welcome-panel h1 { line-height: 1.15; margin-bottom: var(--space-sm); }
-.welcome-panel .lede { margin-top: 2px; }
+.welcome-panel h1 {
+  margin: 0;
+  padding: 24px 16px 12px;
+  background: linear-gradient(to bottom, var(--welcome-mint), var(--background));
+  font-size: 25px;
+  font-weight: 700;
+  line-height: 32px;
+  letter-spacing: normal;
+}
+
+.welcome-panel .lede {
+  padding-inline: 16px;
+  margin: 0;
+  font-size: 14px;
+  line-height: 20px;
+}
 
 .welcome-actions {
   display: grid;
-  gap: var(--space-sm);
-  margin-top: clamp(18px, 3dvh, 28px);
-}
-
-/* Compress artwork and gaps, not the top safe-area or action buttons. */
-@media (max-height: 740px) {
-  .welcome {
-    padding-top: calc(var(--space-lg) + env(safe-area-inset-top));
-    padding-bottom: calc(var(--space-md) + env(safe-area-inset-bottom));
-  }
-  .welcome-stage { gap: 0; }
-  .welcome-logo { margin-top: 22px; margin-bottom: 18px; }
-  .welcome-hero { height: clamp(120px, 27dvh, 210px); min-height: 0; margin-bottom: 18px; }
-  .welcome-actions { margin-top: 14px; }
-}
-
-@media (max-height: 600px) {
-  .welcome-stage { gap: 0; }
-  .welcome-logo { margin-top: 14px; margin-bottom: 10px; }
-  .welcome-hero { height: clamp(75px, 20dvh, 125px); min-height: 0; margin-bottom: 10px; }
-  .welcome-actions { margin-top: 10px; }
+  gap: 12px;
+  margin: 24px auto 0;
+  width: min(calc(100% - 32px), 480px);
 }
 
 .welcome .button {
   border-radius: 999px;
+  min-height: 56px;
 }
 
-/* Welcome screen only: lighter Create account outline. */
-.welcome .button-outline {
-  box-shadow: inset 0 0 0 1px var(--primary);
+.welcome .button-secondary {
+  color: var(--primary);
+}
+
+/* Small/landscape viewports scroll instead of clipping the actions. */
+@media (max-height: 600px) {
+  .welcome-logo { padding-top: 16px; }
+  .welcome-panel h1 { padding-top: 16px; }
+  .welcome-actions { margin-top: 16px; }
 }
 
 .shell-deliveries,

@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import { Button } from '../components/Button';
 import { CrosshairIcon } from '../components/CrosshairIcon';
-import riderCutout from '../assets/rider-cutout.png';
+import riderCutout from '../assets/rider-cutout.webp';
 import { nearbyHomeCountLabel } from '../home/nearby';
 import { useCustomerHome } from '../home/useCustomerHome';
 

@@ -1,4 +1,4 @@
-import motorcycle from '../assets/rider-cutout.png';
+import motorcycle from '../assets/rider-cutout.webp';
 import { BrandLogo } from '../components/BrandLogo';
 import { Button } from '../components/Button';
 
@@ -10,12 +10,12 @@ export function WelcomePage() {
           <BrandLogo />
         </div>
         <div className="welcome-hero">
-          <img src={motorcycle} alt="" width={1326} height={1186} />
+          <img src={motorcycle} alt="" width={512} height={458} fetchPriority="high" />
         </div>
         <div className="welcome-card">
           <section className="welcome-panel">
             <h1>Fast, Safe, and Always<br />On Time</h1>
-            <p className="lede">Trusted motorcycle deliveries for quick and secure parcel transport.</p>
+            <p className="lede">Trusted motorcycle deliveries for quick<br />and secure parcel transport.</p>
             <div className="welcome-actions">
               <Button to="/sign-in">Sign in</Button>
               <Button to="/create-account" variant="secondary">Create account</Button>
